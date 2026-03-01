@@ -1,1 +1,1 @@
-const DATA_PART1 = [{"i":"5a29604a998948d5","n":"Infuse","a":"333 N Green St","c":"Chicago","s":"IL","z":"60607","lt":41.88781,"ln":-87.64855,"d":"2026-02-26","os":null,"rs":100,"pv":0,"pfv":0,"cv":0,"tv":0,"src":"chicago_api","v":[],"url":""}];
+PLACEHOLDER_PART1
