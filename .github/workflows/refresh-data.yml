@@ -1,0 +1,66 @@
+name: Refresh DineScores Data
+
+on:
+  schedule:
+    # Every Sunday at 9:00 AM UTC (3:00 AM CST / 4:00 AM CDT)
+    - cron: '0 9 * * 0'
+  workflow_dispatch:  # Allow manual trigger from GitHub Actions UI
+
+jobs:
+  refresh-data:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    permissions:
+      contents: write  # Needed to commit data.js back to the repo
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install Python dependencies
+        run: |
+          pip install requests
+
+      - name: Run data pipeline (Chicago, NYC, SF)
+        run: |
+          python3 dinescores_pipeline.py \
+            --mode weekly \
+            --cities chicago nyc sf \
+            --output /tmp/dinescores_data.json \
+            --output-data-js public/data.js
+        # Note: Dallas is excluded from automated runs because the portal
+        # blocks non-browser requests. Dallas data is refreshed manually.
+
+      - name: Show data summary
+        run: |
+          python3 -c "
+          import json
+          with open('public/data.js') as f:
+              content = f.read()
+          # Extract the JSON part
+          data = json.loads(content.split('window.DATA = ', 1)[1].rstrip(';\n'))
+          from collections import Counter
+          cities = Counter(r['c'] for r in data)
+          print(f'Total restaurants: {len(data)}')
+          for city, count in sorted(cities.items()):
+              print(f'  {city}: {count}')
+          "
+
+      - name: Commit updated data.js
+        run: |
+          git config --global user.name "DineScores Bot"
+          git config --global user.email "bot@dinescores.com"
+          git add public/data.js
+          if git diff --staged --quiet; then
+            echo "No changes to data.js — already up to date"
+          else
+            TIMESTAMP=$(date -u '+%Y-%m-%d')
+            git commit -m "Auto-refresh: ${TIMESTAMP} weekly inspection data update"
+            git push
+            echo "Successfully pushed updated data.js"
+          fi
