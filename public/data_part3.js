@@ -1,1 +1,1 @@
-PLACEHOLDER_PART3
+LOAD_FROM_FILE:/home/user/workspace/fc3.txt

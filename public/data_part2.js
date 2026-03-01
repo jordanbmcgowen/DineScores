@@ -1,1 +1,1 @@
-PLACEHOLDER_PART2
+LOAD_FROM_FILE:/home/user/workspace/fc2.txt

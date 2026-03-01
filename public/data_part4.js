@@ -1,1 +1,1 @@
-PLACEHOLDER_PART4
+LOAD_FROM_FILE:/home/user/workspace/fc4.txt

@@ -1,1 +1,1 @@
-PLACEHOLDER_PART1
+LOAD_FROM_FILE:/home/user/workspace/fc1.txt

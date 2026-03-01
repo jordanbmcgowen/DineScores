@@ -1,1 +1,1 @@
-PLACEHOLDER_PART5
+LOAD_FROM_FILE:/home/user/workspace/fc5.txt
