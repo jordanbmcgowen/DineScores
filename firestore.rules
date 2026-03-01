@@ -1,0 +1,60 @@
+rules_version = '2';
+
+// DineScores Firestore Security Rules
+// ─────────────────────────────────────────────────────────────────────────────
+// Rate limiting note: Firestore does not expose per-IP rate limiting in rules.
+// Enforce rate limits at the application layer (Cloud Functions / API Gateway)
+// or by enabling Firebase App Check to require a valid app attestation token.
+// For additional abuse protection, restrict writes to server-side admin SDK
+// calls only (no client-side writes), which is the model used here.
+// ─────────────────────────────────────────────────────────────────────────────
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ── Helper functions ──────────────────────────────────────────────────────
+
+    // Returns true only for authenticated requests that carry the "admin" custom claim.
+    // Set this claim via the Admin SDK: auth.setCustomUserClaims(uid, { admin: true })
+    function isAdmin() {
+      return request.auth != null && request.auth.token.admin == true;
+    }
+
+    // Returns true for any authenticated user (for future authenticated-user features).
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    // ── restaurants/{docId} ───────────────────────────────────────────────────
+    // Public read (anyone can query restaurant data — this is the core of the app).
+    // Write restricted to admin only (data is loaded via server-side upload_data.py).
+    match /restaurants/{docId} {
+      allow read: if true;
+      allow create, update, delete: if isAdmin();
+    }
+
+    // ── cities/{cityId} ───────────────────────────────────────────────────────
+    // City summary documents: { name, state, restaurant_count, avg_score, last_updated }
+    // Public read for city filtering UI. Write restricted to admin.
+    match /cities/{cityId} {
+      allow read: if true;
+      allow create, update, delete: if isAdmin();
+    }
+
+    // ── meta/{docId} ──────────────────────────────────────────────────────────
+    // Platform config, scoring formula, tier definitions, violation categories.
+    // Public read so the client app can load config without a hard-coded bundle.
+    // Write restricted to admin.
+    match /meta/{docId} {
+      allow read: if true;
+      allow create, update, delete: if isAdmin();
+    }
+
+    // ── Deny everything else ──────────────────────────────────────────────────
+    // Any collection not explicitly listed above is fully locked.
+    // This is the safe default: deny unless explicitly allowed.
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}
