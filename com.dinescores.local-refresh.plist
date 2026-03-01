@@ -1,0 +1,61 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+  "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  DineScores Local City Refresh — macOS Scheduler (launchd)
+  ══════════════════════════════════════════════════════════
+  Runs the local pipeline every Sunday at 4:00 AM for WAF-blocked cities.
+  Runs shortly AFTER the GitHub Actions cloud job (3:00 AM CST) so Firestore
+  gets both cloud + local city data in the same weekly cycle.
+
+  INSTALL (one time):
+    1. Edit YOUR_USERNAME and repo path below
+    2. cp com.dinescores.local-refresh.plist ~/Library/LaunchAgents/
+    3. launchctl load ~/Library/LaunchAgents/com.dinescores.local-refresh.plist
+
+  VERIFY:  launchctl list | grep dinescores
+  UNINSTALL: launchctl unload ~/Library/LaunchAgents/com.dinescores.local-refresh.plist
+  MANUAL RUN: launchctl start com.dinescores.local-refresh
+
+  ADDING NEW CITIES:
+    Add <string>cityname</string> in ProgramArguments after "dallas",
+    then reload the plist.
+-->
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.dinescores.local-refresh</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <!-- UPDATE this path to your repo location -->
+        <string>/bin/bash</string>
+        <string>/Users/YOUR_USERNAME/DineScores/run_local_cities.sh</string>
+        <string>--mode</string>
+        <string>weekly</string>
+        <string>--cities</string>
+        <string>dallas</string>
+        <!-- Add more WAF-blocked cities as you expand: -->
+        <!-- <string>houston</string> -->
+        <!-- <string>miami</string>   -->
+    </array>
+
+    <!-- Sundays at 4:00 AM (1 hour after cloud job) -->
+    <key>StartCalendarInterval</key>
+    <dict>
+        <key>Weekday</key>  <integer>0</integer>
+        <key>Hour</key>     <integer>4</integer>
+        <key>Minute</key>   <integer>0</integer>
+    </dict>
+
+    <key>StandardOutPath</key>
+    <string>/Users/YOUR_USERNAME/DineScores/logs/launchd_stdout.log</string>
+    <key>StandardErrorPath</key>
+    <string>/Users/YOUR_USERNAME/DineScores/logs/launchd_stderr.log</string>
+
+    <key>RunAtLoad</key>
+    <false/>
+    <key>KeepAlive</key>
+    <false/>
+</dict>
+</plist>
