@@ -1,1 +1,1 @@
-// This file is no longer used. Restaurant data is loaded from Firebase Firestore.
+// This file is no longer used. Data is served from Firebase Firestore.
