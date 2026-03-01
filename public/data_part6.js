@@ -1,1 +1,1 @@
-LOAD_FROM_FILE:/home/user/workspace/content_part6.txt
+// This file is no longer used. Restaurant data is loaded from Firebase Firestore.

@@ -1,1 +1,1 @@
-/home/user/workspace/dinescores/data_part1.js
+// This file is no longer used. Restaurant data is loaded from Firebase Firestore.
