@@ -1,1 +1,2 @@
-LOAD_FROM_FILE:/home/user/workspace/data_chicago.js
+/* DineScores Chicago — 2026-03-01 */
+(window.DATA=window.DATA||[]).push.apply(window.DATA,[{"n":"Inspired Kitchen","a":"2910 N Broadway St","c":"Chicago","s":"IL","z":"60657-3602","lt":41.93657,"ln":-87.6452,"d":"2026-02-27","os":100,"rs":100,"pv":0,"pfv":0,"cv":0,"tv":0,"src":"Chicago CDPH","url":"https://webapps1.chicago.gov/healthinspection/","ic":1,"v":[],"i":"c2e451fa9b0c9b0f"}]);

@@ -1,1 +1,2 @@
-LOAD_FROM_FILE:/home/user/workspace/data_san_francisco.js
+/* DineScores San Francisco — 2026-03-01 */
+(window.DATA=window.DATA||[]).push.apply(window.DATA,[{"n":"Jamba","a":"2 Embarcadero Ctr","c":"San Francisco","s":"CA","z":"94111","lt":37.79521,"ln":-122.39651,"d":"2026-02-27","os":100,"rs":100,"pv":0,"pfv":0,"cv":0,"tv":0,"src":"San Francisco DPH","url":"https://sf.gov/resource/2020/restaurant-inspection-scores","ic":1,"v":[],"i":"a1b2c3d4e5f60001"}]);
