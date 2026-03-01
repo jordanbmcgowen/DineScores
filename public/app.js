@@ -82,6 +82,7 @@ function mapDocToRecord(docSnap) {
     tv:  d.total_violations               || 0,
     src: d.source     || '',
     url: d.source_url || '',
+    ic:  d.inspection_count || 1,
     v:   violations
   };
 }
@@ -89,6 +90,40 @@ function mapDocToRecord(docSnap) {
 async function fetchAllRestaurants() {
   const snapshot = await getDocs(collection(db, 'restaurants'));
   return snapshot.docs.map(mapDocToRecord);
+}
+
+/**
+ * Fetch inspection history for a specific restaurant from the subcollection.
+ * Returns array of inspection records sorted by date descending.
+ */
+async function fetchInspectionHistory(restaurantId) {
+  try {
+    const snap = await getDocs(
+      query(
+        collection(db, 'restaurants', restaurantId, 'inspections'),
+        orderBy('inspection_date', 'desc')
+      )
+    );
+    return snap.docs.map(function (d) {
+      const data = d.data();
+      return {
+        id:   d.id,
+        date: data.inspection_date || '',
+        rs:   data.risk_score || 0,
+        os:   data.original_score,
+        pv:   data.priority_violations || 0,
+        pfv:  data.priority_foundation_violations || 0,
+        cv:   data.core_violations || 0,
+        tv:   data.total_violations || 0,
+        type: data.inspection_type || '',
+        result: data.results || '',
+        v:    Array.isArray(data.violations) ? data.violations : [],
+      };
+    });
+  } catch (e) {
+    console.warn('Failed to fetch inspection history:', e);
+    return [];
+  }
 }
 
 /* ---------- CONSTANTS ---------- */
@@ -393,7 +428,9 @@ function addMapData() {
 function makeGeoJSON(records) {
   return {
     type: 'FeatureCollection',
-    features: records.map(function (r) {
+    features: records
+      .filter(function (r) { return r.lt && r.ln && (r.lt !== 0 || r.ln !== 0); })
+      .map(function (r) {
       return {
         type: 'Feature',
         geometry: { type: 'Point', coordinates: [r.ln, r.lt] },
@@ -557,6 +594,18 @@ function renderDetail(r) {
     ? '<a href="' + escapeHtml(r.url) + '" target="_blank" rel="noopener noreferrer" class="detail-source-link">View Original Inspection Report →</a>'
     : '';
 
+  // Inspection history section (shown if ic > 1; loads dynamically)
+  const historySection = (r.ic && r.ic > 1)
+    ? '<div class="inspection-history-section" id="history-section-' + r.i + '">' +
+        '<div class="history-section-header">' +
+          '<span class="history-icon">📊</span>' +
+          '<span>Inspection History</span>' +
+          '<span class="history-count-badge">' + r.ic + ' inspections</span>' +
+        '</div>' +
+        '<div class="history-loading" id="history-list-' + r.i + '">Loading history...</div>' +
+      '</div>'
+    : '';
+
   return (
     '<div class="score-ring-container">' +
       '<div class="score-ring">' +
@@ -590,8 +639,50 @@ function renderDetail(r) {
       '<div class="violation-section-title">Violations</div>' +
       violationsHTML +
     '</div>' +
-    urlLink
+    urlLink +
+    historySection
   );
+}
+
+/* ---------- INSPECTION HISTORY ---------- */
+async function loadInspectionHistory(restaurantId) {
+  const listEl = document.getElementById('history-list-' + restaurantId);
+  if (!listEl) return;
+
+  const history = await fetchInspectionHistory(restaurantId);
+
+  if (!history || history.length === 0) {
+    listEl.innerHTML = '<div class="history-empty">No additional inspection records available.</div>';
+    return;
+  }
+
+  let html = '<div class="history-timeline">';
+  history.forEach(function (insp, idx) {
+    const color = tierColor(insp.rs || 0);
+    const t     = getTier(insp.rs || 0);
+    const isLatest = idx === 0;
+    html +=
+      '<div class="history-entry' + (isLatest ? ' history-entry-latest' : '') + '">' +
+        '<div class="history-entry-dot" style="background:' + color + '"></div>' +
+        '<div class="history-entry-body">' +
+          '<div class="history-entry-date">' +
+            formatDate(insp.date) +
+            (isLatest ? ' <span class="history-latest-tag">Latest</span>' : '') +
+          '</div>' +
+          '<div class="history-entry-score" style="color:' + color + '">' +
+            (insp.rs || 0) + ' — ' + t.grade + ' (' + t.label + ')' +
+          '</div>' +
+          (insp.tv > 0
+            ? '<div class="history-entry-violations">' +
+                insp.pv + ' priority · ' + insp.pfv + ' foundation · ' + insp.cv + ' core' +
+              '</div>'
+            : '<div class="history-entry-violations">No violations</div>') +
+          (insp.type ? '<div class="history-entry-type">' + escapeHtml(insp.type) + '</div>' : '') +
+        '</div>' +
+      '</div>';
+  });
+  html += '</div>';
+  listEl.innerHTML = html;
 }
 
 /* ---------- MARKER CARD (Mobile) ---------- */
@@ -657,10 +748,12 @@ function selectRestaurant(id, fromMap) {
       map.easeTo({ center: [r.ln, r.lt], duration: 400 });
     } else {
       showDetailMobile(r);
+      if (r.ic && r.ic > 1) loadInspectionHistory(r.i);
     }
   } else {
     showDetailDesktop(r);
     map.flyTo({ center: [r.ln, r.lt], zoom: 15, duration: 800 });
+    if (r.ic && r.ic > 1) loadInspectionHistory(r.i);
   }
 }
 
