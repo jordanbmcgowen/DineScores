@@ -1,2 +1,1 @@
-/* DineScores Dallas — 2026-03-01 */
-(window.DATA=window.DATA||[]).push.apply(window.DATA,[{"n":"Katz Coffee","a":"10750 N Stemmons Fwy","c":"Dallas","s":"TX","z":"75220","lt":null,"ln":null,"d":"2026-02-27","os":100,"rs":100,"pv":0,"pfv":0,"cv":0,"tv":0,"src":"Dallas Consumer Health","url":"https://inspections.myhealthdepartment.com/dallas","ic":1,"v":[],"i":"9a8fe5f259c4569f"}]);
+CONTENT_FROM_FILE
