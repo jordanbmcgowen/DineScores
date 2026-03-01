@@ -166,22 +166,25 @@ function showLoading() {
 
 function hideLoading() {
   const overlay = document.getElementById('loading-overlay');
-  if (overlay) {
-    overlay.classList.add('loading-fade-out');
-    // Remove from DOM after transition so it doesn't block interaction
-    overlay.addEventListener('transitionend', function handler() {
-      overlay.hidden = true;
-      overlay.classList.remove('loading-fade-out');
-      overlay.removeEventListener('transitionend', handler);
-    });
-    // Fallback: force-hide if transitionend never fires (e.g. throttled tabs)
-    setTimeout(function () {
-      if (!overlay.hidden) {
-        overlay.hidden = true;
-        overlay.classList.remove('loading-fade-out');
-      }
-    }, 500);
+  if (!overlay) return;
+  overlay.classList.add('loading-fade-out');
+
+  function removeOverlay() {
+    overlay.hidden = true;
+    overlay.style.display = 'none';
+    overlay.classList.remove('loading-fade-out');
+    // Fully remove from DOM so nothing can block interaction
+    if (overlay.parentNode) overlay.parentNode.removeChild(overlay);
   }
+
+  // Try to wait for the CSS fade-out transition
+  overlay.addEventListener('transitionend', function handler() {
+    overlay.removeEventListener('transitionend', handler);
+    removeOverlay();
+  });
+
+  // Aggressive fallback: force-remove after 600ms regardless
+  setTimeout(removeOverlay, 600);
 }
 
 function setLastUpdated() {
