@@ -1,1 +1,2 @@
-LyogRGluZVNjb3JlcyBlbWJlZGRlZCBkYXRhIOKAlCBhdXRvLWdlbmVyYXRlZCAyMDI2LTAzLTAxICovCndpbmRvdy5EQVRBID0g
+/* DineScores embedded data — auto-generated 2026-03-01 */
+window.DATA = [{"n":"Infuse","a":"333 N Green St","c":"Chicago","s":"IL","z":"60607","lt":41.887808158349756,"ln":-87.64854522138359,"d":"2026-02-26","os":null,"rs":100,"pv":0,"pfv":0,"cv":0,"tv":0,"src":"Chicago Open Data Portal","url":"https://data.cityofchicago.org/Health-Human-Services/Food-Inspections/4ijn-s7e5","ic":1,"v":[],"i":"11561dac30ede68c"}
