@@ -1,1 +1,1 @@
-PLACEHOLDER_9
+LOAD_FROM_FILE:/home/user/workspace/content_part9.txt

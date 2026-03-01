@@ -1,1 +1,1 @@
-PLACEHOLDER_7
+LOAD_FROM_FILE:/home/user/workspace/content_part7.txt
