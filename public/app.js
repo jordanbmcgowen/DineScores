@@ -174,6 +174,13 @@ function hideLoading() {
       overlay.classList.remove('loading-fade-out');
       overlay.removeEventListener('transitionend', handler);
     });
+    // Fallback: force-hide if transitionend never fires (e.g. throttled tabs)
+    setTimeout(function () {
+      if (!overlay.hidden) {
+        overlay.hidden = true;
+        overlay.classList.remove('loading-fade-out');
+      }
+    }, 500);
   }
 }
 
