@@ -1,1 +1,1 @@
-LOAD_FROM_FILE:/home/user/workspace/content_part10.txt
+LOAD_FROM_FILE:/home/user/workspace/dinescores/data_part10.js
