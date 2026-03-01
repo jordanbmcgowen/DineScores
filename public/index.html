@@ -1,0 +1,149 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <title>DineScores — Know Before You Go</title>
+  <meta name="description" content="DineScores: Restaurant food safety scores and inspection data. Know before you go.">
+  <meta name="theme-color" content="#0891b2">
+
+  <!-- MapLibre GL JS -->
+  <link rel="stylesheet" href="https://unpkg.com/maplibre-gl@4.1.2/dist/maplibre-gl.css">
+  <script src="https://unpkg.com/maplibre-gl@4.1.2/dist/maplibre-gl.js"></script>
+
+  <!-- App Styles -->
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <!-- Top Bar -->
+  <header id="topbar">
+    <div class="topbar-inner">
+      <div class="logo" aria-label="DineScores">
+        <svg class="logo-icon" viewBox="0 0 32 32" width="28" height="28" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+          <path d="M16 2L4 8v8c0 7.18 5.12 13.88 12 16 6.88-2.12 12-8.82 12-16V8L16 2z" fill="var(--color-primary)" opacity="0.15"/>
+          <path d="M16 2L4 8v8c0 7.18 5.12 13.88 12 16 6.88-2.12 12-8.82 12-16V8L16 2z" stroke="var(--color-primary)" stroke-width="1.5" fill="none"/>
+          <path d="M13 9v6m0 2v4m-2-12h4m3-1v3c0 1.1-.9 2-2 2h0" stroke="var(--color-primary)" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+          <circle cx="20" cy="20" r="5" fill="var(--color-primary)"/>
+          <text x="20" y="22.5" text-anchor="middle" fill="white" font-size="7" font-weight="700" font-family="system-ui">A</text>
+        </svg>
+        <span class="logo-text">DineScores</span>
+      </div>
+      <div class="search-wrapper">
+        <svg class="search-icon" viewBox="0 0 20 20" width="18" height="18" fill="none" aria-hidden="true">
+          <circle cx="8.5" cy="8.5" r="5.5" stroke="var(--color-text-muted)" stroke-width="1.5"/>
+          <path d="M13 13l4 4" stroke="var(--color-text-muted)" stroke-width="1.5" stroke-linecap="round"/>
+        </svg>
+        <input type="search" id="search-input" placeholder="Search restaurants…" autocomplete="off" aria-label="Search restaurants">
+        <button id="search-clear" class="search-clear" aria-label="Clear search" hidden>
+          <svg viewBox="0 0 20 20" width="18" height="18" fill="none"><path d="M6 6l8 8M14 6l-8 8" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
+        </button>
+      </div>
+    </div>
+  </header>
+
+  <!-- Filter Chips -->
+  <div id="filter-bar">
+    <div class="filter-chips" role="toolbar" aria-label="Filters">
+      <div class="chip-group city-chips">
+        <button class="chip active" data-city="all">All Cities</button>
+        <button class="chip" data-city="Chicago">Chicago</button>
+        <button class="chip" data-city="Dallas">Dallas</button>
+        <button class="chip" data-city="New York">New York</button>
+        <button class="chip" data-city="San Francisco">San Francisco</button>
+      </div>
+      <div class="chip-group risk-chips">
+        <button class="chip" data-risk="all" aria-pressed="true">All Scores</button>
+        <button class="chip chip-green" data-risk="safe">Safe 90+</button>
+        <button class="chip chip-yellow" data-risk="moderate">Moderate</button>
+        <button class="chip chip-red" data-risk="risk">At Risk &lt;70</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Map -->
+  <div id="map-container">
+    <div id="map"></div>
+    <button id="locate-btn" class="map-control-btn" aria-label="My location">
+      <svg viewBox="0 0 24 24" width="22" height="22" fill="none">
+        <circle cx="12" cy="12" r="3" fill="var(--color-primary)"/>
+        <circle cx="12" cy="12" r="7" stroke="var(--color-primary)" stroke-width="1.5" fill="none"/>
+        <path d="M12 2v3M12 19v3M2 12h3M19 12h3" stroke="var(--color-primary)" stroke-width="1.5" stroke-linecap="round"/>
+      </svg>
+    </button>
+  </div>
+
+  <!-- Desktop Sidebar -->
+  <aside id="sidebar" class="sidebar">
+    <div id="sidebar-list-view" class="sidebar-view active">
+      <div class="sidebar-header">
+        <div class="sidebar-sort">
+          <label for="sort-select" class="sr-only">Sort by</label>
+          <select id="sort-select" aria-label="Sort restaurants">
+            <option value="score-desc">Score: High → Low</option>
+            <option value="score-asc">Score: Low → High</option>
+            <option value="name-asc">Name: A → Z</option>
+          </select>
+        </div>
+        <span id="result-count" class="result-count">0 restaurants</span>
+      </div>
+      <div id="restaurant-list" class="restaurant-list" role="list" aria-label="Restaurant list"></div>
+    </div>
+    <div id="sidebar-detail-view" class="sidebar-view">
+      <button id="sidebar-back-btn" class="back-btn" aria-label="Back to list">
+        <svg viewBox="0 0 20 20" width="18" height="18" fill="none"><path d="M13 4l-6 6 6 6" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        <span>All Restaurants</span>
+      </button>
+      <div id="sidebar-detail-content" class="detail-content"></div>
+    </div>
+  </aside>
+
+  <!-- Mobile Bottom Sheet -->
+  <div id="bottom-sheet" class="bottom-sheet collapsed">
+    <div class="bottom-sheet-handle" id="sheet-handle" role="button" aria-label="Drag to expand">
+      <div class="handle-bar"></div>
+    </div>
+    <div id="sheet-content" class="bottom-sheet-content">
+      <!-- Summary row (collapsed state) -->
+      <div id="sheet-summary" class="sheet-summary">
+        <span id="sheet-count">0 restaurants</span>
+        <button id="sheet-sort-btn" class="sheet-sort-btn" aria-label="Sort">
+          <svg viewBox="0 0 20 20" width="18" height="18" fill="none"><path d="M3 5h14M3 10h10M3 15h6" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
+        </button>
+      </div>
+      <!-- Mobile sort popup -->
+      <div id="sort-popup" class="sort-popup" hidden>
+        <button class="sort-option active" data-sort="score-desc">Score: High → Low</button>
+        <button class="sort-option" data-sort="score-asc">Score: Low → High</button>
+        <button class="sort-option" data-sort="name-asc">Name: A → Z</button>
+      </div>
+      <!-- Mobile restaurant list -->
+      <div id="mobile-restaurant-list" class="restaurant-list" role="list" aria-label="Restaurant list"></div>
+    </div>
+  </div>
+
+  <!-- Mobile Restaurant Card (marker tap) -->
+  <div id="marker-card" class="marker-card" hidden>
+    <button id="marker-card-close" class="marker-card-close" aria-label="Close">
+      <svg viewBox="0 0 20 20" width="18" height="18" fill="none"><path d="M6 6l8 8M14 6l-8 8" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
+    </button>
+    <div id="marker-card-content"></div>
+  </div>
+
+  <!-- Mobile Detail View -->
+  <div id="detail-overlay" class="detail-overlay" hidden>
+    <div class="detail-overlay-inner">
+      <div class="detail-header">
+        <button id="detail-back-btn" class="back-btn" aria-label="Back">
+          <svg viewBox="0 0 20 20" width="18" height="18" fill="none"><path d="M13 4l-6 6 6 6" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          <span>Back</span>
+        </button>
+      </div>
+      <div id="detail-overlay-content" class="detail-content"></div>
+    </div>
+  </div>
+
+  <!-- Data + App Scripts -->
+  <script src="data.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
