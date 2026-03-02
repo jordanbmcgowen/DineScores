@@ -551,24 +551,59 @@ def fetch_dallas(since_date=None, limit=None):
             page.wait_for_load_state('networkidle', timeout=20000)
             log.info("Dallas portal loaded")
             
-            # Set date range via JavaScript (Flatpickr won't respond to fill())
-            # #filterdate has class 'filterItem' which auto-triggers data reload on change
+            # Set date range via JavaScript.
+            # The portal uses Flatpickr in range mode. Results auto-load when
+            # the picker closes with a valid range (onClose callback fires the AJAX).
+            # Strategy: setDate() to set both dates, then call close() to trigger
+            # the onClose/onChange handlers that the portal listens to.
             try:
                 page.evaluate(f"""
-                    var input = document.getElementById('filterdate');
-                    if (input && input._flatpickr) {{
-                        input._flatpickr.setDate(['{start_date}', '{end_date}'], true);
-                    }} else {{
-                        // Fallback: set value directly and fire change event
-                        var nativeInputValueSetter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set;
-                        nativeInputValueSetter.call(input, '{date_range_str}');
-                        input.dispatchEvent(new Event('change', {{ bubbles: true }}));
-                    }}
+                    (function() {{
+                        var input = document.getElementById('filterdate');
+                        if (!input) {{ console.error('filterdate not found'); return; }}
+                        var fp = input._flatpickr;
+                        if (!fp) {{ console.error('_flatpickr not attached'); return; }}
+                        // setDate(dates, triggerChange) — true fires onChange
+                        fp.setDate(['{start_date}', '{end_date}'], true);
+                        // close() fires onClose, which the portal uses to reload results
+                        fp.close();
+                        console.log('Flatpickr set+closed: ' + input.value);
+                    }})();
                 """)
-                # Wait for network + extra buffer — portal AJAX is slow
+                log.info(f"Dallas Flatpickr set+closed: {start_date} to {end_date}")
+                # Wait for the AJAX results to load
+                time.sleep(2)
                 page.wait_for_load_state('networkidle', timeout=30000)
-                time.sleep(3)
-                log.info(f"Dallas date range set: {date_range_str}")
+                time.sleep(2)
+                
+                # Verify the input value shows the full range
+                actual_value = page.evaluate("document.getElementById('filterdate').value")
+                log.info(f"filterdate value after set: '{actual_value}'")
+                
+                if ' to ' not in (actual_value or ''):
+                    log.warning(f"Flatpickr range incomplete (got '{actual_value}') — retrying with change event")
+                    # Fallback: set value string directly and fire change
+                    page.evaluate(f"""
+                        (function() {{
+                            var input = document.getElementById('filterdate');
+                            var fp = input._flatpickr;
+                            if (fp) {{
+                                fp.setDate(['{start_date}', '{end_date}'], true);
+                                fp.close();
+                            }}
+                            var setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set;
+                            setter.call(input, '{start_date} to {end_date}');
+                            input.dispatchEvent(new Event('change', {{ bubbles: true }}));
+                            console.log('Fallback change fired: ' + input.value);
+                        }})();
+                    """)
+                    time.sleep(2)
+                    page.wait_for_load_state('networkidle', timeout=30000)
+                    time.sleep(2)
+                    actual_value = page.evaluate("document.getElementById('filterdate').value")
+                    log.info(f"filterdate value after fallback: '{actual_value}'")
+                
+                log.info(f"Dallas date filter ready: {actual_value}")
             except Exception as e:
                 log.warning(f"Date filter setup failed (will use page defaults): {e}")
             
