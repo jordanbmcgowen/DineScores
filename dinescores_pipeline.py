@@ -565,14 +565,15 @@ def fetch_dallas(since_date=None, limit=None):
                         input.dispatchEvent(new Event('change', {{ bubbles: true }}));
                     }}
                 """)
-                page.wait_for_load_state('networkidle', timeout=15000)
-                time.sleep(1)
+                # Wait for network + extra buffer — portal AJAX is slow
+                page.wait_for_load_state('networkidle', timeout=30000)
+                time.sleep(3)
                 log.info(f"Dallas date range set: {date_range_str}")
             except Exception as e:
                 log.warning(f"Date filter setup failed (will use page defaults): {e}")
             
-            # Verify results loaded
-            page.wait_for_selector('div.flex-row', timeout=15000)
+            # Verify results loaded — generous timeout since portal is slow
+            page.wait_for_selector('div.flex-row', timeout=45000)
             
             # Click 'Load More Results' until all results are loaded
             load_more_clicks = 0
