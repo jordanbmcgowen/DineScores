@@ -510,7 +510,8 @@ def fetch_sf(since_date=None, limit=30000):
 def fetch_dallas(since_date=None, limit=None):
     """
     Scrape Dallas health inspections from the myhealthdepartment.com portal.
-    The portal supports date range filtering.
+    Portal uses Flatpickr date range (#filterdate) and flex-row cards.
+    Pagination via 'Load More Results' button.
     """
     log.info(f"Fetching Dallas data via scraper (since={since_date})")
     
@@ -522,93 +523,88 @@ def fetch_dallas(since_date=None, limit=None):
     
     results = []
     
-    # Date range
+    # Build date range strings in MM/DD/YYYY format
     if since_date:
-        start_date = since_date
+        # since_date may come in as YYYY-MM-DDTHH:MM:SS or YYYY-MM-DD
+        try:
+            dt = datetime.strptime(since_date[:10], '%Y-%m-%d')
+            start_date = dt.strftime('%m/%d/%Y')
+        except Exception:
+            start_date = '01/01/2026'
     else:
-        start_date = '01/01/2026'  # Full history from Jan 1 2026
+        start_date = '01/01/2026'
     
     end_date = datetime.now().strftime('%m/%d/%Y')
+    date_range_str = f"{start_date} to {end_date}"
     
     log.info(f"Dallas scrape range: {start_date} to {end_date}")
     
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=True)
         context = browser.new_context(
-            user_agent='Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36'
+            user_agent='Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36'
         )
         page = context.new_page()
         
         try:
-            # Navigate to the Dallas inspection search
             page.goto('https://inspections.myhealthdepartment.com/dallas', timeout=30000)
             page.wait_for_load_state('networkidle', timeout=20000)
-            
             log.info("Dallas portal loaded")
             
-            # Look for search form with date filters
-            # Try to set date range
+            # Set date range via JavaScript (Flatpickr won't respond to fill())
+            # #filterdate has class 'filterItem' which auto-triggers data reload on change
             try:
-                # Look for start date input
-                start_input = page.query_selector('input[placeholder*="start" i], input[name*="start" i], input[id*="start" i], input[placeholder*="from" i], input[name*="from" i]')
-                if start_input:
-                    start_input.fill(start_date)
-                    log.info("Set start date")
-                
-                end_input = page.query_selector('input[placeholder*="end" i], input[name*="end" i], input[id*="end" i], input[placeholder*="to" i], input[name*="to" i]')
-                if end_input:
-                    end_input.fill(end_date)
-                    log.info("Set end date")
-                
-                # Submit search
-                search_btn = page.query_selector('button[type="submit"], button:has-text("Search"), input[type="submit"]')
-                if search_btn:
-                    search_btn.click()
-                    page.wait_for_load_state('networkidle', timeout=20000)
+                page.evaluate(f"""
+                    var input = document.getElementById('filterdate');
+                    if (input && input._flatpickr) {{
+                        input._flatpickr.setDate(['{start_date}', '{end_date}'], true);
+                    }} else {{
+                        // Fallback: set value directly and fire change event
+                        var nativeInputValueSetter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set;
+                        nativeInputValueSetter.call(input, '{date_range_str}');
+                        input.dispatchEvent(new Event('change', {{ bubbles: true }}));
+                    }}
+                """)
+                page.wait_for_load_state('networkidle', timeout=15000)
+                time.sleep(1)
+                log.info(f"Dallas date range set: {date_range_str}")
             except Exception as e:
-                log.warning(f"Date filter setup failed: {e}")
+                log.warning(f"Date filter setup failed (will use page defaults): {e}")
             
-            # Scrape paginated results
-            page_num = 0
-            max_pages = 500 if limit is None else math.ceil((limit or 1000) / 20)
+            # Verify results loaded
+            page.wait_for_selector('div.flex-row', timeout=15000)
             
-            while page_num < max_pages:
-                page_num += 1
-                
-                # Extract inspection cards/rows from current page
-                page_results = _extract_dallas_page(page)
-                
-                if not page_results:
-                    log.info(f"Dallas: no more results at page {page_num}")
+            # Click 'Load More Results' until all results are loaded
+            load_more_clicks = 0
+            max_clicks = 500 if limit is None else math.ceil((limit or 1000) / 20)
+            
+            while load_more_clicks < max_clicks:
+                load_more_btn = page.query_selector('button.load-more-results-button:visible')
+                if not load_more_btn:
+                    log.info("Dallas: no more 'Load More' button — all results loaded")
                     break
-                
-                results.extend(page_results)
-                log.info(f"Dallas page {page_num}: {len(page_results)} records (total: {len(results)})")
-                
-                if limit and len(results) >= limit:
-                    break
-                
-                # Try to go to next page
-                next_btn = page.query_selector('a[aria-label="Next"], button:has-text("Next"), a:has-text("Next ›"), a:has-text("›"), .pagination-next, li.next a')
-                if not next_btn:
-                    # Check if disabled
-                    next_disabled = page.query_selector('.pagination li.next.disabled, li[class*="next"][class*="disabled"]')
-                    if next_disabled:
-                        log.info("Dallas: reached last page")
-                        break
-                    log.info("Dallas: no next button found, done")
-                    break
-                
                 try:
-                    next_btn.click()
-                    page.wait_for_load_state('networkidle', timeout=15000)
+                    load_more_btn.scroll_into_view_if_needed()
+                    load_more_btn.click()
+                    page.wait_for_load_state('networkidle', timeout=10000)
                     time.sleep(0.5)
+                    load_more_clicks += 1
+                    current_count = len(page.query_selector_all('div.flex-row'))
+                    log.info(f"Dallas: loaded more ({load_more_clicks} clicks, ~{current_count} rows visible)")
+                    if limit and current_count >= limit:
+                        break
                 except Exception as e:
-                    log.warning(f"Dallas pagination error: {e}")
+                    log.warning(f"Dallas load-more error: {e}")
                     break
+            
+            # Extract all results now that they're all on the page
+            results = _extract_dallas_page(page)
+            log.info(f"Dallas: extracted {len(results)} records")
         
         except Exception as e:
             log.error(f"Dallas scraper error: {e}")
+            import traceback
+            log.error(traceback.format_exc())
         finally:
             browser.close()
     
@@ -617,95 +613,98 @@ def fetch_dallas(since_date=None, limit=None):
 
 
 def _extract_dallas_page(page):
-    """Extract inspection records from the current Dallas portal page."""
+    """Extract all inspection records from the Dallas portal page using correct selectors.
+    Results are div.flex-row cards. All should already be loaded via 'Load More' clicks.
+    """
     results = []
-    
-    # Try multiple selectors for inspection rows
-    rows = page.query_selector_all('tr.inspection-row, .inspection-item, .facility-row, tr[class*="inspection"], tbody tr')
-    
-    if not rows:
-        # Try card-based layout
-        rows = page.query_selector_all('.card, .inspection-card, .facility-card, [class*="inspection-result"]')
+    rows = page.query_selector_all('div.flex-row')
+    log.info(f"Dallas: found {len(rows)} flex-row cards")
     
     for row in rows:
         try:
-            text = row.inner_text()
-            if not text or len(text.strip()) < 10:
+            # Name: h4.establishment-list-name > a
+            name_el = row.query_selector('h4.establishment-list-name a')
+            if not name_el:
+                name_el = row.query_selector('h4.establishment-list-name')
+            name = name_el.inner_text().strip() if name_el else None
+            if not name or len(name) < 2:
                 continue
             
-            # Extract fields
-            name = _extract_field(row, '[class*="name"], [class*="facility"], td:nth-child(1), .business-name')
-            address = _extract_field(row, '[class*="address"], td:nth-child(2), td:nth-child(3)')
-            score_text = _extract_field(row, '[class*="score"], td:nth-child(4), td:nth-child(5), .score')
-            date_text = _extract_field(row, '[class*="date"], td:nth-child(3), td:nth-child(2), .date')
+            # Permit ID from the name link href: /dallas/permit/?permitID=...
+            permit_id = ''
+            if name_el:
+                href = name_el.get_attribute('href') or ''
+                pm = re.search(r'permitID=([^&]+)', href)
+                if pm:
+                    permit_id = pm.group(1)
             
-            if not name or len(name.strip()) < 2:
-                continue
+            # Address: div.establishment-list-address
+            addr_els = row.query_selector_all('div.establishment-list-address')
+            address = addr_els[0].inner_text().strip() if addr_els else ''
+            # Clean up city/state from address (portal includes "Dallas, TX XXXXX")
+            address = re.sub(r',?\s*Dallas,?\s*TX\s*\d*', '', address, flags=re.IGNORECASE).strip()
             
-            # Parse score
+            # Right column: div.text-right elements
+            right_divs = row.query_selector_all('div.text-right')
+            insp_type = ''
+            date_str = ''
             score = None
-            if score_text:
-                score_match = re.search(r'\d+', score_text)
-                if score_match:
-                    score = int(score_match.group())
             
-            # Parse date
-            insp_date = ''
-            if date_text:
-                date_match = re.search(r'(\d{1,2})[/-](\d{1,2})[/-](\d{2,4})', date_text)
+            for div in right_divs:
+                text = div.inner_text().strip()
+                # Date + score line: "February 28, 2026 | 95"
+                date_match = re.search(r'([A-Za-z]+ \d{1,2},?\s*\d{4})', text)
                 if date_match:
-                    m, d, y = date_match.groups()
-                    if len(y) == 2:
-                        y = '20' + y
-                    insp_date = f"{y}-{m.zfill(2)}-{d.zfill(2)}"
+                    try:
+                        date_str = datetime.strptime(date_match.group(1).strip(), '%B %d, %Y').strftime('%Y-%m-%d')
+                    except Exception:
+                        pass
+                    # Score is in a <strong> tag
+                    strong_el = div.query_selector('strong')
+                    if strong_el:
+                        score_text = strong_el.inner_text().strip()
+                        score_match = re.search(r'\d+', score_text)
+                        if score_match:
+                            score = int(score_match.group())
+                # Inspection type line: "Retail Food 2025 | Routine"
+                elif '|' in text and not date_match:
+                    insp_type = text
             
-            # Extract violations if available (via link click or inline)
-            violations = []
+            # Inspection ID from View Inspection link
+            insp_id = ''
+            view_link = row.query_selector('a.button-2')
+            if view_link:
+                href = view_link.get_attribute('href') or ''
+                im = re.search(r'inspectionID=([^&]+)', href)
+                if im:
+                    insp_id = im.group(1)
+            
+            # Risk score — Dallas uses 100-point scale directly
             if score is not None:
-                # Calculate violations from score if not available
-                # Dallas: 100 - score = deduction points; each major = 10-15pts, minor = 3-5pts
-                # We'll use the score as original_score and compute risk score from violations if found
-                pass
-            
-            # Try to get violation details from inline content
-            violation_text = _extract_field(row, '[class*="violation"], [class*="infraction"], td.violations, .violation-list')
-            if violation_text:
-                for line in violation_text.split('\n'):
-                    line = line.strip()
-                    if line and len(line) > 5:
-                        violations.append(classify_violation(line))
-            
-            if violations:
-                risk_score, pv, pfv, cv = calc_risk_score(violations)
+                risk_score = score
             else:
-                # Estimate from original score
-                if score is not None:
-                    risk_score = score  # Dallas already uses 100-scale
-                else:
-                    risk_score = 70  # Default
-                pv, pfv, cv = 0, 0, 0
+                risk_score = 70  # default if no score
             
             results.append({
-                'name': name.strip().title(),
-                'address': (address or '').strip().title(),
+                'name': name.title(),
+                'address': address.title(),
                 'city': 'Dallas',
                 'state': 'TX',
                 'zip': '',
                 'latitude': None,
                 'longitude': None,
-                'inspection_date': insp_date,
+                'inspection_date': date_str,
                 'original_score': score,
                 'risk_score': risk_score,
-                'priority_violations': pv,
-                'priority_foundation_violations': pfv,
-                'core_violations': cv,
-                'total_violations': len(violations),
-                'violations': [[c, s, d] for c, s, d in violations],
+                'priority_violations': 0,
+                'priority_foundation_violations': 0,
+                'core_violations': 0,
+                'total_violations': 0,
+                'violations': [],
                 'source': 'Dallas Consumer Health',
-                'source_url': 'https://inspections.myhealthdepartment.com/dallas',
-                'source_id': '',
+                'source_url': f'https://inspections.myhealthdepartment.com/dallas/inspection/?inspectionID={insp_id}' if insp_id else 'https://inspections.myhealthdepartment.com/dallas',
+                'source_id': insp_id or permit_id,
             })
-        
         except Exception as e:
             continue
     
@@ -1005,7 +1004,7 @@ def main():
                         help='Path to Firebase service account JSON')
     parser.add_argument('--dry-run', action='store_true',
                         help='Process data but do not write to Firestore')
-    parser.add_argument('--output', default='/home/user/workspace/dinescores_data.json',
+    parser.add_argument('--output', default=os.path.join(os.path.dirname(os.path.abspath(__file__)), 'dinescores_data.json'),
                         help='Output JSON file path')
     parser.add_argument('--output-data-js', default=None,
                         help='Also write a data.js file (window.DATA = ...) for client-side embedding')
