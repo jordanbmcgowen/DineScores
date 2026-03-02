@@ -511,17 +511,14 @@ def fetch_dallas(since_date=None, limit=None):
     """
     Fetch Dallas health inspections via Playwright network interception.
     
-    The portal's API requires a valid browser session (CAPTCHA-gated) so
-    direct HTTP POST calls return empty results. Instead we:
-    1. Load the page in a real Chromium browser (handles CAPTCHA + session)
-    2. Intercept the XHR responses from https://inspections.myhealthdepartment.com/
-    3. Trigger date-filtered searches by calling getData() directly via JS
-    4. Collect all intercepted JSON payloads
+    The portal caps results per date range query (around 75-225 records).
+    To get all data, we scrape week-by-week: one browser session, iterate
+    through weekly date windows, set the Flatpickr filter for each window,
+    intercept the XHR + click Load More, then move to the next week.
     
-    The page's initial load fires one getData() call. We then update the date
-    filter via Flatpickr's internal onChange and collect subsequent responses.
+    Weekly windows stay well under the cap so we get complete coverage.
     """
-    log.info(f"Fetching Dallas data via browser + network intercept (since={since_date})")
+    log.info(f"Fetching Dallas data via browser + weekly chunked network intercept (since={since_date})")
     
     try:
         from playwright.sync_api import sync_playwright
@@ -529,28 +526,35 @@ def fetch_dallas(since_date=None, limit=None):
         log.error("Playwright not installed. Run: pip install playwright && playwright install chromium")
         return []
     
-    # Build date strings
+    # Build overall date range
     if since_date:
         try:
-            dt = datetime.strptime(since_date[:10], '%Y-%m-%d')
-            start_iso = dt.strftime('%Y-%m-%d')
-            start_display = dt.strftime('%m/%d/%Y')
+            range_start = datetime.strptime(since_date[:10], '%Y-%m-%d')
         except Exception:
-            start_iso = '2026-01-01'
-            start_display = '01/01/2026'
+            range_start = datetime(datetime.now().year, 1, 1)
     else:
-        start_iso = '2026-01-01'
-        start_display = '01/01/2026'
+        range_start = datetime(datetime.now().year, 1, 1)
     
-    end_iso = datetime.now().strftime('%Y-%m-%d')
-    end_display = datetime.now().strftime('%m/%d/%Y')
+    range_end = datetime.now()
     
-    log.info(f"Dallas date range: {start_iso} to {end_iso}")
+    # Build list of weekly windows: (start, end) pairs
+    # Use 6-day windows (Mon-Sun equivalent) so each chunk is small
+    windows = []
+    chunk_start = range_start
+    while chunk_start <= range_end:
+        chunk_end = min(chunk_start + timedelta(days=6), range_end)
+        windows.append((
+            chunk_start.strftime('%Y-%m-%d'),
+            chunk_end.strftime('%Y-%m-%d'),
+            chunk_start.strftime('%m/%d/%Y'),
+            chunk_end.strftime('%m/%d/%Y'),
+        ))
+        chunk_start = chunk_end + timedelta(days=1)
     
-    all_records = []      # accumulated parsed JSON records from intercepted XHR
-    intercepted = []      # raw list of lists from each XHR response
+    log.info(f"Dallas: {len(windows)} weekly windows from {range_start.strftime('%Y-%m-%d')} to {range_end.strftime('%Y-%m-%d')}")
     
-    results = []
+    all_results = []
+    seen_ids = set()
     
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=True)
@@ -559,130 +563,105 @@ def fetch_dallas(since_date=None, limit=None):
         )
         page = context.new_page()
         
-        # Intercept all POST responses to the root URL
-        def handle_response(response):
-            try:
-                if response.url == 'https://inspections.myhealthdepartment.com/' and response.status == 200:
-                    body = response.json()
-                    if isinstance(body, list) and len(body) > 0:
-                        log.info(f"Intercepted XHR response: {len(body)} records")
-                        intercepted.append(body)
-            except Exception:
-                pass
-        
-        page.on('response', handle_response)
-        
         try:
+            # ── Initial page load ──────────────────────────────────────────
             log.info("Loading Dallas portal...")
             page.goto('https://inspections.myhealthdepartment.com/dallas', timeout=30000)
             page.wait_for_load_state('networkidle', timeout=20000)
+            time.sleep(2)
             log.info("Dallas portal loaded")
             
-            # The page fires an initial getData() on load — wait for it
-            time.sleep(3)
-            
-            # Check what the default date range is
-            default_date = page.evaluate("document.getElementById('filterdate') ? document.getElementById('filterdate').value : 'not found'")
-            log.info(f"Default filterdate value: {default_date}")
-            initial_count = page.evaluate("document.querySelectorAll('div.flex-row').length")
-            log.info(f"Initial div.flex-row count: {initial_count}")
-            
-            # The portal's default date is from the start of the current year to today.
-            # Only change the filter if our desired start date differs from the default.
-            # If they match (or default is earlier), skip the re-set to avoid wiping results.
-            current_year_start = f"{datetime.now().year}-01-01"
-            need_date_change = False
-            if start_iso and start_iso != current_year_start:
-                # Non-default start — need to update the filter
-                need_date_change = True
-            elif default_date and ' to ' not in default_date:
-                # Default loaded but no range — need to set it
-                need_date_change = True
-            
-            if need_date_change:
-                log.info(f"Setting date filter: {start_display} to {end_display}")
-                page.evaluate(f"""
+            # ── Process each weekly window ─────────────────────────────────
+            for win_idx, (iso_start, iso_end, disp_start, disp_end) in enumerate(windows):
+                if limit and len(all_results) >= limit:
+                    break
+                
+                log.info(f"Window {win_idx+1}/{len(windows)}: {disp_start} to {disp_end}")
+                
+                intercepted = []  # reset per window
+                
+                def handle_response(response):
+                    try:
+                        if response.url == 'https://inspections.myhealthdepartment.com/' and response.status == 200:
+                            body = response.json()
+                            if isinstance(body, list) and len(body) > 0:
+                                intercepted.append(body)
+                    except Exception:
+                        pass
+                
+                page.on('response', handle_response)
+                
+                # Set date filter for this window
+                set_ok = page.evaluate(f"""
                     (function() {{
                         var input = document.getElementById('filterdate');
-                        if (!input) {{ console.error('no filterdate'); return; }}
-                        var fp = input._flatpickr;
-                        if (!fp) {{ console.error('no _flatpickr'); return; }}
-                        fp.setDate(['{start_display}', '{end_display}'], true);
-                        console.log('Flatpickr dates set to: ' + input.value);
+                        if (!input || !input._flatpickr) return false;
+                        input._flatpickr.setDate(['{disp_start}', '{disp_end}'], true);
+                        return true;
                     }})();
                 """)
+                
+                if not set_ok:
+                    log.warning(f"Window {win_idx+1}: Flatpickr not ready, skipping")
+                    page.remove_listener('response', handle_response)
+                    continue
+                
+                # Wait for the initial AJAX response
                 page.wait_for_load_state('networkidle', timeout=20000)
-                time.sleep(3)
-                new_date = page.evaluate("document.getElementById('filterdate').value")
-                log.info(f"filterdate after set: {new_date}")
+                time.sleep(1.5)
+                
+                # Verify filter was applied
+                actual_val = page.evaluate("document.getElementById('filterdate').value")
                 row_count = page.evaluate("document.querySelectorAll('div.flex-row').length")
-                log.info(f"div.flex-row count after date set: {row_count}")
-            else:
-                log.info(f"Date filter already correct ({default_date}) — skipping re-set")
-                row_count = initial_count
-            
-            log.info(f"Have {len(intercepted)} intercepted pages so far, clicking Load More for rest...")
-            
-            # Keep clicking Load More until all pages are loaded
-            max_pages = 500 if limit is None else math.ceil((limit or 1000) / 20)
-            page_num = len(intercepted)
-            consecutive_no_new = 0
-            
-            while page_num < max_pages:
-                # Scroll down to make Load More visible
-                page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
+                log.info(f"  filter: {actual_val}, DOM rows: {row_count}")
+                
+                # Click Load More until all results for this window are loaded
+                max_clicks = 20  # safety cap: 20 clicks × 25 = 500 per window (more than enough)
+                clicks = 0
+                consecutive_empty = 0
+                
+                while clicks < max_clicks:
+                    page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
+                    time.sleep(0.4)
+                    
+                    load_more = page.query_selector('button.load-more-results-button:visible')
+                    if not load_more:
+                        break  # All results loaded for this window
+                    
+                    before = len(intercepted)
+                    load_more.scroll_into_view_if_needed()
+                    load_more.click()
+                    page.wait_for_load_state('networkidle', timeout=10000)
+                    time.sleep(0.8)
+                    
+                    if len(intercepted) == before:
+                        consecutive_empty += 1
+                        if consecutive_empty >= 2:
+                            break
+                    else:
+                        consecutive_empty = 0
+                    
+                    clicks += 1
+                
+                # Remove listener before next window to avoid double-counting
+                page.remove_listener('response', handle_response)
+                
+                # Parse this window's records
+                window_count = 0
+                for page_data in intercepted:
+                    for rec in page_data:
+                        parsed = _parse_dallas_api_record(rec)
+                        if parsed:
+                            uid = parsed.get('source_id') or f"{parsed['name']}|{parsed['inspection_date']}"
+                            if uid not in seen_ids:
+                                seen_ids.add(uid)
+                                all_results.append(parsed)
+                                window_count += 1
+                
+                log.info(f"  Window {win_idx+1}: {window_count} new records (total: {len(all_results)})")
+                
+                # Small pause between windows to be polite
                 time.sleep(0.5)
-                
-                load_more_btn = page.query_selector('button.load-more-results-button:visible')
-                if not load_more_btn:
-                    log.info("No 'Load More' button visible — all results loaded")
-                    break
-                
-                before_count = len(intercepted)
-                try:
-                    load_more_btn.scroll_into_view_if_needed()
-                    load_more_btn.click()
-                    page.wait_for_load_state('networkidle', timeout=15000)
-                    time.sleep(1)
-                except Exception as e:
-                    log.warning(f"Load more click error: {e}")
-                    break
-                
-                after_count = len(intercepted)
-                if after_count == before_count:
-                    consecutive_no_new += 1
-                    if consecutive_no_new >= 3:
-                        log.info("No new XHR response after 3 Load More clicks — done")
-                        break
-                else:
-                    consecutive_no_new = 0
-                
-                page_num += 1
-                total_rows = page.evaluate("document.querySelectorAll('div.flex-row').length")
-                log.info(f"Page {page_num}: total DOM rows now {total_rows}, intercepted pages: {len(intercepted)}")
-                
-                if limit and total_rows >= limit:
-                    break
-            
-            log.info(f"Total intercepted XHR responses: {len(intercepted)}")
-            
-            # Parse all intercepted records
-            seen_ids = set()
-            for page_data in intercepted:
-                for rec in page_data:
-                    parsed = _parse_dallas_api_record(rec)
-                    if parsed:
-                        uid = parsed.get('source_id') or f"{parsed['name']}|{parsed['inspection_date']}"
-                        if uid not in seen_ids:
-                            seen_ids.add(uid)
-                            results.append(parsed)
-            
-            log.info(f"Dallas: parsed {len(results)} unique records from intercepted responses")
-            
-            # If interception got nothing but DOM has rows, fall back to DOM extraction
-            if len(results) == 0 and row_count > 0:
-                log.warning("Interception got 0 records but DOM has rows — falling back to DOM extraction")
-                results = _extract_dallas_dom(page)
         
         except Exception as e:
             log.error(f"Dallas fetch error: {e}")
@@ -691,8 +670,8 @@ def fetch_dallas(since_date=None, limit=None):
         finally:
             browser.close()
     
-    log.info(f"Dallas: {len(results)} total inspection records")
-    return results
+    log.info(f"Dallas: {len(all_results)} total inspection records across {len(windows)} windows")
+    return all_results
 
 
 def _parse_dallas_api_record(rec):
