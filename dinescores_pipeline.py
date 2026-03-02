@@ -509,109 +509,174 @@ def fetch_sf(since_date=None, limit=30000):
 
 def fetch_dallas(since_date=None, limit=None):
     """
-    Fetch Dallas health inspections via the myhealthdepartment.com JSON API.
-    The portal's browser JS POSTs to https://inspections.myhealthdepartment.com/
-    with task='searchInspections'. We call that directly — no browser needed.
-    Pagination: 20 records per page, increment 'start' until fewer than 20 returned.
-    """
-    log.info(f"Fetching Dallas data via API (since={since_date})")
+    Fetch Dallas health inspections via Playwright network interception.
     
-    # Build date range in YYYY-MM-DD format (what the hidden #filterdate stores internally)
+    The portal's API requires a valid browser session (CAPTCHA-gated) so
+    direct HTTP POST calls return empty results. Instead we:
+    1. Load the page in a real Chromium browser (handles CAPTCHA + session)
+    2. Intercept the XHR responses from https://inspections.myhealthdepartment.com/
+    3. Trigger date-filtered searches by calling getData() directly via JS
+    4. Collect all intercepted JSON payloads
+    
+    The page's initial load fires one getData() call. We then update the date
+    filter via Flatpickr's internal onChange and collect subsequent responses.
+    """
+    log.info(f"Fetching Dallas data via browser + network intercept (since={since_date})")
+    
+    try:
+        from playwright.sync_api import sync_playwright
+    except ImportError:
+        log.error("Playwright not installed. Run: pip install playwright && playwright install chromium")
+        return []
+    
+    # Build date strings
     if since_date:
         try:
             dt = datetime.strptime(since_date[:10], '%Y-%m-%d')
             start_iso = dt.strftime('%Y-%m-%d')
+            start_display = dt.strftime('%m/%d/%Y')
         except Exception:
             start_iso = '2026-01-01'
+            start_display = '01/01/2026'
     else:
         start_iso = '2026-01-01'
+        start_display = '01/01/2026'
     
     end_iso = datetime.now().strftime('%Y-%m-%d')
-    date_filter = f"{start_iso} to {end_iso}"
-    log.info(f"Dallas API date range: {date_filter}")
+    end_display = datetime.now().strftime('%m/%d/%Y')
     
-    api_url = 'https://inspections.myhealthdepartment.com/'
-    headers = {
-        'Content-Type': 'application/json',
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36',
-        'Referer': 'https://inspections.myhealthdepartment.com/dallas',
-        'Origin': 'https://inspections.myhealthdepartment.com',
-    }
+    log.info(f"Dallas date range: {start_iso} to {end_iso}")
+    
+    all_records = []      # accumulated parsed JSON records from intercepted XHR
+    intercepted = []      # raw list of lists from each XHR response
     
     results = []
-    start = 0
-    count = 20  # portal returns 20 per page
-    page_num = 0
     
-    while True:
-        payload = {
-            'task': 'searchInspections',
-            'data': {
-                'path': 'dallas',
-                'programName': '',
-                'filters': {
-                    'date': date_filter,
-                    'purpose': 'Any Purpose',
-                },
-                'start': start,
-                'count': count,
-                'searchQueryOverride': None,
-                'searchStr': '',
-                'lat': 0,
-                'lng': 0,
-                'sort': {},
-            }
-        }
+    with sync_playwright() as p:
+        browser = p.chromium.launch(headless=True)
+        context = browser.new_context(
+            user_agent='Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36'
+        )
+        page = context.new_page()
+        
+        # Intercept all POST responses to the root URL
+        def handle_response(response):
+            try:
+                if response.url == 'https://inspections.myhealthdepartment.com/' and response.status == 200:
+                    body = response.json()
+                    if isinstance(body, list) and len(body) > 0:
+                        log.info(f"Intercepted XHR response: {len(body)} records")
+                        intercepted.append(body)
+            except Exception:
+                pass
+        
+        page.on('response', handle_response)
         
         try:
-            resp = requests.post(api_url, json=payload, headers=headers, timeout=30)
-            if resp.status_code == 403:
-                log.error(f"Dallas API blocked (403 Forbidden) — server is rejecting this IP. "
-                          f"This API only works from residential IPs, not cloud/VPN IPs. "
-                          f"Run this pipeline from your local machine.")
-                break
-            resp.raise_for_status()
-            try:
-                page_data = resp.json()
-            except Exception as json_err:
-                log.error(f"Dallas API returned non-JSON (status {resp.status_code}): {resp.text[:300]}")
-                break
+            log.info("Loading Dallas portal...")
+            page.goto('https://inspections.myhealthdepartment.com/dallas', timeout=30000)
+            page.wait_for_load_state('networkidle', timeout=20000)
+            log.info("Dallas portal loaded")
+            
+            # The page fires an initial getData() on load — wait for it
+            time.sleep(3)
+            
+            # Check what the default date range is
+            default_date = page.evaluate("document.getElementById('filterdate') ? document.getElementById('filterdate').value : 'not found'")
+            log.info(f"Default filterdate value: {default_date}")
+            initial_count = page.evaluate("document.querySelectorAll('div.flex-row').length")
+            log.info(f"Initial div.flex-row count: {initial_count}")
+            
+            # Now set our desired date range via Flatpickr
+            # The hidden #filterdate uses YYYY-MM-DD format internally
+            # Flatpickr's onChange(a) fires getData() when a.length === 2
+            log.info(f"Setting date filter: {start_display} to {end_display}")
+            page.evaluate(f"""
+                (function() {{
+                    var input = document.getElementById('filterdate');
+                    if (!input) {{ console.error('no filterdate'); return; }}
+                    var fp = input._flatpickr;
+                    if (!fp) {{ console.error('no _flatpickr'); return; }}
+                    // setDate fires onChange which calls getData()
+                    fp.setDate(['{start_display}', '{end_display}'], true);
+                    console.log('Flatpickr dates set to: ' + input.value);
+                }})();
+            """)
+            # Wait for the AJAX call to complete
+            page.wait_for_load_state('networkidle', timeout=20000)
+            time.sleep(3)
+            
+            new_date = page.evaluate("document.getElementById('filterdate').value")
+            log.info(f"filterdate after set: {new_date}")
+            row_count = page.evaluate("document.querySelectorAll('div.flex-row').length")
+            log.info(f"div.flex-row count after date set: {row_count}")
+            
+            # If we only got the first 20, keep clicking Load More and intercepting
+            # Use JS to call getData() with incrementing start instead of clicking
+            # (more reliable than DOM clicking)
+            max_pages = 500 if limit is None else math.ceil((limit or 1000) / 20)
+            page_num = len(intercepted)  # already have initial pages
+            
+            log.info(f"Have {len(intercepted)} intercepted pages so far, clicking Load More for rest...")
+            
+            while page_num < max_pages:
+                load_more_btn = page.query_selector('button.load-more-results-button:visible')
+                if not load_more_btn:
+                    log.info("No 'Load More' button visible — all results loaded")
+                    break
+                
+                before_count = len(intercepted)
+                try:
+                    load_more_btn.scroll_into_view_if_needed()
+                    load_more_btn.click()
+                    # Wait for new XHR response
+                    page.wait_for_load_state('networkidle', timeout=15000)
+                    time.sleep(1)
+                except Exception as e:
+                    log.warning(f"Load more click error: {e}")
+                    break
+                
+                after_count = len(intercepted)
+                if after_count == before_count:
+                    log.info("No new XHR response after Load More click — done")
+                    break
+                
+                page_num += 1
+                total_rows = page.evaluate("document.querySelectorAll('div.flex-row').length")
+                log.info(f"Page {page_num}: total DOM rows now {total_rows}")
+                
+                if limit and total_rows >= limit:
+                    break
+            
+            log.info(f"Total intercepted XHR responses: {len(intercepted)}")
+            
+            # Parse all intercepted records
+            seen_ids = set()
+            for page_data in intercepted:
+                for rec in page_data:
+                    parsed = _parse_dallas_api_record(rec)
+                    if parsed:
+                        uid = parsed.get('source_id') or f"{parsed['name']}|{parsed['inspection_date']}"
+                        if uid not in seen_ids:
+                            seen_ids.add(uid)
+                            results.append(parsed)
+            
+            log.info(f"Dallas: parsed {len(results)} unique records from intercepted responses")
+            
+            # If interception got nothing (e.g. all responses were filtered out),
+            # fall back to DOM extraction
+            if len(results) == 0 and row_count > 0:
+                log.warning("Interception got 0 records but DOM has rows — falling back to DOM extraction")
+                results = _extract_dallas_dom(page)
+        
         except Exception as e:
-            log.error(f"Dallas API request failed (start={start}): {e}")
-            break
-        
-        if not isinstance(page_data, list):
-            log.error(f"Dallas API unexpected response type: {type(page_data)} — {str(page_data)[:200]}")
-            break
-        
-        if len(page_data) == 0:
-            log.info(f"Dallas API: no more results at start={start} (HTTP {resp.status_code})")
-            if start == 0:
-                log.warning(f"Dallas API returned 0 results on first page. Raw response: {resp.text[:500]}")
-            break
-        
-        page_num += 1
-        log.info(f"Dallas API page {page_num}: got {len(page_data)} records (start={start})")
-        
-        for rec in page_data:
-            parsed = _parse_dallas_api_record(rec)
-            if parsed:
-                results.append(parsed)
-        
-        if len(page_data) < count:
-            # Last page
-            break
-        
-        start += count
-        
-        if limit and len(results) >= limit:
-            log.info(f"Dallas: reached limit of {limit} records")
-            break
-        
-        # Small delay to be polite to the server
-        time.sleep(0.3)
+            log.error(f"Dallas fetch error: {e}")
+            import traceback
+            log.error(traceback.format_exc())
+        finally:
+            browser.close()
     
-    log.info(f"Dallas: fetched {len(results)} total inspection records")
+    log.info(f"Dallas: {len(results)} total inspection records")
     return results
 
 
@@ -696,6 +761,86 @@ def _extract_field(element, selector):
         return el.inner_text().strip() if el else None
     except:
         return None
+
+
+def _extract_dallas_dom(page):
+    """DOM fallback: extract inspection records from div.flex-row cards on the page.
+    Used when network interception gets 0 records but the DOM has rendered results.
+    """
+    results = []
+    rows = page.query_selector_all('div.flex-row')
+    log.info(f"DOM fallback: found {len(rows)} flex-row cards")
+    
+    for row in rows:
+        try:
+            name_el = row.query_selector('h4.establishment-list-name a') or row.query_selector('h4.establishment-list-name')
+            name = name_el.inner_text().strip() if name_el else None
+            if not name or len(name) < 2:
+                continue
+            
+            permit_id = ''
+            if name_el:
+                href = name_el.get_attribute('href') or ''
+                pm = re.search(r'permitID=([^&]+)', href)
+                if pm:
+                    permit_id = pm.group(1)
+            
+            addr_els = row.query_selector_all('div.establishment-list-address')
+            address = addr_els[0].inner_text().strip() if addr_els else ''
+            address = re.sub(r',?\s*Dallas,?\s*TX\s*\d*', '', address, flags=re.IGNORECASE).strip()
+            
+            right_divs = row.query_selector_all('div.text-right')
+            date_str = ''
+            score = None
+            
+            for div in right_divs:
+                text = div.inner_text().strip()
+                date_match = re.search(r'([A-Za-z]+ \d{1,2},?\s*\d{4})', text)
+                if date_match:
+                    try:
+                        date_str = datetime.strptime(date_match.group(1).strip(), '%B %d, %Y').strftime('%Y-%m-%d')
+                    except Exception:
+                        pass
+                    strong_el = div.query_selector('strong')
+                    if strong_el:
+                        score_text = strong_el.inner_text().strip()
+                        sm = re.search(r'\d+', score_text)
+                        if sm:
+                            score = int(sm.group())
+            
+            insp_id = ''
+            view_link = row.query_selector('a[href*="inspectionID"]')
+            if view_link:
+                href = view_link.get_attribute('href') or ''
+                im = re.search(r'inspectionID=([^&]+)', href)
+                if im:
+                    insp_id = im.group(1)
+            
+            results.append({
+                'name': name.title(),
+                'address': address.title(),
+                'city': 'Dallas',
+                'state': 'TX',
+                'zip': '',
+                'latitude': None,
+                'longitude': None,
+                'inspection_date': date_str,
+                'original_score': score,
+                'risk_score': score if score is not None else 70,
+                'priority_violations': 0,
+                'priority_foundation_violations': 0,
+                'core_violations': 0,
+                'total_violations': 0,
+                'violations': [],
+                'source': 'Dallas Consumer Health',
+                'source_url': f'https://inspections.myhealthdepartment.com/dallas/inspection/?inspectionID={insp_id}' if insp_id else 'https://inspections.myhealthdepartment.com/dallas',
+                'source_id': insp_id or permit_id,
+            })
+        except Exception:
+            continue
+    
+    log.info(f"DOM fallback: extracted {len(results)} records")
+    return results
 
 # ─── DATA MODEL / FIRESTORE UPLOADER ─────────────────────────────────────────
 
