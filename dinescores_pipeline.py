@@ -587,39 +587,52 @@ def fetch_dallas(since_date=None, limit=None):
             initial_count = page.evaluate("document.querySelectorAll('div.flex-row').length")
             log.info(f"Initial div.flex-row count: {initial_count}")
             
-            # Now set our desired date range via Flatpickr
-            # The hidden #filterdate uses YYYY-MM-DD format internally
-            # Flatpickr's onChange(a) fires getData() when a.length === 2
-            log.info(f"Setting date filter: {start_display} to {end_display}")
-            page.evaluate(f"""
-                (function() {{
-                    var input = document.getElementById('filterdate');
-                    if (!input) {{ console.error('no filterdate'); return; }}
-                    var fp = input._flatpickr;
-                    if (!fp) {{ console.error('no _flatpickr'); return; }}
-                    // setDate fires onChange which calls getData()
-                    fp.setDate(['{start_display}', '{end_display}'], true);
-                    console.log('Flatpickr dates set to: ' + input.value);
-                }})();
-            """)
-            # Wait for the AJAX call to complete
-            page.wait_for_load_state('networkidle', timeout=20000)
-            time.sleep(3)
+            # The portal's default date is from the start of the current year to today.
+            # Only change the filter if our desired start date differs from the default.
+            # If they match (or default is earlier), skip the re-set to avoid wiping results.
+            current_year_start = f"{datetime.now().year}-01-01"
+            need_date_change = False
+            if start_iso and start_iso != current_year_start:
+                # Non-default start — need to update the filter
+                need_date_change = True
+            elif default_date and ' to ' not in default_date:
+                # Default loaded but no range — need to set it
+                need_date_change = True
             
-            new_date = page.evaluate("document.getElementById('filterdate').value")
-            log.info(f"filterdate after set: {new_date}")
-            row_count = page.evaluate("document.querySelectorAll('div.flex-row').length")
-            log.info(f"div.flex-row count after date set: {row_count}")
-            
-            # If we only got the first 20, keep clicking Load More and intercepting
-            # Use JS to call getData() with incrementing start instead of clicking
-            # (more reliable than DOM clicking)
-            max_pages = 500 if limit is None else math.ceil((limit or 1000) / 20)
-            page_num = len(intercepted)  # already have initial pages
+            if need_date_change:
+                log.info(f"Setting date filter: {start_display} to {end_display}")
+                page.evaluate(f"""
+                    (function() {{
+                        var input = document.getElementById('filterdate');
+                        if (!input) {{ console.error('no filterdate'); return; }}
+                        var fp = input._flatpickr;
+                        if (!fp) {{ console.error('no _flatpickr'); return; }}
+                        fp.setDate(['{start_display}', '{end_display}'], true);
+                        console.log('Flatpickr dates set to: ' + input.value);
+                    }})();
+                """)
+                page.wait_for_load_state('networkidle', timeout=20000)
+                time.sleep(3)
+                new_date = page.evaluate("document.getElementById('filterdate').value")
+                log.info(f"filterdate after set: {new_date}")
+                row_count = page.evaluate("document.querySelectorAll('div.flex-row').length")
+                log.info(f"div.flex-row count after date set: {row_count}")
+            else:
+                log.info(f"Date filter already correct ({default_date}) — skipping re-set")
+                row_count = initial_count
             
             log.info(f"Have {len(intercepted)} intercepted pages so far, clicking Load More for rest...")
             
+            # Keep clicking Load More until all pages are loaded
+            max_pages = 500 if limit is None else math.ceil((limit or 1000) / 20)
+            page_num = len(intercepted)
+            consecutive_no_new = 0
+            
             while page_num < max_pages:
+                # Scroll down to make Load More visible
+                page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
+                time.sleep(0.5)
+                
                 load_more_btn = page.query_selector('button.load-more-results-button:visible')
                 if not load_more_btn:
                     log.info("No 'Load More' button visible — all results loaded")
@@ -629,7 +642,6 @@ def fetch_dallas(since_date=None, limit=None):
                 try:
                     load_more_btn.scroll_into_view_if_needed()
                     load_more_btn.click()
-                    # Wait for new XHR response
                     page.wait_for_load_state('networkidle', timeout=15000)
                     time.sleep(1)
                 except Exception as e:
@@ -638,12 +650,16 @@ def fetch_dallas(since_date=None, limit=None):
                 
                 after_count = len(intercepted)
                 if after_count == before_count:
-                    log.info("No new XHR response after Load More click — done")
-                    break
+                    consecutive_no_new += 1
+                    if consecutive_no_new >= 3:
+                        log.info("No new XHR response after 3 Load More clicks — done")
+                        break
+                else:
+                    consecutive_no_new = 0
                 
                 page_num += 1
                 total_rows = page.evaluate("document.querySelectorAll('div.flex-row').length")
-                log.info(f"Page {page_num}: total DOM rows now {total_rows}")
+                log.info(f"Page {page_num}: total DOM rows now {total_rows}, intercepted pages: {len(intercepted)}")
                 
                 if limit and total_rows >= limit:
                     break
@@ -663,8 +679,7 @@ def fetch_dallas(since_date=None, limit=None):
             
             log.info(f"Dallas: parsed {len(results)} unique records from intercepted responses")
             
-            # If interception got nothing (e.g. all responses were filtered out),
-            # fall back to DOM extraction
+            # If interception got nothing but DOM has rows, fall back to DOM extraction
             if len(results) == 0 and row_count > 0:
                 log.warning("Interception got 0 records but DOM has rows — falling back to DOM extraction")
                 results = _extract_dallas_dom(page)
