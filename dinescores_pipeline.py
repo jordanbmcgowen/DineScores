@@ -565,8 +565,17 @@ def fetch_dallas(since_date=None, limit=None):
         
         try:
             resp = requests.post(api_url, json=payload, headers=headers, timeout=30)
+            if resp.status_code == 403:
+                log.error(f"Dallas API blocked (403 Forbidden) — server is rejecting this IP. "
+                          f"This API only works from residential IPs, not cloud/VPN IPs. "
+                          f"Run this pipeline from your local machine.")
+                break
             resp.raise_for_status()
-            page_data = resp.json()
+            try:
+                page_data = resp.json()
+            except Exception as json_err:
+                log.error(f"Dallas API returned non-JSON (status {resp.status_code}): {resp.text[:300]}")
+                break
         except Exception as e:
             log.error(f"Dallas API request failed (start={start}): {e}")
             break
@@ -576,7 +585,9 @@ def fetch_dallas(since_date=None, limit=None):
             break
         
         if len(page_data) == 0:
-            log.info(f"Dallas API: no more results at start={start}")
+            log.info(f"Dallas API: no more results at start={start} (HTTP {resp.status_code})")
+            if start == 0:
+                log.warning(f"Dallas API returned 0 results on first page. Raw response: {resp.text[:500]}")
             break
         
         page_num += 1
