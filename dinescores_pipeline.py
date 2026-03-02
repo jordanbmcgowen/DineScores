@@ -572,8 +572,38 @@ def fetch_dallas(since_date=None, limit=None):
             except Exception as e:
                 log.warning(f"Date filter setup failed (will use page defaults): {e}")
             
-            # Verify results loaded — generous timeout since portal is slow
-            page.wait_for_selector('div.flex-row', timeout=45000)
+            # Debug: save screenshot and page source so we can see what the browser sees
+            import os as _os
+            debug_dir = _os.path.join(_os.path.dirname(_os.path.abspath(__file__)), 'logs')
+            _os.makedirs(debug_dir, exist_ok=True)
+            screenshot_path = _os.path.join(debug_dir, 'dallas_debug.png')
+            source_path = _os.path.join(debug_dir, 'dallas_debug.html')
+            page.screenshot(path=screenshot_path, full_page=True)
+            with open(source_path, 'w', encoding='utf-8') as _f:
+                _f.write(page.content())
+            log.info(f"Debug screenshot saved: {screenshot_path}")
+            log.info(f"Debug page source saved: {source_path}")
+            
+            # Check what's actually on the page
+            flex_count = page.evaluate("document.querySelectorAll('div.flex-row').length")
+            log.info(f"div.flex-row count on page: {flex_count}")
+            establish_section = page.evaluate("""
+                var el = document.querySelector('.section---establishment-list');
+                el ? el.innerHTML.substring(0, 300) : 'NOT FOUND'
+            """)
+            log.info(f"Establishment list HTML: {establish_section}")
+            
+            if flex_count == 0:
+                log.warning("No results visible yet — waiting additional 15s")
+                time.sleep(15)
+                flex_count = page.evaluate("document.querySelectorAll('div.flex-row').length")
+                log.info(f"div.flex-row count after extra wait: {flex_count}")
+            
+            if flex_count == 0:
+                log.error("Still no results after extended wait. Check logs/dallas_debug.png for what the browser sees.")
+                raise Exception("No div.flex-row results found on page")
+            
+            log.info(f"Results confirmed: {flex_count} rows visible, proceeding to extract")
             
             # Click 'Load More Results' until all results are loaded
             load_more_clicks = 0
