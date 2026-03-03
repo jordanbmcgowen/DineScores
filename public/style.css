@@ -282,6 +282,22 @@ a { color: var(--color-primary); text-decoration: none; }
 
 .chip-green.active { background: var(--color-safe); border-color: var(--color-safe); }
 .chip-yellow.active { background: var(--color-elevated); border-color: var(--color-elevated); }
+
+/* DFW sub-city chips */
+#dfw-sub-chips {
+  display: flex;
+  gap: var(--sp-1);
+  padding: 0 var(--sp-3) var(--sp-2);
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
+}
+#dfw-sub-chips::-webkit-scrollbar { display: none; }
+#dfw-sub-chips .chip {
+  font-size: 0.7rem;
+  height: 26px;
+  padding: 2px var(--sp-2);
+}
 .chip-red.active { background: var(--color-risk); border-color: var(--color-risk); }
 
 /* ===== MAP ===== */

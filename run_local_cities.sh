@@ -27,10 +27,9 @@ CREDS="${DINESCORES_FIREBASE_CREDS:-$HOME/.dinescores/firebase-key.json}"
 LOG_DIR="$SCRIPT_DIR/logs"
 LOG_FILE="$LOG_DIR/local_run_$(date +%Y%m%d_%H%M%S).log"
 
-# Default: cities that require a real browser/residential IP
-# Add new WAF-blocked cities here as you expand
-LOCAL_CITIES=("dallas")
-# Future cities to add: houston, phoenix, miami, etc.
+# Default: DFW metro (all cities via MyHealthDepartment portal)
+# Uses a single Playwright browser session across all DFW jurisdictions
+LOCAL_CITIES=("dfw")
 
 MODE="weekly"
 DRY_RUN=""

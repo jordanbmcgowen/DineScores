@@ -62,6 +62,23 @@
         { "fieldPath": "city",    "order": "ASCENDING" },
         { "fieldPath": "geohash", "order": "ASCENDING" }
       ]
+    },
+    {
+      "collectionGroup": "restaurants",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "metro",      "order": "ASCENDING" },
+        { "fieldPath": "risk_score", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "restaurants",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "metro",      "order": "ASCENDING" },
+        { "fieldPath": "city",       "order": "ASCENDING" },
+        { "fieldPath": "risk_score", "order": "DESCENDING" }
+      ]
     }
   ],
   "fieldOverrides": []

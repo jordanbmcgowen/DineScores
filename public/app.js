@@ -83,7 +83,8 @@ function mapDocToRecord(docSnap) {
     src: d.source     || '',
     url: d.source_url || '',
     ic:  d.inspection_count || 1,
-    v:   violations
+    v:   violations,
+    m:   d.metro || ''
   };
 }
 
@@ -236,6 +237,7 @@ let allData      = [];
 let filtered     = [];
 let currentSort  = 'score-desc';
 let currentCity  = 'all';
+let currentMetro = null;  // null or 'DFW'
 let currentRisk  = 'all';
 let searchQuery  = '';
 let selectedId   = null;
@@ -469,7 +471,13 @@ function updateMapData() {
 function applyFilters() {
   const q = searchQuery.toLowerCase().trim();
   filtered = allData.filter(function (r) {
-    if (currentCity !== 'all' && r.c !== currentCity) return false;
+    // Metro/city filter
+    if (currentMetro) {
+      if (r.m !== currentMetro) return false;
+      if (currentCity !== 'all' && r.c !== currentCity) return false;
+    } else if (currentCity !== 'all') {
+      if (r.c !== currentCity) return false;
+    }
     if (currentRisk === 'safe'     && r.rs < 90) return false;
     if (currentRisk === 'moderate' && (r.rs < 70 || r.rs >= 90)) return false;
     if (currentRisk === 'risk'     && r.rs >= 70) return false;
@@ -844,16 +852,61 @@ function bindEvents() {
     applyFilters();
   });
 
-  // City chips
+  // City / Metro chips
   document.querySelectorAll('.city-chips .chip').forEach(function (chip) {
     chip.addEventListener('click', function () {
       document.querySelectorAll('.city-chips .chip').forEach(function (c) { c.classList.remove('active'); });
       chip.classList.add('active');
-      currentCity = chip.dataset.city;
+
+      var dfwSubChips = document.getElementById('dfw-sub-chips');
+
+      if (chip.dataset.metro === 'DFW') {
+        // DFW metro chip — show all DFW cities, reveal sub-chips
+        currentMetro = 'DFW';
+        currentCity = 'all';
+        buildDfwSubChips();
+        if (dfwSubChips) dfwSubChips.hidden = false;
+      } else {
+        // Regular city chip or "All Cities"
+        currentMetro = null;
+        currentCity = chip.dataset.city;
+        if (dfwSubChips) dfwSubChips.hidden = true;
+      }
+
       applyFilters();
       if (filtered.length > 0) fitBoundsToData();
     });
   });
+
+  function buildDfwSubChips() {
+    var container = document.getElementById('dfw-sub-chips');
+    if (!container) return;
+    var dfwCities = [];
+    var seen = {};
+    allData.forEach(function (r) {
+      if (r.m === 'DFW' && !seen[r.c]) {
+        seen[r.c] = true;
+        dfwCities.push(r.c);
+      }
+    });
+    dfwCities.sort();
+
+    var html = '<button class="chip active" data-dfw-city="all">All DFW</button>';
+    dfwCities.forEach(function (c) {
+      html += '<button class="chip" data-dfw-city="' + c + '">' + c + '</button>';
+    });
+    container.innerHTML = html;
+
+    container.querySelectorAll('.chip').forEach(function (sub) {
+      sub.addEventListener('click', function () {
+        container.querySelectorAll('.chip').forEach(function (s) { s.classList.remove('active'); });
+        sub.classList.add('active');
+        currentCity = sub.dataset.dfwCity === 'all' ? 'all' : sub.dataset.dfwCity;
+        applyFilters();
+        if (filtered.length > 0) fitBoundsToData();
+      });
+    });
+  }
 
   // Risk chips
   document.querySelectorAll('.risk-chips .chip').forEach(function (chip) {
