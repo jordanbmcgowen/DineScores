@@ -20,7 +20,7 @@ set LOG_DIR=%SCRIPT_DIR%logs
 :: First argument = mode (optional, defaults to weekly)
 :: Remaining arguments = cities (optional, defaults to dallas)
 set MODE=weekly
-set LOCAL_CITIES=dallas
+set LOCAL_CITIES=dfw
 
 if not "%~1"=="" (
     set MODE=%~1

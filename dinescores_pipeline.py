@@ -2,7 +2,8 @@
 """
 DineScores Data Pipeline
 ========================
-Collects health inspection data from Chicago, NYC, SF (new 2024+ dataset), and Dallas.
+Collects health inspection data from Chicago, NYC, SF, and DFW metroplex cities.
+DFW cities use the MyHealthDepartment portal (inspections.myhealthdepartment.com).
 Stores in Firestore with a multi-inspection history model:
   - /restaurants/{restaurant_id}      → most recent inspection + metadata
   - /restaurants/{restaurant_id}/inspections/{inspection_id} → all inspections (history)
@@ -11,6 +12,10 @@ Run modes:
   --full    Pull all available data (initial load)
   --weekly  Pull only data from the last 8 days (weekly refresh)
   --test    Pull 25 records per city to verify pipeline works
+
+DFW cities:
+  Use --cities dfw for all DFW metro cities, or individual slugs like
+  --cities dallas fortworth plano
 """
 
 import os, sys, json, re, time, math, hashlib, logging, argparse
@@ -110,6 +115,31 @@ SEVERITY_MAP = {
     'maintenance': 'core',
     'waste_management': 'core',
 }
+
+# ─── DFW METROPLEX JURISDICTIONS ────────────────────────────────────────────
+# Each entry maps a MyHealthDepartment portal slug to its display name and defaults.
+# URL pattern: https://inspections.myhealthdepartment.com/{slug}
+
+DFW_JURISDICTIONS = {
+    'dallas':       {'display_name': 'Dallas',        'default_city': 'Dallas',        'state': 'TX'},
+    'fortworth':    {'display_name': 'Fort Worth',    'default_city': 'Fort Worth',    'state': 'TX'},
+    'arlington':    {'display_name': 'Arlington',     'default_city': 'Arlington',     'state': 'TX'},
+    'plano':        {'display_name': 'Plano',         'default_city': 'Plano',         'state': 'TX'},
+    'irving':       {'display_name': 'Irving',        'default_city': 'Irving',        'state': 'TX'},
+    'frisco':       {'display_name': 'Frisco',        'default_city': 'Frisco',        'state': 'TX'},
+    'mckinney':     {'display_name': 'McKinney',      'default_city': 'McKinney',      'state': 'TX'},
+    'denton':       {'display_name': 'Denton',        'default_city': 'Denton',        'state': 'TX'},
+    'garland':      {'display_name': 'Garland',       'default_city': 'Garland',       'state': 'TX'},
+    'grandprairie': {'display_name': 'Grand Prairie', 'default_city': 'Grand Prairie', 'state': 'TX'},
+    'mesquite':     {'display_name': 'Mesquite',      'default_city': 'Mesquite',      'state': 'TX'},
+    'carrollton':   {'display_name': 'Carrollton',    'default_city': 'Carrollton',    'state': 'TX'},
+    'richardson':   {'display_name': 'Richardson',    'default_city': 'Richardson',    'state': 'TX'},
+    'allen':        {'display_name': 'Allen',         'default_city': 'Allen',         'state': 'TX'},
+    'lewisville':   {'display_name': 'Lewisville',    'default_city': 'Lewisville',    'state': 'TX'},
+    'flowermound':  {'display_name': 'Flower Mound',  'default_city': 'Flower Mound',  'state': 'TX'},
+}
+
+CHROME_UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36'
 
 def classify_violation(text):
     if not text:
@@ -261,8 +291,9 @@ def fetch_chicago(since_date=None, limit=50000):
             'inspection_type': rec.get('inspection_type', ''),
             'results': rec.get('results', ''),
             'source_id': rec.get('inspection_id', ''),
+            'metro': '',
         })
-    
+
     return results
 
 # ─── NYC DATA COLLECTOR ──────────────────────────────────────────────────────
@@ -399,8 +430,9 @@ def fetch_nyc(since_date=None, limit=200000):
             'source_id': key,
             'nyc_grade': insp.get('grade', ''),
             'cuisine': meta.get('cuisine', ''),
+            'metro': '',
         })
-    
+
     log.info(f"NYC: {len(results)} unique restaurant inspections")
     return results
 
@@ -501,208 +533,278 @@ def fetch_sf(since_date=None, limit=30000):
             'source_id': f"{rec.get('permit_number','')}_{insp_date}",
             'neighborhood': rec.get('analysis_neighborhood', ''),
             'permit_type': rec.get('permit_type', ''),
+            'metro': '',
         })
-    
+
     return results
 
-# ─── DALLAS DATA COLLECTOR (API) ────────────────────────────────────────────
+# ─── MYHEALTHDEPARTMENT PORTAL SCRAPER (DFW + generic) ─────────────────────
 
-def fetch_dallas(since_date=None, limit=None):
+def fetch_dfw(jurisdictions=None, since_date=None, limit_per_jurisdiction=None):
     """
-    Fetch Dallas health inspections via Playwright network interception.
-    
-    The portal caps results per date range query (around 75-225 records).
-    To get all data, we scrape week-by-week: one browser session, iterate
-    through weekly date windows, set the Flatpickr filter for each window,
-    intercept the XHR + click Load More, then move to the next week.
-    
-    Weekly windows stay well under the cap so we get complete coverage.
+    Scrape all DFW jurisdictions from MyHealthDepartment portal in a single
+    Playwright browser session. Reuses the browser context across jurisdictions
+    to avoid expensive Chromium launch overhead per city.
+
+    Args:
+        jurisdictions: dict of slug→config to scrape (defaults to all DFW_JURISDICTIONS)
+        since_date: ISO YYYY-MM-DD string for start date (defaults to Jan 1 of current year)
+        limit_per_jurisdiction: max records per jurisdiction (None = no limit)
+
+    Returns:
+        list of inspection record dicts with 'metro': 'DFW'
     """
-    log.info(f"Fetching Dallas data via browser + weekly chunked network intercept (since={since_date})")
-    
+    if jurisdictions is None:
+        jurisdictions = DFW_JURISDICTIONS
+
     try:
         from playwright.sync_api import sync_playwright
     except ImportError:
         log.error("Playwright not installed. Run: pip install playwright && playwright install chromium")
         return []
-    
-    # Build overall date range
-    if since_date:
-        try:
-            range_start = datetime.strptime(since_date[:10], '%Y-%m-%d')
-        except Exception:
-            range_start = datetime(datetime.now().year, 1, 1)
-    else:
-        range_start = datetime(datetime.now().year, 1, 1)
-    
-    range_end = datetime.now()
-    
-    # Build list of weekly windows: (start, end) pairs
-    # Use 6-day windows (Mon-Sun equivalent) so each chunk is small
-    windows = []
-    chunk_start = range_start
-    while chunk_start <= range_end:
-        chunk_end = min(chunk_start + timedelta(days=6), range_end)
-        windows.append((
-            chunk_start.strftime('%Y-%m-%d'),
-            chunk_end.strftime('%Y-%m-%d'),
-            chunk_start.strftime('%m/%d/%Y'),
-            chunk_end.strftime('%m/%d/%Y'),
-        ))
-        chunk_start = chunk_end + timedelta(days=1)
-    
-    log.info(f"Dallas: {len(windows)} weekly windows from {range_start.strftime('%Y-%m-%d')} to {range_end.strftime('%Y-%m-%d')}")
-    
+
     all_results = []
-    seen_ids = set()
-    
+
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=True)
-        context = browser.new_context(
-            user_agent='Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36'
-        )
-        page = context.new_page()
-        
-        try:
-            # ── Initial page load ──────────────────────────────────────────
-            log.info("Loading Dallas portal...")
-            page.goto('https://inspections.myhealthdepartment.com/dallas', timeout=30000)
-            page.wait_for_load_state('networkidle', timeout=20000)
-            time.sleep(2)
-            log.info("Dallas portal loaded")
-            
-            # ── Process each weekly window ─────────────────────────────────
-            for win_idx, (iso_start, iso_end, disp_start, disp_end) in enumerate(windows):
-                if limit and len(all_results) >= limit:
-                    break
-                
-                log.info(f"Window {win_idx+1}/{len(windows)}: {disp_start} to {disp_end}")
-                
-                intercepted = []  # reset per window
-                
-                def handle_response(response):
-                    try:
-                        if response.url == 'https://inspections.myhealthdepartment.com/' and response.status == 200:
-                            body = response.json()
-                            if isinstance(body, list) and len(body) > 0:
-                                intercepted.append(body)
-                    except Exception:
-                        pass
-                
-                page.on('response', handle_response)
-                
-                # Set date filter for this window
-                set_ok = page.evaluate(f"""
-                    (function() {{
-                        var input = document.getElementById('filterdate');
-                        if (!input || !input._flatpickr) return false;
-                        input._flatpickr.setDate(['{disp_start}', '{disp_end}'], true);
-                        return true;
-                    }})();
-                """)
-                
-                if not set_ok:
-                    log.warning(f"Window {win_idx+1}: Flatpickr not ready, skipping")
-                    page.remove_listener('response', handle_response)
-                    continue
-                
-                # Wait for the initial AJAX response
-                page.wait_for_load_state('networkidle', timeout=20000)
-                time.sleep(1.5)
-                
-                # Verify filter was applied
-                actual_val = page.evaluate("document.getElementById('filterdate').value")
-                row_count = page.evaluate("document.querySelectorAll('div.flex-row').length")
-                log.info(f"  filter: {actual_val}, DOM rows: {row_count}")
-                
-                # Click Load More until all results for this window are loaded
-                max_clicks = 20  # safety cap: 20 clicks × 25 = 500 per window (more than enough)
-                clicks = 0
-                consecutive_empty = 0
-                
-                while clicks < max_clicks:
-                    page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
-                    time.sleep(0.4)
-                    
-                    load_more = page.query_selector('button.load-more-results-button:visible')
-                    if not load_more:
-                        break  # All results loaded for this window
-                    
-                    before = len(intercepted)
-                    load_more.scroll_into_view_if_needed()
-                    load_more.click()
-                    page.wait_for_load_state('networkidle', timeout=10000)
-                    time.sleep(0.8)
-                    
-                    if len(intercepted) == before:
-                        consecutive_empty += 1
-                        if consecutive_empty >= 2:
-                            break
-                    else:
-                        consecutive_empty = 0
-                    
-                    clicks += 1
-                
-                # Remove listener before next window to avoid double-counting
-                page.remove_listener('response', handle_response)
-                
-                # Parse this window's records
-                window_count = 0
-                for page_data in intercepted:
-                    for rec in page_data:
-                        parsed = _parse_dallas_api_record(rec)
-                        if parsed:
-                            uid = parsed.get('source_id') or f"{parsed['name']}|{parsed['inspection_date']}"
-                            if uid not in seen_ids:
-                                seen_ids.add(uid)
-                                all_results.append(parsed)
-                                window_count += 1
-                
-                log.info(f"  Window {win_idx+1}: {window_count} new records (total: {len(all_results)})")
-                
-                # Small pause between windows to be polite
-                time.sleep(0.5)
-        
-        except Exception as e:
-            log.error(f"Dallas fetch error: {e}")
-            import traceback
-            log.error(traceback.format_exc())
-        finally:
-            browser.close()
-    
-    log.info(f"Dallas: {len(all_results)} total inspection records across {len(windows)} windows")
+        context = browser.new_context(user_agent=CHROME_UA)
+
+        for slug, config in jurisdictions.items():
+            display_name = config['display_name']
+            log.info(f"--- Scraping {display_name} ({slug}) ---")
+            page = context.new_page()
+            try:
+                results = _scrape_mhd_jurisdiction(
+                    page, slug, config, since_date, limit_per_jurisdiction)
+                all_results.extend(results)
+                log.info(f"{display_name}: {len(results)} records")
+            except Exception as e:
+                log.error(f"{display_name} scrape failed: {e}")
+                import traceback
+                log.error(traceback.format_exc())
+            finally:
+                page.close()
+            time.sleep(2)  # polite pause between jurisdictions
+
+        browser.close()
+
+    log.info(f"DFW total: {len(all_results)} inspection records across {len(jurisdictions)} jurisdictions")
     return all_results
 
 
-def _parse_dallas_api_record(rec):
-    """Parse a single inspection record from the Dallas API JSON response."""
+def _scrape_mhd_jurisdiction(page, slug, config, since_date=None, limit=None):
+    """
+    Scrape a single MyHealthDepartment jurisdiction via Playwright network interception.
+
+    Uses 1-day windows to stay well under the portal's per-query result cap.
+    Includes per-window error recovery and Flatpickr retry logic.
+
+    Args:
+        page: Playwright page object (already open)
+        slug: portal URL slug (e.g., 'dallas', 'fortworth')
+        config: dict with 'display_name', 'default_city', 'state'
+        since_date: ISO YYYY-MM-DD start date (defaults to Jan 1 of current year)
+        limit: max records to collect (None = no limit)
+
+    Returns:
+        list of parsed inspection record dicts
+    """
+    display_name = config['display_name']
+    default_city = config['default_city']
+    default_state = config.get('state', 'TX')
+    portal_url = f'https://inspections.myhealthdepartment.com/{slug}'
+
+    log.info(f"Fetching {display_name} data via browser + daily network intercept (since={since_date})")
+
+    # Build overall date range — always use ISO YYYY-MM-DD format
+    if since_date:
+        try:
+            range_start = datetime.strptime(str(since_date)[:10], '%Y-%m-%d')
+        except Exception:
+            log.warning(f"{display_name}: Could not parse since_date '{since_date}', defaulting to Jan 1")
+            range_start = datetime(datetime.now().year, 1, 1)
+    else:
+        range_start = datetime(datetime.now().year, 1, 1)
+
+    range_end = datetime.now()
+
+    # Build list of 1-day windows for complete coverage
+    windows = []
+    current_day = range_start
+    while current_day <= range_end:
+        disp_date = current_day.strftime('%m/%d/%Y')
+        windows.append((
+            current_day.strftime('%Y-%m-%d'),
+            disp_date,
+        ))
+        current_day += timedelta(days=1)
+
+    log.info(f"{display_name}: {len(windows)} daily windows from {range_start.strftime('%Y-%m-%d')} to {range_end.strftime('%Y-%m-%d')}")
+
+    all_results = []
+    seen_ids = set()
+
+    # ── Initial page load ──────────────────────────────────────────
+    log.info(f"Loading {display_name} portal...")
+    page.goto(portal_url, timeout=30000)
+    page.wait_for_load_state('networkidle', timeout=30000)
+    time.sleep(2)
+    log.info(f"{display_name} portal loaded")
+
+    # ── Process each daily window ─────────────────────────────────
+    for win_idx, (iso_date, disp_date) in enumerate(windows):
+        if limit and len(all_results) >= limit:
+            break
+
+        # Per-window error recovery: retry once on failure
+        for attempt in range(2):
+            try:
+                window_results = _scrape_single_window(
+                    page, slug, config, win_idx, len(windows),
+                    disp_date, disp_date, seen_ids)
+
+                for rec in window_results:
+                    all_results.append(rec)
+
+                if win_idx % 7 == 0 or win_idx == len(windows) - 1:
+                    log.info(f"  Window {win_idx+1}/{len(windows)} ({disp_date}): "
+                             f"{len(window_results)} new records (total: {len(all_results)})")
+                break  # success, no retry needed
+
+            except Exception as e:
+                if attempt == 0:
+                    log.warning(f"  Window {win_idx+1} attempt 1 failed: {e}, retrying...")
+                    time.sleep(2)
+                else:
+                    log.error(f"  Window {win_idx+1} failed after 2 attempts: {e}")
+
+        # Small pause between windows
+        time.sleep(0.3)
+
+    log.info(f"{display_name}: {len(all_results)} total inspection records across {len(windows)} windows")
+    return all_results
+
+
+def _scrape_single_window(page, slug, config, win_idx, total_windows,
+                           disp_start, disp_end, seen_ids):
+    """Scrape a single date window, returning new parsed records."""
+    display_name = config['display_name']
+    default_city = config['default_city']
+    default_state = config.get('state', 'TX')
+
+    intercepted = []
+
+    def handle_response(response):
+        try:
+            url = response.url.rstrip('/')
+            if url.startswith('https://inspections.myhealthdepartment.com') and response.status == 200:
+                # Only intercept JSON array responses from the portal root
+                ct = response.headers.get('content-type', '')
+                if 'json' in ct or 'javascript' in ct:
+                    body = response.json()
+                    if isinstance(body, list) and len(body) > 0:
+                        intercepted.append(body)
+        except Exception:
+            pass
+
+    page.on('response', handle_response)
+
+    try:
+        # Set date filter — retry Flatpickr readiness up to 3 times
+        set_ok = False
+        for fp_attempt in range(3):
+            set_ok = page.evaluate(f"""
+                (function() {{
+                    var input = document.getElementById('filterdate');
+                    if (!input || !input._flatpickr) return false;
+                    input._flatpickr.setDate(['{disp_start}', '{disp_end}'], true);
+                    return true;
+                }})();
+            """)
+            if set_ok:
+                break
+            time.sleep(1)
+
+        if not set_ok:
+            log.warning(f"  Window {win_idx+1}: Flatpickr not ready after 3 attempts, skipping")
+            return []
+
+        # Wait for the AJAX response
+        page.wait_for_load_state('networkidle', timeout=20000)
+        time.sleep(1)
+
+        # Scroll to bottom and click Load More until all results loaded
+        max_clicks = 20
+        clicks = 0
+        consecutive_empty = 0
+
+        while clicks < max_clicks:
+            page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
+            time.sleep(0.3)
+
+            load_more = page.query_selector('button.load-more-results-button:visible')
+            if not load_more:
+                break
+
+            before = len(intercepted)
+            load_more.scroll_into_view_if_needed()
+            load_more.click()
+            page.wait_for_load_state('networkidle', timeout=10000)
+            time.sleep(0.5)
+
+            if len(intercepted) == before:
+                consecutive_empty += 1
+                if consecutive_empty >= 2:
+                    break
+            else:
+                consecutive_empty = 0
+
+            clicks += 1
+
+        # Parse this window's records
+        new_records = []
+        for page_data in intercepted:
+            for rec in page_data:
+                parsed = _parse_mhd_record(rec, slug, display_name, default_city, default_state)
+                if parsed:
+                    uid = parsed.get('source_id') or f"{parsed['name']}|{parsed['inspection_date']}"
+                    if uid not in seen_ids:
+                        seen_ids.add(uid)
+                        new_records.append(parsed)
+
+        return new_records
+
+    finally:
+        page.remove_listener('response', handle_response)
+
+
+def _parse_mhd_record(rec, slug, display_name, default_city, default_state):
+    """Parse a single inspection record from the MyHealthDepartment API JSON response."""
     try:
         name = (rec.get('establishmentName') or '').strip()
         if not name or len(name) < 2:
             return None
-        
+
         # Address fields
         addr1 = (rec.get('addressLine1') or '').strip()
         addr2 = (rec.get('addressLine2') or '').strip()
         address = ' '.join(filter(None, [addr1, addr2])).strip()
-        city = (rec.get('city') or 'Dallas').strip()
-        state = (rec.get('state') or 'TX').strip()
+        city = (rec.get('city') or default_city).strip()
+        state = (rec.get('state') or default_state).strip()
         zip_code = (rec.get('zip') or '').strip()
-        
+
         # Inspection date — may be ISO string or timestamp
         raw_date = rec.get('inspectionDate') or rec.get('date') or ''
         date_str = ''
         if raw_date:
             try:
-                # Try ISO format first: "2026-02-28T00:00:00" or "2026-02-28"
                 date_str = datetime.strptime(str(raw_date)[:10], '%Y-%m-%d').strftime('%Y-%m-%d')
             except Exception:
                 try:
-                    # Try epoch ms
                     date_str = datetime.fromtimestamp(int(raw_date) / 1000).strftime('%Y-%m-%d')
                 except Exception:
                     date_str = ''
-        
+
         # Score
         score = rec.get('score')
         if score is not None:
@@ -710,17 +812,17 @@ def _parse_dallas_api_record(rec):
                 score = int(float(str(score)))
             except Exception:
                 score = None
-        
+
         risk_score = score if score is not None else 70
-        
+
         # IDs for source URLs
         insp_id = str(rec.get('inspectionID') or rec.get('id') or '').strip()
         permit_id = str(rec.get('permitID') or '').strip()
-        
+
         # Inspection type / purpose
         insp_type = (rec.get('inspectionType') or '').strip()
         purpose = (rec.get('purpose') or '').strip()
-        
+
         return {
             'name': name.title(),
             'address': address.title(),
@@ -739,12 +841,13 @@ def _parse_dallas_api_record(rec):
             'violations': [],
             'inspection_type': insp_type,
             'purpose': purpose,
-            'source': 'Dallas Consumer Health',
-            'source_url': f'https://inspections.myhealthdepartment.com/dallas/inspection/?inspectionID={insp_id}' if insp_id else 'https://inspections.myhealthdepartment.com/dallas',
+            'source': f'{display_name} Health Dept',
+            'source_url': f'https://inspections.myhealthdepartment.com/{slug}/inspection/?inspectionID={insp_id}' if insp_id else f'https://inspections.myhealthdepartment.com/{slug}',
             'source_id': insp_id or permit_id,
+            'metro': 'DFW',
         }
     except Exception as e:
-        log.warning(f"Dallas: failed to parse record: {e} — {str(rec)[:100]}")
+        log.warning(f"{display_name}: failed to parse record: {e} — {str(rec)[:100]}")
         return None
 
 
@@ -757,36 +860,39 @@ def _extract_field(element, selector):
         return None
 
 
-def _extract_dallas_dom(page):
+def _extract_mhd_dom(page, slug, display_name, default_city, default_state):
     """DOM fallback: extract inspection records from div.flex-row cards on the page.
     Used when network interception gets 0 records but the DOM has rendered results.
     """
     results = []
     rows = page.query_selector_all('div.flex-row')
-    log.info(f"DOM fallback: found {len(rows)} flex-row cards")
-    
+    log.info(f"DOM fallback ({display_name}): found {len(rows)} flex-row cards")
+
     for row in rows:
         try:
             name_el = row.query_selector('h4.establishment-list-name a') or row.query_selector('h4.establishment-list-name')
             name = name_el.inner_text().strip() if name_el else None
             if not name or len(name) < 2:
                 continue
-            
+
             permit_id = ''
             if name_el:
                 href = name_el.get_attribute('href') or ''
                 pm = re.search(r'permitID=([^&]+)', href)
                 if pm:
                     permit_id = pm.group(1)
-            
+
             addr_els = row.query_selector_all('div.establishment-list-address')
             address = addr_els[0].inner_text().strip() if addr_els else ''
-            address = re.sub(r',?\s*Dallas,?\s*TX\s*\d*', '', address, flags=re.IGNORECASE).strip()
-            
+            # Generic city/state cleanup (not Dallas-specific)
+            address = re.sub(
+                rf',?\s*{re.escape(default_city)},?\s*{re.escape(default_state)}\s*\d*',
+                '', address, flags=re.IGNORECASE).strip()
+
             right_divs = row.query_selector_all('div.text-right')
             date_str = ''
             score = None
-            
+
             for div in right_divs:
                 text = div.inner_text().strip()
                 date_match = re.search(r'([A-Za-z]+ \d{1,2},?\s*\d{4})', text)
@@ -801,7 +907,7 @@ def _extract_dallas_dom(page):
                         sm = re.search(r'\d+', score_text)
                         if sm:
                             score = int(sm.group())
-            
+
             insp_id = ''
             view_link = row.query_selector('a[href*="inspectionID"]')
             if view_link:
@@ -809,12 +915,12 @@ def _extract_dallas_dom(page):
                 im = re.search(r'inspectionID=([^&]+)', href)
                 if im:
                     insp_id = im.group(1)
-            
+
             results.append({
                 'name': name.title(),
                 'address': address.title(),
-                'city': 'Dallas',
-                'state': 'TX',
+                'city': default_city,
+                'state': default_state,
                 'zip': '',
                 'latitude': None,
                 'longitude': None,
@@ -826,15 +932,33 @@ def _extract_dallas_dom(page):
                 'core_violations': 0,
                 'total_violations': 0,
                 'violations': [],
-                'source': 'Dallas Consumer Health',
-                'source_url': f'https://inspections.myhealthdepartment.com/dallas/inspection/?inspectionID={insp_id}' if insp_id else 'https://inspections.myhealthdepartment.com/dallas',
+                'source': f'{display_name} Health Dept',
+                'source_url': f'https://inspections.myhealthdepartment.com/{slug}/inspection/?inspectionID={insp_id}' if insp_id else f'https://inspections.myhealthdepartment.com/{slug}',
                 'source_id': insp_id or permit_id,
+                'metro': 'DFW',
             })
         except Exception:
             continue
-    
-    log.info(f"DOM fallback: extracted {len(results)} records")
+
+    log.info(f"DOM fallback ({display_name}): extracted {len(results)} records")
     return results
+
+
+def geocode_missing_coords(records):
+    """Geocode records that are missing latitude/longitude using Nominatim."""
+    missing = [r for r in records if not r.get('latitude') or not r.get('longitude')]
+    if not missing:
+        log.info("All records have coordinates, no geocoding needed")
+        return
+    log.info(f"Geocoding {len(missing)} records missing coordinates...")
+    geocoded = 0
+    for r in missing:
+        lat, lon = geocode_address(r['address'], r['city'], r['state'])
+        if lat and lon:
+            r['latitude'] = lat
+            r['longitude'] = lon
+            geocoded += 1
+    log.info(f"Geocoded {geocoded}/{len(missing)} records")
 
 # ─── DATA MODEL / FIRESTORE UPLOADER ─────────────────────────────────────────
 
@@ -920,10 +1044,11 @@ def upload_to_firestore(all_inspections, firebase_creds_path=None, dry_run=False
             'source_url': most_recent.get('source_url', ''),
             'inspection_type': most_recent.get('inspection_type', ''),
             'results': most_recent.get('results', ''),
+            'metro': most_recent.get('metro', ''),
             'inspection_count': len(inspections),
             'updated_at': datetime.now(timezone.utc).isoformat(),
         }
-        
+
         # Optional city-specific fields
         if most_recent.get('nyc_grade'):
             rest_data['nyc_grade'] = most_recent['nyc_grade']
@@ -1082,18 +1207,20 @@ def write_data_js(all_inspections, output_path, top_per_city=1500):
             'url': r.get('source_url', ''),
             'ic':  len(inspections),
             'v':   [[v.get('category','unclassified'), v.get('severity','core'), v.get('description','')] for v in (r.get('violations') or [])],
-            'i':   rest_id
+            'i':   rest_id,
+            'm':   r.get('metro', ''),
         }
         records.append(compact)
-    
+
     by_city = _dd(list)
     for rec in records:
         by_city[rec['c']].append(rec)
-    
+
     final = []
     for city, city_recs in by_city.items():
         city_recs.sort(key=lambda x: x['rs'], reverse=True)
-        if city.lower() == 'dallas':
+        # Include all DFW metro records; cap other cities
+        if city_recs and city_recs[0].get('m') == 'DFW':
             final.extend(city_recs)
         else:
             final.extend(city_recs[:top_per_city])
@@ -1115,8 +1242,8 @@ def main():
     parser = argparse.ArgumentParser(description='DineScores Data Pipeline')
     parser.add_argument('--mode', choices=['full', 'weekly', 'test', 'delete_test'], default='test',
                         help='Run mode: full (all data), weekly (last 8 days), test (25 records), delete_test (remove bogus records)')
-    parser.add_argument('--cities', nargs='+', default=['chicago', 'nyc', 'sf', 'dallas'],
-                        help='Cities to fetch')
+    parser.add_argument('--cities', nargs='+', default=['chicago', 'nyc', 'sf', 'dfw'],
+                        help='Cities to fetch (use "dfw" for all DFW metro cities, or individual slugs like "dallas", "fortworth")')
     parser.add_argument('--creds', default=None,
                         help='Path to Firebase service account JSON')
     parser.add_argument('--dry-run', action='store_true',
@@ -1173,33 +1300,51 @@ def main():
         except Exception as e:
             log.error(f"SF fetch failed: {e}")
     
-    if 'dallas' in args.cities:
+    # DFW metroplex — supports 'dfw' (all cities), 'dallas' (single), or any slug
+    dfw_slugs_requested = [c for c in args.cities if c in DFW_JURISDICTIONS]
+    if 'dfw' in args.cities or dfw_slugs_requested:
         try:
-            # Dallas: For full mode, go from Jan 1 2026 to present
-            dallas_since = '01/01/2026' if args.mode == 'full' else None
-            if args.mode == 'weekly':
-                dallas_since = (datetime.now() - timedelta(days=8)).strftime('%m/%d/%Y')
-            dallas_data = fetch_dallas(since_date=dallas_since, limit=record_limit)
-            all_inspections.extend(dallas_data)
-            log.info(f"Dallas: {len(dallas_data)} records")
+            # Use consistent ISO YYYY-MM-DD format for dates
+            dfw_since = None
+            if args.mode == 'full':
+                dfw_since = '2026-01-01'
+            elif args.mode == 'weekly':
+                dfw_since = (datetime.now() - timedelta(days=8)).strftime('%Y-%m-%d')
+
+            if 'dfw' in args.cities:
+                jurisdictions = DFW_JURISDICTIONS
+            else:
+                jurisdictions = {s: DFW_JURISDICTIONS[s] for s in dfw_slugs_requested}
+
+            dfw_data = fetch_dfw(
+                jurisdictions=jurisdictions,
+                since_date=dfw_since,
+                limit_per_jurisdiction=record_limit)
+
+            # Geocode records missing coordinates
+            geocode_missing_coords(dfw_data)
+
+            all_inspections.extend(dfw_data)
+            log.info(f"DFW: {len(dfw_data)} records")
         except Exception as e:
-            log.error(f"Dallas fetch failed: {e}")
-    
+            log.error(f"DFW fetch failed: {e}")
+
     log.info(f"\nTotal inspections collected: {len(all_inspections)}")
-    
+
     # Show city breakdown
     city_counts = defaultdict(int)
     for r in all_inspections:
         city_counts[r['city']] += 1
     for city, count in sorted(city_counts.items()):
         log.info(f"  {city}: {count}")
-    
+
     # Filter out invalid coordinates
     valid = [r for r in all_inspections if r.get('latitude') and r.get('longitude')]
     no_coords = [r for r in all_inspections if not r.get('latitude') or not r.get('longitude')]
-    
+
     log.info(f"Records with valid coordinates: {len(valid)}")
-    log.info(f"Records without coordinates (Dallas, needs geocoding): {len(no_coords)}")
+    if no_coords:
+        log.info(f"Records without coordinates: {len(no_coords)}")
     
     # Save to JSON for review
     restaurants = save_to_json(all_inspections, args.output)

@@ -2,3 +2,4 @@ serviceAccount.json
 node_modules/
 .firebase/
 *.log
+__pycache__/
