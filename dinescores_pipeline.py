@@ -645,11 +645,24 @@ def _scrape_mhd_jurisdiction(page, slug, config, since_date=None, limit=None):
     seen_ids = set()
 
     # ── Initial page load ──────────────────────────────────────────
+    # Attach a temporary listener during initial load to see what URLs the portal hits
+    init_urls = []
+    def _init_response(response):
+        try:
+            if 'myhealthdepartment' in response.url or 'inspections' in response.url:
+                init_urls.append(f"{response.status} {response.url[:120]}")
+        except Exception:
+            pass
+
+    page.on('response', _init_response)
     log.info(f"Loading {display_name} portal...")
     page.goto(portal_url, timeout=30000)
     page.wait_for_load_state('networkidle', timeout=30000)
     time.sleep(2)
+    page.remove_listener('response', _init_response)
     log.info(f"{display_name} portal loaded")
+    for u in init_urls:
+        log.debug(f"  [INIT] {u}")
 
     # ── Process each daily window ─────────────────────────────────
     for win_idx, (iso_date, disp_date) in enumerate(windows):
@@ -696,18 +709,24 @@ def _scrape_single_window(page, slug, config, win_idx, total_windows,
 
     def handle_response(response):
         try:
-            url = response.url.rstrip('/')
-            if url.startswith('https://inspections.myhealthdepartment.com') and response.status == 200:
-                # Try to parse as JSON — skip content-type check since the
-                # portal may not set standard application/json headers
+            url = response.url
+            status = response.status
+            # Debug: log all responses from the portal domain
+            if 'myhealthdepartment' in url or 'inspections' in url:
+                ct = response.headers.get('content-type', '')
+                log.debug(f"    [NET] {status} {ct[:40]} {url[:120]}")
+            if url.rstrip('/').startswith('https://inspections.myhealthdepartment.com') and status == 200:
                 try:
                     body = response.json()
                 except Exception:
                     return
                 if isinstance(body, list) and len(body) > 0:
+                    log.debug(f"    [INTERCEPT] Captured list with {len(body)} items from {url[:80]}")
                     intercepted.append(body)
-        except Exception:
-            pass
+                elif isinstance(body, dict):
+                    log.debug(f"    [INTERCEPT] Got dict response (keys: {list(body.keys())[:5]}) from {url[:80]}")
+        except Exception as ex:
+            log.debug(f"    [NET-ERR] {ex}")
 
     page.on('response', handle_response)
 
@@ -731,9 +750,13 @@ def _scrape_single_window(page, slug, config, win_idx, total_windows,
             log.warning(f"  Window {win_idx+1}: Flatpickr not ready after 3 attempts, skipping")
             return []
 
+        log.debug(f"  Window {win_idx+1}: Flatpickr setDate succeeded for {disp_start} - {disp_end}")
+
         # Wait for the AJAX response
         page.wait_for_load_state('networkidle', timeout=20000)
         time.sleep(1)
+
+        log.debug(f"  Window {win_idx+1}: After networkidle, {len(intercepted)} batches intercepted")
 
         # Scroll to bottom and click Load More until all results loaded
         max_clicks = 20
@@ -1254,7 +1277,12 @@ def main():
                         help='Output JSON file path')
     parser.add_argument('--output-data-js', default=None,
                         help='Also write a data.js file (window.DATA = ...) for client-side embedding')
+    parser.add_argument('--debug', action='store_true',
+                        help='Enable debug logging for network interception diagnostics')
     args = parser.parse_args()
+
+    if args.debug:
+        logging.getLogger().setLevel(logging.DEBUG)
     
     log.info(f"DineScores Pipeline starting | mode={args.mode} cities={args.cities}")
     
