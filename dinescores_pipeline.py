@@ -698,12 +698,14 @@ def _scrape_single_window(page, slug, config, win_idx, total_windows,
         try:
             url = response.url.rstrip('/')
             if url.startswith('https://inspections.myhealthdepartment.com') and response.status == 200:
-                # Only intercept JSON array responses from the portal root
-                ct = response.headers.get('content-type', '')
-                if 'json' in ct or 'javascript' in ct:
+                # Try to parse as JSON — skip content-type check since the
+                # portal may not set standard application/json headers
+                try:
                     body = response.json()
-                    if isinstance(body, list) and len(body) > 0:
-                        intercepted.append(body)
+                except Exception:
+                    return
+                if isinstance(body, list) and len(body) > 0:
+                    intercepted.append(body)
         except Exception:
             pass
 
