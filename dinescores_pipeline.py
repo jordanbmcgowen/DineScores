@@ -718,13 +718,26 @@ def _scrape_single_window(page, slug, config, win_idx, total_windows,
             if url.rstrip('/').startswith('https://inspections.myhealthdepartment.com') and status == 200:
                 try:
                     body = response.json()
-                except Exception:
+                except Exception as je:
+                    log.debug(f"    [JSON-FAIL] {je} for {url[:80]}")
+                    # Try reading as text to see what we got
+                    try:
+                        text = response.text()
+                        log.debug(f"    [BODY-TEXT] {text[:300]}")
+                    except Exception:
+                        pass
                     return
+                # Log what we got regardless of type
+                body_type = type(body).__name__
+                body_len = len(body) if isinstance(body, (list, dict)) else None
+                log.debug(f"    [JSON-OK] type={body_type} len={body_len} from {url[:80]}")
                 if isinstance(body, list) and len(body) > 0:
-                    log.debug(f"    [INTERCEPT] Captured list with {len(body)} items from {url[:80]}")
+                    # Log first record keys to verify structure
+                    if isinstance(body[0], dict):
+                        log.debug(f"    [INTERCEPT] keys={list(body[0].keys())[:8]}")
                     intercepted.append(body)
                 elif isinstance(body, dict):
-                    log.debug(f"    [INTERCEPT] Got dict response (keys: {list(body.keys())[:5]}) from {url[:80]}")
+                    log.debug(f"    [DICT-RESP] keys={list(body.keys())[:8]}")
         except Exception as ex:
             log.debug(f"    [NET-ERR] {ex}")
 
