@@ -19,7 +19,7 @@ DFW cities:
 """
 
 import os, sys, json, re, time, math, hashlib, logging, argparse
-from datetime import datetime, timedelta, timezoneh
+from datetime import datetime, timedelta, timezone
 from collections import defaultdict
 
 import requests
@@ -1247,7 +1247,7 @@ def write_data_js(all_inspections, output_path, top_per_city=1500):
             'v':   [(v if isinstance(v, list) else [v.get('category','unclassified'), v.get('severity','core'), v.get('description','')]) for v in (r.get('violations') or [])],
             'i':   rest_id,
             'm':   r.get('metro', ''),
-        }h
+        }
         records.append(compact)
 
     by_city = _dd(list)
