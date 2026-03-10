@@ -539,17 +539,209 @@ def fetch_sf(since_date=None, limit=30000):
     return results
 
 # ─── MYHEALTHDEPARTMENT PORTAL SCRAPER (DFW + generic) ─────────────────────
+# Uses direct HTTP POST to the portal's JSON API (no browser needed).
+# The API is the same one the portal's JavaScript frontend calls.
 
-def fetch_dfw(jurisdictions=None, since_date=None, limit_per_jurisdiction=None):
+MHD_BASE_URL = 'https://inspections.myhealthdepartment.com/'
+MHD_PAGE_SIZE = 25
+MHD_DELAY = 1.5        # seconds between API calls
+MHD_RETRY_DELAY = 30   # seconds on 403/429 before retry
+MHD_MAX_RETRIES = 5
+
+
+def _mhd_session():
+    """Create a requests session with browser-like headers for MHD portal."""
+    s = requests.Session()
+    s.headers.update({
+        'User-Agent': CHROME_UA,
+        'Content-Type': 'application/json',
+        'Accept': 'application/json, text/plain, */*',
+        'Origin': 'https://inspections.myhealthdepartment.com',
+        'Referer': 'https://inspections.myhealthdepartment.com/',
+    })
+    return s
+
+
+def _mhd_search_page(session, slug, date_range_str, start_offset, retry_count=0):
     """
-    Scrape all DFW jurisdictions from MyHealthDepartment portal in a single
-    Playwright browser session. Reuses the browser context across jurisdictions
-    to avoid expensive Chromium launch overhead per city.
+    Fetch one page of search results from MHD portal API.
 
     Args:
-        jurisdictions: dict of slug→config to scrape (defaults to all DFW_JURISDICTIONS)
+        session: requests.Session with browser headers
+        slug: portal path (e.g. 'dallas')
+        date_range_str: date filter string like '2026-03-01 to 2026-03-01'
+        start_offset: pagination offset
+        retry_count: current retry attempt
+
+    Returns:
+        list of record dicts, or None on permanent failure
+    """
+    payload = {
+        'data': {
+            'path': slug,
+            'programName': '',
+            'filters': {
+                'date': date_range_str,
+                'purpose': '',
+            },
+            'start': start_offset,
+            'count': MHD_PAGE_SIZE,
+            'searchStr': '',
+            'lat': 0,
+            'lng': 0,
+            'sort': {},
+        },
+        'task': 'searchInspections',
+    }
+    try:
+        r = session.post(MHD_BASE_URL, json=payload, timeout=30)
+        if r.status_code in (403, 429):
+            if retry_count < MHD_MAX_RETRIES:
+                wait = MHD_RETRY_DELAY * (retry_count + 1)
+                log.warning(f"  MHD blocked ({r.status_code}). Waiting {wait}s before retry "
+                            f"{retry_count + 1}/{MHD_MAX_RETRIES}...")
+                time.sleep(wait)
+                return _mhd_search_page(session, slug, date_range_str, start_offset, retry_count + 1)
+            log.error(f"  MHD still blocked after {MHD_MAX_RETRIES} retries")
+            return None
+        r.raise_for_status()
+        data = r.json()
+        if not isinstance(data, list):
+            log.debug(f"  MHD search returned non-list: {type(data).__name__}")
+            return []
+        return data
+    except requests.RequestException as e:
+        if retry_count < MHD_MAX_RETRIES:
+            wait = MHD_RETRY_DELAY * (retry_count + 1)
+            log.warning(f"  MHD network error: {e}. Waiting {wait}s before retry...")
+            time.sleep(wait)
+            return _mhd_search_page(session, slug, date_range_str, start_offset, retry_count + 1)
+        log.error(f"  MHD failed after {MHD_MAX_RETRIES} retries: {e}")
+        return None
+
+
+def _mhd_fetch_all_for_day(session, slug, day_str):
+    """Fetch all inspection records for a single day, paginating through results."""
+    date_range = f"{day_str} to {day_str}"
+    all_results = []
+    start = 0
+    while start <= 200:  # portal caps at ~225 per query
+        page = _mhd_search_page(session, slug, date_range, start)
+        if page is None:
+            return None  # permanent failure
+        if not page:
+            break
+        all_results.extend(page)
+        if len(page) < MHD_PAGE_SIZE:
+            break
+        start += MHD_PAGE_SIZE
+        time.sleep(MHD_DELAY)
+    if len(all_results) >= 225:
+        log.warning(f"  {slug} {day_str} hit the 225 record cap — some records may be missing")
+    return all_results
+
+
+def _mhd_fetch_inspection_detail(session, slug, inspection_id, retry_count=0):
+    """
+    Fetch violation details for a single inspection.
+
+    Tries multiple known API task names that MHD portals use for detail data.
+    Returns a list of violation description strings, or empty list on failure.
+    """
+    # Try known API tasks for inspection details
+    detail_tasks = [
+        {'task': 'getInspection', 'data': {'path': slug, 'inspectionID': inspection_id}},
+        {'task': 'getInspectionDetails', 'data': {'path': slug, 'inspectionID': inspection_id}},
+        {'task': 'getInspectionViolations', 'data': {'path': slug, 'inspectionID': inspection_id}},
+    ]
+
+    for payload in detail_tasks:
+        try:
+            r = session.post(MHD_BASE_URL, json=payload, timeout=20)
+            if r.status_code in (403, 429):
+                if retry_count < 2:
+                    time.sleep(MHD_RETRY_DELAY)
+                    return _mhd_fetch_inspection_detail(session, slug, inspection_id, retry_count + 1)
+                return []
+            if r.status_code != 200:
+                continue
+            data = r.json()
+            violations = _extract_violations_from_detail(data)
+            if violations:
+                return violations
+        except Exception as e:
+            log.debug(f"  Detail fetch failed for {inspection_id} with task={payload['task']}: {e}")
+            continue
+
+    return []
+
+
+def _extract_violations_from_detail(data):
+    """
+    Extract violation descriptions from an inspection detail API response.
+    Handles various response shapes the MHD portal might return.
+    """
+    violations = []
+
+    if isinstance(data, dict):
+        # Look for violations in common field names
+        for key in ('violations', 'violationItems', 'items', 'violation_list',
+                     'inspectionViolations', 'details'):
+            items = data.get(key)
+            if isinstance(items, list):
+                for item in items:
+                    desc = _violation_desc_from_item(item)
+                    if desc:
+                        violations.append(desc)
+                if violations:
+                    return violations
+
+        # Some APIs nest violations under an 'inspection' key
+        inner = data.get('inspection') or data.get('data') or data.get('result')
+        if isinstance(inner, dict):
+            return _extract_violations_from_detail(inner)
+
+    elif isinstance(data, list):
+        for item in data:
+            desc = _violation_desc_from_item(item)
+            if desc:
+                violations.append(desc)
+
+    return violations
+
+
+def _violation_desc_from_item(item):
+    """Extract a violation description string from a single violation item."""
+    if isinstance(item, str) and len(item) > 5:
+        return item
+    if isinstance(item, dict):
+        # Try common field names for violation text
+        for key in ('description', 'violationDescription', 'violation', 'text',
+                     'violationText', 'observationText', 'observation',
+                     'comments', 'comment', 'narrative', 'demerits_description'):
+            val = item.get(key)
+            if val and isinstance(val, str) and len(val.strip()) > 5:
+                return val.strip()
+        # Combine code + description if separate
+        code = item.get('code') or item.get('violationCode') or item.get('violation_code') or ''
+        desc = item.get('codeDescription') or item.get('code_description') or ''
+        if desc and len(desc.strip()) > 5:
+            return f"{code} - {desc.strip()}" if code else desc.strip()
+    return None
+
+
+def fetch_dfw(jurisdictions=None, since_date=None, limit_per_jurisdiction=None,
+              fetch_violations=True):
+    """
+    Fetch inspection data for DFW jurisdictions using direct API calls to the
+    MyHealthDepartment portal. No browser required — uses the same JSON POST
+    endpoint that the portal's JavaScript frontend calls.
+
+    Args:
+        jurisdictions: dict of slug->config to scrape (defaults to all DFW_JURISDICTIONS)
         since_date: ISO YYYY-MM-DD string for start date (defaults to Jan 1 of current year)
         limit_per_jurisdiction: max records per jurisdiction (None = no limit)
+        fetch_violations: if True, also fetch violation details for each inspection
 
     Returns:
         list of inspection record dicts with 'metro': 'DFW'
@@ -557,66 +749,40 @@ def fetch_dfw(jurisdictions=None, since_date=None, limit_per_jurisdiction=None):
     if jurisdictions is None:
         jurisdictions = DFW_JURISDICTIONS
 
-    try:
-        from playwright.sync_api import sync_playwright
-    except ImportError:
-        log.error("Playwright not installed. Run: pip install playwright && playwright install chromium")
-        return []
-
+    session = _mhd_session()
     all_results = []
 
-    with sync_playwright() as p:
-        browser = p.chromium.launch(headless=True)
-        context = browser.new_context(user_agent=CHROME_UA)
+    for slug, config in jurisdictions.items():
+        display_name = config['display_name']
+        log.info(f"--- Fetching {display_name} ({slug}) via API ---")
+        try:
+            results = _fetch_mhd_jurisdiction_api(
+                session, slug, config, since_date, limit_per_jurisdiction,
+                fetch_violations)
+            all_results.extend(results)
+            log.info(f"{display_name}: {len(results)} records")
+        except Exception as e:
+            log.error(f"{display_name} fetch failed: {e}")
+            import traceback
+            log.error(traceback.format_exc())
+        time.sleep(2)  # polite pause between jurisdictions
 
-        for slug, config in jurisdictions.items():
-            display_name = config['display_name']
-            log.info(f"--- Scraping {display_name} ({slug}) ---")
-            page = context.new_page()
-            try:
-                results = _scrape_mhd_jurisdiction(
-                    page, slug, config, since_date, limit_per_jurisdiction)
-                all_results.extend(results)
-                log.info(f"{display_name}: {len(results)} records")
-            except Exception as e:
-                log.error(f"{display_name} scrape failed: {e}")
-                import traceback
-                log.error(traceback.format_exc())
-            finally:
-                page.close()
-            time.sleep(2)  # polite pause between jurisdictions
-
-        browser.close()
-
-    log.info(f"DFW total: {len(all_results)} inspection records across {len(jurisdictions)} jurisdictions")
+    log.info(f"DFW total: {len(all_results)} inspection records across "
+             f"{len(jurisdictions)} jurisdictions")
     return all_results
 
 
-def _scrape_mhd_jurisdiction(page, slug, config, since_date=None, limit=None):
+def _fetch_mhd_jurisdiction_api(session, slug, config, since_date=None, limit=None,
+                                 fetch_violations=True):
     """
-    Scrape a single MyHealthDepartment jurisdiction via Playwright network interception.
-
-    Uses 1-day windows to stay well under the portal's per-query result cap.
-    Includes per-window error recovery and Flatpickr retry logic.
-
-    Args:
-        page: Playwright page object (already open)
-        slug: portal URL slug (e.g., 'dallas', 'fortworth')
-        config: dict with 'display_name', 'default_city', 'state'
-        since_date: ISO YYYY-MM-DD start date (defaults to Jan 1 of current year)
-        limit: max records to collect (None = no limit)
-
-    Returns:
-        list of parsed inspection record dicts
+    Fetch all inspections for one MHD jurisdiction using daily date windows
+    and the searchInspections API. Optionally fetches violation details.
     """
     display_name = config['display_name']
     default_city = config['default_city']
     default_state = config.get('state', 'TX')
-    portal_url = f'https://inspections.myhealthdepartment.com/{slug}'
 
-    log.info(f"Fetching {display_name} data via browser + daily network intercept (since={since_date})")
-
-    # Build overall date range — always use ISO YYYY-MM-DD format
+    # Build date range
     if since_date:
         try:
             range_start = datetime.strptime(str(since_date)[:10], '%Y-%m-%d')
@@ -625,195 +791,78 @@ def _scrape_mhd_jurisdiction(page, slug, config, since_date=None, limit=None):
             range_start = datetime(datetime.now().year, 1, 1)
     else:
         range_start = datetime(datetime.now().year, 1, 1)
-
     range_end = datetime.now()
 
-    # Build list of 1-day windows for complete coverage
-    windows = []
+    # Build list of daily windows
+    days = []
     current_day = range_start
     while current_day <= range_end:
-        disp_date = current_day.strftime('%m/%d/%Y')
-        windows.append((
-            current_day.strftime('%Y-%m-%d'),
-            disp_date,
-        ))
+        days.append(current_day.strftime('%Y-%m-%d'))
         current_day += timedelta(days=1)
 
-    log.info(f"{display_name}: {len(windows)} daily windows from {range_start.strftime('%Y-%m-%d')} to {range_end.strftime('%Y-%m-%d')}")
+    log.info(f"{display_name}: {len(days)} daily windows from "
+             f"{range_start.strftime('%Y-%m-%d')} to {range_end.strftime('%Y-%m-%d')}")
 
-    all_results = []
+    all_records = []
     seen_ids = set()
+    stopped_early = False
 
-    # ── Initial page load ──────────────────────────────────────────
-    # Attach a temporary listener during initial load to see what URLs the portal hits
-    init_urls = []
-    def _init_response(response):
-        try:
-            if 'myhealthdepartment' in response.url or 'inspections' in response.url:
-                init_urls.append(f"{response.status} {response.url[:120]}")
-        except Exception:
-            pass
-
-    page.on('response', _init_response)
-    log.info(f"Loading {display_name} portal...")
-    page.goto(portal_url, timeout=30000)
-    page.wait_for_load_state('networkidle', timeout=30000)
-    time.sleep(2)
-    page.remove_listener('response', _init_response)
-    log.info(f"{display_name} portal loaded")
-    for u in init_urls:
-        log.debug(f"  [INIT] {u}")
-
-    # ── Process each daily window ─────────────────────────────────
-    for win_idx, (iso_date, disp_date) in enumerate(windows):
-        if limit and len(all_results) >= limit:
+    for day_idx, day_str in enumerate(days):
+        if limit and len(all_records) >= limit:
             break
 
-        # Per-window error recovery: retry once on failure
-        for attempt in range(2):
-            try:
-                window_results = _scrape_single_window(
-                    page, slug, config, win_idx, len(windows),
-                    disp_date, disp_date, seen_ids)
+        raw_records = _mhd_fetch_all_for_day(session, slug, day_str)
+        if raw_records is None:
+            log.error(f"  {display_name}: stopping early due to server errors on {day_str}")
+            stopped_early = True
+            break
 
-                for rec in window_results:
-                    all_results.append(rec)
+        new_count = 0
+        for rec in raw_records:
+            parsed = _parse_mhd_record(rec, slug, display_name, default_city, default_state)
+            if parsed:
+                uid = parsed.get('source_id') or f"{parsed['name']}|{parsed['inspection_date']}"
+                if uid not in seen_ids:
+                    seen_ids.add(uid)
+                    all_records.append(parsed)
+                    new_count += 1
 
-                if win_idx % 7 == 0 or win_idx == len(windows) - 1:
-                    log.info(f"  Window {win_idx+1}/{len(windows)} ({disp_date}): "
-                             f"{len(window_results)} new records (total: {len(all_results)})")
-                break  # success, no retry needed
+        if day_idx % 7 == 0 or day_idx == len(days) - 1:
+            log.info(f"  Day {day_idx+1}/{len(days)} ({day_str}): "
+                     f"{len(raw_records)} results ({new_count} new). Total: {len(all_records)}")
 
-            except Exception as e:
-                if attempt == 0:
-                    log.warning(f"  Window {win_idx+1} attempt 1 failed: {e}, retrying...")
-                    time.sleep(2)
-                else:
-                    log.error(f"  Window {win_idx+1} failed after 2 attempts: {e}")
+        time.sleep(MHD_DELAY)
 
-        # Small pause between windows
-        time.sleep(0.3)
+    # Fetch violation details for each inspection
+    if fetch_violations and all_records:
+        inspections_with_id = [r for r in all_records if r.get('source_id')]
+        log.info(f"{display_name}: fetching violation details for {len(inspections_with_id)} inspections...")
+        fetched_violations = 0
+        for i, rec in enumerate(inspections_with_id):
+            insp_id = rec['source_id']
+            violation_texts = _mhd_fetch_inspection_detail(session, slug, insp_id)
+            if violation_texts:
+                violations = [classify_violation(text) for text in violation_texts]
+                risk_score, pv, pfv, cv = calc_risk_score(violations)
+                rec['violations'] = violations
+                rec['risk_score'] = risk_score
+                rec['priority_violations'] = pv
+                rec['priority_foundation_violations'] = pfv
+                rec['core_violations'] = cv
+                rec['total_violations'] = len(violations)
+                fetched_violations += 1
+            if (i + 1) % 50 == 0:
+                log.info(f"  Violations: {i+1}/{len(inspections_with_id)} inspections checked "
+                         f"({fetched_violations} with violations)")
+            time.sleep(MHD_DELAY)
+        log.info(f"{display_name}: {fetched_violations}/{len(inspections_with_id)} "
+                 f"inspections had violation details")
 
-    log.info(f"{display_name}: {len(all_results)} total inspection records across {len(windows)} windows")
-    return all_results
+    if stopped_early:
+        log.warning(f"{display_name}: scrape stopped early — run again to get remaining data")
 
-
-def _scrape_single_window(page, slug, config, win_idx, total_windows,
-                           disp_start, disp_end, seen_ids):
-    """Scrape a single date window, returning new parsed records."""
-    display_name = config['display_name']
-    default_city = config['default_city']
-    default_state = config.get('state', 'TX')
-
-    intercepted = []
-
-    def handle_response(response):
-        try:
-            url = response.url
-            status = response.status
-            # Debug: log all responses from the portal domain
-            if 'myhealthdepartment' in url or 'inspections' in url:
-                ct = response.headers.get('content-type', '')
-                log.debug(f"    [NET] {status} {ct[:40]} {url[:120]}")
-            if url.rstrip('/').startswith('https://inspections.myhealthdepartment.com') and status == 200:
-                try:
-                    body = response.json()
-                except Exception as je:
-                    log.debug(f"    [JSON-FAIL] {je} for {url[:80]}")
-                    # Try reading as text to see what we got
-                    try:
-                        text = response.text()
-                        log.debug(f"    [BODY-TEXT] {text[:300]}")
-                    except Exception:
-                        pass
-                    return
-                # Log what we got regardless of type
-                body_type = type(body).__name__
-                body_len = len(body) if isinstance(body, (list, dict)) else None
-                log.debug(f"    [JSON-OK] type={body_type} len={body_len} from {url[:80]}")
-                if isinstance(body, list) and len(body) > 0:
-                    # Log first record keys to verify structure
-                    if isinstance(body[0], dict):
-                        log.debug(f"    [INTERCEPT] keys={list(body[0].keys())[:8]}")
-                    intercepted.append(body)
-                elif isinstance(body, dict):
-                    log.debug(f"    [DICT-RESP] keys={list(body.keys())[:8]}")
-        except Exception as ex:
-            log.debug(f"    [NET-ERR] {ex}")
-
-    page.on('response', handle_response)
-
-    try:
-        # Set date filter — retry Flatpickr readiness up to 3 times
-        set_ok = False
-        for fp_attempt in range(3):
-            set_ok = page.evaluate(f"""
-                (function() {{
-                    var input = document.getElementById('filterdate');
-                    if (!input || !input._flatpickr) return false;
-                    input._flatpickr.setDate(['{disp_start}', '{disp_end}'], true);
-                    return true;
-                }})();
-            """)
-            if set_ok:
-                break
-            time.sleep(1)
-
-        if not set_ok:
-            log.warning(f"  Window {win_idx+1}: Flatpickr not ready after 3 attempts, skipping")
-            return []
-
-        log.debug(f"  Window {win_idx+1}: Flatpickr setDate succeeded for {disp_start} - {disp_end}")
-
-        # Wait for the AJAX response
-        page.wait_for_load_state('networkidle', timeout=20000)
-        time.sleep(1)
-
-        log.debug(f"  Window {win_idx+1}: After networkidle, {len(intercepted)} batches intercepted")
-
-        # Scroll to bottom and click Load More until all results loaded
-        max_clicks = 20
-        clicks = 0
-        consecutive_empty = 0
-
-        while clicks < max_clicks:
-            page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
-            time.sleep(0.3)
-
-            load_more = page.query_selector('button.load-more-results-button:visible')
-            if not load_more:
-                break
-
-            before = len(intercepted)
-            load_more.scroll_into_view_if_needed()
-            load_more.click()
-            page.wait_for_load_state('networkidle', timeout=10000)
-            time.sleep(0.5)
-
-            if len(intercepted) == before:
-                consecutive_empty += 1
-                if consecutive_empty >= 2:
-                    break
-            else:
-                consecutive_empty = 0
-
-            clicks += 1
-
-        # Parse this window's records
-        new_records = []
-        for page_data in intercepted:
-            for rec in page_data:
-                parsed = _parse_mhd_record(rec, slug, display_name, default_city, default_state)
-                if parsed:
-                    uid = parsed.get('source_id') or f"{parsed['name']}|{parsed['inspection_date']}"
-                    if uid not in seen_ids:
-                        seen_ids.add(uid)
-                        new_records.append(parsed)
-
-        return new_records
-
-    finally:
-        page.remove_listener('response', handle_response)
+    log.info(f"{display_name}: {len(all_records)} total inspection records")
+    return all_records
 
 
 def _parse_mhd_record(rec, slug, display_name, default_city, default_state):
@@ -887,99 +936,6 @@ def _parse_mhd_record(rec, slug, display_name, default_city, default_state):
     except Exception as e:
         log.warning(f"{display_name}: failed to parse record: {e} — {str(rec)[:100]}")
         return None
-
-
-def _extract_field(element, selector):
-    """Try to extract text from a CSS selector within an element."""
-    try:
-        el = element.query_selector(selector)
-        return el.inner_text().strip() if el else None
-    except:
-        return None
-
-
-def _extract_mhd_dom(page, slug, display_name, default_city, default_state):
-    """DOM fallback: extract inspection records from div.flex-row cards on the page.
-    Used when network interception gets 0 records but the DOM has rendered results.
-    """
-    results = []
-    rows = page.query_selector_all('div.flex-row')
-    log.info(f"DOM fallback ({display_name}): found {len(rows)} flex-row cards")
-
-    for row in rows:
-        try:
-            name_el = row.query_selector('h4.establishment-list-name a') or row.query_selector('h4.establishment-list-name')
-            name = name_el.inner_text().strip() if name_el else None
-            if not name or len(name) < 2:
-                continue
-
-            permit_id = ''
-            if name_el:
-                href = name_el.get_attribute('href') or ''
-                pm = re.search(r'permitID=([^&]+)', href)
-                if pm:
-                    permit_id = pm.group(1)
-
-            addr_els = row.query_selector_all('div.establishment-list-address')
-            address = addr_els[0].inner_text().strip() if addr_els else ''
-            # Generic city/state cleanup (not Dallas-specific)
-            address = re.sub(
-                rf',?\s*{re.escape(default_city)},?\s*{re.escape(default_state)}\s*\d*',
-                '', address, flags=re.IGNORECASE).strip()
-
-            right_divs = row.query_selector_all('div.text-right')
-            date_str = ''
-            score = None
-
-            for div in right_divs:
-                text = div.inner_text().strip()
-                date_match = re.search(r'([A-Za-z]+ \d{1,2},?\s*\d{4})', text)
-                if date_match:
-                    try:
-                        date_str = datetime.strptime(date_match.group(1).strip(), '%B %d, %Y').strftime('%Y-%m-%d')
-                    except Exception:
-                        pass
-                    strong_el = div.query_selector('strong')
-                    if strong_el:
-                        score_text = strong_el.inner_text().strip()
-                        sm = re.search(r'\d+', score_text)
-                        if sm:
-                            score = int(sm.group())
-
-            insp_id = ''
-            view_link = row.query_selector('a[href*="inspectionID"]')
-            if view_link:
-                href = view_link.get_attribute('href') or ''
-                im = re.search(r'inspectionID=([^&]+)', href)
-                if im:
-                    insp_id = im.group(1)
-
-            results.append({
-                'name': name.title(),
-                'address': address.title(),
-                'city': default_city,
-                'state': default_state,
-                'zip': '',
-                'latitude': None,
-                'longitude': None,
-                'inspection_date': date_str,
-                'original_score': score,
-                'risk_score': score if score is not None else 70,
-                'priority_violations': 0,
-                'priority_foundation_violations': 0,
-                'core_violations': 0,
-                'total_violations': 0,
-                'violations': [],
-                'source': f'{display_name} Health Dept',
-                'source_url': f'https://inspections.myhealthdepartment.com/{slug}/inspection/?inspectionID={insp_id}' if insp_id else f'https://inspections.myhealthdepartment.com/{slug}',
-                'source_id': insp_id or permit_id,
-                'metro': 'DFW',
-            })
-        except Exception:
-            continue
-
-    log.info(f"DOM fallback ({display_name}): extracted {len(results)} records")
-    return results
 
 
 def geocode_missing_coords(records):
@@ -1244,7 +1200,7 @@ def write_data_js(all_inspections, output_path, top_per_city=1500):
             'src': r.get('source', ''),
             'url': r.get('source_url', ''),
             'ic':  len(inspections),
-            'v':   [(v if isinstance(v, list) else [v.get('category','unclassified'), v.get('severity','core'), v.get('description','')]) for v in (r.get('violations') or [])],
+            'v':   [(list(v) if isinstance(v, (list, tuple)) else [v.get('category','unclassified'), v.get('severity','core'), v.get('description','')]) for v in (r.get('violations') or [])],
             'i':   rest_id,
             'm':   r.get('metro', ''),
         }

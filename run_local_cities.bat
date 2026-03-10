@@ -3,10 +3,15 @@
 :: DineScores Local Runner — Windows
 :: =============================================================================
 :: Usage:
-::   run_local_cities.bat                          -- weekly refresh (dallas)
-::   run_local_cities.bat full                     -- full historical pull
-::   run_local_cities.bat full dallas houston       -- full pull, specific cities
-::   run_local_cities.bat weekly dallas             -- weekly, specific cities
+::   run_local_cities.bat                    -- weekly refresh, all DFW cities
+::   run_local_cities.bat full               -- full historical pull, all DFW
+::   run_local_cities.bat full dallas plano  -- full pull, specific cities
+::   run_local_cities.bat weekly dallas      -- weekly, specific city
+::
+:: The default "dfw" expands to all 16 DFW metro cities in the pipeline.
+:: Individual city slugs: dallas, fortworth, arlington, plano, irving, frisco,
+::   mckinney, denton, garland, grandprairie, mesquite, carrollton,
+::   richardson, allen, lewisville, flowermound
 :: =============================================================================
 
 setlocal EnableDelayedExpansion
@@ -18,25 +23,29 @@ set CREDS=%USERPROFILE%\.dinescores\firebase-key.json
 set LOG_DIR=%SCRIPT_DIR%logs
 
 :: First argument = mode (optional, defaults to weekly)
-:: Remaining arguments = cities (optional, defaults to dallas)
+:: Remaining arguments = cities (optional, defaults to dfw = all DFW metro)
 set MODE=weekly
-set LOCAL_CITIES=dfw
+set LOCAL_CITIES=
 
 if not "%~1"=="" (
     set MODE=%~1
 )
-if not "%~2"=="" (
-    set LOCAL_CITIES=%~2
+
+:: Collect all remaining arguments as city names
+shift
+:collect_cities
+if "%~1"=="" goto done_cities
+if "!LOCAL_CITIES!"=="" (
+    set LOCAL_CITIES=%~1
+) else (
+    set LOCAL_CITIES=!LOCAL_CITIES! %~1
 )
-if not "%~3"=="" (
-    set LOCAL_CITIES=%LOCAL_CITIES% %~3
-)
-if not "%~4"=="" (
-    set LOCAL_CITIES=%LOCAL_CITIES% %~4
-)
-if not "%~5"=="" (
-    set LOCAL_CITIES=%LOCAL_CITIES% %~5
-)
+shift
+goto collect_cities
+:done_cities
+
+:: Default to all DFW cities if none specified
+if "!LOCAL_CITIES!"=="" set LOCAL_CITIES=dfw
 
 :: ── Preflight checks ─────────────────────────────────────────────────────────
 echo ========================================
@@ -66,13 +75,13 @@ set LOG_FILE=%LOG_DIR%\local_run_%date:~-4,4%%date:~-7,2%%date:~-10,2%_%time:~0,
 set LOG_FILE=%LOG_FILE: =0%
 
 echo   Mode:    %MODE%
-echo   Cities:  %LOCAL_CITIES%
+echo   Cities:  !LOCAL_CITIES!
 echo   Creds:   %CREDS%
 echo   Log:     %LOG_FILE%
 echo.
 
 :: ── Run pipeline ─────────────────────────────────────────────────────────────
-python "%PIPELINE%" --mode %MODE% --cities %LOCAL_CITIES% --creds "%CREDS%" > "%LOG_FILE%" 2>&1
+python "%PIPELINE%" --mode %MODE% --cities !LOCAL_CITIES! --creds "%CREDS%" > "%LOG_FILE%" 2>&1
 
 set EXIT_CODE=%ERRORLEVEL%
 type "%LOG_FILE%"
