@@ -28,7 +28,7 @@ LOG_DIR="$SCRIPT_DIR/logs"
 LOG_FILE="$LOG_DIR/local_run_$(date +%Y%m%d_%H%M%S).log"
 
 # Default: DFW metro (all cities via MyHealthDepartment portal)
-# Uses a single Playwright browser session across all DFW jurisdictions
+# Uses direct API calls to the MHD portal (no browser required)
 LOCAL_CITIES=("dfw")
 
 MODE="weekly"
