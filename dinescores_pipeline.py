@@ -121,22 +121,15 @@ SEVERITY_MAP = {
 # URL pattern: https://inspections.myhealthdepartment.com/{slug}
 
 DFW_JURISDICTIONS = {
+    # Confirmed working on myhealthdepartment.com (verified 2026-03-10):
     'dallas':       {'display_name': 'Dallas',        'default_city': 'Dallas',        'state': 'TX'},
-    'fortworth':    {'display_name': 'Fort Worth',    'default_city': 'Fort Worth',    'state': 'TX'},
-    'arlington':    {'display_name': 'Arlington',     'default_city': 'Arlington',     'state': 'TX'},
     'plano':        {'display_name': 'Plano',         'default_city': 'Plano',         'state': 'TX'},
-    'irving':       {'display_name': 'Irving',        'default_city': 'Irving',        'state': 'TX'},
-    'frisco':       {'display_name': 'Frisco',        'default_city': 'Frisco',        'state': 'TX'},
-    'mckinney':     {'display_name': 'McKinney',      'default_city': 'McKinney',      'state': 'TX'},
-    'denton':       {'display_name': 'Denton',        'default_city': 'Denton',        'state': 'TX'},
-    'garland':      {'display_name': 'Garland',       'default_city': 'Garland',       'state': 'TX'},
-    'grandprairie': {'display_name': 'Grand Prairie', 'default_city': 'Grand Prairie', 'state': 'TX'},
-    'mesquite':     {'display_name': 'Mesquite',      'default_city': 'Mesquite',      'state': 'TX'},
-    'carrollton':   {'display_name': 'Carrollton',    'default_city': 'Carrollton',    'state': 'TX'},
-    'richardson':   {'display_name': 'Richardson',    'default_city': 'Richardson',    'state': 'TX'},
-    'allen':        {'display_name': 'Allen',         'default_city': 'Allen',         'state': 'TX'},
-    'lewisville':   {'display_name': 'Lewisville',    'default_city': 'Lewisville',    'state': 'TX'},
-    'flowermound':  {'display_name': 'Flower Mound',  'default_city': 'Flower Mound',  'state': 'TX'},
+    # Confirmed NOT on myhealthdepartment.com (0 results across all date windows):
+    #   Fort Worth — uses https://publichealth.tarrantcounty.com/ (Tarrant County portal)
+    #   Arlington — uses Tarrant County portal or own system
+    # Unverified — these slugs need manual testing from a non-cloud IP:
+    #   'irving', 'frisco', 'mckinney', 'denton', 'garland', 'grandprairie',
+    #   'mesquite', 'carrollton', 'richardson', 'allen', 'lewisville', 'flowermound'
 }
 
 CHROME_UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36'
@@ -731,7 +724,7 @@ def _violation_desc_from_item(item):
 
 
 def fetch_dfw(jurisdictions=None, since_date=None, limit_per_jurisdiction=None,
-              fetch_violations=True):
+              fetch_violations=False):
     """
     Fetch inspection data for DFW jurisdictions using direct API calls to the
     MyHealthDepartment portal. No browser required — uses the same JSON POST
@@ -741,7 +734,14 @@ def fetch_dfw(jurisdictions=None, since_date=None, limit_per_jurisdiction=None,
         jurisdictions: dict of slug->config to scrape (defaults to all DFW_JURISDICTIONS)
         since_date: ISO YYYY-MM-DD string for start date (defaults to Jan 1 of current year)
         limit_per_jurisdiction: max records per jurisdiction (None = no limit)
-        fetch_violations: if True, also fetch violation details for each inspection
+        fetch_violations: if True, also fetch violation details for each inspection.
+            Default is False because the MHD API does not expose violation details —
+            they are rendered in-browser on individual detail pages. Fetching them
+            via API probes 3 endpoints per inspection and always returns 0 results,
+            adding 30+ min per city for no benefit.
+            TODO: violation details require browser-based scraping of individual
+            inspection detail pages (inspections.myhealthdepartment.com/{slug}/
+            inspection/?inspectionID={id}), which should be a separate slower process.
 
     Returns:
         list of inspection record dicts with 'metro': 'DFW'
@@ -765,7 +765,7 @@ def fetch_dfw(jurisdictions=None, since_date=None, limit_per_jurisdiction=None,
             log.error(f"{display_name} fetch failed: {e}")
             import traceback
             log.error(traceback.format_exc())
-        time.sleep(2)  # polite pause between jurisdictions
+        time.sleep(10)  # polite pause between jurisdictions
 
     log.info(f"DFW total: {len(all_results)} inspection records across "
              f"{len(jurisdictions)} jurisdictions")
