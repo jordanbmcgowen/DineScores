@@ -79,6 +79,38 @@
         { "fieldPath": "city",       "order": "ASCENDING" },
         { "fieldPath": "risk_score", "order": "DESCENDING" }
       ]
+    },
+    {
+      "collectionGroup": "restaurants",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "vetted_grade",    "order": "ASCENDING" },
+        { "fieldPath": "weighted_score",  "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "restaurants",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "city",            "order": "ASCENDING" },
+        { "fieldPath": "vetted_grade",    "order": "ASCENDING" },
+        { "fieldPath": "weighted_score",  "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "restaurants",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "infractions",     "arrayConfig": "CONTAINS" }
+      ]
+    },
+    {
+      "collectionGroup": "restaurants",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "city",            "order": "ASCENDING" },
+        { "fieldPath": "infractions",     "arrayConfig": "CONTAINS" }
+      ]
     }
   ],
   "fieldOverrides": []
