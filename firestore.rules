@@ -27,10 +27,17 @@ service cloud.firestore {
 
     // ── restaurants/{docId} ───────────────────────────────────────────────────
     // Public read (anyone can query restaurant data — this is the core of the app).
-    // Write restricted to admin only (data is loaded via server-side upload_data.py).
+    // Write restricted to admin only (data is loaded via server-side pipeline).
     match /restaurants/{docId} {
       allow read: if true;
       allow create, update, delete: if isAdmin();
+
+      // ── inspections subcollection ──────────────────────────────────────────
+      // Public read so the frontend can show inspection history timeline.
+      match /inspections/{inspectionId} {
+        allow read: if true;
+        allow create, update, delete: if isAdmin();
+      }
     }
 
     // ── cities/{cityId} ───────────────────────────────────────────────────────

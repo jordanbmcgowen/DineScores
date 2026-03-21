@@ -156,6 +156,238 @@ def calc_risk_score(violations):
     score = 100 - (pv * 5) - (pfv * 2) - (cv * 1)
     return max(0, score), pv, pfv, cv
 
+# ─── VETTED GRADING LOGIC (ported from Gemini edition utils/grading.ts) ──────
+
+BAD_WORDS = ['vermin', 'roach', 'rodent', 'sewage']
+
+def calculate_vetted_grade(score, violation_text=''):
+    """
+    Proprietary grade assignment matching Gemini edition logic:
+      A: score 90-100 AND no bad words
+      B: score 80-89
+      C: score 70-79
+      F: score < 70 OR bad words present
+    """
+    desc = (violation_text or '').lower()
+    has_bad = any(w in desc for w in BAD_WORDS)
+    if score < 70 or has_bad:
+        return 'F'
+    if score >= 90:
+        return 'A'
+    if score >= 80:
+        return 'B'
+    if score >= 70:
+        return 'C'
+    return 'F'
+
+
+def detect_infractions(text):
+    """
+    Detect infraction categories from violation text.
+    Returns list of category strings: pests, temp, hygiene, equipment, docs.
+    Matches Gemini edition detectInfractions() logic.
+    """
+    lower = (text or '').lower()
+    infractions = []
+
+    if re.search(r'\b(vermin|roach|rodent|rats?|mice|insect|fly|flies|gnat|pest)\b', lower):
+        infractions.append('pests')
+    if re.search(r'(temp|cool|heat|thaw|thermometer|refrigerat|hot|cold|hold)', lower):
+        infractions.append('temp')
+    if re.search(r'(hand|glove|hair|eat|drink|tobacco|fingernail|hygiene|wash)', lower):
+        infractions.append('hygiene')
+    if re.search(r'(sink|plumbing|water|equipment|warewash|surface|repair|door|wall|ceiling|floor|light|vent|clean)', lower):
+        infractions.append('equipment')
+    if re.search(r'(permit|sign|post|certified|manager|knowledge|certificate)', lower):
+        infractions.append('docs')
+
+    return infractions
+
+
+def _paraphrase_violation(text):
+    """Convert technical violation text to user-friendly summary."""
+    lower = (text or '').lower()
+
+    # Structural / entry points (check first)
+    if re.search(r'\b(outer opening|gap|seal|tight fitting|weather strip|door sweep)\b', lower):
+        return "Gaps/Openings (Risk of entry)"
+    # Critical / pests
+    if re.search(r'\b(roach|cockroach)\b', lower):
+        return "Live roaches found"
+    if re.search(r'\b(rodent|rats?|mice|mouse|droppings|feces)\b', lower):
+        return "Rodent activity detected"
+    if re.search(r'\b(fly|flies|gnats?)\b', lower):
+        return "Flies/Gnats present"
+    if re.search(r'\b(sewage|wastewater)\b', lower):
+        return "Sewage backup/issue"
+    # Temp / food
+    if re.search(r'(cold hold|41f)', lower):
+        return "Food not kept cold enough"
+    if re.search(r'(hot hold|135f)', lower):
+        return "Food not kept hot enough"
+    if re.search(r'\badulterated\b', lower) or re.search(r'\bspoiled\b', lower):
+        return "Food spoiled/unsafe"
+    if re.search(r'\bdented\b', lower):
+        return "Dented/Damaged cans"
+    if re.search(r'(cross contamination|separate)', lower):
+        return "Raw food touching ready-to-eat"
+    if re.search(r'\bthermometer\b', lower):
+        return "Missing thermometers"
+    # Hygiene
+    if re.search(r'\b(hand|wash)\b', lower) and re.search(r'\b(sink|accessible)\b', lower):
+        return "Hand sink blocked/dirty"
+    if re.search(r'\b(hand|wash)\b', lower):
+        return "Improper hand washing"
+    if re.search(r'\b(eat|drink|tobacco)\b', lower):
+        return "Worker eating/drinking near food"
+    if re.search(r'\b(hair|restraint)\b', lower):
+        return "Hair restraints missing"
+    if re.search(r'\b(fingernail|jewelry)\b', lower):
+        return "Long nails/jewelry on staff"
+    # Sanitation
+    if re.search(r'\b(toxic|chemical|label)\b', lower):
+        return "Chemicals unsafe/unlabeled"
+    if re.search(r'(contact surface|sanitiz)', lower):
+        return "Dirty food contact surfaces"
+    if re.search(r'(warewash|dish machine|sanitiz)', lower):
+        return "Dishwasher not sanitizing"
+    if re.search(r'\b(slime|mold|pink)\b', lower):
+        return "Mold/Slime in ice machine or bin"
+    if re.search(r'(pest control)', lower):
+        return "No pest control records"
+    # Facility
+    if re.search(r'\b(plumbing|leak)\b', lower):
+        return "Plumbing leaks"
+    if re.search(r'\b(wall|ceiling|floor)\b', lower):
+        return "Floors/Walls dirty or damaged"
+    if re.search(r'(non-food contact)', lower):
+        return "Dirty equipment surfaces"
+    if re.search(r'\b(light|shield)\b', lower):
+        return "Lights missing shields"
+    if re.search(r'(vent|hood)', lower):
+        return "Vent hood grease buildup"
+    if re.search(r'\b(permit|posted)\b', lower):
+        return "Permit not posted"
+
+    # Fallback: truncate if long
+    return text[:45] + '...' if len(text) > 50 else text
+
+
+def summarize_violations(full_text):
+    """
+    Summarize violation text into structured summaries.
+    Returns list of dicts with: text, verbatim, severity, category (max 5).
+    Matches Gemini edition summarizeViolations() logic.
+    """
+    if not full_text or full_text == 'No violations recorded.':
+        return []
+
+    # Split by ||| (pipeline separator) or numbered format
+    if '|||' in full_text:
+        raw_items = full_text.split('|||')
+    else:
+        raw_items = re.split(r'(?=\d+\.\s)', full_text)
+
+    summaries = []
+    for item in raw_items:
+        clean_raw = re.sub(r'^\d+\.\s*', '', item).strip()
+        if len(clean_raw) < 5:
+            continue
+
+        lower = clean_raw.lower()
+
+        severity = 'INFO'
+        category = 'Maintenance'
+
+        # Level 0: Conducive conditions (structural, not active)
+        if re.search(r'(outer opening|gap|seal|tight fitting|weather strip|door sweep|threshold)', lower):
+            severity = 'INFO'
+            category = 'Structural Risk'
+        # Level 1: Active hazards (critical)
+        elif re.search(r'\b(vermin|roach|rodent|rats?|mice|sewage|toxic|adulterated|spoiled|pink mold|slime|droppings|feces|live|dead)\b', lower) or re.search(r'cross contaminat', lower):
+            severity = 'CRITICAL'
+            category = 'Active Hazard'
+        elif re.search(r'\b(pest|fly|flies|gnat|insect)\b', lower):
+            severity = 'CRITICAL'
+            category = 'Active Hazard'
+        # Level 2: Risk factors (warning)
+        elif re.search(r'\b(warm|cool|temp|thermometer|refrigerat|thaw|dented|damaged)\b', lower):
+            severity = 'WARNING'
+            category = 'Risk Factor'
+        elif re.search(r'(hand|wash|hygiene|glove|touch|eat|drink|tobacco)', lower):
+            severity = 'WARNING'
+            category = 'Risk Factor'
+        elif re.search(r'(sanitiz|bleach|quat|dish machine|warewash)', lower):
+            severity = 'WARNING'
+            category = 'Risk Factor'
+        # Level 3: Maintenance (info)
+        elif re.search(r'(clean|dust|grease|debris|trash)', lower):
+            severity = 'INFO'
+            category = 'Maintenance'
+        elif re.search(r'(wall|floor|ceiling|door|plumbing|sink|repair|light|shield|surface|equipment)', lower):
+            severity = 'INFO'
+            category = 'Maintenance'
+        elif re.search(r'(sign|permit|certificate|manager|knowledge|post)', lower):
+            severity = 'INFO'
+            category = 'Documentation'
+
+        summaries.append({
+            'text': _paraphrase_violation(clean_raw),
+            'verbatim': clean_raw,
+            'severity': severity,
+            'category': category,
+        })
+
+    # Sort: CRITICAL first, then WARNING, then INFO
+    severity_order = {'CRITICAL': 3, 'WARNING': 2, 'INFO': 1}
+    summaries.sort(key=lambda s: severity_order.get(s['severity'], 0), reverse=True)
+
+    # Remove duplicates by summarized text
+    seen_texts = set()
+    unique = []
+    for s in summaries:
+        if s['text'] not in seen_texts:
+            seen_texts.add(s['text'])
+            unique.append(s)
+
+    return unique[:5]
+
+
+def compute_weighted_score(inspections_sorted):
+    """
+    Calculate weighted score from up to 3 most recent inspections.
+    Weights: 60% latest, 30% second, 10% third.
+    Matches Gemini edition groupInspections() logic.
+    """
+    weights = [0.6, 0.3, 0.1]
+    recent = inspections_sorted[:3]
+
+    total_score = 0.0
+    total_weight = 0.0
+    for idx, insp in enumerate(recent):
+        w = weights[idx]
+        score = insp.get('risk_score', 0) or 0
+        total_score += score * w
+        total_weight += w
+
+    if total_weight > 0:
+        return round(total_score / total_weight)
+    return inspections_sorted[0].get('risk_score', 0) if inspections_sorted else 0
+
+
+def build_violation_text(violations):
+    """Build a combined violation text string from the violations array for grading."""
+    if not violations:
+        return ''
+    parts = []
+    for v in violations:
+        if isinstance(v, (list, tuple)) and len(v) >= 3:
+            parts.append(str(v[2]))
+        elif isinstance(v, dict):
+            parts.append(v.get('description', ''))
+    return '|||'.join(p for p in parts if p)
+
+
 # ─── GEOCODING ───────────────────────────────────────────────────────────────
 
 _GEOCODE_CACHE = {}
@@ -1016,7 +1248,19 @@ def upload_to_firestore(all_inspections, firebase_creds_path=None, dry_run=False
         
         # Restaurant document (most recent inspection data)
         rest_ref = db.collection('restaurants').document(rest_id)
-        
+
+        # ── Vetted grading: weighted score, grade, infractions, summaries ──
+        weighted_score = compute_weighted_score(inspections)
+        violation_text = build_violation_text(most_recent.get('violations', []))
+        vetted_grade = calculate_vetted_grade(weighted_score)
+        # Safety override: if latest inspection is F, venue is F
+        latest_grade = calculate_vetted_grade(
+            most_recent.get('risk_score', 0), violation_text)
+        if latest_grade == 'F':
+            vetted_grade = 'F'
+        infractions = detect_infractions(violation_text)
+        violation_summaries = summarize_violations(violation_text)
+
         rest_data = {
             'id': rest_id,
             'name': most_recent['name'],
@@ -1041,6 +1285,11 @@ def upload_to_firestore(all_inspections, firebase_creds_path=None, dry_run=False
             'metro': most_recent.get('metro', ''),
             'inspection_count': len(inspections),
             'updated_at': datetime.now(timezone.utc).isoformat(),
+            # ── New vetted grading fields ──
+            'weighted_score': weighted_score,
+            'vetted_grade': vetted_grade,
+            'infractions': infractions,
+            'violation_summaries': violation_summaries,
         }
 
         # Optional city-specific fields
@@ -1182,6 +1431,12 @@ def write_data_js(all_inspections, output_path, top_per_city=1500):
     for rest_id, inspections in restaurants.items():
         inspections.sort(key=lambda x: x.get('inspection_date', ''), reverse=True)
         r = inspections[0]
+        violation_text = build_violation_text(r.get('violations', []))
+        ws = compute_weighted_score(inspections)
+        vg = calculate_vetted_grade(ws)
+        latest_g = calculate_vetted_grade(r.get('risk_score', 0), violation_text)
+        if latest_g == 'F':
+            vg = 'F'
         compact = {
             'n':   r.get('name', ''),
             'a':   r.get('address', ''),
@@ -1203,6 +1458,10 @@ def write_data_js(all_inspections, output_path, top_per_city=1500):
             'v':   [(list(v) if isinstance(v, (list, tuple)) else [v.get('category','unclassified'), v.get('severity','core'), v.get('description','')]) for v in (r.get('violations') or [])],
             'i':   rest_id,
             'm':   r.get('metro', ''),
+            'ws':  ws,
+            'vg':  vg,
+            'inf': detect_infractions(violation_text),
+            'vs':  summarize_violations(violation_text),
         }
         records.append(compact)
 

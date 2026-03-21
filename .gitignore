@@ -3,3 +3,8 @@ node_modules/
 .firebase/
 *.log
 __pycache__/
+.env
+.env.local
+dist/
+dinescores_data.json
+public/assets/

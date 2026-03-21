@@ -1,1 +1,0 @@
-// This file is no longer used. Data is served from Firebase Firestore.
