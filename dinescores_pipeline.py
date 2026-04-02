@@ -1418,15 +1418,60 @@ def save_to_json(all_inspections, output_path):
     return output
 
 
-def write_data_js(all_inspections, output_path, top_per_city=1500):
-    """Write a data.js file with window.DATA = [...] for client-side embedding."""
+def _load_existing_data_js(path):
+    """Load records from an existing data.js file. Returns a list of compact record dicts."""
+    try:
+        with open(path, 'r') as f:
+            content = f.read()
+        json_str = content.split('window.DATA = ', 1)[1].rstrip(';\n')
+        return json.loads(json_str)
+    except Exception as e:
+        log.warning(f"Could not load existing data.js from {path}: {e}")
+        return []
+
+
+def _cities_being_refreshed(city_args):
+    """
+    Expand city CLI args into the set of city names that are being refreshed.
+    Maps pipeline slugs to the display city names used in data.js records.
+    """
+    city_map = {
+        'chicago': ['Chicago'],
+        'nyc': ['New York', 'Bronx', 'Brooklyn', 'Queens', 'Staten Island', 'Manhattan'],
+        'sf': ['San Francisco'],
+        'dfw': [cfg['default_city'] for cfg in DFW_JURISDICTIONS.values()],
+    }
+    # Also map individual DFW slugs
+    for slug, cfg in DFW_JURISDICTIONS.items():
+        city_map[slug] = [cfg['default_city']]
+
+    refreshed = set()
+    for arg in city_args:
+        if arg.lower() in city_map:
+            refreshed.update(city_map[arg.lower()])
+        else:
+            refreshed.add(arg)
+    return refreshed
+
+
+def write_data_js(all_inspections, output_path, top_per_city=1500,
+                  merge_from=None, refreshed_cities=None):
+    """Write a data.js file with window.DATA = [...] for client-side embedding.
+
+    Args:
+        merge_from: path to an existing data.js file. Records from cities NOT
+                    in refreshed_cities are preserved; records from refreshed
+                    cities are replaced with the new data.
+        refreshed_cities: list of city CLI args (e.g. ['dallas', 'chicago'])
+                          used to determine which existing records to replace.
+    """
     from collections import defaultdict as _dd
-    
+
     restaurants = _dd(list)
     for insp in all_inspections:
         rest_id = make_restaurant_id(insp['name'], insp['address'], insp['city'])
         restaurants[rest_id].append(insp)
-    
+
     records = []
     for rest_id, inspections in restaurants.items():
         inspections.sort(key=lambda x: x.get('inspection_date', ''), reverse=True)
@@ -1465,6 +1510,18 @@ def write_data_js(all_inspections, output_path, top_per_city=1500):
         }
         records.append(compact)
 
+    # Merge with existing data.js if requested
+    if merge_from and refreshed_cities:
+        existing = _load_existing_data_js(merge_from)
+        if existing:
+            cities_replacing = _cities_being_refreshed(refreshed_cities)
+            new_ids = {rec['i'] for rec in records}
+            kept = [rec for rec in existing
+                    if rec.get('c') not in cities_replacing and rec.get('i') not in new_ids]
+            log.info(f"Merge: keeping {len(kept)} existing records from other cities, "
+                     f"replacing {len(existing) - len(kept)} records from {cities_replacing}")
+            records.extend(kept)
+
     by_city = _dd(list)
     for rec in records:
         by_city[rec['c']].append(rec)
@@ -1477,14 +1534,14 @@ def write_data_js(all_inspections, output_path, top_per_city=1500):
             final.extend(city_recs)
         else:
             final.extend(city_recs[:top_per_city])
-    
+
     from datetime import datetime as _dt
     header = f"/* DineScores embedded data — auto-generated {_dt.now().strftime('%Y-%m-%d')} */\n"
     js_content = header + 'window.DATA = ' + json.dumps(final, separators=(',', ':'), default=str) + ';\n'
-    
+
     with open(output_path, 'w') as f:
         f.write(js_content)
-    
+
     log.info(f"Written {len(final)} restaurants to {output_path} ({len(js_content):,} bytes)")
 
 
@@ -1505,6 +1562,10 @@ def main():
                         help='Output JSON file path')
     parser.add_argument('--output-data-js', default=None,
                         help='Also write a data.js file (window.DATA = ...) for client-side embedding')
+    parser.add_argument('--merge-existing-data-js', default=None,
+                        help='Path to existing data.js to merge with. Records from cities being refreshed '
+                             'are replaced; records from other cities are preserved. '
+                             'Use with --output-data-js to keep Chicago/NYC data when refreshing Dallas only.')
     parser.add_argument('--debug', action='store_true',
                         help='Enable debug logging for network interception diagnostics')
     args = parser.parse_args()
@@ -1609,7 +1670,9 @@ def main():
     
     # Optionally write data.js (client-side embedded fallback)
     if args.output_data_js:
-        write_data_js(all_inspections, args.output_data_js)
+        write_data_js(all_inspections, args.output_data_js,
+                      merge_from=args.merge_existing_data_js,
+                      refreshed_cities=args.cities)
     
     # Upload to Firestore
     if not args.dry_run and args.creds:
