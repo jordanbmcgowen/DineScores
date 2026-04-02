@@ -86,11 +86,21 @@ echo "  Log:     $LOG_FILE"
 [[ -n "$DRY_RUN" ]] && echo "  ⚠️  DRY RUN — no Firestore writes"
 echo ""
 
+# ── Determine data.js merge path ─────────────────────────────────────────────
+DATA_JS="$SCRIPT_DIR/public/data.js"
+MERGE_FLAG=()
+if [[ -f "$DATA_JS" ]]; then
+    echo "  Merge:   Will merge new data into existing data.js"
+    MERGE_FLAG=(--merge-existing-data-js "$DATA_JS")
+fi
+
 # ── Run pipeline ─────────────────────────────────────────────────────────────
 python3 "$PIPELINE" \
     --mode "$MODE" \
     --cities "${LOCAL_CITIES[@]}" \
     --creds "$CREDS" \
+    --output-data-js "$DATA_JS" \
+    "${MERGE_FLAG[@]}" \
     $DRY_RUN \
     "${EXTRA_ARGS[@]}" \
     2>&1 | tee "$LOG_FILE"

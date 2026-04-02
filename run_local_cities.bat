@@ -80,8 +80,16 @@ echo   Creds:   %CREDS%
 echo   Log:     %LOG_FILE%
 echo.
 
+:: ── Determine data.js paths ─────────────────────────────────────────────────
+set DATA_JS=%SCRIPT_DIR%public\data.js
+set MERGE_FLAG=
+if exist "%DATA_JS%" (
+    echo   Merge:   Will merge new data into existing data.js
+    set MERGE_FLAG=--merge-existing-data-js "%DATA_JS%"
+)
+
 :: ── Run pipeline ─────────────────────────────────────────────────────────────
-python "%PIPELINE%" --mode %MODE% --cities !LOCAL_CITIES! --creds "%CREDS%" > "%LOG_FILE%" 2>&1
+python "%PIPELINE%" --mode %MODE% --cities !LOCAL_CITIES! --creds "%CREDS%" --output-data-js "%DATA_JS%" %MERGE_FLAG% > "%LOG_FILE%" 2>&1
 
 set EXIT_CODE=%ERRORLEVEL%
 type "%LOG_FILE%"

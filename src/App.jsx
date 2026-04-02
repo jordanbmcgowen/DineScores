@@ -37,12 +37,20 @@ export default function App() {
     async function load() {
       setLoading(true);
       try {
-        // Try Firestore first
+        // Try Firestore first, fall back to embedded data.js
         let data;
-        if (window.DATA && Array.isArray(window.DATA) && window.DATA.length > 0) {
-          data = window.DATA.slice();
-        } else {
-          data = await fetchAllRestaurants();
+        try {
+          const firestoreData = await fetchAllRestaurants();
+          if (firestoreData && firestoreData.length > 0) {
+            data = firestoreData;
+          }
+        } catch (fsErr) {
+          console.warn('Firestore fetch failed, using embedded data:', fsErr);
+        }
+        if (!data || data.length === 0) {
+          if (window.DATA && Array.isArray(window.DATA) && window.DATA.length > 0) {
+            data = window.DATA.slice();
+          }
         }
         // Ensure all records have vetted grading fields
         setAllData(data.map(ensureVettedFields));
