@@ -165,7 +165,7 @@ export default function App() {
   }
 
   return (
-    <div className="min-h-screen bg-white dark:bg-slate-900 flex flex-col font-sans text-slate-900 dark:text-slate-100">
+    <div className="h-screen bg-white dark:bg-slate-900 flex flex-col overflow-hidden font-sans text-slate-900 dark:text-slate-100">
       {/* Header */}
       <header className="bg-white dark:bg-slate-800 border-b border-slate-200 dark:border-slate-700 shadow-sm z-50">
         <div className="max-w-7xl mx-auto px-4 py-3">
@@ -229,9 +229,9 @@ export default function App() {
       />
 
       {/* Main content */}
-      <main className="flex-1 flex flex-col md:flex-row relative">
+      <main className="flex-1 flex flex-col md:flex-row relative min-h-0 overflow-hidden">
         {/* Map */}
-        <div className="h-[45vh] md:h-auto md:flex-1 relative z-0">
+        <div className="h-[40vh] md:h-full md:flex-1 relative z-0 min-h-0">
           <RestaurantMap
             restaurants={filtered}
             onMarkerClick={handleMarkerClick}

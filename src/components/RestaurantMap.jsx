@@ -210,6 +210,6 @@ export default function RestaurantMap({ restaurants, onMarkerClick }) {
   }, [restaurants, mapLoaded, onMarkerClick]);
 
   return (
-    <div ref={mapContainer} className="w-full h-full" style={{ minHeight: '300px' }} />
+    <div ref={mapContainer} className="w-full h-full" style={{ minHeight: '200px' }} />
   );
 }
