@@ -9,7 +9,7 @@ on:
 jobs:
   refresh-data:
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 90
     permissions:
       contents: write  # Needed to commit data.js back to the repo
 
@@ -26,15 +26,21 @@ jobs:
         run: |
           pip install requests
 
-      - name: Run data pipeline (Chicago, NYC, SF)
+      - name: Run data pipeline (Chicago, NYC, SF, Dallas, Plano, Frisco)
+        env:
+          # Optional: raises Socrata rate limits if the secret is configured
+          SOCRATA_APP_TOKEN: ${{ secrets.SOCRATA_APP_TOKEN }}
         run: |
           python3 dinescores_pipeline.py \
             --mode weekly \
-            --cities chicago nyc sf \
+            --cities chicago nyc sf dallas plano frisco \
             --output /tmp/dinescores_data.json \
-            --output-data-js public/data.js
-        # Note: Dallas is excluded from automated runs because the portal
-        # blocks non-browser requests. Dallas data is refreshed manually.
+            --output-data-js public/data.js \
+            --merge-existing-data-js public/data.js
+        # --merge-existing-data-js is essential: weekly mode only pulls the
+        # last 8 days, and merging preserves the accumulated dataset instead
+        # of overwriting it. DFW fetches are failure-tolerant — if the portal
+        # blocks the runner, existing DFW records are kept via the merge.
 
       - name: Show data summary
         run: |
