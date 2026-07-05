@@ -213,19 +213,36 @@ def calc_risk_score(violations):
 
 # ─── VETTED GRADING LOGIC (ported from Gemini edition utils/grading.ts) ──────
 
-BAD_WORDS = ['vermin', 'roach', 'rodent', 'sewage']
+# Automatic-F trigger: ACTIVE pest evidence or sewage problems. A bare
+# substring match (the original BAD_WORDS approach) misfires on violation
+# titles like Chicago's "INSECTS, RODENTS, & ANIMALS NOT PRESENT" (cited for
+# door gaps) and on preventive boilerplate, so an evidence word must precede
+# the pest word within the same sentence.
+PEST_EVIDENCE_RE = re.compile(
+    r'(?:evidence of|live|dead|observed|found|fresh|infestation|activity of|'
+    r'droppings?|excreta|feces)'
+    r'[^.]{0,60}?\b(?:rats?|mice|mouse|roach(?:es)?|cockroach(?:es)?|rodents?|vermin)\b',
+    re.I)
+SEWAGE_ISSUE_RE = re.compile(
+    r'sewage[^.]{0,40}(?:back|overflow|leak|expos|floor|discharg)|'
+    r'(?:back|overflow|leak)[^.]{0,40}sewage',
+    re.I)
+
+
+def has_active_pest_or_sewage(text):
+    t = text or ''
+    return bool(PEST_EVIDENCE_RE.search(t) or SEWAGE_ISSUE_RE.search(t))
+
 
 def calculate_vetted_grade(score, violation_text=''):
     """
     Proprietary grade assignment matching Gemini edition logic:
-      A: score 90-100 AND no bad words
+      A: score 90-100 AND no active pest/sewage evidence
       B: score 80-89
       C: score 70-79
-      F: score < 70 OR bad words present
+      F: score < 70 OR active pest/sewage evidence
     """
-    desc = (violation_text or '').lower()
-    has_bad = any(w in desc for w in BAD_WORDS)
-    if score < 70 or has_bad:
+    if score < 70 or has_active_pest_or_sewage(violation_text):
         return 'F'
     if score >= 90:
         return 'A'
@@ -1603,19 +1620,31 @@ def _weighted_from_history(history_pairs):
 
 
 def _apply_grades(rec):
-    """Recompute ws/vg/inf/vs on a compact record from its history + violations."""
-    violation_text = build_violation_text(
-        [tuple(v) for v in (rec.get('v') or [])])
+    """
+    Recompute ws/vg/inf/vs on a compact record from its history + violations.
+    The raw violations array ('v') is only present in-memory for records built
+    this run — it is stripped before serialization to keep data.js small. For
+    records loaded back from an existing data.js, grading text is derived from
+    the stored summary verbatims and the existing inf/vs are left untouched.
+    """
+    has_violations = rec.get('v') is not None
+    if has_violations:
+        violation_text = build_violation_text(
+            [tuple(v) for v in (rec.get('v') or [])])
+    else:
+        violation_text = '|||'.join(
+            s.get('verbatim', '') for s in (rec.get('vs') or []) if s.get('verbatim'))
     rec['ws'] = _weighted_from_history(rec.get('h') or [[rec.get('d', ''), rec.get('rs', 0)]])
     vg = calculate_vetted_grade(rec['ws'])
     if calculate_vetted_grade(rec.get('rs', 0), violation_text) == 'F':
         vg = 'F'
     rec['vg'] = vg
-    rec['inf'] = detect_infractions(violation_text)
-    summaries = summarize_violations(violation_text)
-    for s in summaries:
-        s['verbatim'] = s['verbatim'][:200]
-    rec['vs'] = summaries
+    if has_violations:
+        rec['inf'] = detect_infractions(violation_text)
+        summaries = summarize_violations(violation_text)
+        for s in summaries:
+            s['verbatim'] = s['verbatim'][:200]
+        rec['vs'] = summaries
 
 
 def write_data_js(all_inspections, output_path, top_per_city=1500, merge_from=None):
@@ -1667,7 +1696,6 @@ def write_data_js(all_inspections, output_path, top_per_city=1500, merge_from=No
             'm':   r.get('metro', ''),
             'h':   history,
         }
-        _apply_grades(compact)
         records.append(compact)
 
     # Merge with existing data.js if requested (restaurant-level overlay)
@@ -1695,14 +1723,22 @@ def write_data_js(all_inspections, output_path, top_per_city=1500, merge_from=No
                 rec = new if new.get('d', '') >= old.get('d', '') else old
                 rec['h'] = [[d, s] for d, s in combined]
                 rec['ic'] = (old.get('ic') or 1) + new_dates_added
-                _apply_grades(rec)
                 by_id[new['i']] = rec
                 updated += 1
             merged = list(by_id.values())
             cutoff = (datetime.now() - timedelta(days=STALE_MONTHS * 30)).strftime('%Y-%m-%d')
-            records = [rec for rec in merged if rec.get('d', '') >= cutoff]
+            # Prune stale records and any legacy records with implausible
+            # dates (written before the date sanity filter existed)
+            records = [rec for rec in merged
+                       if rec.get('d', '') >= cutoff and sane_inspection_date(rec.get('d'))]
             log.info(f"Merge: {added} new restaurants, {updated} updated, "
                      f"{len(merged) - len(records)} stale pruned, {len(records)} total")
+
+    # Re-grade every record (fresh AND preserved) so grading-rule changes
+    # take effect dataset-wide on the next run rather than only for
+    # restaurants that happen to be refetched.
+    for rec in records:
+        _apply_grades(rec)
 
     by_city = _dd(list)
     for rec in records:
@@ -1713,6 +1749,12 @@ def write_data_js(all_inspections, output_path, top_per_city=1500, merge_from=No
         # Keep the most recently inspected restaurants per city
         city_recs.sort(key=lambda x: x.get('d', ''), reverse=True)
         final.extend(city_recs[:top_per_city])
+
+    # Strip the raw violations array before writing: the frontend only reads
+    # the vs summaries (which carry capped verbatim text), and 'v' alone is
+    # ~40% of the payload. Firestore keeps the full violation detail.
+    for rec in final:
+        rec.pop('v', None)
 
     from datetime import datetime as _dt
     header = f"/* DineScores embedded data — auto-generated {_dt.now().strftime('%Y-%m-%d')} */\n"

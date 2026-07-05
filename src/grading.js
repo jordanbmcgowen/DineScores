@@ -3,11 +3,15 @@
  * have pre-computed vetted fields. Also used for display helpers.
  */
 
-const BAD_WORDS = ['vermin', 'roach', 'rodent', 'sewage'];
+// Automatic-F trigger: ACTIVE pest evidence or sewage problems (mirrors the
+// pipeline's has_active_pest_or_sewage — an evidence word must precede the
+// pest word so titles like "RODENTS NOT PRESENT" don't misfire).
+const PEST_EVIDENCE_RE = /(?:evidence of|live|dead|observed|found|fresh|infestation|activity of|droppings?|excreta|feces)[^.]{0,60}?\b(?:rats?|mice|mouse|roach(?:es)?|cockroach(?:es)?|rodents?|vermin)\b/i;
+const SEWAGE_ISSUE_RE = /sewage[^.]{0,40}(?:back|overflow|leak|expos|floor|discharg)|(?:back|overflow|leak)[^.]{0,40}sewage/i;
 
 export function calculateGrade(score, violationDesc = '') {
-  const desc = (violationDesc || '').toLowerCase();
-  const hasBad = BAD_WORDS.some(w => desc.includes(w));
+  const desc = violationDesc || '';
+  const hasBad = PEST_EVIDENCE_RE.test(desc) || SEWAGE_ISSUE_RE.test(desc);
   if (score < 70 || hasBad) return 'F';
   if (score >= 90) return 'A';
   if (score >= 80) return 'B';
