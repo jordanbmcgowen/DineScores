@@ -40,7 +40,7 @@ and violation summaries for Chicago, NYC, San Francisco, and DFW metro.
 - **Frontend**: React (JSX) + Tailwind CSS (CDN) + MapLibre GL JS
 - **Build**: Vite → outputs to `public/` for Firebase Hosting
 - **Hosting**: Firebase Hosting
-- **CI**: GitHub Actions weekly refresh (Chicago, NYC, SF)
+- **CI**: GitHub Actions weekly refresh (Chicago, NYC, SF, Dallas, Plano, Frisco)
 
 ---
 
@@ -79,17 +79,33 @@ firebase deploy  # Deploys hosting + Firestore rules/indexes
 ## Data Pipeline
 
 ```bash
-# Full load (all cities, 2024+)
-python dinescores_pipeline.py --mode full --cities chicago nyc sf dfw \
-  --creds serviceAccount.json --output-data-js public/data.js
+# Full load (Socrata cities 2024+, DFW cities current year)
+python dinescores_pipeline.py --mode full --cities chicago nyc sf dallas plano \
+  --creds serviceAccount.json --output-data-js public/data.js \
+  --merge-existing-data-js public/data.js
 
-# Weekly refresh
-python dinescores_pipeline.py --mode weekly --cities chicago nyc sf \
-  --creds serviceAccount.json --output-data-js public/data.js
+# Weekly refresh (last 8 days; ALWAYS pass --merge-existing-data-js so the
+# partial pull merges into the accumulated dataset instead of replacing it)
+python dinescores_pipeline.py --mode weekly --cities chicago nyc sf dallas plano \
+  --creds serviceAccount.json --output-data-js public/data.js \
+  --merge-existing-data-js public/data.js
 
 # Test run (25 records per city, no Firestore upload)
 python dinescores_pipeline.py --mode test --dry-run
 ```
+
+### Data sources & scraping notes
+
+| Source | Method |
+|--------|--------|
+| Chicago / NYC / SF | Socrata open-data APIs, paginated. Set `SOCRATA_APP_TOKEN` env var for higher rate limits (optional). Fetched concurrently. |
+| Dallas / Plano / Frisco (DFW) | MyHealthDepartment portal JSON search API in 7-day windows (auto-bisected when the ~225-record query cap is hit), then each inspection's public detail page is scraped for violation observations — they are rendered server-side in the HTML (or inline JS for Frisco), so no browser is needed. Frisco scores are demerit-based (lower = better) and are converted. |
+| Geocoding | Census Bureau batch geocoder (thousands of addresses per request), Nominatim fallback for stragglers. |
+
+Data hygiene: placeholder dates (NYC `1900-01-01` = not yet inspected) and
+future-dated typos in source data are dropped; Chicago severity is bounded by
+the official violation number ranges (1-29 risk factors, 30+ good retail
+practices).
 
 ### Pipeline Fields
 

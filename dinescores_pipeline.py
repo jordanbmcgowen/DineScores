@@ -19,6 +19,9 @@ DFW cities:
 """
 
 import os, sys, json, re, time, math, hashlib, logging, argparse
+import html as html_lib
+import threading
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timedelta, timezone
 from collections import defaultdict
 
@@ -29,7 +32,15 @@ log = logging.getLogger('dinescores')
 
 # ─── VIOLATION CLASSIFIER ────────────────────────────────────────────────────
 
+# Ordered dict: classify_violation() returns the FIRST category whose pattern
+# matches, so the most distinctive categories must come before catch-all ones
+# (e.g. pest_control before general_cleanliness, which matches r'floor').
 VIOLATION_CATEGORIES = {
+    'pest_control': [
+        r'\bpests?\b', r'rodent', r'\brats?\b', r'\bmouse\b', r'\bmice\b',
+        r'cockroach', r'roach', r'\bfly\b', r'\bflies\b', r'insect',
+        r'vermin', r'\bbugs?\b', r'gnaw', r'droppings', r'bait station',
+    ],
     'temperature_control': [
         r'temperat', r'hot hold', r'cold hold', r'phf', r'tcs food',
         r'41\s*f', r'135\s*f', r'cooling', r'reheat', r'thaw', r'frozen',
@@ -84,11 +95,6 @@ VIOLATION_CATEGORIES = {
         r'floor', r'wall', r'ceiling', r'counter', r'shelf', r'rack',
         r'storage area', r'non.?food.?contact',
     ],
-    'pest_control': [
-        r'pest', r'rodent', r'rat', r'mouse', r'mice', r'cockroach',
-        r'roach', r'fly', r'flies', r'insect', r'vermin', r'bug',
-        r'evidence of', r'gnaw', r'droppings', r'bait station',
-    ],
     'maintenance': [
         r'repair', r'broken', r'damaged', r'caulk', r'seal', r'gap',
         r'hole', r'crack', r'chip', r'rust', r'corrode', r'maintained',
@@ -121,18 +127,67 @@ SEVERITY_MAP = {
 # URL pattern: https://inspections.myhealthdepartment.com/{slug}
 
 DFW_JURISDICTIONS = {
-    # Confirmed working on myhealthdepartment.com (verified 2026-03-10):
+    # Confirmed working on myhealthdepartment.com (re-verified 2026-07-05,
+    # including from cloud/CI IPs — the portal no longer blocks them).
+    # score_scale: '100' = 0-100 where higher is better (Dallas, Plano);
+    #              'demerit' = demerit points where LOWER is better (Frisco).
     'dallas':       {'display_name': 'Dallas',        'default_city': 'Dallas',        'state': 'TX'},
     'plano':        {'display_name': 'Plano',         'default_city': 'Plano',         'state': 'TX'},
-    # Confirmed NOT on myhealthdepartment.com (0 results across all date windows):
-    #   Fort Worth — uses https://publichealth.tarrantcounty.com/ (Tarrant County portal)
-    #   Arlington — uses Tarrant County portal or own system
-    # Unverified — these slugs need manual testing from a non-cloud IP:
-    #   'irving', 'frisco', 'mckinney', 'denton', 'garland', 'grandprairie',
-    #   'mesquite', 'carrollton', 'richardson', 'allen', 'lewisville', 'flowermound'
+    'frisco':       {'display_name': 'Frisco',        'default_city': 'Frisco',        'state': 'TX',
+                     'score_scale': 'demerit'},
+    # Confirmed NOT on myhealthdepartment.com (checked 2026-07-05 — API returns
+    # an error dict instead of records): irving, mckinney, denton, garland,
+    # grandprairie, mesquite, carrollton, richardson, allen, lewisville,
+    # flowermound, fortworth, arlington.
+    #   Fort Worth / Arlington — use https://publichealth.tarrantcounty.com/
 }
 
 CHROME_UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36'
+
+
+def sane_inspection_date(date_str):
+    """
+    Validate an ISO inspection date (YYYY-MM-DD prefix). Source data contains
+    placeholder dates (NYC uses 1900-01-01 for "not yet inspected") and
+    data-entry typos years in the future (e.g. an SF record dated 2031).
+    Returns the normalized YYYY-MM-DD string, or None if implausible.
+    """
+    s = str(date_str or '')[:10]
+    try:
+        d = datetime.strptime(s, '%Y-%m-%d')
+    except ValueError:
+        return None
+    if d.year < 2000 or d > datetime.now() + timedelta(days=2):
+        return None
+    return s
+
+
+def _socrata_headers():
+    """Optional Socrata app token (higher rate limits). Set SOCRATA_APP_TOKEN env var."""
+    token = os.environ.get('SOCRATA_APP_TOKEN', '').strip()
+    return {'X-App-Token': token} if token else {}
+
+
+def _socrata_fetch_pages(base_url, params, limit):
+    """Paginate through a Socrata endpoint, returning all rows up to limit."""
+    headers = _socrata_headers()
+    all_rows = []
+    while True:
+        r = requests.get(base_url, params=params, headers=headers, timeout=60)
+        r.raise_for_status()
+        batch = r.json()
+        if not batch:
+            break
+        all_rows.extend(batch)
+        log.info(f"  {base_url.split('/')[-1].split('.')[0]}: fetched {len(all_rows)} rows so far...")
+        if len(batch) < params['$limit']:
+            break
+        params['$offset'] += params['$limit']
+        time.sleep(0.3)
+        if limit and len(all_rows) >= limit:
+            break
+    return all_rows
+
 
 def classify_violation(text):
     if not text:
@@ -158,19 +213,36 @@ def calc_risk_score(violations):
 
 # ─── VETTED GRADING LOGIC (ported from Gemini edition utils/grading.ts) ──────
 
-BAD_WORDS = ['vermin', 'roach', 'rodent', 'sewage']
+# Automatic-F trigger: ACTIVE pest evidence or sewage problems. A bare
+# substring match (the original BAD_WORDS approach) misfires on violation
+# titles like Chicago's "INSECTS, RODENTS, & ANIMALS NOT PRESENT" (cited for
+# door gaps) and on preventive boilerplate, so an evidence word must precede
+# the pest word within the same sentence.
+PEST_EVIDENCE_RE = re.compile(
+    r'(?:evidence of|live|dead|observed|found|fresh|infestation|activity of|'
+    r'droppings?|excreta|feces)'
+    r'[^.]{0,60}?\b(?:rats?|mice|mouse|roach(?:es)?|cockroach(?:es)?|rodents?|vermin)\b',
+    re.I)
+SEWAGE_ISSUE_RE = re.compile(
+    r'sewage[^.]{0,40}(?:back|overflow|leak|expos|floor|discharg)|'
+    r'(?:back|overflow|leak)[^.]{0,40}sewage',
+    re.I)
+
+
+def has_active_pest_or_sewage(text):
+    t = text or ''
+    return bool(PEST_EVIDENCE_RE.search(t) or SEWAGE_ISSUE_RE.search(t))
+
 
 def calculate_vetted_grade(score, violation_text=''):
     """
     Proprietary grade assignment matching Gemini edition logic:
-      A: score 90-100 AND no bad words
+      A: score 90-100 AND no active pest/sewage evidence
       B: score 80-89
       C: score 70-79
-      F: score < 70 OR bad words present
+      F: score < 70 OR active pest/sewage evidence
     """
-    desc = (violation_text or '').lower()
-    has_bad = any(w in desc for w in BAD_WORDS)
-    if score < 70 or has_bad:
+    if score < 70 or has_active_pest_or_sewage(violation_text):
         return 'F'
     if score >= 90:
         return 'A'
@@ -435,66 +507,91 @@ def make_inspection_id(restaurant_id, inspection_date):
 
 # ─── CHICAGO DATA COLLECTOR ──────────────────────────────────────────────────
 
+def _parse_chicago_violation(part):
+    """
+    Parse one Chicago violation entry: "NN. TITLE - Comments: free text".
+    Chicago's post-2018 form mirrors the FDA model form: violation numbers
+    1-29 are foodborne-illness risk factors (priority / priority foundation),
+    30+ are good retail practices (core). Within 1-29 the P-vs-PF split is
+    item-specific, so the regex classifier decides between those two.
+    Returns (category, severity, description) or None.
+    """
+    part = part.strip()
+    if not part:
+        return None
+
+    num = None
+    m = re.match(r'^(\d{1,2})\.\s*', part)
+    if m:
+        num = int(m.group(1))
+        part = part[m.end():]
+
+    if 'Comments:' in part:
+        title, _, comments = part.partition('Comments:')
+        title = title.strip().rstrip('-').strip()
+        comments = comments.strip()
+    else:
+        title, comments = part.strip(), ''
+
+    desc = f"{title}: {comments}" if (title and comments) else (comments or title)
+    if len(desc) < 5:
+        return None
+
+    # Classify category from the full text; bound severity by the official number.
+    cat, sev, _ = classify_violation(desc)
+    if num is not None:
+        if num <= 29 and sev == 'core':
+            sev = 'priority_foundation'
+        elif num >= 30:
+            sev = 'core'
+    return (cat, sev, desc[:500])
+
+
 def fetch_chicago(since_date=None, limit=50000):
     """Fetch Chicago food inspections. Restaurants only, ordered by date desc."""
     log.info(f"Fetching Chicago data (since={since_date}, limit={limit})")
-    
+
     base_url = "https://data.cityofchicago.org/resource/4ijn-s7e5.json"
-    
+
     where_clauses = ["facility_type='Restaurant'"]
     if since_date:
         where_clauses.append(f"inspection_date > '{since_date}'")
-    
+
     params = {
         '$where': ' AND '.join(where_clauses),
         '$order': 'inspection_date DESC',
         '$limit': min(limit, 50000),
         '$offset': 0,
     }
-    
-    all_records = []
-    while True:
-        r = requests.get(base_url, params=params, timeout=30)
-        r.raise_for_status()
-        batch = r.json()
-        if not batch:
-            break
-        all_records.extend(batch)
-        log.info(f"  Chicago: fetched {len(all_records)} so far...")
-        if len(batch) < params['$limit']:
-            break
-        params['$offset'] += params['$limit']
-        time.sleep(0.5)
-        if len(all_records) >= limit:
-            break
-    
+
+    all_records = _socrata_fetch_pages(base_url, params, limit)
     log.info(f"Chicago: {len(all_records)} total inspection records")
-    
+
     # Parse into standard format
     results = []
     for rec in all_records:
         name = rec.get('dba_name') or rec.get('aka_name') or ''
         if not name:
             continue
-        
+
+        insp_date = sane_inspection_date(rec.get('inspection_date'))
+        if not insp_date:
+            continue
+
         # Parse violations
         violations_text = rec.get('violations', '')
         violations = []
         if violations_text:
             for part in violations_text.split('|'):
-                part = part.strip()
-                if part and 'Comments:' in part:
-                    desc = part.split('Comments:')[-1].strip()
-                    if desc and len(desc) > 5:
-                        violations.append(classify_violation(desc))
-        
+                parsed = _parse_chicago_violation(part)
+                if parsed:
+                    violations.append(parsed)
+
         risk_score, pv, pfv, cv = calc_risk_score(violations)
-        
+
         lat = rec.get('latitude')
         lon = rec.get('longitude')
-        
-        insp_date = rec.get('inspection_date', '')[:10]
-        
+
         results.append({
             'name': name.title(),
             'address': rec.get('address', '').title(),
@@ -535,28 +632,13 @@ def fetch_nyc(since_date=None, limit=200000):
     
     params = {
         '$order': 'camis,inspection_date DESC',
-        '$limit': 50000,
+        '$limit': min(50000, limit) if limit else 50000,
         '$offset': 0,
     }
     if where_clauses:
         params['$where'] = ' AND '.join(where_clauses)
-    
-    all_rows = []
-    while True:
-        r = requests.get(base_url, params=params, timeout=30)
-        r.raise_for_status()
-        batch = r.json()
-        if not batch:
-            break
-        all_rows.extend(batch)
-        log.info(f"  NYC: fetched {len(all_rows)} rows so far...")
-        if len(batch) < params['$limit']:
-            break
-        params['$offset'] += params['$limit']
-        time.sleep(0.5)
-        if len(all_rows) >= limit:
-            break
-    
+
+    all_rows = _socrata_fetch_pages(base_url, params, limit)
     log.info(f"NYC: {len(all_rows)} raw rows, now aggregating by restaurant...")
     
     # Aggregate: one row per (camis, inspection_date)
@@ -572,7 +654,10 @@ def fetch_nyc(since_date=None, limit=200000):
     
     for row in all_rows:
         camis = row.get('camis', '')
-        insp_date = row.get('inspection_date', '')[:10]
+        # NYC marks not-yet-inspected restaurants with a 1900-01-01 placeholder
+        insp_date = sane_inspection_date(row.get('inspection_date'))
+        if not insp_date:
+            continue
         key = f"{camis}_{insp_date}"
         
         # Store restaurant metadata
@@ -679,62 +764,51 @@ def fetch_sf(since_date=None, limit=30000):
         '$limit': min(limit, 50000),
         '$offset': 0,
     }
-    
-    all_records = []
-    while True:
-        r = requests.get(base_url, params=params, timeout=30)
-        r.raise_for_status()
-        batch = r.json()
-        if not batch:
-            break
-        all_records.extend(batch)
-        log.info(f"  SF: fetched {len(all_records)} so far...")
-        if len(batch) < params['$limit']:
-            break
-        params['$offset'] += params['$limit']
-        time.sleep(0.5)
-        if len(all_records) >= limit:
-            break
-    
+
+    all_records = _socrata_fetch_pages(base_url, params, limit)
     log.info(f"SF: {len(all_records)} total inspection records")
-    
+
     results = []
     for rec in all_records:
         name = rec.get('dba', '').strip()
         if not name:
             continue
-        
-        # Parse SF violation codes and descriptions
+
+        insp_date = sane_inspection_date(rec.get('inspection_date'))
+        if not insp_date:
+            continue
+
+        # Parse SF violation codes and descriptions. Format is a chain of
+        # blocks: "<CalCode section list> - <description>., <next section list> - ..."
+        # where every section number starts with 11 (California Retail Food
+        # Code 113700-114437). Split where a period+comma is followed by a
+        # new section-number list, then take the text after the first " - ".
         violations = []
         violation_text = rec.get('violation_codes', '') or ''
         if violation_text:
-            # Split on commas that are followed by code numbers (e.g., "..., 114266, ...")
-            # SF format: "code1, code2, ... - description. code3, code4 - description."
-            # Split on " - " to get description blocks
-            parts = violation_text.split(' - ')
-            for i in range(1, len(parts)):
-                desc = parts[i].strip()
-                # Clean up: remove code numbers at start of next segment
-                desc = re.sub(r'^[0-9,.()\s]+', '', desc).strip()
+            blocks = re.split(r'\.\s*,\s*(?=11\d{4})', violation_text)
+            for block in blocks:
+                _, sep, desc = block.partition(' - ')
+                if not sep:
+                    desc = block
+                desc = re.sub(r'^[0-9,.()\[\]a-z\-\s]+(?=[A-Z])', '', desc.strip())
                 if desc and len(desc) > 10:
-                    violations.append(classify_violation(desc))
-        
+                    violations.append(classify_violation(desc[:500]))
+
         # If no parsed violations but violation_count > 0, create generic entry
         violation_count = int(rec.get('violation_count', 0) or 0)
         if not violations and violation_count > 0:
             for _ in range(violation_count):
                 violations.append(('unclassified', 'core', 'Violation recorded'))
-        
+
         risk_score, pv, pfv, cv = calc_risk_score(violations)
-        
+
         # Check facility_rating_status for pass/fail
         rating = rec.get('facility_rating_status', '')
-        
+
         lat = rec.get('latitude')
         lon = rec.get('longitude')
-        
-        insp_date = rec.get('inspection_date', '')[:10]
-        
+
         results.append({
             'name': name.title(),
             'address': rec.get('street_address', '').title(),
@@ -768,10 +842,14 @@ def fetch_sf(since_date=None, limit=30000):
 # The API is the same one the portal's JavaScript frontend calls.
 
 MHD_BASE_URL = 'https://inspections.myhealthdepartment.com/'
-MHD_PAGE_SIZE = 25
-MHD_DELAY = 1.5        # seconds between API calls
+MHD_PAGE_SIZE = 25     # server-side hard cap; larger 'count' values are ignored
+MHD_QUERY_CAP = 225    # search API silently truncates a query around 225 records
+MHD_DELAY = 0.8        # seconds between search API calls
 MHD_RETRY_DELAY = 30   # seconds on 403/429 before retry
 MHD_MAX_RETRIES = 5
+MHD_WINDOW_DAYS = 7    # initial search window; bisected when the query cap is hit
+MHD_DETAIL_WORKERS = 3    # concurrent detail-page fetches
+MHD_DETAIL_DELAY = 0.4    # per-worker pause between detail-page fetches
 
 
 def _mhd_session():
@@ -845,12 +923,19 @@ def _mhd_search_page(session, slug, date_range_str, start_offset, retry_count=0)
         return None
 
 
-def _mhd_fetch_all_for_day(session, slug, day_str):
-    """Fetch all inspection records for a single day, paginating through results."""
-    date_range = f"{day_str} to {day_str}"
+def _mhd_fetch_window(session, slug, start_day, end_day):
+    """
+    Fetch all inspection records for a date window (datetime, datetime),
+    paginating through results. The search API silently truncates a query
+    around MHD_QUERY_CAP records, so if we collect that many the window is
+    bisected into halves and re-fetched recursively.
+
+    Returns a list of raw records, or None on permanent failure.
+    """
+    date_range = f"{start_day.strftime('%Y-%m-%d')} to {end_day.strftime('%Y-%m-%d')}"
     all_results = []
     start = 0
-    while start <= 200:  # portal caps at ~225 per query
+    while len(all_results) < MHD_QUERY_CAP:
         page = _mhd_search_page(session, slug, date_range, start)
         if page is None:
             return None  # permanent failure
@@ -861,102 +946,141 @@ def _mhd_fetch_all_for_day(session, slug, day_str):
             break
         start += MHD_PAGE_SIZE
         time.sleep(MHD_DELAY)
-    if len(all_results) >= 225:
-        log.warning(f"  {slug} {day_str} hit the 225 record cap — some records may be missing")
+
+    if len(all_results) >= MHD_QUERY_CAP and start_day < end_day:
+        # Cap hit on a multi-day window: bisect and refetch both halves.
+        mid = start_day + (end_day - start_day) / 2
+        log.info(f"  {slug} {date_range}: hit query cap, splitting window")
+        left = _mhd_fetch_window(session, slug, start_day, mid)
+        right = _mhd_fetch_window(session, slug, mid + timedelta(days=1), end_day)
+        if left is None or right is None:
+            return None
+        return left + right
+
+    if len(all_results) >= MHD_QUERY_CAP:
+        log.warning(f"  {slug} {date_range} hit the {MHD_QUERY_CAP} record cap on a "
+                    f"single day — some records may be missing")
     return all_results
+
+
+def _mhd_parse_detail_html(html):
+    """
+    Extract violation observation texts from an MHD inspection detail page.
+
+    The portal renders violations server-side in the page HTML:
+      <h3 class="observations-header">Observations &amp; Corrective Actions</h3>
+      <p class="observations-text">16: 4-601.11(A) OBSERVED ... <br /><br />39: ...</p>
+
+    Jurisdiction templates vary: some use <h5>, and some (e.g. Plano) ship the
+    block inside an HTML comment while rendering line items separately — the
+    commented-out block still contains the full observation text.
+
+    Returns a list of observation strings (one per violation).
+    """
+    m = re.search(
+        r'Observations\s*&(?:amp;)?\s*Corrective\s*Actions\s*</h\d>\s*'
+        r'<p class="observations-text">(.*?)</p>',
+        html, re.S | re.I)
+    observations = []
+    if m:
+        block = m.group(1)
+        parts = re.split(r'(?:<br\s*/?>\s*){2,}', block)
+        for part in parts:
+            text = re.sub(r'<[^>]+>', ' ', part)
+            text = html_lib.unescape(text)
+            text = re.sub(r'\s+', ' ', text).strip()
+            if len(text) > 5 and not text.lower().startswith('no observation')\
+                    and 'window.seenitemnums' not in text.lower():
+                observations.append(text[:500])
+    if observations:
+        return observations
+
+    # Newer templates (e.g. Frisco) render observations client-side from
+    # inline JS: var itemNum = "30"; var comments = `...html...`;
+    for item_num, comments in re.findall(
+            r'itemNum\s*=\s*"(\d+)"\s*;\s*var\s+comments\s*=\s*`([^`]*)`', html):
+        text = re.sub(r'<[^>]+>', ' ', comments)
+        text = html_lib.unescape(text)
+        text = re.sub(r'\s+', ' ', text).strip()
+        if len(text) > 5:
+            observations.append(f"{item_num}: {text}"[:500])
+    return observations
 
 
 def _mhd_fetch_inspection_detail(session, slug, inspection_id, retry_count=0):
     """
-    Fetch violation details for a single inspection.
+    Fetch violation details for a single inspection by scraping its public
+    detail page. (The portal has no JSON API for details — the observations
+    are rendered server-side into the page HTML, so a plain GET suffices.)
 
-    Tries multiple known API task names that MHD portals use for detail data.
     Returns a list of violation description strings, or empty list on failure.
     """
-    # Try known API tasks for inspection details
-    detail_tasks = [
-        {'task': 'getInspection', 'data': {'path': slug, 'inspectionID': inspection_id}},
-        {'task': 'getInspectionDetails', 'data': {'path': slug, 'inspectionID': inspection_id}},
-        {'task': 'getInspectionViolations', 'data': {'path': slug, 'inspectionID': inspection_id}},
-    ]
-
-    for payload in detail_tasks:
-        try:
-            r = session.post(MHD_BASE_URL, json=payload, timeout=20)
-            if r.status_code in (403, 429):
-                if retry_count < 2:
-                    time.sleep(MHD_RETRY_DELAY)
-                    return _mhd_fetch_inspection_detail(session, slug, inspection_id, retry_count + 1)
-                return []
-            if r.status_code != 200:
-                continue
-            data = r.json()
-            violations = _extract_violations_from_detail(data)
-            if violations:
-                return violations
-        except Exception as e:
-            log.debug(f"  Detail fetch failed for {inspection_id} with task={payload['task']}: {e}")
-            continue
-
-    return []
+    url = f'{MHD_BASE_URL}{slug}/inspection/'
+    try:
+        r = session.get(url, params={'inspectionID': inspection_id}, timeout=30)
+        if r.status_code in (403, 429):
+            if retry_count < 2:
+                time.sleep(MHD_RETRY_DELAY)
+                return _mhd_fetch_inspection_detail(session, slug, inspection_id, retry_count + 1)
+            return []
+        if r.status_code != 200:
+            return []
+        r.encoding = 'utf-8'  # pages omit charset; default latin-1 mangles § etc.
+        return _mhd_parse_detail_html(r.text)
+    except Exception as e:
+        log.debug(f"  Detail fetch failed for {inspection_id}: {e}")
+        return []
 
 
-def _extract_violations_from_detail(data):
+def _mhd_fetch_details_bulk(slug, records, trust_official_score=True):
     """
-    Extract violation descriptions from an inspection detail API response.
-    Handles various response shapes the MHD portal might return.
+    Fetch violation details for many inspections with a small worker pool.
+    Each record with details gets its violations/risk fields updated in place.
+
+    trust_official_score: True for 0-100 jurisdictions whose official score
+    already IS a risk score; False for demerit jurisdictions, where the risk
+    score is recomputed from the scraped violations instead.
     """
-    violations = []
+    local = threading.local()
 
-    if isinstance(data, dict):
-        # Look for violations in common field names
-        for key in ('violations', 'violationItems', 'items', 'violation_list',
-                     'inspectionViolations', 'details'):
-            items = data.get(key)
-            if isinstance(items, list):
-                for item in items:
-                    desc = _violation_desc_from_item(item)
-                    if desc:
-                        violations.append(desc)
-                if violations:
-                    return violations
+    def get_session():
+        if not hasattr(local, 'session'):
+            local.session = _mhd_session()
+        return local.session
 
-        # Some APIs nest violations under an 'inspection' key
-        inner = data.get('inspection') or data.get('data') or data.get('result')
-        if isinstance(inner, dict):
-            return _extract_violations_from_detail(inner)
+    def fetch_one(rec):
+        texts = _mhd_fetch_inspection_detail(get_session(), slug, rec['source_id'])
+        time.sleep(MHD_DETAIL_DELAY)
+        return rec, texts
 
-    elif isinstance(data, list):
-        for item in data:
-            desc = _violation_desc_from_item(item)
-            if desc:
-                violations.append(desc)
-
-    return violations
-
-
-def _violation_desc_from_item(item):
-    """Extract a violation description string from a single violation item."""
-    if isinstance(item, str) and len(item) > 5:
-        return item
-    if isinstance(item, dict):
-        # Try common field names for violation text
-        for key in ('description', 'violationDescription', 'violation', 'text',
-                     'violationText', 'observationText', 'observation',
-                     'comments', 'comment', 'narrative', 'demerits_description'):
-            val = item.get(key)
-            if val and isinstance(val, str) and len(val.strip()) > 5:
-                return val.strip()
-        # Combine code + description if separate
-        code = item.get('code') or item.get('violationCode') or item.get('violation_code') or ''
-        desc = item.get('codeDescription') or item.get('code_description') or ''
-        if desc and len(desc.strip()) > 5:
-            return f"{code} - {desc.strip()}" if code else desc.strip()
-    return None
+    fetched = 0
+    done = 0
+    with ThreadPoolExecutor(max_workers=MHD_DETAIL_WORKERS) as pool:
+        futures = [pool.submit(fetch_one, rec) for rec in records]
+        for future in as_completed(futures):
+            rec, texts = future.result()
+            done += 1
+            if texts:
+                violations = [classify_violation(t) for t in texts]
+                computed_score, pv, pfv, cv = calc_risk_score(violations)
+                rec['violations'] = [[c, s, d] for c, s, d in violations]
+                rec['priority_violations'] = pv
+                rec['priority_foundation_violations'] = pfv
+                rec['core_violations'] = cv
+                rec['total_violations'] = len(violations)
+                # Keep the health department's official score when present
+                # and trustworthy; otherwise use our computed score.
+                if not trust_official_score or rec.get('original_score') is None:
+                    rec['risk_score'] = computed_score
+                fetched += 1
+            if done % 100 == 0:
+                log.info(f"  Details: {done}/{len(records)} inspections fetched "
+                         f"({fetched} with violations)")
+    return fetched
 
 
 def fetch_dfw(jurisdictions=None, since_date=None, limit_per_jurisdiction=None,
-              fetch_violations=False):
+              fetch_violations=True):
     """
     Fetch inspection data for DFW jurisdictions using direct API calls to the
     MyHealthDepartment portal. No browser required — uses the same JSON POST
@@ -966,14 +1090,10 @@ def fetch_dfw(jurisdictions=None, since_date=None, limit_per_jurisdiction=None,
         jurisdictions: dict of slug->config to scrape (defaults to all DFW_JURISDICTIONS)
         since_date: ISO YYYY-MM-DD string for start date (defaults to Jan 1 of current year)
         limit_per_jurisdiction: max records per jurisdiction (None = no limit)
-        fetch_violations: if True, also fetch violation details for each inspection.
-            Default is False because the MHD API does not expose violation details —
-            they are rendered in-browser on individual detail pages. Fetching them
-            via API probes 3 endpoints per inspection and always returns 0 results,
-            adding 30+ min per city for no benefit.
-            TODO: violation details require browser-based scraping of individual
-            inspection detail pages (inspections.myhealthdepartment.com/{slug}/
-            inspection/?inspectionID={id}), which should be a separate slower process.
+        fetch_violations: if True (default), also scrape each inspection's public
+            detail page for violation observations. The portal renders these
+            server-side into the HTML, so a plain GET per inspection suffices
+            (~350 pages for a weekly Dallas+Plano refresh).
 
     Returns:
         list of inspection record dicts with 'metro': 'DFW'
@@ -997,7 +1117,7 @@ def fetch_dfw(jurisdictions=None, since_date=None, limit_per_jurisdiction=None,
             log.error(f"{display_name} fetch failed: {e}")
             import traceback
             log.error(traceback.format_exc())
-        time.sleep(10)  # polite pause between jurisdictions
+        time.sleep(3)  # polite pause between jurisdictions
 
     log.info(f"DFW total: {len(all_results)} inspection records across "
              f"{len(jurisdictions)} jurisdictions")
@@ -1025,33 +1145,37 @@ def _fetch_mhd_jurisdiction_api(session, slug, config, since_date=None, limit=No
         range_start = datetime(datetime.now().year, 1, 1)
     range_end = datetime.now()
 
-    # Build list of daily windows
-    days = []
-    current_day = range_start
-    while current_day <= range_end:
-        days.append(current_day.strftime('%Y-%m-%d'))
-        current_day += timedelta(days=1)
+    # Build list of multi-day windows (bisected automatically if a window
+    # hits the portal's query cap)
+    windows = []
+    current = range_start
+    while current <= range_end:
+        window_end = min(current + timedelta(days=MHD_WINDOW_DAYS - 1), range_end)
+        windows.append((current, window_end))
+        current = window_end + timedelta(days=1)
 
-    log.info(f"{display_name}: {len(days)} daily windows from "
+    log.info(f"{display_name}: {len(windows)} windows of up to {MHD_WINDOW_DAYS} days from "
              f"{range_start.strftime('%Y-%m-%d')} to {range_end.strftime('%Y-%m-%d')}")
 
     all_records = []
     seen_ids = set()
     stopped_early = False
 
-    for day_idx, day_str in enumerate(days):
+    for win_idx, (win_start, win_end) in enumerate(windows):
         if limit and len(all_records) >= limit:
             break
 
-        raw_records = _mhd_fetch_all_for_day(session, slug, day_str)
+        raw_records = _mhd_fetch_window(session, slug, win_start, win_end)
         if raw_records is None:
-            log.error(f"  {display_name}: stopping early due to server errors on {day_str}")
+            log.error(f"  {display_name}: stopping early due to server errors on "
+                      f"{win_start.strftime('%Y-%m-%d')}")
             stopped_early = True
             break
 
         new_count = 0
         for rec in raw_records:
-            parsed = _parse_mhd_record(rec, slug, display_name, default_city, default_state)
+            parsed = _parse_mhd_record(rec, slug, display_name, default_city,
+                                       default_state, config.get('score_scale', '100'))
             if parsed:
                 uid = parsed.get('source_id') or f"{parsed['name']}|{parsed['inspection_date']}"
                 if uid not in seen_ids:
@@ -1059,34 +1183,24 @@ def _fetch_mhd_jurisdiction_api(session, slug, config, since_date=None, limit=No
                     all_records.append(parsed)
                     new_count += 1
 
-        if day_idx % 7 == 0 or day_idx == len(days) - 1:
-            log.info(f"  Day {day_idx+1}/{len(days)} ({day_str}): "
-                     f"{len(raw_records)} results ({new_count} new). Total: {len(all_records)}")
+        log.info(f"  Window {win_idx+1}/{len(windows)} "
+                 f"({win_start.strftime('%Y-%m-%d')}..{win_end.strftime('%Y-%m-%d')}): "
+                 f"{len(raw_records)} results ({new_count} new). Total: {len(all_records)}")
 
         time.sleep(MHD_DELAY)
 
-    # Fetch violation details for each inspection
+    if limit:
+        all_records = all_records[:limit]
+
+    # Scrape violation details from each inspection's public detail page
     if fetch_violations and all_records:
         inspections_with_id = [r for r in all_records if r.get('source_id')]
-        log.info(f"{display_name}: fetching violation details for {len(inspections_with_id)} inspections...")
-        fetched_violations = 0
-        for i, rec in enumerate(inspections_with_id):
-            insp_id = rec['source_id']
-            violation_texts = _mhd_fetch_inspection_detail(session, slug, insp_id)
-            if violation_texts:
-                violations = [classify_violation(text) for text in violation_texts]
-                risk_score, pv, pfv, cv = calc_risk_score(violations)
-                rec['violations'] = violations
-                rec['risk_score'] = risk_score
-                rec['priority_violations'] = pv
-                rec['priority_foundation_violations'] = pfv
-                rec['core_violations'] = cv
-                rec['total_violations'] = len(violations)
-                fetched_violations += 1
-            if (i + 1) % 50 == 0:
-                log.info(f"  Violations: {i+1}/{len(inspections_with_id)} inspections checked "
-                         f"({fetched_violations} with violations)")
-            time.sleep(MHD_DELAY)
+        log.info(f"{display_name}: fetching violation details for "
+                 f"{len(inspections_with_id)} inspections "
+                 f"({MHD_DETAIL_WORKERS} workers)...")
+        fetched_violations = _mhd_fetch_details_bulk(
+            slug, inspections_with_id,
+            trust_official_score=config.get('score_scale', '100') != 'demerit')
         log.info(f"{display_name}: {fetched_violations}/{len(inspections_with_id)} "
                  f"inspections had violation details")
 
@@ -1097,7 +1211,8 @@ def _fetch_mhd_jurisdiction_api(session, slug, config, since_date=None, limit=No
     return all_records
 
 
-def _parse_mhd_record(rec, slug, display_name, default_city, default_state):
+def _parse_mhd_record(rec, slug, display_name, default_city, default_state,
+                      score_scale='100'):
     """Parse a single inspection record from the MyHealthDepartment API JSON response."""
     try:
         name = (rec.get('establishmentName') or '').strip()
@@ -1114,15 +1229,15 @@ def _parse_mhd_record(rec, slug, display_name, default_city, default_state):
 
         # Inspection date — may be ISO string or timestamp
         raw_date = rec.get('inspectionDate') or rec.get('date') or ''
-        date_str = ''
-        if raw_date:
+        date_str = sane_inspection_date(raw_date) or ''
+        if not date_str and raw_date:
             try:
-                date_str = datetime.strptime(str(raw_date)[:10], '%Y-%m-%d').strftime('%Y-%m-%d')
+                date_str = sane_inspection_date(
+                    datetime.fromtimestamp(int(raw_date) / 1000).strftime('%Y-%m-%d')) or ''
             except Exception:
-                try:
-                    date_str = datetime.fromtimestamp(int(raw_date) / 1000).strftime('%Y-%m-%d')
-                except Exception:
-                    date_str = ''
+                date_str = ''
+        if not date_str:
+            return None
 
         # Score
         score = rec.get('score')
@@ -1132,7 +1247,14 @@ def _parse_mhd_record(rec, slug, display_name, default_city, default_state):
             except Exception:
                 score = None
 
-        risk_score = score if score is not None else 70
+        if score is None:
+            risk_score = 70
+        elif score_scale == 'demerit':
+            # Demerit points: lower is better. Rough mapping until the
+            # detail scrape recomputes risk from actual violations.
+            risk_score = max(0, 100 - 2 * score)
+        else:
+            risk_score = score
 
         # IDs for source URLs
         insp_id = str(rec.get('inspectionID') or rec.get('id') or '').strip()
@@ -1170,20 +1292,72 @@ def _parse_mhd_record(rec, slug, display_name, default_city, default_state):
         return None
 
 
-def geocode_missing_coords(records):
-    """Geocode records that are missing latitude/longitude using Nominatim."""
+def geocode_census_batch(records):
+    """
+    Batch-geocode US street addresses with the free Census Bureau geocoder
+    (up to 10k addresses per request — thousands of times faster than the
+    1 req/sec Nominatim loop). Fills latitude/longitude in place and returns
+    the number geocoded.
+    """
+    import csv, io
+
+    geocoded = 0
+    chunk_size = 5000
+    for chunk_start in range(0, len(records), chunk_size):
+        chunk = records[chunk_start:chunk_start + chunk_size]
+        rows = io.StringIO()
+        writer = csv.writer(rows)
+        for idx, r in enumerate(chunk):
+            writer.writerow([idx, r.get('address', ''), r.get('city', ''),
+                             r.get('state', ''), (r.get('zip', '') or '').split('-')[0]])
+        try:
+            resp = requests.post(
+                'https://geocoding.geo.census.gov/geocoder/locations/addressbatch',
+                files={'addressFile': ('addresses.csv', rows.getvalue(), 'text/csv')},
+                data={'benchmark': 'Public_AR_Current'},
+                timeout=300)
+            resp.raise_for_status()
+        except requests.RequestException as e:
+            log.warning(f"Census batch geocode failed: {e}")
+            continue
+        # Response CSV: id, input, match status, match type, matched addr, "lon,lat", ...
+        for row in csv.reader(io.StringIO(resp.text)):
+            if len(row) >= 6 and row[2] == 'Match' and ',' in row[5]:
+                try:
+                    lon, lat = row[5].split(',')
+                    rec = chunk[int(row[0])]
+                    rec['latitude'] = float(lat)
+                    rec['longitude'] = float(lon)
+                    geocoded += 1
+                except (ValueError, IndexError):
+                    continue
+    return geocoded
+
+
+def geocode_missing_coords(records, nominatim_fallback_cap=150):
+    """
+    Geocode records missing latitude/longitude: Census Bureau batch first,
+    then a capped Nominatim fallback for the stragglers (1 req/sec).
+    """
     missing = [r for r in records if not r.get('latitude') or not r.get('longitude')]
     if not missing:
         log.info("All records have coordinates, no geocoding needed")
         return
-    log.info(f"Geocoding {len(missing)} records missing coordinates...")
-    geocoded = 0
-    for r in missing:
+    log.info(f"Geocoding {len(missing)} records missing coordinates (Census batch)...")
+    geocoded = geocode_census_batch(missing)
+
+    still_missing = [r for r in missing if not r.get('latitude') or not r.get('longitude')]
+    fallback = still_missing[:nominatim_fallback_cap]
+    skipped = len(still_missing) - len(fallback)
+    for r in fallback:
         lat, lon = geocode_address(r['address'], r['city'], r['state'])
         if lat and lon:
             r['latitude'] = lat
             r['longitude'] = lon
             geocoded += 1
+    if skipped > 0:
+        log.warning(f"Skipped Nominatim fallback for {skipped} records "
+                    f"(cap {nominatim_fallback_cap}); they will retry next run")
     log.info(f"Geocoded {geocoded}/{len(missing)} records")
 
 # ─── DATA MODEL / FIRESTORE UPLOADER ─────────────────────────────────────────
@@ -1430,40 +1604,60 @@ def _load_existing_data_js(path):
         return []
 
 
-def _cities_being_refreshed(city_args):
+MAX_HISTORY = 6            # [date, risk_score] pairs kept per restaurant
+STALE_MONTHS = 30          # merged records older than this are pruned
+
+
+def _weighted_from_history(history_pairs):
+    """Weighted score from [[date, risk_score], ...] sorted newest-first."""
+    weights = [0.6, 0.3, 0.1]
+    total = 0.0
+    total_w = 0.0
+    for idx, (_, score) in enumerate(history_pairs[:3]):
+        total += (score or 0) * weights[idx]
+        total_w += weights[idx]
+    return round(total / total_w) if total_w else 0
+
+
+def _apply_grades(rec):
     """
-    Expand city CLI args into the set of city names that are being refreshed.
-    Maps pipeline slugs to the display city names used in data.js records.
+    Recompute ws/vg/inf/vs on a compact record from its history + violations.
+    The raw violations array ('v') is only present in-memory for records built
+    this run — it is stripped before serialization to keep data.js small. For
+    records loaded back from an existing data.js, grading text is derived from
+    the stored summary verbatims and the existing inf/vs are left untouched.
     """
-    city_map = {
-        'chicago': ['Chicago'],
-        'nyc': ['New York', 'Bronx', 'Brooklyn', 'Queens', 'Staten Island', 'Manhattan'],
-        'sf': ['San Francisco'],
-        'dfw': [cfg['default_city'] for cfg in DFW_JURISDICTIONS.values()],
-    }
-    # Also map individual DFW slugs
-    for slug, cfg in DFW_JURISDICTIONS.items():
-        city_map[slug] = [cfg['default_city']]
+    has_violations = rec.get('v') is not None
+    if has_violations:
+        violation_text = build_violation_text(
+            [tuple(v) for v in (rec.get('v') or [])])
+    else:
+        violation_text = '|||'.join(
+            s.get('verbatim', '') for s in (rec.get('vs') or []) if s.get('verbatim'))
+    rec['ws'] = _weighted_from_history(rec.get('h') or [[rec.get('d', ''), rec.get('rs', 0)]])
+    vg = calculate_vetted_grade(rec['ws'])
+    if calculate_vetted_grade(rec.get('rs', 0), violation_text) == 'F':
+        vg = 'F'
+    rec['vg'] = vg
+    if has_violations:
+        rec['inf'] = detect_infractions(violation_text)
+        summaries = summarize_violations(violation_text)
+        for s in summaries:
+            s['verbatim'] = s['verbatim'][:200]
+        rec['vs'] = summaries
 
-    refreshed = set()
-    for arg in city_args:
-        if arg.lower() in city_map:
-            refreshed.update(city_map[arg.lower()])
-        else:
-            refreshed.add(arg)
-    return refreshed
 
-
-def write_data_js(all_inspections, output_path, top_per_city=1500,
-                  merge_from=None, refreshed_cities=None):
+def write_data_js(all_inspections, output_path, top_per_city=1500, merge_from=None):
     """Write a data.js file with window.DATA = [...] for client-side embedding.
 
     Args:
-        merge_from: path to an existing data.js file. Records from cities NOT
-                    in refreshed_cities are preserved; records from refreshed
-                    cities are replaced with the new data.
-        refreshed_cities: list of city CLI args (e.g. ['dallas', 'chicago'])
-                          used to determine which existing records to replace.
+        merge_from: path to an existing data.js file. Existing records are
+                    merged at the restaurant level: a restaurant seen in this
+                    run replaces (and extends the score history of) its
+                    existing record; restaurants NOT seen in this run are
+                    preserved as-is, so weekly refreshes accumulate data
+                    instead of wiping it. Records with no inspection in the
+                    last STALE_MONTHS months are pruned.
     """
     from collections import defaultdict as _dd
 
@@ -1476,12 +1670,8 @@ def write_data_js(all_inspections, output_path, top_per_city=1500,
     for rest_id, inspections in restaurants.items():
         inspections.sort(key=lambda x: x.get('inspection_date', ''), reverse=True)
         r = inspections[0]
-        violation_text = build_violation_text(r.get('violations', []))
-        ws = compute_weighted_score(inspections)
-        vg = calculate_vetted_grade(ws)
-        latest_g = calculate_vetted_grade(r.get('risk_score', 0), violation_text)
-        if latest_g == 'F':
-            vg = 'F'
+        history = [[i.get('inspection_date', ''), i.get('risk_score', 0)]
+                   for i in inspections[:MAX_HISTORY]]
         compact = {
             'n':   r.get('name', ''),
             'a':   r.get('address', ''),
@@ -1500,27 +1690,55 @@ def write_data_js(all_inspections, output_path, top_per_city=1500,
             'src': r.get('source', ''),
             'url': r.get('source_url', ''),
             'ic':  len(inspections),
-            'v':   [(list(v) if isinstance(v, (list, tuple)) else [v.get('category','unclassified'), v.get('severity','core'), v.get('description','')]) for v in (r.get('violations') or [])],
+            # Cap violation list size/length to keep the embedded payload small
+            'v':   [(list(v)[:2] + [str(list(v)[2])[:250]] if isinstance(v, (list, tuple)) else [v.get('category','unclassified'), v.get('severity','core'), str(v.get('description',''))[:250]]) for v in (r.get('violations') or [])[:12]],
             'i':   rest_id,
             'm':   r.get('metro', ''),
-            'ws':  ws,
-            'vg':  vg,
-            'inf': detect_infractions(violation_text),
-            'vs':  summarize_violations(violation_text),
+            'h':   history,
         }
         records.append(compact)
 
-    # Merge with existing data.js if requested
-    if merge_from and refreshed_cities:
+    # Merge with existing data.js if requested (restaurant-level overlay)
+    if merge_from:
         existing = _load_existing_data_js(merge_from)
         if existing:
-            cities_replacing = _cities_being_refreshed(refreshed_cities)
-            new_ids = {rec['i'] for rec in records}
-            kept = [rec for rec in existing
-                    if rec.get('c') not in cities_replacing and rec.get('i') not in new_ids]
-            log.info(f"Merge: keeping {len(kept)} existing records from other cities, "
-                     f"replacing {len(existing) - len(kept)} records from {cities_replacing}")
-            records.extend(kept)
+            by_id = {rec['i']: rec for rec in existing if rec.get('i')}
+            updated = added = 0
+            for new in records:
+                old = by_id.get(new['i'])
+                if old is None:
+                    by_id[new['i']] = new
+                    added += 1
+                    continue
+                # Combine score histories (dedupe by date, newest first)
+                hist = {d: s for d, s in (old.get('h') or [[old.get('d', ''), old.get('rs', 0)]]) if d}
+                new_dates_added = 0
+                for d, s in (new.get('h') or []):
+                    if d and d not in hist:
+                        new_dates_added += 1
+                    if d:
+                        hist[d] = s
+                combined = sorted(hist.items(), reverse=True)[:MAX_HISTORY]
+                # Keep whichever record reflects the most recent inspection
+                rec = new if new.get('d', '') >= old.get('d', '') else old
+                rec['h'] = [[d, s] for d, s in combined]
+                rec['ic'] = (old.get('ic') or 1) + new_dates_added
+                by_id[new['i']] = rec
+                updated += 1
+            merged = list(by_id.values())
+            cutoff = (datetime.now() - timedelta(days=STALE_MONTHS * 30)).strftime('%Y-%m-%d')
+            # Prune stale records and any legacy records with implausible
+            # dates (written before the date sanity filter existed)
+            records = [rec for rec in merged
+                       if rec.get('d', '') >= cutoff and sane_inspection_date(rec.get('d'))]
+            log.info(f"Merge: {added} new restaurants, {updated} updated, "
+                     f"{len(merged) - len(records)} stale pruned, {len(records)} total")
+
+    # Re-grade every record (fresh AND preserved) so grading-rule changes
+    # take effect dataset-wide on the next run rather than only for
+    # restaurants that happen to be refetched.
+    for rec in records:
+        _apply_grades(rec)
 
     by_city = _dd(list)
     for rec in records:
@@ -1528,12 +1746,15 @@ def write_data_js(all_inspections, output_path, top_per_city=1500,
 
     final = []
     for city, city_recs in by_city.items():
-        city_recs.sort(key=lambda x: x['rs'], reverse=True)
-        # Include all DFW metro records; cap other cities
-        if city_recs and city_recs[0].get('m') == 'DFW':
-            final.extend(city_recs)
-        else:
-            final.extend(city_recs[:top_per_city])
+        # Keep the most recently inspected restaurants per city
+        city_recs.sort(key=lambda x: x.get('d', ''), reverse=True)
+        final.extend(city_recs[:top_per_city])
+
+    # Strip the raw violations array before writing: the frontend only reads
+    # the vs summaries (which carry capped verbatim text), and 'v' alone is
+    # ~40% of the payload. Firestore keeps the full violation detail.
+    for rec in final:
+        rec.pop('v', None)
 
     from datetime import datetime as _dt
     header = f"/* DineScores embedded data — auto-generated {_dt.now().strftime('%Y-%m-%d')} */\n"
@@ -1563,9 +1784,11 @@ def main():
     parser.add_argument('--output-data-js', default=None,
                         help='Also write a data.js file (window.DATA = ...) for client-side embedding')
     parser.add_argument('--merge-existing-data-js', default=None,
-                        help='Path to existing data.js to merge with. Records from cities being refreshed '
-                             'are replaced; records from other cities are preserved. '
-                             'Use with --output-data-js to keep Chicago/NYC data when refreshing Dallas only.')
+                        help='Path to existing data.js to merge with (restaurant-level merge: '
+                             'restaurants seen in this run are updated, all others are preserved). '
+                             'Required for weekly refreshes so partial pulls do not wipe the dataset.')
+    parser.add_argument('--no-dfw-violations', action='store_true',
+                        help='Skip scraping DFW inspection detail pages for violation text (faster)')
     parser.add_argument('--debug', action='store_true',
                         help='Enable debug logging for network interception diagnostics')
     args = parser.parse_args()
@@ -1593,32 +1816,31 @@ def main():
         record_limit = None
     
     all_inspections = []
-    
-    # Fetch data from each city
+
+    # Fetch the Socrata-backed cities concurrently (each is a distinct API host)
+    socrata_jobs = {}
     if 'chicago' in args.cities:
-        try:
-            chi_data = fetch_chicago(since_date=since_date, limit=record_limit or 100000)
-            all_inspections.extend(chi_data)
-            log.info(f"Chicago: {len(chi_data)} records")
-        except Exception as e:
-            log.error(f"Chicago fetch failed: {e}")
-    
+        socrata_jobs['Chicago'] = lambda: fetch_chicago(
+            since_date=since_date, limit=record_limit or 100000)
     if 'nyc' in args.cities:
-        try:
-            nyc_data = fetch_nyc(since_date=since_date, limit=(record_limit or 1) * 20 if record_limit else None)
-            all_inspections.extend(nyc_data)
-            log.info(f"NYC: {len(nyc_data)} records")
-        except Exception as e:
-            log.error(f"NYC fetch failed: {e}")
-    
+        socrata_jobs['NYC'] = lambda: fetch_nyc(
+            since_date=since_date, limit=(record_limit or 1) * 20 if record_limit else None)
     if 'sf' in args.cities:
-        try:
-            sf_data = fetch_sf(since_date=since_date, limit=record_limit or 30000)
-            all_inspections.extend(sf_data)
-            log.info(f"SF: {len(sf_data)} records")
-        except Exception as e:
-            log.error(f"SF fetch failed: {e}")
-    
+        socrata_jobs['SF'] = lambda: fetch_sf(
+            since_date=since_date, limit=record_limit or 30000)
+
+    if socrata_jobs:
+        with ThreadPoolExecutor(max_workers=len(socrata_jobs)) as pool:
+            futures = {pool.submit(fn): city for city, fn in socrata_jobs.items()}
+            for future in as_completed(futures):
+                city = futures[future]
+                try:
+                    data = future.result()
+                    all_inspections.extend(data)
+                    log.info(f"{city}: {len(data)} records")
+                except Exception as e:
+                    log.error(f"{city} fetch failed: {e}")
+
     # DFW metroplex — supports 'dfw' (all cities), 'dallas' (single), or any slug
     dfw_slugs_requested = [c for c in args.cities if c in DFW_JURISDICTIONS]
     if 'dfw' in args.cities or dfw_slugs_requested:
@@ -1638,7 +1860,8 @@ def main():
             dfw_data = fetch_dfw(
                 jurisdictions=jurisdictions,
                 since_date=dfw_since,
-                limit_per_jurisdiction=record_limit)
+                limit_per_jurisdiction=record_limit,
+                fetch_violations=not args.no_dfw_violations)
 
             # Geocode records missing coordinates
             geocode_missing_coords(dfw_data)
@@ -1671,8 +1894,7 @@ def main():
     # Optionally write data.js (client-side embedded fallback)
     if args.output_data_js:
         write_data_js(all_inspections, args.output_data_js,
-                      merge_from=args.merge_existing_data_js,
-                      refreshed_cities=args.cities)
+                      merge_from=args.merge_existing_data_js)
     
     # Upload to Firestore
     if not args.dry_run and args.creds:
