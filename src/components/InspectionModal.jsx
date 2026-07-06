@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { fetchInspectionHistory } from '../firebase.js';
+import { fetchHistoryFromApi } from '../api.js';
 import GradeBadge from './GradeBadge.jsx';
 
 const INFRACTION_META = {
@@ -21,8 +22,9 @@ export default function InspectionModal({ restaurant: r, onClose, formatDate }) 
   const [loadingHistory, setLoadingHistory] = useState(false);
   const [expandedSummary, setExpandedSummary] = useState(null);
 
-  // Fetch inspection history from Firestore subcollection; fall back to the
-  // embedded score history (r.h = [[date, score], ...]) shipped in data.js.
+  // Inspection history sources, best first: the D1-backed API (full history
+  // with violations), then Firestore (legacy), then the embedded score
+  // history (r.h = [[date, score], ...]) shipped in data.js.
   useEffect(() => {
     if (!r) return;
     setExpandedSummary(null);
@@ -31,13 +33,14 @@ export default function InspectionModal({ restaurant: r, onClose, formatDate }) 
       (Array.isArray(r.h) ? r.h : [])
         .filter(entry => Array.isArray(entry) && entry[0])
         .map(([date, rs]) => ({ id: `${r.i}_${date}`, date, rs: rs || 0, type: '' }));
-    fetchInspectionHistory(r.i).then(h => {
+    (async () => {
+      let h = await fetchHistoryFromApi(r.i);
+      if (!h || h.length === 0) {
+        h = await fetchInspectionHistory(r.i).catch(() => []);
+      }
       setHistory(h && h.length > 0 ? h : embeddedHistory());
       setLoadingHistory(false);
-    }).catch(() => {
-      setHistory(embeddedHistory());
-      setLoadingHistory(false);
-    });
+    })();
   }, [r]);
 
   if (!r) return null;

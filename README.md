@@ -9,34 +9,41 @@ and violation summaries for Chicago, NYC, San Francisco, and DFW metro.
 ## Architecture
 
 ```
-┌─────────────────────────────────────────────────┐
-│  Python Pipeline (dinescores_pipeline.py)        │
-│  • Fetches data from Chicago, NYC, SF, DFW APIs  │
-│  • Classifies violations (14 categories)          │
-│  • Computes risk_score, weighted_score, grades    │
-│  • Detects infractions & summarizes violations    │
-│  • Uploads to Firestore + generates data.js       │
-└─────────────┬───────────────────────┬────────────┘
-              │                       │
-     Firestore DB              public/data.js
-     (primary)                  (fallback)
-              │                       │
-┌─────────────┴───────────────────────┴────────────┐
+┌──────────────────────────────────────────────────┐
+│  Python Pipeline (dinescores_pipeline.py)         │
+│  • Scrapes Chicago, NYC, SF, DFW inspection data  │
+│  • Classifies violations, computes scores/grades  │
+│  • Weekly via GitHub Actions                      │
+└──────┬──────────────────────────┬────────────────┘
+       │                          │
+  Cloudflare D1              public/data.js
+  (full dataset:             (embedded map data:
+   restaurants +              most recent 1,500
+   inspection history)        per city)
+       │                          │
+┌──────┴───────────┐              │
+│ /api/* Functions │              │
+│ • /restaurants   │              │
+│   city/bbox/q    │              │
+│ • /:id/history   │              │
+│ • /cities        │              │
+└──────┬───────────┘              │
+       │                          │
+┌──────┴──────────────────────────┴────────────────┐
 │  React Frontend (Vite build → public/)            │
 │  • MapLibre GL JS map with clustering             │
-│  • Grade badges (thumbs up/hand/thumbs down)      │
-│  • Infraction filter icons                        │
-│  • Inspection detail modal with summaries         │
-│  • City/risk/grade filter chips                   │
-│  • Dark mode, responsive (mobile bottom sheet)    │
-└──────────────────────────────────────────────────┘
+│  • Map paints from embedded data.js               │
+│  • Inspection history via D1 API                  │
+│  • Grade badges, filters, dark mode, responsive   │
+└───────────────────────────────────────────────────┘
               │
-       Firebase Hosting
+     Cloudflare Pages (auto-deploys from main)
 ```
 
 ## Tech Stack
 
-- **Backend**: Python pipeline → Firestore + `data.js` fallback
+- **Backend**: Python pipeline → Cloudflare D1 (full dataset + history) + embedded `data.js` (map paint)
+- **API**: Cloudflare Pages Functions (`functions/api/*`) querying D1
 - **Frontend**: React (JSX) + Tailwind CSS (CDN) + MapLibre GL JS
 - **Build**: Vite → outputs to `public/` for Firebase Hosting
 - **Hosting**: Firebase Hosting
@@ -106,6 +113,40 @@ Data hygiene: placeholder dates (NYC `1900-01-01` = not yet inspected) and
 future-dated typos in source data are dropped; Chicago severity is bounded by
 the official violation number ranges (1-29 risk factors, 30+ good retail
 practices).
+
+---
+
+## Database (Cloudflare D1)
+
+The full dataset (all restaurants + accumulated inspection history) lives in a
+Cloudflare D1 SQL database, queried by the `/api/*` Pages Functions. The
+embedded `data.js` remains the map's initial paint (most recent 1,500
+restaurants per city); the API serves everything else and scales to hundreds
+of cities.
+
+**One-time setup (browser only, no local tools):**
+1. Create an API token at dash.cloudflare.com → My Profile → API Tokens →
+   Create Token → Custom token, with permissions **Account | D1 | Edit** and
+   **Account | Cloudflare Pages | Read**.
+2. Add two repo secrets (GitHub → Settings → Secrets and variables → Actions):
+   `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID` (account ID is in the
+   right sidebar of any domain page on the Cloudflare dashboard).
+3. Run the **Setup D1 Database** workflow (GitHub → Actions → Run workflow).
+   It creates the database, loads the committed seed
+   (`data/d1_seed.sql.gz`, ~54k restaurants), and commits a `wrangler.toml`
+   with the D1 binding — the next deploy makes the API live.
+4. Verify: `https://dinescores.com/api/cities`
+
+After setup, the weekly refresh workflow updates D1 automatically (it skips
+the D1 step silently if the secrets are absent).
+
+**API endpoints:**
+
+| Endpoint | Purpose |
+|----------|---------|
+| `/api/restaurants?city=Dallas` | Restaurants in a city (also `bbox=w,s,e,n`, `q=name`, `grade=F`, `limit=`) |
+| `/api/restaurants/{id}/history` | Full inspection history with violations |
+| `/api/cities` | City index: counts, grade breakdown, bounding boxes |
 
 ### Pipeline Fields
 

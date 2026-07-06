@@ -36,7 +36,8 @@ jobs:
             --cities chicago nyc sf dallas plano frisco \
             --output /tmp/dinescores_data.json \
             --output-data-js public/data.js \
-            --merge-existing-data-js public/data.js
+            --merge-existing-data-js public/data.js \
+            --output-d1-sql /tmp/dinescores_weekly.sql
         # --merge-existing-data-js is essential: weekly mode only pulls the
         # last 8 days, and merging preserves the accumulated dataset instead
         # of overwriting it. DFW fetches are failure-tolerant — if the portal
@@ -56,6 +57,19 @@ jobs:
           for city, count in sorted(cities.items()):
               print(f'  {city}: {count}')
           "
+
+      - name: Update D1 database
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          if [ -z "$CLOUDFLARE_API_TOKEN" ] || [ -z "$CLOUDFLARE_ACCOUNT_ID" ]; then
+            echo "Cloudflare secrets not configured — skipping D1 update."
+            echo "Run the 'Setup D1 Database' workflow prerequisites to enable it."
+            exit 0
+          fi
+          npx --yes wrangler@4 d1 execute dinescores --remote -y \
+            --file /tmp/dinescores_weekly.sql
 
       - name: Commit updated data.js
         run: |
