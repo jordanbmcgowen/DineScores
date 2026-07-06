@@ -4,79 +4,43 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
   <title>DineScores — Know Before You Go</title>
-  <meta name="description" content="DineScores: Restaurant food safety scores and inspection data. Know before you go.">
-  <meta name="theme-color" content="#0891b2">
-
-  <!-- Tailwind CSS via CDN -->
-  <script src="https://cdn.tailwindcss.com"></script>
-  <script>
-    tailwind.config = {
-      darkMode: 'media',
-      theme: {
-        extend: {
-          fontFamily: { sans: ['Inter', 'system-ui', '-apple-system', 'sans-serif'] },
-          animation: { 'fade-in': 'fadeIn 0.3s ease-out', 'slide-up': 'slideUp 0.3s ease-out' },
-          keyframes: {
-            fadeIn: { from: { opacity: 0 }, to: { opacity: 1 } },
-            slideUp: { from: { opacity: 0, transform: 'translateY(20px)' }, to: { opacity: 1, transform: 'translateY(0)' } },
-          },
-        },
-      },
-    };
-  </script>
-
-  <!-- Google Fonts: Inter -->
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet">
-
-  <!-- MapLibre GL JS -->
-  <link rel="stylesheet" href="https://unpkg.com/maplibre-gl@4.1.2/dist/maplibre-gl.css">
+  <meta name="description" content="DineScores: Restaurant food safety scores and inspection data from official health department records. Know before you go.">
+  <meta name="theme-color" media="(prefers-color-scheme: light)" content="#ffffff">
+  <meta name="theme-color" media="(prefers-color-scheme: dark)" content="#0f172a">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Cpath d='M16 2L4 8v8c0 7.18 5.12 13.88 12 16 6.88-2.12 12-8.82 12-16V8L16 2z' fill='%230d9488'/%3E%3Ctext x='16' y='21' text-anchor='middle' fill='white' font-size='13' font-weight='700' font-family='system-ui'%3EA%3C/text%3E%3C/svg%3E">
 
   <style>
-    /* Custom scrollbar */
-    ::-webkit-scrollbar { width: 6px; }
-    ::-webkit-scrollbar-track { background: transparent; }
-    ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 3px; }
-    ::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
-    .no-scrollbar::-webkit-scrollbar { display: none; }
-    .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
-
-    /* MapLibre container */
-    .maplibregl-map { border-radius: 0; }
-    .maplibregl-popup-content { border-radius: 12px !important; padding: 0 !important; box-shadow: 0 10px 40px rgba(0,0,0,0.15) !important; }
-    .maplibregl-popup-close-button { font-size: 18px; padding: 4px 8px; color: #64748b; }
-
-    /* Loading overlay */
+    /* Pre-hydration loading overlay (self-contained — no framework CSS yet) */
     #loading-overlay {
       position: fixed; inset: 0; z-index: 99999;
-      display: flex; align-items: center; justify-content: center;
-      background: white;
+      display: flex; flex-direction: column; align-items: center; justify-content: center;
+      gap: 14px;
+      background: #ffffff;
+      font-family: system-ui, -apple-system, sans-serif;
       transition: opacity 0.4s ease;
     }
     #loading-overlay.fade-out { opacity: 0; pointer-events: none; }
+    #loading-overlay .spinner {
+      width: 36px; height: 36px;
+      border: 3px solid #99f6e4; border-top-color: #0d9488;
+      border-radius: 50%;
+      animation: ds-spin 0.8s linear infinite;
+    }
+    #loading-overlay .brand { font-weight: 800; font-size: 18px; letter-spacing: -0.02em; color: #0f172a; }
+    @keyframes ds-spin { to { transform: rotate(360deg); } }
     @media (prefers-color-scheme: dark) {
       #loading-overlay { background: #0f172a; }
-    }
-
-    /* Bottom sheet on mobile */
-    @media (max-width: 767px) {
-      .bottom-sheet {
-        position: fixed; bottom: 0; left: 0; right: 0;
-        z-index: 40;
-        border-radius: 20px 20px 0 0;
-        transition: transform 0.3s cubic-bezier(0.16, 1, 0.3, 1);
-        max-height: 70vh;
-      }
-      .bottom-sheet.collapsed { transform: translateY(calc(100% - 60px)); }
-      .bottom-sheet.peek { transform: translateY(calc(100% - 240px)); }
-      .bottom-sheet.expanded { transform: translateY(0); }
+      #loading-overlay .brand { color: #f1f5f9; }
     }
   </style>
 </head>
 <body>
+  <div id="loading-overlay">
+    <div class="spinner"></div>
+    <div class="brand">DineScores</div>
+  </div>
   <div id="root"></div>
-  <!-- Firestore is primary. data.js is the fallback when Firestore is unreachable. -->
+  <!-- Embedded dataset (regenerated weekly by CI) -->
   <script src="data.js"></script>
   <script type="module" src="/src/main.jsx"></script>
 </body>

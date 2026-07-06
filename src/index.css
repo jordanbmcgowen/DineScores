@@ -1,0 +1,83 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ── Base ──────────────────────────────────────────────────────────────── */
+
+html,
+body,
+#root {
+  height: 100%;
+  overscroll-behavior: none;
+}
+
+body {
+  @apply font-sans antialiased text-slate-900 dark:text-slate-100 bg-slate-100 dark:bg-slate-950;
+}
+
+/* Thin, unobtrusive scrollbars */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  @apply bg-slate-300 dark:bg-slate-600 rounded-full;
+}
+
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+.no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+/* iOS safe areas */
+.pt-safe {
+  padding-top: env(safe-area-inset-top);
+}
+.pb-safe {
+  padding-bottom: env(safe-area-inset-bottom);
+}
+
+/* ── Map chrome ────────────────────────────────────────────────────────── */
+
+.maplibregl-ctrl-group {
+  @apply !rounded-xl !shadow-lg overflow-hidden;
+}
+.maplibregl-ctrl-attrib {
+  font-size: 10px;
+  @apply !bg-white/70 dark:!bg-slate-900/70 dark:!text-slate-400;
+}
+.maplibregl-ctrl-attrib a {
+  @apply dark:!text-slate-400;
+}
+
+/* ── Mobile bottom sheet ───────────────────────────────────────────────── */
+
+@media (max-width: 767px) {
+  .sheet {
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    z-index: 30;
+    border-radius: 24px 24px 0 0;
+    transition: transform 0.35s cubic-bezier(0.16, 1, 0.3, 1);
+    max-height: 78dvh;
+    height: 78dvh;
+    touch-action: none;
+  }
+  .sheet-collapsed {
+    transform: translateY(calc(100% - 92px));
+  }
+  .sheet-half {
+    transform: translateY(46%);
+  }
+  .sheet-full {
+    transform: translateY(0);
+  }
+}
