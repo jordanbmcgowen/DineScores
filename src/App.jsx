@@ -37,19 +37,20 @@ export default function App() {
     async function load() {
       setLoading(true);
       try {
-        // Try Firestore first, fall back to embedded data.js
+        // Embedded data.js is the primary source: it is refreshed weekly by
+        // CI and deployed with the site, so it is always current. Firestore
+        // is a secondary source for environments without the embedded file.
         let data;
-        try {
-          const firestoreData = await fetchAllRestaurants();
-          if (firestoreData && firestoreData.length > 0) {
-            data = firestoreData;
-          }
-        } catch (fsErr) {
-          console.warn('Firestore fetch failed, using embedded data:', fsErr);
-        }
-        if (!data || data.length === 0) {
-          if (window.DATA && Array.isArray(window.DATA) && window.DATA.length > 0) {
-            data = window.DATA.slice();
+        if (window.DATA && Array.isArray(window.DATA) && window.DATA.length > 0) {
+          data = window.DATA.slice();
+        } else {
+          try {
+            const firestoreData = await fetchAllRestaurants();
+            if (firestoreData && firestoreData.length > 0) {
+              data = firestoreData;
+            }
+          } catch (fsErr) {
+            console.warn('Firestore fetch failed and no embedded data:', fsErr);
           }
         }
         // Ensure all records have vetted grading fields
