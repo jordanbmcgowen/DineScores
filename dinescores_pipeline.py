@@ -1322,6 +1322,142 @@ def _parse_mhd_record(rec, slug, display_name, default_city, default_state,
         return None
 
 
+# ─── RICHARDSON (HealthTrak / Lotus Domino) ──────────────────────────────────
+
+RICHARDSON_BASE = 'https://discovery.cor.gov/public/health/healthtrak.nsf/'
+RICHARDSON_DELAY = 0.4
+
+
+def _richardson_month_rows(session, year, month):
+    """Fetch one month of Richardson scores. Returns [(name, address, date, score, detail_path)]."""
+    r = session.get(RICHARDSON_BASE + 'getWebScoresByMonth',
+                    params={'openagent': '', 'year': year, 'month': month},
+                    timeout=30)
+    if r.status_code != 200:
+        return []
+    rows = []
+    for tr in re.findall(r'<tr[^>]*>(.*?)</tr>', r.text, re.S):
+        cells = re.findall(r'<t[dh][^>]*>(.*?)</t[dh]>', tr, re.S)
+        if len(cells) < 4:
+            continue
+        clean = [html_lib.unescape(re.sub(r'\s+', ' ', re.sub(r'<[^>]+>', ' ', c))).strip()
+                 for c in cells[:4]]
+        name, address, date_str, score_str = clean
+        if not sane_inspection_date(date_str) or not score_str.isdigit():
+            continue
+        m = re.search(r'href="([^"]+\?OpenDocument)"', tr)
+        rows.append((name, address, date_str, int(score_str), m.group(1) if m else None))
+    return rows
+
+
+def _richardson_parse_report(html):
+    """
+    Parse violations from a Richardson HealthTrak inspection report.
+    Violated checklist items carry a demerit value in the first cell
+    (e.g. "-3") and inspector remarks in the third cell. TX form weights:
+    3 points = priority, 2 = priority foundation, 1 = core.
+    """
+    violations = []
+    for tr in re.findall(r'<tr[^>]*>(.*?)</tr>', html, re.S):
+        cells = re.findall(r'<td[^>]*>(.*?)</td>', tr, re.S)
+        if len(cells) < 3:
+            continue
+        clean = [html_lib.unescape(re.sub(r'\s+', ' ', re.sub(r'<br\s*/?>', ' | ', c)))
+                 for c in cells[:3]]
+        clean = [re.sub(r'<[^>]+>', ' ', c).strip() for c in clean]
+        demerit_m = re.match(r'^-?(\d+)$', clean[0])
+        if not demerit_m:
+            continue
+        item_title = re.sub(r'^\d+\.\s*', '', clean[1]).strip()
+        remarks = re.sub(r'(\s*\|\s*)+', ' | ', clean[2]).strip(' |')
+        desc = f"{item_title}: {remarks}" if remarks else item_title
+        if len(desc) < 5:
+            continue
+        demerits = int(demerit_m.group(1))
+        if demerits >= 3:
+            sev = 'priority'
+        elif demerits == 2:
+            sev = 'priority_foundation'
+        else:
+            sev = 'core'
+        cat, _, _ = classify_violation(desc)
+        violations.append((cat, sev, desc[:500]))
+    return violations
+
+
+def fetch_richardson(since_date=None, limit=None, fetch_violations=True):
+    """
+    Fetch Richardson, TX inspections from the city's HealthTrak system
+    (Lotus Domino app on discovery.cor.gov — a different host from the
+    bot-blocked cor.net site). Monthly score tables (~100 inspections/month,
+    0-100 scale) link to full inspection reports, which are parsed for
+    violations with demerit-based severity.
+    """
+    log.info(f"Fetching Richardson data (since={since_date}, limit={limit})")
+    session = requests.Session()
+    session.headers.update({'User-Agent': CHROME_UA})
+
+    start = datetime.strptime(str(since_date)[:10], '%Y-%m-%d') if since_date \
+        else datetime(datetime.now().year, 1, 1)
+    end = datetime.now()
+
+    months = []
+    cursor = datetime(start.year, start.month, 1)
+    while cursor <= end:
+        months.append((cursor.year, cursor.month))
+        cursor = datetime(cursor.year + (cursor.month == 12),
+                          (cursor.month % 12) + 1, 1)
+
+    results = []
+    for year, month in months:
+        rows = _richardson_month_rows(session, year, month)
+        log.info(f"  Richardson {year}-{month:02d}: {len(rows)} inspections")
+        for name, address, date_str, score, detail_path in rows:
+            if since_date and date_str < str(since_date)[:10]:
+                continue
+            violations = []
+            if fetch_violations and detail_path:
+                try:
+                    dr = session.get('https://discovery.cor.gov' + detail_path, timeout=30)
+                    if dr.status_code == 200:
+                        violations = _richardson_parse_report(dr.text)
+                except requests.RequestException as e:
+                    log.debug(f"  Richardson detail failed: {e}")
+                time.sleep(RICHARDSON_DELAY)
+            _, pv, pfv, cv = calc_risk_score(violations)
+            results.append({
+                'name': name.title(),
+                'address': address.title(),
+                'city': 'Richardson',
+                'state': 'TX',
+                'zip': '',
+                'latitude': None,
+                'longitude': None,
+                'inspection_date': date_str,
+                'original_score': score,
+                'risk_score': max(0, min(100, score)),
+                'priority_violations': pv,
+                'priority_foundation_violations': pfv,
+                'core_violations': cv,
+                'total_violations': len(violations),
+                'violations': [[c, s, d] for c, s, d in violations],
+                'inspection_type': '',
+                'results': '',
+                'source': 'Richardson Health Dept',
+                'source_url': 'https://discovery.cor.gov/public/health/healthtrak.nsf/WebScoresByDay.html',
+                'source_id': (detail_path or '').split('/')[-1].split('?')[0] or f"rich_{name}_{date_str}",
+                'metro': 'DFW',
+            })
+            if limit and len(results) >= limit:
+                break
+        if limit and len(results) >= limit:
+            break
+        time.sleep(RICHARDSON_DELAY)
+
+    log.info(f"Richardson: {len(results)} inspections")
+    return results
+
+
 # ─── ARLINGTON (ArcGIS Open Data) ────────────────────────────────────────────
 
 ARLINGTON_LAYER_URL = ('https://gis2.arlingtontx.gov/agsext2/rest/services/'
@@ -2157,6 +2293,22 @@ def main():
                     log.info(f"{city}: {len(data)} records")
                 except Exception as e:
                     log.error(f"{city} fetch failed: {e}")
+
+    # Richardson uses its own HealthTrak source (not the MHD portal)
+    if 'richardson' in args.cities or 'dfw' in args.cities:
+        try:
+            rich_since = None
+            if args.mode == 'weekly':
+                rich_since = (datetime.now() - timedelta(days=8)).strftime('%Y-%m-%d')
+            elif args.mode == 'full':
+                rich_since = '2026-01-01'
+            rich_data = fetch_richardson(since_date=rich_since, limit=record_limit,
+                                         fetch_violations=not args.no_dfw_violations)
+            geocode_missing_coords(rich_data)
+            all_inspections.extend(rich_data)
+            log.info(f"Richardson: {len(rich_data)} records")
+        except Exception as e:
+            log.error(f"Richardson fetch failed: {e}")
 
     # Arlington uses its own ArcGIS source (not the MHD portal)
     if 'arlington' in args.cities or 'dfw' in args.cities:
