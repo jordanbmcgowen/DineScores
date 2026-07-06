@@ -135,11 +135,21 @@ DFW_JURISDICTIONS = {
     'plano':        {'display_name': 'Plano',         'default_city': 'Plano',         'state': 'TX'},
     'frisco':       {'display_name': 'Frisco',        'default_city': 'Frisco',        'state': 'TX',
                      'score_scale': 'demerit'},
+    # Fort Worth runs its own program on MHD under a hyphenated slug;
+    # demerit-scored (0 = perfect, 30+ = fail).
+    'fort-worth-texas': {'display_name': 'Fort Worth', 'default_city': 'Fort Worth',   'state': 'TX',
+                     'score_scale': 'demerit'},
+    # Tarrant County Public Health covers ~20 mid-cities between Dallas and
+    # Fort Worth (Bedford, Hurst, Southlake, Grapevine, Keller, Colleyville,
+    # DFW Airport, ...). Record city fields carry the actual city.
+    'tarrant':      {'display_name': 'Tarrant County', 'default_city': 'Tarrant County', 'state': 'TX'},
     # Confirmed NOT on myhealthdepartment.com (checked 2026-07-05 — API returns
     # an error dict instead of records): irving, mckinney, denton, garland,
     # grandprairie, mesquite, carrollton, richardson, allen, lewisville,
-    # flowermound, fortworth, arlington.
-    #   Fort Worth / Arlington — use https://publichealth.tarrantcounty.com/
+    # flowermound. Arlington publishes via ArcGIS Open Data (see
+    # fetch_arlington). Slugs may be non-obvious (Fort Worth is
+    # 'fort-worth-texas') — recheck with hyphenated variants before ruling
+    # a jurisdiction out.
 }
 
 CHROME_UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36'
@@ -1211,12 +1221,32 @@ def _fetch_mhd_jurisdiction_api(session, slug, config, since_date=None, limit=No
     return all_records
 
 
+# MHD portals mix programs (food, swimming pools, septic, ...) in one search.
+# Drop records that look like pool/spa inspections unless a food marker is
+# also present ("Food + Liquid Waste" is a food program and must be kept).
+_MHD_NON_FOOD_RE = re.compile(r'pool|swim|\bspa\b|septic', re.I)
+_MHD_FOOD_RE = re.compile(r'food|restaurant|retail|grocer|meat|bakery|deli|market|caf', re.I)
+
+
+def _mhd_is_food_record(rec):
+    combined = ' '.join(str(rec.get(k) or '') for k in
+                        ('programName', 'inspectionType', 'permitType'))
+    if not combined.strip():
+        return True  # no program info — keep, benefit of the doubt
+    if _MHD_NON_FOOD_RE.search(combined) and not _MHD_FOOD_RE.search(combined):
+        return False
+    return True
+
+
 def _parse_mhd_record(rec, slug, display_name, default_city, default_state,
                       score_scale='100'):
     """Parse a single inspection record from the MyHealthDepartment API JSON response."""
     try:
         name = (rec.get('establishmentName') or '').strip()
         if not name or len(name) < 2:
+            return None
+
+        if not _mhd_is_food_record(rec):
             return None
 
         # Address fields
@@ -1290,6 +1320,97 @@ def _parse_mhd_record(rec, slug, display_name, default_city, default_state,
     except Exception as e:
         log.warning(f"{display_name}: failed to parse record: {e} — {str(rec)[:100]}")
         return None
+
+
+# ─── ARLINGTON (ArcGIS Open Data) ────────────────────────────────────────────
+
+ARLINGTON_LAYER_URL = ('https://gis2.arlingtontx.gov/agsext2/rest/services/'
+                       'OpenData/OD_Community/MapServer/7')
+
+
+def fetch_arlington(since_date=None, limit=None):
+    """
+    Fetch Arlington, TX food establishment inspections from the city's ArcGIS
+    Open Data layer (one row per establishment with its most recent scored
+    inspection; 0-100 scale, higher is better; updated weekdays). No violation
+    text is published, so records carry scores/grades only.
+    """
+    log.info(f"Fetching Arlington data (since={since_date}, limit={limit})")
+    results = []
+    offset = 0
+    page_size = 2000  # layer maxRecordCount
+    while True:
+        params = {
+            'where': '1=1',
+            'outFields': '*',
+            'outSR': '4326',
+            'orderByFields': 'OBJECTID',
+            'resultOffset': offset,
+            'resultRecordCount': page_size,
+            'f': 'json',
+        }
+        r = requests.get(ARLINGTON_LAYER_URL + '/query', params=params,
+                         headers={'User-Agent': CHROME_UA}, timeout=60)
+        r.raise_for_status()
+        data = r.json()
+        features = data.get('features', [])
+        if not features:
+            break
+        for feat in features:
+            a = feat.get('attributes', {})
+            geo = feat.get('geometry', {})
+            name = (a.get('FacilityName') or '').strip()
+            if not name:
+                continue
+            # Parse M/D/YYYY inspection date
+            raw_date = (a.get('InspectionDateText') or '').strip()
+            date_str = None
+            if raw_date:
+                try:
+                    date_str = datetime.strptime(raw_date, '%m/%d/%Y').strftime('%Y-%m-%d')
+                except ValueError:
+                    pass
+            date_str = sane_inspection_date(date_str)
+            if not date_str:
+                continue
+            if since_date and date_str < str(since_date)[:10]:
+                continue
+            # Score is a string; blank for non-scored follow-ups (skip those)
+            try:
+                score = int(str(a.get('InspectionScore', '')).strip())
+            except ValueError:
+                continue
+            results.append({
+                'name': name.title(),
+                'address': (a.get('PropertyAddress') or '').strip().title(),
+                'city': 'Arlington',
+                'state': 'TX',
+                'zip': '',
+                'latitude': geo.get('y'),
+                'longitude': geo.get('x'),
+                'inspection_date': date_str,
+                'original_score': score,
+                'risk_score': max(0, min(100, score)),
+                'priority_violations': 0,
+                'priority_foundation_violations': 0,
+                'core_violations': 0,
+                'total_violations': 0,
+                'violations': [],
+                'inspection_type': a.get('Inspection', ''),
+                'results': a.get('Attempt', ''),
+                'source': 'Arlington Open Data',
+                'source_url': 'https://opendata.arlingtontx.gov/datasets/arlingtontx::food-establishments/about',
+                'source_id': f"arlington_{a.get('OBJECTID', '')}",
+                'metro': 'DFW',
+            })
+            if limit and len(results) >= limit:
+                break
+        if (limit and len(results) >= limit) or len(features) < page_size:
+            break
+        offset += page_size
+        time.sleep(0.5)
+    log.info(f"Arlington: {len(results)} scored food inspections")
+    return results
 
 
 def geocode_census_batch(records):
@@ -2037,7 +2158,19 @@ def main():
                 except Exception as e:
                     log.error(f"{city} fetch failed: {e}")
 
-    # DFW metroplex — supports 'dfw' (all cities), 'dallas' (single), or any slug
+    # Arlington uses its own ArcGIS source (not the MHD portal)
+    if 'arlington' in args.cities or 'dfw' in args.cities:
+        try:
+            arl_since = None
+            if args.mode == 'weekly':
+                arl_since = (datetime.now() - timedelta(days=8)).strftime('%Y-%m-%d')
+            arl_data = fetch_arlington(since_date=arl_since, limit=record_limit)
+            all_inspections.extend(arl_data)
+            log.info(f"Arlington: {len(arl_data)} records")
+        except Exception as e:
+            log.error(f"Arlington fetch failed: {e}")
+
+    # DFW metroplex — supports 'dfw' (all MHD cities), 'dallas' (single), or any slug
     dfw_slugs_requested = [c for c in args.cities if c in DFW_JURISDICTIONS]
     if 'dfw' in args.cities or dfw_slugs_requested:
         try:

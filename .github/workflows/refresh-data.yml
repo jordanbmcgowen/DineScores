@@ -26,14 +26,14 @@ jobs:
         run: |
           pip install requests
 
-      - name: Run data pipeline (Chicago, NYC, SF, Dallas, Plano, Frisco)
+      - name: Run data pipeline (Chicago, NYC, SF + DFW metro)
         env:
           # Optional: raises Socrata rate limits if the secret is configured
           SOCRATA_APP_TOKEN: ${{ secrets.SOCRATA_APP_TOKEN }}
         run: |
           python3 dinescores_pipeline.py \
             --mode weekly \
-            --cities chicago nyc sf dallas plano frisco \
+            --cities chicago nyc sf dallas plano frisco fort-worth-texas tarrant arlington \
             --output /tmp/dinescores_data.json \
             --output-data-js public/data.js \
             --merge-existing-data-js public/data.js \
