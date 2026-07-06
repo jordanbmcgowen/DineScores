@@ -21,15 +21,23 @@ export default function InspectionModal({ restaurant: r, onClose, formatDate }) 
   const [loadingHistory, setLoadingHistory] = useState(false);
   const [expandedSummary, setExpandedSummary] = useState(null);
 
-  // Fetch inspection history from Firestore subcollection
+  // Fetch inspection history from Firestore subcollection; fall back to the
+  // embedded score history (r.h = [[date, score], ...]) shipped in data.js.
   useEffect(() => {
     if (!r) return;
     setExpandedSummary(null);
     setLoadingHistory(true);
+    const embeddedHistory = () =>
+      (Array.isArray(r.h) ? r.h : [])
+        .filter(entry => Array.isArray(entry) && entry[0])
+        .map(([date, rs]) => ({ id: `${r.i}_${date}`, date, rs: rs || 0, type: '' }));
     fetchInspectionHistory(r.i).then(h => {
-      setHistory(h);
+      setHistory(h && h.length > 0 ? h : embeddedHistory());
       setLoadingHistory(false);
-    }).catch(() => setLoadingHistory(false));
+    }).catch(() => {
+      setHistory(embeddedHistory());
+      setLoadingHistory(false);
+    });
   }, [r]);
 
   if (!r) return null;
