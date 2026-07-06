@@ -1767,6 +1767,199 @@ def write_data_js(all_inspections, output_path, top_per_city=1500, merge_from=No
 
 
 
+# ─── CLOUDFLARE D1 SQL EXPORT ────────────────────────────────────────────────
+# Emits idempotent SQL for Cloudflare D1 (SQLite). The same emitter serves the
+# one-time seed load and the weekly incremental refresh: restaurants are
+# upserted (newest inspection wins), inspection rows accumulate via
+# INSERT OR IGNORE, and inspection_count is recomputed from the inspections
+# table so history builds up across runs.
+
+D1_SCHEMA_SQL = """\
+CREATE TABLE IF NOT EXISTS restaurants (
+  id TEXT PRIMARY KEY,
+  name TEXT NOT NULL,
+  address TEXT,
+  city TEXT NOT NULL,
+  state TEXT,
+  zip TEXT,
+  lat REAL,
+  lng REAL,
+  metro TEXT,
+  inspection_date TEXT,
+  original_score INTEGER,
+  risk_score INTEGER,
+  weighted_score INTEGER,
+  vetted_grade TEXT,
+  infractions TEXT,
+  summaries TEXT,
+  inspection_count INTEGER DEFAULT 1,
+  source TEXT,
+  source_url TEXT,
+  updated_at TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_restaurants_city ON restaurants(city);
+CREATE INDEX IF NOT EXISTS idx_restaurants_geo ON restaurants(lat, lng);
+CREATE INDEX IF NOT EXISTS idx_restaurants_name ON restaurants(name);
+CREATE TABLE IF NOT EXISTS inspections (
+  id TEXT PRIMARY KEY,
+  restaurant_id TEXT NOT NULL,
+  inspection_date TEXT,
+  risk_score INTEGER,
+  original_score INTEGER,
+  inspection_type TEXT,
+  results TEXT,
+  violations TEXT,
+  source_id TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_inspections_restaurant
+  ON inspections(restaurant_id, inspection_date DESC);
+"""
+
+D1_BATCH_ROWS = 40  # rows per multi-row INSERT (keeps statements well under D1 limits)
+
+
+def _sql_quote(value):
+    """SQL-literal encoding for D1: NULL, numbers, or single-quoted strings."""
+    if value is None:
+        return 'NULL'
+    if isinstance(value, bool):
+        return '1' if value else '0'
+    if isinstance(value, (int, float)):
+        return str(value)
+    s = str(value).replace('\x00', '').replace("'", "''")
+    return f"'{s}'"
+
+
+def _sql_json(value):
+    """Compact ASCII-safe JSON string literal (or NULL)."""
+    if not value:
+        return 'NULL'
+    return _sql_quote(json.dumps(value, separators=(',', ':'), ensure_ascii=True, default=str))
+
+
+def write_d1_sql(all_inspections, output_path, include_schema=True):
+    """
+    Write idempotent D1 SQL for this run's inspections: inspection rows first
+    (INSERT OR IGNORE), then restaurant upserts where the newest inspection
+    wins and inspection_count is recomputed from the inspections table.
+    """
+    restaurants = defaultdict(list)
+    for insp in all_inspections:
+        rest_id = insp.get('_id') or make_restaurant_id(
+            insp['name'], insp['address'], insp['city'])
+        restaurants[rest_id].append(insp)
+
+    now_iso = datetime.now(timezone.utc).isoformat()
+    insp_rows = []
+    rest_rows = []
+    seen_insp_ids = set()
+
+    for rest_id, inspections in restaurants.items():
+        # Dedupe by date, newest first
+        by_date = {}
+        for i in inspections:
+            d = i.get('inspection_date', '')
+            if d and (d not in by_date):
+                by_date[d] = i
+        ordered = [by_date[d] for d in sorted(by_date, reverse=True)]
+        if not ordered:
+            continue
+        latest = ordered[0]
+
+        for i in ordered:
+            insp_id = make_inspection_id(rest_id, i['inspection_date'])
+            if insp_id in seen_insp_ids:
+                continue
+            seen_insp_ids.add(insp_id)
+            insp_rows.append('(' + ','.join([
+                _sql_quote(insp_id),
+                _sql_quote(rest_id),
+                _sql_quote(i.get('inspection_date')),
+                _sql_quote(i.get('risk_score', 0)),
+                _sql_quote(i.get('original_score')),
+                _sql_quote(i.get('inspection_type', '')),
+                _sql_quote(i.get('results', '')),
+                _sql_json([list(v)[:2] + [str(list(v)[2])[:400]]
+                           for v in (i.get('violations') or [])[:20]]),
+                _sql_quote(i.get('source_id', '')),
+            ]) + ')')
+
+        violation_text = build_violation_text(latest.get('violations', []))
+        ws = compute_weighted_score(ordered)
+        vg = calculate_vetted_grade(ws)
+        if calculate_vetted_grade(latest.get('risk_score', 0), violation_text) == 'F':
+            vg = 'F'
+        summaries = summarize_violations(violation_text)
+        for s in summaries:
+            s['verbatim'] = s['verbatim'][:200]
+
+        lat = latest.get('latitude')
+        lng = latest.get('longitude')
+        rest_rows.append('(' + ','.join([
+            _sql_quote(rest_id),
+            _sql_quote(latest.get('name', '')),
+            _sql_quote(latest.get('address', '')),
+            _sql_quote(latest.get('city', '')),
+            _sql_quote(latest.get('state', '')),
+            _sql_quote(latest.get('zip', '')),
+            _sql_quote(float(lat) if lat else None),
+            _sql_quote(float(lng) if lng else None),
+            _sql_quote(latest.get('metro', '')),
+            _sql_quote(latest.get('inspection_date')),
+            _sql_quote(latest.get('original_score')),
+            _sql_quote(latest.get('risk_score', 0)),
+            _sql_quote(ws),
+            _sql_quote(vg),
+            _sql_json(detect_infractions(violation_text)),
+            _sql_json(summaries),
+            _sql_quote(len(ordered)),
+            _sql_quote(latest.get('source', '')),
+            _sql_quote(latest.get('source_url', '')),
+            _sql_quote(now_iso),
+        ]) + ')')
+
+    rest_upsert_tail = (
+        " ON CONFLICT(id) DO UPDATE SET "
+        "name=excluded.name, address=excluded.address, city=excluded.city, "
+        "state=excluded.state, zip=excluded.zip, "
+        "lat=COALESCE(excluded.lat, restaurants.lat), "
+        "lng=COALESCE(excluded.lng, restaurants.lng), "
+        "metro=excluded.metro, inspection_date=excluded.inspection_date, "
+        "original_score=excluded.original_score, risk_score=excluded.risk_score, "
+        "weighted_score=excluded.weighted_score, vetted_grade=excluded.vetted_grade, "
+        "infractions=excluded.infractions, summaries=excluded.summaries, "
+        "source=excluded.source, source_url=excluded.source_url, "
+        "updated_at=excluded.updated_at "
+        "WHERE excluded.inspection_date >= restaurants.inspection_date;")
+
+    with open(output_path, 'w') as f:
+        if include_schema:
+            f.write(D1_SCHEMA_SQL)
+        for start in range(0, len(insp_rows), D1_BATCH_ROWS):
+            batch = insp_rows[start:start + D1_BATCH_ROWS]
+            f.write("INSERT OR IGNORE INTO inspections "
+                    "(id,restaurant_id,inspection_date,risk_score,original_score,"
+                    "inspection_type,results,violations,source_id) VALUES\n"
+                    + ',\n'.join(batch) + ';\n')
+        for start in range(0, len(rest_rows), D1_BATCH_ROWS):
+            batch = rest_rows[start:start + D1_BATCH_ROWS]
+            f.write("INSERT INTO restaurants "
+                    "(id,name,address,city,state,zip,lat,lng,metro,inspection_date,"
+                    "original_score,risk_score,weighted_score,vetted_grade,"
+                    "infractions,summaries,inspection_count,source,source_url,"
+                    "updated_at) VALUES\n"
+                    + ',\n'.join(batch) + rest_upsert_tail + '\n')
+        # Recompute inspection_count from the accumulated inspections table so
+        # weekly partial runs don't clobber the true history depth.
+        f.write("UPDATE restaurants SET inspection_count = "
+                "(SELECT COUNT(*) FROM inspections "
+                "WHERE inspections.restaurant_id = restaurants.id) "
+                "WHERE id IN (SELECT DISTINCT restaurant_id FROM inspections);\n")
+
+    log.info(f"Written D1 SQL: {len(rest_rows)} restaurants, {len(insp_rows)} "
+             f"inspections to {output_path}")
+
+
 # ─── MAIN ─────────────────────────────────────────────────────────────────────
 
 def main():
@@ -1789,6 +1982,9 @@ def main():
                              'Required for weekly refreshes so partial pulls do not wipe the dataset.')
     parser.add_argument('--no-dfw-violations', action='store_true',
                         help='Skip scraping DFW inspection detail pages for violation text (faster)')
+    parser.add_argument('--output-d1-sql', default=None,
+                        help='Write idempotent Cloudflare D1 SQL (schema + upserts) for this '
+                             'run\'s data. Used by CI to refresh the D1 database weekly.')
     parser.add_argument('--debug', action='store_true',
                         help='Enable debug logging for network interception diagnostics')
     args = parser.parse_args()
@@ -1895,6 +2091,10 @@ def main():
     if args.output_data_js:
         write_data_js(all_inspections, args.output_data_js,
                       merge_from=args.merge_existing_data_js)
+
+    # Optionally write D1 SQL (schema + upserts) for the Cloudflare database
+    if args.output_d1_sql:
+        write_d1_sql(all_inspections, args.output_d1_sql)
     
     # Upload to Firestore
     if not args.dry_run and args.creds:
