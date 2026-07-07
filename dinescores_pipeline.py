@@ -1169,14 +1169,42 @@ def fetch_seattle(since_date=None, limit=None):
 # ─── HOUSTON (Tyler healthinspections.us portal) ────────────────────────────
 
 HOUSTON_BASE = 'https://houston-tx.healthinspections.us/media/'
-HOUSTON_DELAY = 0.5
+HOUSTON_DELAY = 1.2
 HOUSTON_MAXROWS = 500
+TYLER_DETAIL_WORKERS = 2   # Tyler portals rate-limit hard — go gently
+TYLER_DETAIL_DELAY = 0.7
+TYLER_RETRIES = 5
+
+
+def _tyler_request(session, method, url, **kwargs):
+    """
+    Request against a Tyler healthinspections.us portal with exponential
+    backoff — these servers intermittently 503 under modest request rates.
+    Returns the response, or None after exhausting retries.
+    """
+    for attempt in range(TYLER_RETRIES):
+        try:
+            r = session.request(method, url, timeout=90, **kwargs)
+            if r.status_code in (429, 500, 502, 503, 504):
+                wait = 20 * (attempt + 1)
+                log.warning(f"  Tyler {r.status_code} on {url[:60]} — retry in {wait}s "
+                            f"({attempt + 1}/{TYLER_RETRIES})")
+                time.sleep(wait)
+                continue
+            r.raise_for_status()
+            return r
+        except requests.RequestException as e:
+            wait = 20 * (attempt + 1)
+            log.warning(f"  Tyler error {str(e)[:80]} — retry in {wait}s "
+                        f"({attempt + 1}/{TYLER_RETRIES})")
+            time.sleep(wait)
+    return None
 
 
 def _houston_session():
     s = requests.Session()
     s.headers.update({'User-Agent': CHROME_UA})
-    s.get(HOUSTON_BASE + 'search.cfm', timeout=30)  # establish CF session
+    _tyler_request(s, 'GET', HOUSTON_BASE + 'search.cfm')  # establish CF session
     return s
 
 
@@ -1190,9 +1218,10 @@ def _houston_search_window(session, start, end):
         'ed': end.strftime('%m/%d/%Y'),
         'z': '', 'm': '', 'maxrows': str(HOUSTON_MAXROWS), 'Submit': 'Search',
     }
-    r = session.post(HOUSTON_BASE + 'search.cfm', data=data,
-                     headers={'Referer': HOUSTON_BASE + 'search.cfm'}, timeout=60)
-    r.raise_for_status()
+    r = _tyler_request(session, 'POST', HOUSTON_BASE + 'search.cfm', data=data,
+                       headers={'Referer': HOUSTON_BASE + 'search.cfm'})
+    if r is None:
+        raise RuntimeError('Houston search failed after retries')
     rows = []
     pattern = re.compile(
         r'href="search\.cfm\?q=d&f=([A-F0-9-]+)&i=([A-F0-9-]+)[^"]*">([^<]+)</a><br>\s*'
@@ -1221,8 +1250,9 @@ def _houston_fetch_detail(session, f_id, i_id, date_str):
     url = (f'{HOUSTON_BASE}search.cfm?q=d&f={f_id}&i={i_id}'
            f'&sd={date_str}&ed={date_str}&z=&m=&maxrows=10&e=&tp=')
     try:
-        r = session.get(url, headers={'Referer': HOUSTON_BASE + 'search.cfm'}, timeout=40)
-        if r.status_code != 200:
+        r = _tyler_request(session, 'GET', url,
+                           headers={'Referer': HOUSTON_BASE + 'search.cfm'})
+        if r is None:
             return []
         seg = r.text
         i = seg.find('Inspection Results')
@@ -1322,7 +1352,7 @@ def fetch_houston(since_date=None, limit=None, fetch_violations=True):
 
     if fetch_violations and results:
         log.info(f"Houston: fetching violation details for {len(results)} inspections "
-                 f"({MHD_DETAIL_WORKERS} workers)...")
+                 f"({TYLER_DETAIL_WORKERS} workers)...")
         local = threading.local()
 
         def get_session():
@@ -1333,11 +1363,11 @@ def fetch_houston(since_date=None, limit=None, fetch_violations=True):
         def work(rec):
             f_id, i_id, date_str = rec['_hou_ids']
             texts = _houston_fetch_detail(get_session(), f_id, i_id, date_str)
-            time.sleep(MHD_DETAIL_DELAY)
+            time.sleep(TYLER_DETAIL_DELAY)
             return rec, texts
 
         done = withv = 0
-        with ThreadPoolExecutor(max_workers=MHD_DETAIL_WORKERS) as pool:
+        with ThreadPoolExecutor(max_workers=TYLER_DETAIL_WORKERS) as pool:
             for future in as_completed([pool.submit(work, r) for r in results]):
                 rec, texts = future.result()
                 done += 1
@@ -1362,7 +1392,7 @@ def fetch_houston(since_date=None, limit=None, fetch_violations=True):
 # ─── WASHINGTON DC (Tyler healthinspections.us portal) ──────────────────────
 
 DC_BASE = 'https://dc.healthinspections.us/'
-DC_DELAY = 0.5
+DC_DELAY = 1.5
 
 
 def _dc_parse_report(html):
@@ -1435,9 +1465,10 @@ def fetch_dc(since_date=None, limit=None, fetch_violations=True):
             'startDate': ws.strftime('%m/%d/%Y'), 'endDate': we.strftime('%m/%d/%Y'),
             'btnSearch': 'Search',
         }
-        r = session.post(DC_BASE + 'index.cfm', data=data,
-                         headers={'Referer': DC_BASE + '?a=Inspections'}, timeout=90)
-        r.raise_for_status()
+        r = _tyler_request(session, 'POST', DC_BASE + 'index.cfm', data=data,
+                           headers={'Referer': DC_BASE + '?a=Inspections'})
+        if r is None:
+            raise RuntimeError('DC search failed after retries')
         month_count = 0
         for em in est_re.finditer(r.text):
             permit_id, name, addr_line, ward, ftype, insp_block = em.groups()
@@ -1518,7 +1549,7 @@ def fetch_dc(since_date=None, limit=None, fetch_violations=True):
 
     if fetch_violations and results:
         log.info(f"DC: fetching {len(results)} inspection reports "
-                 f"({MHD_DETAIL_WORKERS} workers)...")
+                 f"({TYLER_DETAIL_WORKERS} workers)...")
         local = threading.local()
 
         def get_session():
@@ -1530,17 +1561,14 @@ def fetch_dc(since_date=None, limit=None, fetch_violations=True):
 
         def work(rec):
             url = DC_BASE + 'lib/mod/inspection/paper/' + rec['_dc_report']
-            try:
-                r = get_session().get(url, timeout=40)
-                time.sleep(MHD_DETAIL_DELAY)
-                if r.status_code == 200:
-                    return rec, _dc_parse_report(r.text)
-            except requests.RequestException:
-                pass
+            r = _tyler_request(get_session(), 'GET', url)
+            time.sleep(TYLER_DETAIL_DELAY)
+            if r is not None and r.status_code == 200:
+                return rec, _dc_parse_report(r.text)
             return rec, ({}, [])
 
         done = withv = 0
-        with ThreadPoolExecutor(max_workers=MHD_DETAIL_WORKERS) as pool:
+        with ThreadPoolExecutor(max_workers=TYLER_DETAIL_WORKERS) as pool:
             for future in as_completed([pool.submit(work, r) for r in results]):
                 rec, (counts, observations) = future.result()
                 done += 1
