@@ -847,6 +847,317 @@ def fetch_sf(since_date=None, limit=30000):
 
     return results
 
+# ─── AUSTIN DATA COLLECTOR ───────────────────────────────────────────────────
+
+# Cities that appear as address suffixes in the Austin/Travis County dataset
+AUSTIN_AREA_CITIES = [
+    'West Lake Hills', 'Dripping Springs', 'Cedar Creek', 'Sunset Valley',
+    'Cedar Park', 'Round Rock', 'Pflugerville', 'Lago Vista', 'Lakeway',
+    'Bee Cave', 'Jonestown', 'Manchaca', 'Del Valle', 'Spicewood',
+    'Rollingwood', 'Leander', 'Manor', 'Elgin', 'Buda', 'Kyle', 'Bastrop',
+    'Smithville', 'Creedmoor', 'Austin',
+]
+
+
+def fetch_austin(since_date=None, limit=100000):
+    """
+    Fetch Austin/Travis County food establishment inspection scores
+    (datahub.austintexas.gov ecmv-9xxi). Scores are 0-100 (higher is
+    better); the dataset publishes no violation text and no coordinates,
+    so records are geocoded via the Census batch geocoder downstream.
+    """
+    log.info(f"Fetching Austin data (since={since_date}, limit={limit})")
+    base_url = 'https://datahub.austintexas.gov/resource/ecmv-9xxi.json'
+    where = []
+    if since_date:
+        where.append(f"inspection_date > '{since_date}'")
+    params = {
+        '$order': 'inspection_date DESC',
+        '$limit': min(limit or 50000, 50000),
+        '$offset': 0,
+    }
+    if where:
+        params['$where'] = ' AND '.join(where)
+
+    rows = _socrata_fetch_pages(base_url, params, limit)
+    log.info(f"Austin: {len(rows)} inspection rows")
+
+    # Address field embeds the city as a suffix: "1625 E 6th St Austin"
+    city_suffixes = sorted(AUSTIN_AREA_CITIES, key=len, reverse=True)
+
+    results = []
+    for rec in rows:
+        name = (rec.get('restaurant_name') or '').strip()
+        insp_date = sane_inspection_date(rec.get('inspection_date'))
+        if not name or not insp_date:
+            continue
+        try:
+            score = int(float(rec.get('score')))
+        except (TypeError, ValueError):
+            continue
+
+        raw_addr = (rec.get('address') or '').strip()
+        city = 'Austin'
+        street = raw_addr
+        for c in city_suffixes:
+            if raw_addr.lower().endswith(' ' + c.lower()):
+                city = c
+                street = raw_addr[:-(len(c) + 1)].strip()
+                break
+
+        results.append({
+            'name': name.title() if name.isupper() else name,
+            'address': street.title() if street.isupper() else street,
+            'city': city,
+            'state': 'TX',
+            'zip': (rec.get('zip_code') or '').split('-')[0],
+            'latitude': None,
+            'longitude': None,
+            'inspection_date': insp_date,
+            'original_score': score,
+            'risk_score': max(0, min(100, score)),
+            'priority_violations': 0,
+            'priority_foundation_violations': 0,
+            'core_violations': 0,
+            'total_violations': 0,
+            'violations': [],
+            'inspection_type': rec.get('process_description', ''),
+            'results': '',
+            'source': 'Austin Open Data',
+            'source_url': 'https://datahub.austintexas.gov/resource/ecmv-9xxi.json',
+            'source_id': f"atx_{rec.get('facility_id','')}_{insp_date}",
+            'metro': '',
+        })
+    log.info(f"Austin: {len(results)} parsed inspections")
+    return results
+
+
+# ─── BOSTON DATA COLLECTOR ───────────────────────────────────────────────────
+
+BOSTON_RESOURCE = '4582bec6-2b4f-4f9e-bc55-cbaa73117f4c'
+# Violation levels: * = non-critical, ** = critical, *** = critical (foodborne)
+BOSTON_LEVEL_SEVERITY = {'***': 'priority', '**': 'priority_foundation', '*': 'core'}
+
+
+def fetch_boston(since_date=None, limit=None):
+    """
+    Fetch Boston food establishment inspections (data.boston.gov CKAN
+    datastore, updated daily). One row per violation per inspection —
+    aggregated by (license, inspection datetime) like NYC. Violation levels
+    map to severity; risk score is computed from violations.
+    """
+    log.info(f"Fetching Boston data (since={since_date}, limit={limit})")
+    base = 'https://data.boston.gov/api/3/action/datastore_search_sql'
+    since = str(since_date)[:10] if since_date else '2024-01-01'
+
+    all_rows = []
+    page = 15000
+    offset = 0
+    while True:
+        sql = (
+            'SELECT businessname, licenseno, result, resultdttm, viol_level, '
+            'violdesc, viol_status, comments, address, city, zip, location '
+            f'FROM "{BOSTON_RESOURCE}" '
+            f"WHERE resultdttm >= '{since}' "
+            f'ORDER BY resultdttm DESC LIMIT {page} OFFSET {offset}'
+        )
+        r = requests.get(base, params={'sql': sql}, timeout=90)
+        r.raise_for_status()
+        payload = r.json()
+        if not payload.get('success'):
+            log.error(f"Boston SQL error: {str(payload.get('error'))[:200]}")
+            break
+        rows = payload['result']['records']
+        if not rows:
+            break
+        all_rows.extend(rows)
+        log.info(f"  Boston: fetched {len(all_rows)} rows so far...")
+        if len(rows) < page:
+            break
+        offset += page
+        if limit and len(all_rows) >= limit * 20:
+            break
+        time.sleep(0.3)
+
+    log.info(f"Boston: {len(all_rows)} raw rows, aggregating by inspection...")
+
+    inspections = {}
+    for row in all_rows:
+        lic = row.get('licenseno') or ''
+        dttm = (row.get('resultdttm') or '')[:10]
+        insp_date = sane_inspection_date(dttm)
+        if not lic or not insp_date:
+            continue
+        key = f"{lic}_{insp_date}"
+        insp = inspections.setdefault(key, {
+            'name': row.get('businessname') or '',
+            'address': row.get('address') or '',
+            # The dataset covers City of Boston licenses only; its "city"
+            # column holds neighborhoods (Dorchester, Roxbury, Allston, ...),
+            # which are all part of Boston proper.
+            'city': 'Boston',
+            'zip': (row.get('zip') or '').strip(),
+            'location': row.get('location'),
+            'inspection_date': insp_date,
+            'result': row.get('result') or '',
+            'violations': [],
+            'key': key,
+        })
+        violdesc = (row.get('violdesc') or '').strip()
+        comments = (row.get('comments') or '').strip()
+        # viol_status 'Pass' marks a previously-cited violation verified as
+        # corrected — only 'Fail'/open citations count against this inspection.
+        if violdesc and (row.get('viol_status') or '').strip() != 'Pass':
+            desc = f"{violdesc}: {comments}" if comments else violdesc
+            level = (row.get('viol_level') or '').strip()
+            sev = BOSTON_LEVEL_SEVERITY.get(level)
+            cat, clf_sev, _ = classify_violation(desc)
+            insp['violations'].append([cat, sev or clf_sev, desc[:500]])
+
+    results = []
+    for insp in inspections.values():
+        name = insp['name'].strip()
+        if not name:
+            continue
+        risk_score, pv, pfv, cv = calc_risk_score(
+            [tuple(v) for v in insp['violations']])
+        lat = lon = None
+        loc = insp.get('location') or ''
+        m = re.search(r'\(?\s*(-?\d+\.\d+)[, ]+(-?\d+\.\d+)\s*\)?', str(loc))
+        if m:
+            lat, lon = float(m.group(1)), float(m.group(2))
+            if not (40 < lat < 44 and -73 < lon < -69):
+                lat = lon = None
+        results.append({
+            'name': name.title() if name.isupper() else name,
+            'address': insp['address'].title() if insp['address'].isupper() else insp['address'],
+            'city': insp['city'],
+            'state': 'MA',
+            'zip': insp['zip'],
+            'latitude': lat,
+            'longitude': lon,
+            'inspection_date': insp['inspection_date'],
+            'original_score': None,
+            'risk_score': risk_score,
+            'priority_violations': pv,
+            'priority_foundation_violations': pfv,
+            'core_violations': cv,
+            'total_violations': len(insp['violations']),
+            'violations': insp['violations'],
+            'inspection_type': '',
+            'results': insp['result'],
+            'source': 'Boston Open Data',
+            'source_url': 'https://data.boston.gov/dataset/food-establishment-inspections',
+            'source_id': f"bos_{insp['key']}",
+            'metro': '',
+        })
+        if limit and len(results) >= limit:
+            break
+    log.info(f"Boston: {len(results)} unique inspections")
+    return results
+
+
+# ─── SEATTLE / KING COUNTY DATA COLLECTOR ────────────────────────────────────
+
+def fetch_seattle(since_date=None, limit=None):
+    """
+    Fetch King County (Seattle, Bellevue, Kirkland, ...) food inspections
+    (data.kingcounty.gov f29f-zza5). One row per violation — aggregated by
+    inspection_serial_num. inspection_score is violation POINTS (0 = clean,
+    higher = worse); risk_score = 100 - points. RED violations are food
+    safety (priority), BLUE are maintenance (core).
+    NOTE: the county's feed last updated 2025-11; the weekly refresh will
+    pick new data up automatically if publication resumes.
+    """
+    log.info(f"Fetching Seattle/King County data (since={since_date}, limit={limit})")
+    base_url = 'https://data.kingcounty.gov/resource/f29f-zza5.json'
+    where = []
+    if since_date:
+        where.append(f"inspection_date > '{since_date}'")
+    params = {
+        '$order': 'inspection_date DESC, inspection_serial_num',
+        '$limit': 50000,
+        '$offset': 0,
+    }
+    if where:
+        params['$where'] = ' AND '.join(where)
+
+    rows = _socrata_fetch_pages(base_url, params, (limit or 0) * 20 or None)
+    log.info(f"Seattle: {len(rows)} raw rows, aggregating by inspection...")
+
+    inspections = {}
+    for row in rows:
+        serial = row.get('inspection_serial_num') or ''
+        insp_date = sane_inspection_date(row.get('inspection_date'))
+        if not serial or not insp_date:
+            continue
+        insp = inspections.setdefault(serial, {
+            'name': row.get('name') or row.get('inspection_business_name') or '',
+            'address': (row.get('address') or '').strip(),
+            'city': (row.get('city') or 'Seattle').strip().title(),
+            'zip': (row.get('zip_code') or '').strip(),
+            'latitude': row.get('latitude'),
+            'longitude': row.get('longitude'),
+            'inspection_date': insp_date,
+            'inspection_type': row.get('inspection_type') or '',
+            'result': row.get('inspection_result') or '',
+            'points': row.get('inspection_score'),
+            'violations': [],
+            'serial': serial,
+        })
+        desc = (row.get('violation_description') or '').strip()
+        if desc and len(desc) > 5:
+            desc = re.sub(r'^\d+\s*-\s*', '', desc)
+            vtype = (row.get('violation_type') or '').upper()
+            sev = 'priority' if vtype == 'RED' else 'core'
+            cat, _, _ = classify_violation(desc)
+            insp['violations'].append([cat, sev, desc[:500]])
+
+    results = []
+    for insp in inspections.values():
+        name = insp['name'].strip()
+        if not name:
+            continue
+        try:
+            points = int(float(insp['points']))
+        except (TypeError, ValueError):
+            points = None
+        _, pv, pfv, cv = calc_risk_score([tuple(v) for v in insp['violations']])
+        if points is not None:
+            risk = max(0, min(100, 100 - points))
+        else:
+            risk, pv, pfv, cv = calc_risk_score([tuple(v) for v in insp['violations']])
+        lat = insp.get('latitude')
+        lon = insp.get('longitude')
+        results.append({
+            'name': name.title() if name.isupper() else name,
+            'address': insp['address'].title() if insp['address'].isupper() else insp['address'],
+            'city': insp['city'],
+            'state': 'WA',
+            'zip': insp['zip'],
+            'latitude': float(lat) if lat else None,
+            'longitude': float(lon) if lon else None,
+            'inspection_date': insp['inspection_date'],
+            'original_score': points,
+            'risk_score': risk,
+            'priority_violations': pv,
+            'priority_foundation_violations': pfv,
+            'core_violations': cv,
+            'total_violations': len(insp['violations']),
+            'violations': insp['violations'],
+            'inspection_type': insp['inspection_type'],
+            'results': insp['result'],
+            'source': 'King County Open Data',
+            'source_url': 'https://data.kingcounty.gov/resource/f29f-zza5.json',
+            'source_id': f"kc_{insp['serial']}",
+            'metro': '',
+        })
+        if limit and len(results) >= limit:
+            break
+    log.info(f"Seattle/King County: {len(results)} unique inspections")
+    return results
+
+
 # ─── MYHEALTHDEPARTMENT PORTAL SCRAPER (DFW + generic) ─────────────────────
 # Uses direct HTTP POST to the portal's JSON API (no browser needed).
 # The API is the same one the portal's JavaScript frontend calls.
@@ -1904,8 +2215,12 @@ def _apply_grades(rec):
         rec['vs'] = summaries
 
 
-def write_data_js(all_inspections, output_path, top_per_city=1500, merge_from=None):
+def write_data_js(all_inspections, output_path, top_per_city=1000, merge_from=None):
     """Write a data.js file with window.DATA = [...] for client-side embedding.
+
+    data.js is the map's instant first paint and offline fallback — the
+    1,000 most-recently-inspected per city. Completeness comes from the D1
+    API (full-city eager loads + viewport queries), not from this file.
 
     Args:
         merge_from: path to an existing data.js file. Existing records are
@@ -2281,6 +2596,21 @@ def main():
     if 'sf' in args.cities:
         socrata_jobs['SF'] = lambda: fetch_sf(
             since_date=since_date, limit=record_limit or 30000)
+    if 'austin' in args.cities:
+        def _austin():
+            data = fetch_austin(since_date=since_date, limit=record_limit or 100000)
+            geocode_missing_coords(data)
+            return data
+        socrata_jobs['Austin'] = _austin
+    if 'boston' in args.cities:
+        def _boston():
+            data = fetch_boston(since_date=since_date, limit=record_limit)
+            geocode_missing_coords(data)
+            return data
+        socrata_jobs['Boston'] = _boston
+    if 'seattle' in args.cities:
+        socrata_jobs['Seattle'] = lambda: fetch_seattle(
+            since_date=since_date, limit=record_limit)
 
     if socrata_jobs:
         with ThreadPoolExecutor(max_workers=len(socrata_jobs)) as pool:
