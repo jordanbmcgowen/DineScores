@@ -1271,7 +1271,7 @@ def _houston_fetch_detail(session, f_id, i_id, date_str):
         return []
 
 
-def fetch_houston(since_date=None, limit=None, fetch_violations=True):
+def fetch_houston(since_date=None, until_date=None, limit=None, fetch_violations=True):
     """
     Fetch Houston food inspections from the city's Tyler Technologies portal
     (houston-tx.healthinspections.us). Date-windowed searches (bisected when
@@ -1285,6 +1285,8 @@ def fetch_houston(since_date=None, limit=None, fetch_violations=True):
     start = datetime.strptime(str(since_date)[:10], '%Y-%m-%d') if since_date \
         else datetime(datetime.now().year, 1, 1)
     end = datetime.now()
+    if until_date:
+        end = min(end, datetime.strptime(str(until_date)[:10], '%Y-%m-%d'))
 
     # 3-day windows, bisected on cap
     stack = []
@@ -1424,7 +1426,7 @@ def _dc_parse_report(html):
     return counts, observations
 
 
-def fetch_dc(since_date=None, limit=None, fetch_violations=True):
+def fetch_dc(since_date=None, until_date=None, limit=None, fetch_violations=True):
     """
     Fetch Washington DC food inspections from DC Health's Tyler portal
     (dc.healthinspections.us). Monthly window searches return all results in
@@ -1440,6 +1442,8 @@ def fetch_dc(since_date=None, limit=None, fetch_violations=True):
     start = datetime.strptime(str(since_date)[:10], '%Y-%m-%d') if since_date \
         else datetime(datetime.now().year, 1, 1)
     end = datetime.now()
+    if until_date:
+        end = min(end, datetime.strptime(str(until_date)[:10], '%Y-%m-%d'))
 
     months = []
     cur = datetime(start.year, start.month, 1)
@@ -2251,6 +2255,8 @@ def fetch_richardson(since_date=None, limit=None, fetch_violations=True):
     start = datetime.strptime(str(since_date)[:10], '%Y-%m-%d') if since_date \
         else datetime(datetime.now().year, 1, 1)
     end = datetime.now()
+    if until_date:
+        end = min(end, datetime.strptime(str(until_date)[:10], '%Y-%m-%d'))
 
     months = []
     cursor = datetime(start.year, start.month, 1)
@@ -3101,6 +3107,11 @@ def main():
                              'Required for weekly refreshes so partial pulls do not wipe the dataset.')
     parser.add_argument('--no-dfw-violations', action='store_true',
                         help='Skip scraping DFW inspection detail pages for violation text (faster)')
+    parser.add_argument('--since-date', default=None,
+                        help='Override start date (YYYY-MM-DD) for scraped portal sources '
+                             '(houston/dc) — useful for chunked, restart-safe backfills')
+    parser.add_argument('--until-date', default=None,
+                        help='Override end date (YYYY-MM-DD) for scraped portal sources')
     parser.add_argument('--output-d1-sql', default=None,
                         help='Write idempotent Cloudflare D1 SQL (schema + upserts) for this '
                              'run\'s data. Used by CI to refresh the D1 database weekly.')
@@ -3187,7 +3198,10 @@ def main():
                     scrape_since = (datetime.now() - timedelta(days=8)).strftime('%Y-%m-%d')
                 elif args.mode == 'full':
                     scrape_since = '2026-01-01'
-                data = fetcher(since_date=scrape_since, limit=record_limit,
+                if args.since_date:
+                    scrape_since = args.since_date
+                data = fetcher(since_date=scrape_since, until_date=args.until_date,
+                               limit=record_limit,
                                fetch_violations=not args.no_dfw_violations)
                 geocode_missing_coords(data)
                 all_inspections.extend(data)
