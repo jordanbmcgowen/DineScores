@@ -11,14 +11,14 @@ and violation summaries for Chicago, NYC, San Francisco, and DFW metro.
 ```
 ┌──────────────────────────────────────────────────┐
 │  Python Pipeline (dinescores_pipeline.py)         │
-│  • Scrapes Chicago, NYC, SF, DFW inspection data  │
+│  • Scrapes 9 sources: Socrata/CKAN APIs + portals  │
 │  • Classifies violations, computes scores/grades  │
 │  • Weekly via GitHub Actions                      │
 └──────┬──────────────────────────┬────────────────┘
        │                          │
   Cloudflare D1              public/data.js
   (full dataset:             (embedded map data:
-   restaurants +              most recent 1,500
+   restaurants +              most recent 1,000
    inspection history)        per city)
        │                          │
 ┌──────┴───────────┐              │
@@ -44,10 +44,10 @@ and violation summaries for Chicago, NYC, San Francisco, and DFW metro.
 
 - **Backend**: Python pipeline → Cloudflare D1 (full dataset + history) + embedded `data.js` (map paint)
 - **API**: Cloudflare Pages Functions (`functions/api/*`) querying D1
-- **Frontend**: React (JSX) + Tailwind CSS (CDN) + MapLibre GL JS
-- **Build**: Vite → outputs to `public/` for Firebase Hosting
-- **Hosting**: Firebase Hosting
-- **CI**: GitHub Actions weekly refresh (Chicago, NYC, SF, Dallas, Plano, Frisco)
+- **Frontend**: React (JSX) + Tailwind CSS (build-time) + MapLibre GL JS
+- **Build**: Vite → outputs to `public/`
+- **Hosting**: Cloudflare Pages (auto-deploys from `main`)
+- **CI**: GitHub Actions weekly refresh (Chicago, NYC, SF, Austin, Boston, Seattle/King County + DFW metro)
 
 ---
 
@@ -106,6 +106,9 @@ python dinescores_pipeline.py --mode test --dry-run
 | Source | Method |
 |--------|--------|
 | Chicago / NYC / SF | Socrata open-data APIs, paginated. Set `SOCRATA_APP_TOKEN` env var for higher rate limits (optional). Fetched concurrently. |
+| Austin (Travis County) | Socrata (`datahub.austintexas.gov`). Scores only (no violation text published); Census-geocoded. |
+| Boston | CKAN datastore SQL API (`data.boston.gov`), updated daily. One row per violation; `*`/`**`/`***` levels map to severity. |
+| Seattle (King County) | Socrata (`data.kingcounty.gov`), ~30 King County cities. Violation POINTS (lower = better) converted to 100-scale; RED = priority, BLUE = core. County feed last updated 2025-11; weekly refresh auto-resumes if publication restarts. |
 | Dallas / Plano / Frisco (DFW) | MyHealthDepartment portal JSON search API in 7-day windows (auto-bisected when the ~225-record query cap is hit), then each inspection's public detail page is scraped for violation observations — they are rendered server-side in the HTML (or inline JS for Frisco), so no browser is needed. Frisco scores are demerit-based (lower = better) and are converted. |
 | Geocoding | Census Bureau batch geocoder (thousands of addresses per request), Nominatim fallback for stragglers. |
 
@@ -120,7 +123,7 @@ practices).
 
 The full dataset (all restaurants + accumulated inspection history) lives in a
 Cloudflare D1 SQL database, queried by the `/api/*` Pages Functions. The
-embedded `data.js` remains the map's initial paint (most recent 1,500
+embedded `data.js` remains the map's initial paint (most recent 1,000
 restaurants per city); the API serves everything else and scales to hundreds
 of cities.
 
