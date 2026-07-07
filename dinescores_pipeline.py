@@ -849,14 +849,22 @@ def fetch_sf(since_date=None, limit=30000):
 
 # ─── AUSTIN DATA COLLECTOR ───────────────────────────────────────────────────
 
-# Cities that appear as address suffixes in the Austin/Travis County dataset
-AUSTIN_AREA_CITIES = [
-    'West Lake Hills', 'Dripping Springs', 'Cedar Creek', 'Sunset Valley',
-    'Cedar Park', 'Round Rock', 'Pflugerville', 'Lago Vista', 'Lakeway',
-    'Bee Cave', 'Jonestown', 'Manchaca', 'Del Valle', 'Spicewood',
-    'Rollingwood', 'Leander', 'Manor', 'Elgin', 'Buda', 'Kyle', 'Bastrop',
-    'Smithville', 'Creedmoor', 'Austin',
-]
+# City suffixes seen in the Austin/Travis County dataset's address field,
+# mapped to canonical city names ("Bee Caves" appears for the city of Bee Cave)
+AUSTIN_AREA_CITIES = {
+    'West Lake Hills': 'West Lake Hills', 'Dripping Springs': 'Dripping Springs',
+    'Cedar Creek': 'Cedar Creek', 'Sunset Valley': 'Sunset Valley',
+    'Cedar Park': 'Cedar Park', 'Round Rock': 'Round Rock',
+    'Pflugerville': 'Pflugerville', 'Lago Vista': 'Lago Vista',
+    'Lakeway': 'Lakeway', 'Bee Caves': 'Bee Cave', 'Bee Cave': 'Bee Cave',
+    'Jonestown': 'Jonestown', 'Manchaca': 'Manchaca', 'Del Valle': 'Del Valle',
+    'Spicewood': 'Spicewood', 'Rollingwood': 'Rollingwood', 'Leander': 'Leander',
+    'Manor': 'Manor', 'Elgin': 'Elgin', 'Buda': 'Buda', 'Kyle': 'Kyle',
+    'Bastrop': 'Bastrop', 'Smithville': 'Smithville', 'Creedmoor': 'Creedmoor',
+    'Hutto': 'Hutto', 'Webberville': 'Webberville', 'Mustang Ridge': 'Mustang Ridge',
+    'Point Venture': 'Point Venture', 'Volente': 'Volente', 'Georgetown': 'Georgetown',
+    'Austin': 'Austin',
+}
 
 
 def fetch_austin(since_date=None, limit=100000):
@@ -901,7 +909,7 @@ def fetch_austin(since_date=None, limit=100000):
         street = raw_addr
         for c in city_suffixes:
             if raw_addr.lower().endswith(' ' + c.lower()):
-                city = c
+                city = AUSTIN_AREA_CITIES[c]
                 street = raw_addr[:-(len(c) + 1)].strip()
                 break
 
@@ -1869,6 +1877,13 @@ def geocode_census_batch(records):
     """
     import csv, io
 
+    # Suite/unit/building tokens confuse the Census matcher — strip them for
+    # geocoding only (the record's display address is untouched).
+    def match_address(addr):
+        cleaned = re.sub(r'\s+(?:ste|suite|unit|bldg|building|fl|floor|rm|#)\.?\s*[\w&-]*\s*$',
+                         '', addr or '', flags=re.I)
+        return re.sub(r'\s{2,}', ' ', cleaned).strip()
+
     geocoded = 0
     chunk_size = 5000
     for chunk_start in range(0, len(records), chunk_size):
@@ -1876,7 +1891,7 @@ def geocode_census_batch(records):
         rows = io.StringIO()
         writer = csv.writer(rows)
         for idx, r in enumerate(chunk):
-            writer.writerow([idx, r.get('address', ''), r.get('city', ''),
+            writer.writerow([idx, match_address(r.get('address', '')), r.get('city', ''),
                              r.get('state', ''), (r.get('zip', '') or '').split('-')[0]])
         try:
             resp = requests.post(
