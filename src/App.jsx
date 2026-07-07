@@ -1,10 +1,15 @@
-import React, { useEffect, useState, useMemo, useCallback } from 'react';
+import React, { useEffect, useState, useMemo, useCallback, useRef } from 'react';
 import { fetchAllRestaurants } from './firebase.js';
 import { ensureVettedFields } from './grading.js';
+import { probeApi, fetchBboxFromApi } from './api.js';
 import GradeBadge from './components/GradeBadge.jsx';
 import RestaurantMap from './components/RestaurantMap.jsx';
 import InspectionModal from './components/InspectionModal.jsx';
 import FilterBar from './components/FilterBar.jsx';
+
+// Below this zoom the embedded overview is enough; above it, lazy-load the
+// uncapped records for whatever is in view from the D1 API.
+const VIEWPORT_ZOOM = 9;
 
 export default function App() {
   const [allData, setAllData] = useState([]);
@@ -23,6 +28,13 @@ export default function App() {
 
   // Mobile bottom sheet: collapsed | half | full
   const [sheetState, setSheetState] = useState('collapsed');
+
+  // Viewport lazy-loading (from the D1 API when it is reachable)
+  const [mapView, setMapView] = useState(null); // { zoom, bounds:{w,s,e,n} }
+  const apiAvailableRef = useRef(false);
+  const knownIdsRef = useRef(new Set());
+  const coveredBoxesRef = useRef([]); // boxes fully fetched (not row-capped)
+  const inFlightRef = useRef(new Set());
 
   // Debounce search
   useEffect(() => {
@@ -52,12 +64,16 @@ export default function App() {
           }
         }
         // Ensure all records have vetted grading fields
-        setAllData(data.map(ensureVettedFields));
+        const seeded = data.map(ensureVettedFields);
+        for (const r of seeded) if (r.i) knownIdsRef.current.add(r.i);
+        setAllData(seeded);
       } catch (err) {
         console.error('Data load failed:', err);
         // Fallback to embedded data
         if (window.DATA && Array.isArray(window.DATA) && window.DATA.length > 0) {
-          setAllData(window.DATA.map(ensureVettedFields));
+          const seeded = window.DATA.map(ensureVettedFields);
+          for (const r of seeded) if (r.i) knownIdsRef.current.add(r.i);
+          setAllData(seeded);
         } else {
           setError('Failed to load restaurant data. Please refresh.');
         }
@@ -72,7 +88,52 @@ export default function App() {
       }
     }
     load();
+    // Probe the D1 API once; enables viewport lazy-loading when reachable.
+    probeApi().then(ok => { apiAvailableRef.current = ok; });
   }, []);
+
+  // Merge lazily-loaded viewport records into the pool (dedup by id)
+  const mergeRecords = useCallback((records) => {
+    const fresh = [];
+    for (const r of records) {
+      if (r.i && !knownIdsRef.current.has(r.i)) {
+        knownIdsRef.current.add(r.i);
+        fresh.push(ensureVettedFields(r));
+      }
+    }
+    if (fresh.length) setAllData(prev => [...prev, ...fresh]);
+  }, []);
+
+  // Viewport changed: remember it, and (when zoomed in) lazy-load its records.
+  const handleViewportChange = useCallback(({ zoom, bounds }) => {
+    setMapView({ zoom, bounds });
+    if (!apiAvailableRef.current || zoom < VIEWPORT_ZOOM) return;
+
+    // Pad the box ~18% so small pans don't re-fetch
+    const padX = (bounds.e - bounds.w) * 0.18;
+    const padY = (bounds.n - bounds.s) * 0.18;
+    const box = {
+      w: bounds.w - padX, s: bounds.s - padY,
+      e: bounds.e + padX, n: bounds.n + padY,
+    };
+    const contains = (a, b) => a.w <= b.w && a.s <= b.s && a.e >= b.e && a.n >= b.n;
+    if (coveredBoxesRef.current.some(c => contains(c, box))) return;
+
+    const key = [box.w, box.s, box.e, box.n].map(v => v.toFixed(3)).join(',');
+    if (inFlightRef.current.has(key)) return;
+    inFlightRef.current.add(key);
+
+    fetchBboxFromApi(box).then(({ records, truncated }) => {
+      inFlightRef.current.delete(key);
+      mergeRecords(records);
+      // Only mark fully covered when the API returned everything in the box;
+      // a capped result means denser-than-one-page, so allow a tighter refetch.
+      if (!truncated) {
+        coveredBoxesRef.current.push(box);
+        if (coveredBoxesRef.current.length > 60) coveredBoxesRef.current.shift();
+      }
+    }).catch(() => { inFlightRef.current.delete(key); });
+  }, [mergeRecords]);
 
   // City/metro chips derived from the live dataset, largest first
   const cityOptions = useMemo(() => {
@@ -155,6 +216,20 @@ export default function App() {
     return sorted;
   }, [allData, cityFilter, metroFilter, gradeFilter, infractionFilter, debouncedSearch, sortBy]);
 
+  // The list and header count are viewport-aware: once zoomed in, they reflect
+  // what's actually on screen (which is where lazy-loaded records show up).
+  // Zoomed out, they mirror the full filtered set. The MAP always gets the full
+  // filtered set — it clusters, so density isn't a problem.
+  const visible = useMemo(() => {
+    if (!mapView || mapView.zoom < VIEWPORT_ZOOM) return filtered;
+    const { w, s, e, n } = mapView.bounds;
+    return filtered.filter(r => r.ln >= w && r.ln <= e && r.lt >= s && r.lt <= n);
+  }, [filtered, mapView]);
+
+  // Re-frame the map only on an intentional new result set — not on pan/zoom
+  // or lazy-load merges (sort is excluded; it doesn't change geography).
+  const fitSignal = `${cityFilter}|${metroFilter}|${gradeFilter.join('')}|${infractionFilter.join('')}|${debouncedSearch}`;
+
   const handleMarkerClick = useCallback((restaurant) => {
     setSelectedRestaurant(restaurant);
   }, []);
@@ -205,7 +280,12 @@ export default function App() {
     <div className="h-dvh relative overflow-hidden font-sans text-slate-900 dark:text-slate-100">
       {/* Map canvas */}
       <div className="absolute inset-0">
-        <RestaurantMap restaurants={filtered} onMarkerClick={handleMarkerClick} />
+        <RestaurantMap
+          restaurants={filtered}
+          onMarkerClick={handleMarkerClick}
+          onViewportChange={handleViewportChange}
+          fitSignal={fitSignal}
+        />
       </div>
 
       {/* Floating header */}
@@ -245,7 +325,7 @@ export default function App() {
               </button>
             ) : (
               <span className="absolute right-3.5 top-1/2 -translate-y-1/2 text-[11px] font-bold text-slate-400 tabular-nums whitespace-nowrap">
-                {filtered.length.toLocaleString()}
+                {visible.length.toLocaleString()}
               </span>
             )}
           </div>
@@ -269,12 +349,12 @@ export default function App() {
       <aside className="hidden md:flex flex-col absolute left-4 top-[118px] bottom-4 w-[400px] z-10 rounded-3xl bg-white/95 dark:bg-slate-900/95 backdrop-blur shadow-2xl ring-1 ring-slate-900/5 dark:ring-white/10 overflow-hidden">
         <div className="px-4 h-11 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between shrink-0">
           <span className="text-xs font-bold text-slate-500 dark:text-slate-400 tabular-nums">
-            {filtered.length.toLocaleString()} restaurants
+            {visible.length.toLocaleString()} restaurants
           </span>
           {sortSelect}
         </div>
         <div className="flex-1 overflow-y-auto">
-          {filtered.slice(0, 100).map(r => (
+          {visible.slice(0, 100).map(r => (
             <RestaurantCard
               key={r.i}
               restaurant={r}
@@ -283,12 +363,12 @@ export default function App() {
               selected={selectedRestaurant?.i === r.i}
             />
           ))}
-          {filtered.length > 100 && (
+          {visible.length > 100 && (
             <p className="p-4 text-center text-xs text-slate-400">
-              Showing first 100 — refine your search or zoom the map to see more.
+              Showing 100 of {visible.length.toLocaleString()} — zoom in or search to narrow.
             </p>
           )}
-          {filtered.length === 0 && <EmptyState />}
+          {visible.length === 0 && <EmptyState />}
         </div>
       </aside>
 
@@ -304,13 +384,13 @@ export default function App() {
           <div className="w-10 h-1.5 bg-slate-300 dark:bg-slate-600 rounded-full" />
           <div className="w-full px-4 flex items-center justify-between">
             <span className="text-sm font-bold tabular-nums">
-              {filtered.length.toLocaleString()} restaurants
+              {visible.length.toLocaleString()} restaurants
             </span>
             <span onClick={e => e.stopPropagation()}>{sortSelect}</span>
           </div>
         </button>
         <div className="flex-1 overflow-y-auto pb-safe" style={{ touchAction: 'pan-y' }}>
-          {filtered.slice(0, 50).map(r => (
+          {visible.slice(0, 50).map(r => (
             <RestaurantCard
               key={r.i}
               restaurant={r}
@@ -319,7 +399,7 @@ export default function App() {
               selected={false}
             />
           ))}
-          {filtered.length === 0 && <EmptyState />}
+          {visible.length === 0 && <EmptyState />}
         </div>
       </div>
 
