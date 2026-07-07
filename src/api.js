@@ -20,15 +20,30 @@ export async function fetchHistoryFromApi(restaurantId) {
   }
 }
 
-/** Restaurants for a city (compact data.js-shaped records). */
-export async function fetchCityFromApi(city, limit = 5000) {
+/**
+ * Every restaurant in a city or metro, in lite form (no violation summaries —
+ * those load per-restaurant when a detail panel opens). Lite records omit the
+ * `vs` key entirely so callers can distinguish "not loaded" from "none".
+ */
+export async function fetchAreaFromApi({ city, metro }, limit = 30000) {
+  const param = metro
+    ? `metro=${encodeURIComponent(metro)}`
+    : `city=${encodeURIComponent(city)}`;
   try {
-    const rows = await getJson(
-      `/api/restaurants?city=${encodeURIComponent(city)}&limit=${limit}`
-    );
+    const rows = await getJson(`/api/restaurants?${param}&fields=lite&limit=${limit}`);
     return Array.isArray(rows) ? rows : [];
   } catch {
     return [];
+  }
+}
+
+/** One restaurant's full record (including violation summaries). */
+export async function fetchRestaurantDetail(id) {
+  try {
+    const rec = await getJson(`/api/restaurants/${id}`);
+    return rec && rec.i ? rec : null;
+  } catch {
+    return null;
   }
 }
 
@@ -48,11 +63,11 @@ export async function fetchCitiesFromApi() {
  * when the result hit the row limit (the viewport is denser than one page,
  * so it should be re-queried at a tighter zoom rather than cached as complete).
  */
-export async function fetchBboxFromApi(bbox, limit = 3000) {
+export async function fetchBboxFromApi(bbox, limit = 5000) {
   const { w, s, e, n } = bbox;
   try {
     const rows = await getJson(
-      `/api/restaurants?bbox=${w},${s},${e},${n}&limit=${limit}`
+      `/api/restaurants?bbox=${w},${s},${e},${n}&fields=lite&limit=${limit}`
     );
     const records = Array.isArray(rows) ? rows : [];
     return { records, truncated: records.length >= limit };
@@ -62,15 +77,15 @@ export async function fetchBboxFromApi(bbox, limit = 3000) {
 }
 
 /**
- * One-time probe: is the D1-backed API reachable? Used to decide whether to
- * enable viewport lazy-loading. Returns false in environments (local dev,
+ * One-time probe: is the D1-backed API reachable? Returns the cities index
+ * (true per-city totals) when it is, or null in environments (local dev,
  * offline) where only the embedded data.js exists.
  */
 export async function probeApi() {
   try {
-    const res = await fetch('/api/cities', { headers: { Accept: 'application/json' } });
-    return res.ok;
+    const rows = await getJson('/api/cities');
+    return Array.isArray(rows) && rows.length > 0 ? rows : null;
   } catch {
-    return false;
+    return null;
   }
 }
