@@ -59,4 +59,39 @@ export function toCompactRecord(row) {
   };
 }
 
+/**
+ * Lite variant for bulk transfers (whole-city loads): everything the map,
+ * cards, and filters need, but WITHOUT the violation summaries — by far the
+ * heaviest field. Records deliberately omit the `vs` key entirely (rather
+ * than sending vs: []) so the client can tell "not loaded yet" apart from
+ * "genuinely no violations" and fetch the detail record before display.
+ */
+export function toLiteRecord(row) {
+  return {
+    i: row.id,
+    n: row.name,
+    a: row.address,
+    c: row.city,
+    s: row.state,
+    z: row.zip,
+    lt: row.lat,
+    ln: row.lng,
+    m: row.metro,
+    d: row.inspection_date,
+    os: row.original_score,
+    rs: row.risk_score,
+    ws: row.weighted_score,
+    vg: row.vetted_grade,
+    inf: parseJson(row.infractions, []),
+    ic: row.inspection_count,
+    src: row.source,
+    url: row.source_url,
+  };
+}
+
+export const LITE_COLUMNS =
+  'id,name,address,city,state,zip,lat,lng,metro,inspection_date,' +
+  'original_score,risk_score,weighted_score,vetted_grade,infractions,' +
+  'inspection_count,source,source_url';
+
 export { parseJson };

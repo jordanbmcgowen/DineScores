@@ -1,7 +1,7 @@
 import React, { useEffect, useState, useMemo, useCallback, useRef } from 'react';
 import { fetchAllRestaurants } from './firebase.js';
 import { ensureVettedFields } from './grading.js';
-import { probeApi, fetchBboxFromApi } from './api.js';
+import { probeApi, fetchBboxFromApi, fetchAreaFromApi, fetchRestaurantDetail } from './api.js';
 import GradeBadge from './components/GradeBadge.jsx';
 import RestaurantMap from './components/RestaurantMap.jsx';
 import InspectionModal from './components/InspectionModal.jsx';
@@ -29,12 +29,15 @@ export default function App() {
   // Mobile bottom sheet: collapsed | half | full
   const [sheetState, setSheetState] = useState('collapsed');
 
-  // Viewport lazy-loading (from the D1 API when it is reachable)
+  // Progressive loading from the D1 API when it is reachable
   const [mapView, setMapView] = useState(null); // { zoom, bounds:{w,s,e,n} }
+  const [cityTotals, setCityTotals] = useState(null); // Map(city -> true count)
+  const [loadingArea, setLoadingArea] = useState(null); // city/metro being fetched
   const apiAvailableRef = useRef(false);
   const knownIdsRef = useRef(new Set());
   const coveredBoxesRef = useRef([]); // boxes fully fetched (not row-capped)
   const inFlightRef = useRef(new Set());
+  const loadedAreasRef = useRef(new Set()); // cities/metros fully loaded
 
   // Debounce search
   useEffect(() => {
@@ -88,8 +91,14 @@ export default function App() {
       }
     }
     load();
-    // Probe the D1 API once; enables viewport lazy-loading when reachable.
-    probeApi().then(ok => { apiAvailableRef.current = ok; });
+    // Probe the D1 API once; when reachable it returns the cities index with
+    // TRUE per-city totals and enables progressive loading.
+    probeApi().then(cities => {
+      if (cities) {
+        apiAvailableRef.current = true;
+        setCityTotals(new Map(cities.map(c => [c.city, c.restaurant_count])));
+      }
+    });
   }, []);
 
   // Merge lazily-loaded viewport records into the pool (dedup by id)
@@ -102,6 +111,31 @@ export default function App() {
       }
     }
     if (fresh.length) setAllData(prev => [...prev, ...fresh]);
+  }, []);
+
+  // Selecting a city or metro eagerly loads its COMPLETE roster (lite records,
+  // one time per area) so the view isn't limited to the embedded per-city cap.
+  useEffect(() => {
+    const area = metroFilter ? { metro: metroFilter } : (cityFilter !== 'all' ? { city: cityFilter } : null);
+    if (!area || !apiAvailableRef.current) return;
+    const key = metroFilter ? `m:${metroFilter}` : `c:${cityFilter}`;
+    if (loadedAreasRef.current.has(key)) return;
+    loadedAreasRef.current.add(key);
+    setLoadingArea(area.metro || area.city);
+    fetchAreaFromApi(area).then(records => {
+      mergeRecords(records);
+      setLoadingArea(prev => (prev === (area.metro || area.city) ? null : prev));
+      if (records.length === 0) loadedAreasRef.current.delete(key); // allow retry
+    }).catch(() => {
+      loadedAreasRef.current.delete(key);
+      setLoadingArea(prev => (prev === (area.metro || area.city) ? null : prev));
+    });
+  }, [cityFilter, metroFilter, mergeRecords, cityTotals]);
+
+  // A lite record was opened and its full detail fetched: upgrade it in place.
+  const upgradeRecord = useCallback((full) => {
+    const rec = ensureVettedFields(full);
+    setAllData(prev => prev.map(x => (x.i === rec.i ? { ...x, ...rec } : x)));
   }, []);
 
   // Viewport changed: remember it, and (when zoomed in) lazy-load its records.
@@ -230,6 +264,29 @@ export default function App() {
   // or lazy-load merges (sort is excluded; it doesn't change geography).
   const fitSignal = `${cityFilter}|${metroFilter}|${gradeFilter.join('')}|${infractionFilter.join('')}|${debouncedSearch}`;
 
+  // Headline count for the search pill: the true size of the current scope.
+  // With no grade/issue/search narrowing, the database's per-city totals are
+  // authoritative (loaded records converge to them once the eager area fetch
+  // lands); otherwise count what's actually loaded and matching.
+  const scopeCount = useMemo(() => {
+    const unfiltered = gradeFilter.length === 0 && infractionFilter.length === 0 && !debouncedSearch;
+    if (unfiltered && cityTotals) {
+      // Single city: the database total is authoritative.
+      if (!metroFilter && cityFilter !== 'all' && cityTotals.has(cityFilter)) {
+        return cityTotals.get(cityFilter);
+      }
+      // All cities: sum of database totals (loaded records converge upward).
+      if (!metroFilter && cityFilter === 'all') {
+        let sum = 0;
+        for (const n of cityTotals.values()) sum += n;
+        return Math.max(sum, filtered.length);
+      }
+      // Metro: no index entry — loaded count converges to complete after the
+      // eager metro fetch lands.
+    }
+    return filtered.length;
+  }, [cityTotals, cityFilter, metroFilter, gradeFilter, infractionFilter, debouncedSearch, filtered]);
+
   const handleMarkerClick = useCallback((restaurant) => {
     setSelectedRestaurant(restaurant);
   }, []);
@@ -325,7 +382,7 @@ export default function App() {
               </button>
             ) : (
               <span className="absolute right-3.5 top-1/2 -translate-y-1/2 text-[11px] font-bold text-slate-400 tabular-nums whitespace-nowrap">
-                {visible.length.toLocaleString()}
+                {scopeCount.toLocaleString()}
               </span>
             )}
           </div>
@@ -348,8 +405,14 @@ export default function App() {
       {/* Desktop results panel */}
       <aside className="hidden md:flex flex-col absolute left-4 top-[118px] bottom-4 w-[400px] z-10 rounded-3xl bg-white/95 dark:bg-slate-900/95 backdrop-blur shadow-2xl ring-1 ring-slate-900/5 dark:ring-white/10 overflow-hidden">
         <div className="px-4 h-11 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between shrink-0">
-          <span className="text-xs font-bold text-slate-500 dark:text-slate-400 tabular-nums">
+          <span className="text-xs font-bold text-slate-500 dark:text-slate-400 tabular-nums flex items-center gap-2">
             {visible.length.toLocaleString()} restaurants
+            {loadingArea && (
+              <span className="inline-flex items-center gap-1 text-brand-600 dark:text-brand-500 normal-case">
+                <span className="w-3 h-3 border-2 border-brand-200 border-t-brand-600 rounded-full animate-spin" />
+                loading {loadingArea}…
+              </span>
+            )}
           </span>
           {sortSelect}
         </div>
@@ -409,6 +472,7 @@ export default function App() {
           restaurant={selectedRestaurant}
           onClose={() => setSelectedRestaurant(null)}
           formatDate={formatDate}
+          onUpgrade={upgradeRecord}
         />
       )}
 

@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { fetchInspectionHistory } from '../firebase.js';
-import { fetchHistoryFromApi } from '../api.js';
+import { fetchHistoryFromApi, fetchRestaurantDetail } from '../api.js';
 import GradeBadge, { gradeMeta } from './GradeBadge.jsx';
 
 const INFRACTION_META = {
@@ -26,10 +26,33 @@ const SEVERITY_STYLE = {
   },
 };
 
-export default function InspectionModal({ restaurant: r, onClose, formatDate }) {
+export default function InspectionModal({ restaurant: r, onClose, formatDate, onUpgrade }) {
   const [history, setHistory] = useState([]);
   const [loadingHistory, setLoadingHistory] = useState(false);
   const [expandedSummary, setExpandedSummary] = useState(null);
+  const [detail, setDetail] = useState(null);
+  const [loadingDetail, setLoadingDetail] = useState(false);
+
+  // Lite records (bulk-loaded from the API) omit the `vs` key entirely.
+  // Fetch the full record before showing findings, so we never display
+  // "no violations on file" for a restaurant whose details simply haven't
+  // been transferred yet.
+  const isLite = r && r.vs === undefined;
+  useEffect(() => {
+    setDetail(null);
+    if (!r || !isLite) return;
+    setLoadingDetail(true);
+    let cancelled = false;
+    fetchRestaurantDetail(r.i).then(full => {
+      if (cancelled) return;
+      setLoadingDetail(false);
+      if (full) {
+        setDetail(full);
+        if (onUpgrade) onUpgrade(full);
+      }
+    }).catch(() => { if (!cancelled) setLoadingDetail(false); });
+    return () => { cancelled = true; };
+  }, [r, isLite, onUpgrade]);
 
   // Inspection history sources, best first: the D1-backed API (full history
   // with violations), then Firestore (legacy), then the embedded score
@@ -61,8 +84,9 @@ export default function InspectionModal({ restaurant: r, onClose, formatDate }) 
 
   if (!r) return null;
 
-  const summaries = r.vs || [];
-  const infractions = r.inf || [];
+  const summaries = (detail ? detail.vs : r.vs) || [];
+  const summariesReady = !isLite || !!detail;
+  const infractions = (detail ? detail.inf : r.inf) || [];
   const grade = r.vg;
   const meta = gradeMeta(grade);
   const score = r.ws ?? r.rs ?? 0;
@@ -179,6 +203,20 @@ export default function InspectionModal({ restaurant: r, onClose, formatDate }) 
                     </button>
                   );
                 })
+              ) : loadingDetail ? (
+                <div className="flex items-center gap-2 text-slate-400 text-sm py-3">
+                  <div className="w-4 h-4 border-2 border-slate-300 border-t-brand-600 rounded-full animate-spin" />
+                  Loading findings…
+                </div>
+              ) : !summariesReady ? (
+                <div className="p-6 text-center rounded-2xl bg-slate-50 dark:bg-slate-800/60 ring-1 ring-slate-200 dark:ring-slate-700">
+                  <p className="font-semibold text-sm text-slate-600 dark:text-slate-300">
+                    Couldn't load the inspection findings.
+                  </p>
+                  <p className="text-xs mt-1 text-slate-400">
+                    Check your connection and reopen this restaurant.
+                  </p>
+                </div>
               ) : (
                 <div className="p-6 text-center rounded-2xl bg-slate-50 dark:bg-slate-800/60 ring-1 ring-slate-200 dark:ring-slate-700">
                   <p className="font-semibold text-sm text-slate-600 dark:text-slate-300">
