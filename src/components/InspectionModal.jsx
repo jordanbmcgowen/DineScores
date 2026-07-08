@@ -280,11 +280,11 @@ export default function InspectionModal({ restaurant: r, onClose, formatDate, on
         {/* Source footer */}
         <div className="px-5 md:px-6 py-3 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between gap-3 shrink-0 pb-safe">
           <span className="text-[11px] text-slate-400 truncate">
-            Data: {r.src || 'official health department records'}
+            Data: {(detail?.src ?? r.src) || 'official health department records'}
           </span>
-          {r.url && (
+          {(detail?.url ?? r.url) && (
             <a
-              href={r.url}
+              href={detail?.url ?? r.url}
               target="_blank"
               rel="noopener noreferrer"
               className="text-[12px] font-bold text-brand-600 dark:text-brand-500 hover:underline whitespace-nowrap"

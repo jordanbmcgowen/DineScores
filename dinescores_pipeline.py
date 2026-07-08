@@ -1715,21 +1715,20 @@ def fetch_dc(since_date=None, until_date=None, limit=None, fetch_violations=True
     return results
 
 
-# ─── FLORIDA DBPR (Miami / Orlando / Tampa) ─────────────────────────────────
+# ─── FLORIDA DBPR (statewide) ────────────────────────────────────────────────
 
 FL_EXTRACTS = 'https://www2.myfloridalicense.com/sto/file_download/extracts/'
-# District file -> counties of interest (marquee metros)
-FL_DISTRICTS = {
-    '1fdinspi.csv': {'Dade': 'FL'},          # Miami-Dade
-    '3fdinspi.csv': {'Hillsborough': 'FL'},  # Tampa
-    '4fdinspi.csv': {'Orange': 'FL'},        # Orlando
-}
+# All seven DBPR district extract files = complete statewide coverage:
+# 1: Miami-Dade/Keys, 2: Broward/Palm Beach, 3: Tampa Bay/Polk,
+# 4: Orlando/Space Coast/Volusia, 5: Jacksonville/Gainesville,
+# 6: Panhandle (Pensacola/Tallahassee), 7: Southwest (Ft Myers/Sarasota/Naples)
+FL_DISTRICT_FILES = [f'{i}fdinspi.csv' for i in range(1, 8)]
 
 
 def fetch_florida(since_date=None, limit=None):
     """
-    Fetch Florida DBPR statewide food inspections for the Miami, Tampa, and
-    Orlando metros (current-fiscal-year CSV extracts, updated continuously).
+    Fetch Florida DBPR statewide food inspections (current-fiscal-year CSV
+    extracts for all seven districts, updated continuously).
     Florida publishes OFFICIAL High Priority / Intermediate / Basic violation
     counts per inspection, which map directly to priority / priority
     foundation / core. No violation text or coordinates in the extracts —
@@ -1743,7 +1742,7 @@ def fetch_florida(since_date=None, limit=None):
     import io
 
     results = []
-    for fname, counties in FL_DISTRICTS.items():
+    for fname in FL_DISTRICT_FILES:
         try:
             r = requests.get(FL_EXTRACTS + fname,
                              headers={'User-Agent': CHROME_UA}, timeout=180)
@@ -1759,9 +1758,6 @@ def fetch_florida(since_date=None, limit=None):
         kept = 0
         for row in reader:
             try:
-                county = row[idx['County Name']].strip()
-                if county not in counties:
-                    continue
                 if row[idx['Inspection Class']].strip() != 'Food':
                     continue
                 raw_date = row[idx['Inspection Date']].strip()
@@ -1811,6 +1807,128 @@ def fetch_florida(since_date=None, limit=None):
         if limit and len(results) >= limit:
             break
     log.info(f"Florida: {len(results)} inspections")
+    return results
+
+
+# ─── NEW YORK STATE (NYSDOH, statewide excluding NYC) ───────────────────────
+
+NYS_URL = 'https://health.data.ny.gov/resource/cnih-y5dw.json'
+# NYC's five boroughs run their own DOHMH inspection program (fetched by
+# fetch_nyc with richer data), so exclude them here to avoid double coverage.
+NYS_EXCLUDE_COUNTIES = {'BRONX', 'KINGS', 'NEW YORK', 'QUEENS', 'RICHMOND'}
+# Violations text is a run of items whose descriptions may themselves contain
+# semicolons, so split on the "Item <code>-" boundaries. Critical items are
+# prefixed "Critical Violation [RED]"; non-critical items have NO marker:
+#   "Item  5E-  Critical Violation [RED] <desc>; Item 10B-   <desc>; ..."
+NYS_ITEM_SPLIT_RE = re.compile(r'\bItem\s+([0-9]{1,2}[A-Za-z]?)-\s*')
+NYS_CRIT_PREFIX_RE = re.compile(
+    r'^(Not\s+)?Critical\s+Violation\s*(?:\[RED\])?\s*[-:]?\s*', re.I)
+
+
+def fetch_nys(since_date=None, limit=None):
+    """
+    Fetch New York State food service inspections (NYSDOH cnih-y5dw): every
+    active permitted facility statewide with its most recent inspection —
+    Rochester, Syracuse, Albany, Yonkers, Westchester, Long Island, and the
+    rest of the state outside NYC. Publishes OFFICIAL critical/non-critical
+    violation counts, full violation text, and coordinates. Buffalo (Erie
+    County) runs an independent system and is absent from the state feed.
+    Weekly refreshes accumulate inspection history over time.
+    """
+    log.info(f"Fetching NY State data (since={since_date}, limit={limit})")
+    params = {
+        '$order': 'date DESC',
+        '$limit': min(limit or 50000, 50000),
+        '$offset': 0,
+    }
+    if since_date:
+        params['$where'] = f"date > '{str(since_date)[:10]}'"
+
+    rows = _socrata_fetch_pages(NYS_URL, params, limit)
+    log.info(f"NY State: {len(rows)} facility rows")
+
+    results = []
+    for rec in rows:
+        name = (rec.get('operation_name') or rec.get('facility') or '').strip()
+        insp_date = sane_inspection_date(str(rec.get('date') or '')[:10])
+        county = (rec.get('county') or '').strip().upper()
+        if not name or not insp_date or county in NYS_EXCLUDE_COUNTIES:
+            continue
+
+        # Official severity counts; violation text for detail/categories.
+        try:
+            crit = int(rec.get('total_critical_violations') or 0)
+            noncrit = int(rec.get('total_noncritical_violations') or 0)
+        except (TypeError, ValueError):
+            crit = noncrit = 0
+
+        violations = []
+        vtext = (rec.get('violations') or '').strip()
+        if vtext and not vtext.lower().startswith('no violations'):
+            parts = NYS_ITEM_SPLIT_RE.split(vtext)
+            # parts = [pre, code1, desc1, code2, desc2, ...]
+            for k in range(1, len(parts) - 1, 2):
+                code, desc = parts[k], parts[k + 1]
+                desc = desc.strip().rstrip(';').strip()
+                m = NYS_CRIT_PREFIX_RE.match(desc)
+                sev = 'core'
+                if m:
+                    sev = 'core' if m.group(1) else 'priority'
+                    desc = desc[m.end():].strip()
+                desc = re.sub(r'�(?=[CF])', '°', desc)  # mangled degree signs
+                if not desc:
+                    continue
+                cat, _, _ = classify_violation(desc)
+                violations.append((cat, sev, f'Item {code}: {desc}'[:500]))
+
+        # Trust the official totals for scoring; fall back to parsed items
+        # if the totals are absent.
+        if crit == 0 and noncrit == 0 and violations:
+            _, crit, _pf, noncrit = calc_risk_score(violations)
+
+        lat = lng = None
+        loc = rec.get('location1') or {}
+        try:
+            lat = float(loc.get('latitude'))
+            lng = float(loc.get('longitude'))
+            # The source has hand-entered coords with occasional typos:
+            # dropped minus signs, extra digits, lat copied into lng.
+            # Repair the dropped-minus case; null anything else outside
+            # the state so the Census geocoder rebuilds it from the address.
+            if lng > 0 and 40.4 < lat < 45.2 and 71.7 < lng < 80.0:
+                lng = -lng
+            if not (40.4 < lat < 45.2 and -80.0 < lng < -71.7):
+                lat = lng = None
+        except (TypeError, ValueError, AttributeError):
+            lat = lng = None
+
+        city = (rec.get('municipality') or rec.get('city') or '').strip()
+        results.append({
+            'name': name.title() if name.isupper() else name,
+            'address': (rec.get('facility_address') or rec.get('address') or '').strip().title(),
+            'city': city.title() if city.isupper() else city,
+            'state': 'NY',
+            'zip': (rec.get('zip_code') or '').strip()[:5],
+            'latitude': lat,
+            'longitude': lng,
+            'inspection_date': insp_date,
+            'original_score': None,
+            'risk_score': max(0, 100 - crit * 5 - noncrit * 1),
+            'priority_violations': crit,
+            'priority_foundation_violations': 0,
+            'core_violations': noncrit,
+            'total_violations': crit + noncrit,
+            'violations': [[c, s, d] for c, s, d in violations],
+            'inspection_type': (rec.get('inspection_type') or '').strip(),
+            'results': '',
+            'source': 'NYS Department of Health',
+            'source_url': 'https://health.data.ny.gov/Health/Food-Service-Establishment-Last-Inspection/cnih-y5dw',
+            'source_id': f"nys_{rec.get('nys_health_operation_id')}_{insp_date}",
+            'metro': '',
+        })
+        if limit and len(results) >= limit:
+            break
+    log.info(f"NY State: {len(results)} inspections")
     return results
 
 
@@ -2871,6 +2989,12 @@ def _apply_grades(rec):
     vg = calculate_vetted_grade(rec['ws'])
     if calculate_vetted_grade(rec.get('rs', 0), violation_text) == 'F':
         vg = 'F'
+    if not has_violations and not violation_text and rec.get('vg') == 'F':
+        # No violation text to re-check (summaries are only embedded for the
+        # most recent slice of each city). A stored F may be evidence-based
+        # (pest auto-F) — never upgrade it without new inspection data; a
+        # fresh fetch of the restaurant re-grades it from full text.
+        vg = 'F'
     rec['vg'] = vg
     if has_violations:
         rec['inf'] = detect_infractions(violation_text)
@@ -2880,7 +3004,8 @@ def _apply_grades(rec):
         rec['vs'] = summaries
 
 
-def write_data_js(all_inspections, output_path, top_per_city=1000, merge_from=None):
+def write_data_js(all_inspections, output_path, top_per_city=1000,
+                  summaries_budget=8000, merge_from=None):
     """Write a data.js file with window.DATA = [...] for client-side embedding.
 
     data.js is the map's instant first paint and offline fallback — the
@@ -2986,6 +3111,18 @@ def write_data_js(all_inspections, output_path, top_per_city=1000, merge_from=No
         # Keep the most recently inspected restaurants per city
         city_recs.sort(key=lambda x: x.get('d', ''), reverse=True)
         final.extend(city_recs[:top_per_city])
+
+    # Global detail budget: embed violation summaries (and the source
+    # label/link, which the detail modal can fetch from the API instead)
+    # only for the most recently inspected records overall. Everything else
+    # keeps map/list essentials; the modal lazy-loads findings for records
+    # without 'vs' (same path as lite-loaded areas). A per-city rule can't
+    # bound this — with statewide sources most "cities" are small towns.
+    final.sort(key=lambda x: x.get('d', ''), reverse=True)
+    for rec in final[summaries_budget:]:
+        rec.pop('vs', None)
+        rec.pop('url', None)
+        rec.pop('src', None)
 
     # Strip the raw violations array before writing: the frontend only reads
     # the vs summaries (which carry capped verbatim text), and 'v' alone is
@@ -3288,6 +3425,12 @@ def main():
             geocode_missing_coords(data)
             return data
         socrata_jobs['Florida'] = _florida
+    if 'nys' in args.cities or 'newyorkstate' in args.cities:
+        def _nys():
+            data = fetch_nys(since_date=since_date, limit=record_limit)
+            geocode_missing_coords(data)
+            return data
+        socrata_jobs['NY State'] = _nys
 
     if socrata_jobs:
         with ThreadPoolExecutor(max_workers=len(socrata_jobs)) as pool:
