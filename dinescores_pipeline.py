@@ -40,6 +40,7 @@ VIOLATION_CATEGORIES = {
         r'\bpests?\b', r'rodent', r'\brats?\b', r'\bmouse\b', r'\bmice\b',
         r'cockroach', r'roach', r'\bfly\b', r'\bflies\b', r'insect',
         r'vermin', r'\bbugs?\b', r'gnaw', r'droppings', r'bait station',
+        r'\bants?\b', r'\bgnats?\b', r'maggot', r'larva', r'weevil',
     ],
     'temperature_control': [
         r'temperat', r'hot hold', r'cold hold', r'phf', r'tcs food',
@@ -56,7 +57,9 @@ VIOLATION_CATEGORIES = {
         r'handwash', r'hand wash', r'hand\s+sanitiz', r'glove',
         r'bare hand', r'hair restrain', r'clean outer', r'wound',
         r'sick', r'illness', r'employee health', r'sneez', r'cough',
-        r'personal hygiene', r'hygiene',
+        r'personal hygiene', r'hygiene', r'lesion', r'open sore', r'\bboils?\b',
+        r'jewelry', r'\bwatch\b', r'bracelet', r'\bnails?\b',
+        r'(?:open |employee )drink', r'eating.{0,25}prep', r'drinking.{0,25}prep',
     ],
     'food_source': [
         r'approved source', r'food source', r'shellfish tag', r'shell\s?stock',
@@ -230,8 +233,11 @@ def calc_risk_score(violations):
 # the pest word within the same sentence.
 PEST_EVIDENCE_RE = re.compile(
     r'(?:evidence of|live|dead|observed|found|fresh|infestation|activity of|'
-    r'droppings?|excreta|feces)'
-    r'[^.]{0,60}?\b(?:rats?|mice|mouse|roach(?:es)?|cockroach(?:es)?|rodents?|vermin)\b',
+    r'crawling|droppings?|excreta|feces)'
+    r'[^.]{0,60}?\b(?:rats?|mice|mouse|roach(?:es)?|cockroach(?:es)?|rodents?|'
+    r'vermin|ants?|maggots?|larvae?)\b'
+    r'|\b(?:ants?|roach(?:es)?|maggots?)\b[^.]{0,40}?'
+    r'(?:crawling|in(?:side)? (?:the |of )?(?:food|ice|soda|drink|prep|machine|container))',
     re.I)
 SEWAGE_ISSUE_RE = re.compile(
     r'sewage[^.]{0,40}(?:back|overflow|leak|expos|floor|discharg)|'
@@ -272,7 +278,8 @@ def detect_infractions(text):
     lower = (text or '').lower()
     infractions = []
 
-    if re.search(r'\b(vermin|roach|rodent|rats?|mice|insect|fly|flies|gnat|pest)\b', lower):
+    if re.search(r'\b(vermin|roach(?:es)?|rodents?|rats?|mice|insects?|fly|flies|'
+                 r'gnats?|pests?|ants?|maggots?)\b', lower):
         infractions.append('pests')
     if re.search(r'(temp|cool|heat|thaw|thermometer|refrigerat|hot|cold|hold)', lower):
         infractions.append('temp')
@@ -2425,14 +2432,14 @@ def _mhd_fetch_inspection_detail(session, slug, inspection_id, retry_count=0):
             if retry_count < 2:
                 time.sleep(MHD_RETRY_DELAY)
                 return _mhd_fetch_inspection_detail(session, slug, inspection_id, retry_count + 1)
-            return []
+            return None  # blocked — must not read as "no violations"
         if r.status_code != 200:
-            return []
+            return None
         r.encoding = 'utf-8'  # pages omit charset; default latin-1 mangles § etc.
         return _mhd_parse_detail_html(r.text)
     except Exception as e:
         log.debug(f"  Detail fetch failed for {inspection_id}: {e}")
-        return []
+        return None
 
 
 def _mhd_fetch_details_bulk(slug, records, trust_official_score=True):
@@ -2456,30 +2463,51 @@ def _mhd_fetch_details_bulk(slug, records, trust_official_score=True):
         time.sleep(MHD_DETAIL_DELAY)
         return rec, texts
 
+    def apply_texts(rec, texts):
+        violations = [classify_violation(t) for t in texts]
+        computed_score, pv, pfv, cv = calc_risk_score(violations)
+        rec['violations'] = [[c, s, d] for c, s, d in violations]
+        rec['priority_violations'] = pv
+        rec['priority_foundation_violations'] = pfv
+        rec['core_violations'] = cv
+        rec['total_violations'] = len(violations)
+        # Keep the health department's official score when present
+        # and trustworthy; otherwise use our computed score.
+        if not trust_official_score or rec.get('original_score') is None:
+            rec['risk_score'] = computed_score
+
     fetched = 0
     done = 0
+    failed = []
     with ThreadPoolExecutor(max_workers=MHD_DETAIL_WORKERS) as pool:
         futures = [pool.submit(fetch_one, rec) for rec in records]
         for future in as_completed(futures):
             rec, texts = future.result()
             done += 1
-            if texts:
-                violations = [classify_violation(t) for t in texts]
-                computed_score, pv, pfv, cv = calc_risk_score(violations)
-                rec['violations'] = [[c, s, d] for c, s, d in violations]
-                rec['priority_violations'] = pv
-                rec['priority_foundation_violations'] = pfv
-                rec['core_violations'] = cv
-                rec['total_violations'] = len(violations)
-                # Keep the health department's official score when present
-                # and trustworthy; otherwise use our computed score.
-                if not trust_official_score or rec.get('original_score') is None:
-                    rec['risk_score'] = computed_score
+            if texts is None:
+                # Blocked/failed fetch — queue for retry; never record the
+                # inspection as violation-free on the strength of a 403.
+                failed.append(rec)
+            elif texts:
+                apply_texts(rec, texts)
                 fetched += 1
             if done % 100 == 0:
                 log.info(f"  Details: {done}/{len(records)} inspections fetched "
                          f"({fetched} with violations)")
-    return fetched
+
+    still_failed = []
+    if failed:
+        log.warning(f"  {slug}: retrying {len(failed)} failed detail fetches")
+        retry_session = _mhd_session()
+        for rec in failed:
+            texts = _mhd_fetch_inspection_detail(retry_session, slug, rec['source_id'])
+            time.sleep(MHD_DETAIL_DELAY)
+            if texts is None:
+                still_failed.append(rec)
+            elif texts:
+                apply_texts(rec, texts)
+                fetched += 1
+    return fetched, still_failed
 
 
 def fetch_dfw(jurisdictions=None, since_date=None, limit_per_jurisdiction=None,
@@ -2601,11 +2629,19 @@ def _fetch_mhd_jurisdiction_api(session, slug, config, since_date=None, limit=No
         log.info(f"{display_name}: fetching violation details for "
                  f"{len(inspections_with_id)} inspections "
                  f"({MHD_DETAIL_WORKERS} workers)...")
-        fetched_violations = _mhd_fetch_details_bulk(
+        fetched_violations, unreadable = _mhd_fetch_details_bulk(
             slug, inspections_with_id,
             trust_official_score=config.get('score_scale', '100') != 'demerit')
         log.info(f"{display_name}: {fetched_violations}/{len(inspections_with_id)} "
                  f"inspections had violation details")
+        if unreadable:
+            # An inspection whose observations could not be read must not
+            # ship looking violation-free — drop it; a later run (or the
+            # next weekly refresh) re-attempts it.
+            log.warning(f"{display_name}: dropping {len(unreadable)} inspections "
+                        f"with unreadable detail pages")
+            drop = {id(r) for r in unreadable}
+            all_records = [r for r in all_records if id(r) not in drop]
 
     if stopped_early:
         log.warning(f"{display_name}: scrape stopped early — run again to get remaining data")
@@ -3619,10 +3655,21 @@ def write_d1_sql(all_inspections, output_path, include_schema=True):
             f.write(D1_SCHEMA_SQL)
         for start in range(0, len(insp_rows), D1_BATCH_ROWS):
             batch = insp_rows[start:start + D1_BATCH_ROWS]
-            f.write("INSERT OR IGNORE INTO inspections "
+            # Upsert (not INSERT OR IGNORE) so a re-fetch that recovers
+            # violation details heals an inspection row ingested during a
+            # source outage. Post-hardening, fetchers never emit an
+            # inspection whose details failed to load, so an upsert can
+            # only improve a stored row.
+            f.write("INSERT INTO inspections "
                     "(id,restaurant_id,inspection_date,risk_score,original_score,"
                     "inspection_type,results,violations,source_id) VALUES\n"
-                    + ',\n'.join(batch) + ';\n')
+                    + ',\n'.join(batch) +
+                    " ON CONFLICT(id) DO UPDATE SET "
+                    "risk_score=excluded.risk_score, "
+                    "original_score=excluded.original_score, "
+                    "inspection_type=excluded.inspection_type, "
+                    "results=excluded.results, "
+                    "violations=excluded.violations;\n")
         for start in range(0, len(rest_rows), D1_BATCH_ROWS):
             batch = rest_rows[start:start + D1_BATCH_ROWS]
             f.write("INSERT INTO restaurants "
