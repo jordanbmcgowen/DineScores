@@ -1174,6 +1174,10 @@ HOUSTON_MAXROWS = 500
 TYLER_DETAIL_WORKERS = 2   # Tyler portals rate-limit hard — go gently
 TYLER_DETAIL_DELAY = 0.7
 TYLER_RETRIES = 5
+# A detail fetch that fails outright must never be recorded as a clean
+# inspection. This many consecutive failures means the network (not a page)
+# is broken — abort the run instead of accumulating false-clean records.
+TYLER_ABORT_AFTER = 15
 
 
 def _tyler_request(session, method, url, **kwargs):
@@ -1246,14 +1250,18 @@ def _houston_search_window(session, start, end):
 
 
 def _houston_fetch_detail(session, f_id, i_id, date_str):
-    """Fetch one inspection detail page; returns list of violation texts (from tooltips)."""
+    """
+    Fetch one inspection detail page. Returns the list of violation texts
+    (empty for a genuinely clean page), or None when the fetch itself failed —
+    callers must not record None as a clean inspection.
+    """
     url = (f'{HOUSTON_BASE}search.cfm?q=d&f={f_id}&i={i_id}'
            f'&sd={date_str}&ed={date_str}&z=&m=&maxrows=10&e=&tp=')
     try:
         r = _tyler_request(session, 'GET', url,
                            headers={'Referer': HOUSTON_BASE + 'search.cfm'})
         if r is None:
-            return []
+            return None
         seg = r.text
         i = seg.find('Inspection Results')
         if i >= 0:
@@ -1268,7 +1276,7 @@ def _houston_fetch_detail(session, f_id, i_id, date_str):
                 out.append(text[:500])
         return out
     except requests.RequestException:
-        return []
+        return None
 
 
 def fetch_houston(since_date=None, until_date=None, limit=None, fetch_violations=True):
@@ -1368,21 +1376,60 @@ def fetch_houston(since_date=None, until_date=None, limit=None, fetch_violations
             time.sleep(TYLER_DETAIL_DELAY)
             return rec, texts
 
-        done = withv = 0
+        def apply_texts(rec, texts):
+            violations = [classify_violation(t) for t in texts]
+            risk, pv, pfv, cv = calc_risk_score(violations)
+            rec.update(risk_score=risk, priority_violations=pv,
+                       priority_foundation_violations=pfv, core_violations=cv,
+                       total_violations=len(violations),
+                       violations=[[c, s, d] for c, s, d in violations])
+
+        done = withv = consecutive_failures = 0
+        failed = []
         with ThreadPoolExecutor(max_workers=TYLER_DETAIL_WORKERS) as pool:
-            for future in as_completed([pool.submit(work, r) for r in results]):
+            futures = [pool.submit(work, r) for r in results]
+            for future in as_completed(futures):
                 rec, texts = future.result()
                 done += 1
-                if texts:
-                    violations = [classify_violation(t) for t in texts]
-                    risk, pv, pfv, cv = calc_risk_score(violations)
-                    rec.update(risk_score=risk, priority_violations=pv,
-                               priority_foundation_violations=pfv, core_violations=cv,
-                               total_violations=len(violations),
-                               violations=[[c, s, d] for c, s, d in violations])
-                    withv += 1
+                if texts is None:
+                    failed.append(rec)
+                    consecutive_failures += 1
+                    if consecutive_failures >= TYLER_ABORT_AFTER:
+                        for f in futures:
+                            f.cancel()
+                        raise RuntimeError(
+                            f"Houston: {consecutive_failures} consecutive detail "
+                            f"failures — aborting instead of recording "
+                            f"false-clean inspections")
+                else:
+                    consecutive_failures = 0
+                    if texts:
+                        apply_texts(rec, texts)
+                        withv += 1
                 if done % 200 == 0:
                     log.info(f"  Houston details: {done}/{len(results)} ({withv} with violations)")
+
+        if failed:
+            log.warning(f"Houston: retrying {len(failed)} failed detail fetches")
+            retry_session = _houston_session()
+            still_failed = []
+            for rec in failed:
+                f_id, i_id, date_str = rec['_hou_ids']
+                texts = _houston_fetch_detail(retry_session, f_id, i_id, date_str)
+                time.sleep(TYLER_DETAIL_DELAY)
+                if texts is None:
+                    still_failed.append(rec)
+                elif texts:
+                    apply_texts(rec, texts)
+                    withv += 1
+            if still_failed:
+                # An inspection whose violations could not be read must not
+                # appear violation-free — drop it; the weekly refresh or a
+                # later backfill picks it up again.
+                log.warning(f"Houston: dropping {len(still_failed)} inspections "
+                            f"with unreadable detail pages")
+                drop = {id(r) for r in still_failed}
+                results = [r for r in results if id(r) not in drop]
         log.info(f"Houston: {withv}/{len(results)} inspections had violations")
 
     for rec in results:
@@ -1569,32 +1616,77 @@ def fetch_dc(since_date=None, until_date=None, limit=None, fetch_violations=True
             time.sleep(TYLER_DETAIL_DELAY)
             if r is not None and r.status_code == 200:
                 return rec, _dc_parse_report(r.text)
-            return rec, ({}, [])
+            # None = fetch failed; must not be recorded as a clean inspection
+            return rec, None
 
-        done = withv = 0
+        def apply_report(rec, counts, observations):
+            pv = counts.get('priority', 0)
+            pfv = counts.get('priority_foundation', 0)
+            cv = counts.get('core', 0)
+            violations = [list(classify_violation(t)) for t in observations]
+            if counts:
+                # DC publishes official severity counts — use them for
+                # the score rather than our regex-derived tallies.
+                risk = max(0, 100 - pv * 5 - pfv * 2 - cv * 1)
+            else:
+                risk, pv, pfv, cv = calc_risk_score(
+                    [tuple(v) for v in violations])
+            rec.update(risk_score=risk, priority_violations=pv,
+                       priority_foundation_violations=pfv, core_violations=cv,
+                       total_violations=max(pv + pfv + cv, len(violations)),
+                       violations=[[c, s, str(d)[:500]] for c, s, d in violations])
+
+        done = withv = consecutive_failures = 0
+        failed = []
         with ThreadPoolExecutor(max_workers=TYLER_DETAIL_WORKERS) as pool:
-            for future in as_completed([pool.submit(work, r) for r in results]):
-                rec, (counts, observations) = future.result()
+            futures = [pool.submit(work, r) for r in results]
+            for future in as_completed(futures):
+                rec, payload = future.result()
                 done += 1
-                if counts or observations:
-                    pv = counts.get('priority', 0)
-                    pfv = counts.get('priority_foundation', 0)
-                    cv = counts.get('core', 0)
-                    violations = [list(classify_violation(t)) for t in observations]
-                    if counts:
-                        # DC publishes official severity counts — use them for
-                        # the score rather than our regex-derived tallies.
-                        risk = max(0, 100 - pv * 5 - pfv * 2 - cv * 1)
-                    else:
-                        risk, pv, pfv, cv = calc_risk_score(
-                            [tuple(v) for v in violations])
-                    rec.update(risk_score=risk, priority_violations=pv,
-                               priority_foundation_violations=pfv, core_violations=cv,
-                               total_violations=max(pv + pfv + cv, len(violations)),
-                               violations=[[c, s, str(d)[:500]] for c, s, d in violations])
-                    withv += 1
+                if payload is None:
+                    failed.append(rec)
+                    consecutive_failures += 1
+                    if consecutive_failures >= TYLER_ABORT_AFTER:
+                        for f in futures:
+                            f.cancel()
+                        raise RuntimeError(
+                            f"DC: {consecutive_failures} consecutive report "
+                            f"failures — aborting instead of recording "
+                            f"false-clean inspections")
+                else:
+                    consecutive_failures = 0
+                    counts, observations = payload
+                    if counts or observations:
+                        apply_report(rec, counts, observations)
+                        withv += 1
                 if done % 200 == 0:
                     log.info(f"  DC reports: {done}/{len(results)} ({withv} parsed)")
+
+        if failed:
+            log.warning(f"DC: retrying {len(failed)} failed report fetches")
+            retry_session = requests.Session()
+            retry_session.headers.update({'User-Agent': CHROME_UA})
+            try:
+                retry_session.get(DC_BASE + '?a=Inspections', timeout=30)
+            except requests.RequestException:
+                pass
+            still_failed = []
+            for rec in failed:
+                url = DC_BASE + 'lib/mod/inspection/paper/' + rec['_dc_report']
+                r = _tyler_request(retry_session, 'GET', url)
+                time.sleep(TYLER_DETAIL_DELAY)
+                if r is not None and r.status_code == 200:
+                    counts, observations = _dc_parse_report(r.text)
+                    if counts or observations:
+                        apply_report(rec, counts, observations)
+                        withv += 1
+                else:
+                    still_failed.append(rec)
+            if still_failed:
+                log.warning(f"DC: dropping {len(still_failed)} inspections "
+                            f"with unreadable reports")
+                drop = {id(r) for r in still_failed}
+                results = [r for r in results if id(r) not in drop]
         log.info(f"DC: {withv}/{len(results)} reports parsed")
 
     for rec in results:
