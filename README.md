@@ -47,7 +47,7 @@ and violation summaries for Chicago, NYC, San Francisco, and DFW metro.
 - **Frontend**: React (JSX) + Tailwind CSS (build-time) + MapLibre GL JS
 - **Build**: Vite → outputs to `public/`
 - **Hosting**: Cloudflare Pages (auto-deploys from `main`)
-- **CI**: GitHub Actions weekly refresh (Chicago, NYC, SF, Austin, Boston, Seattle/King County + DFW metro)
+- **CI**: GitHub Actions weekly refresh (Chicago, NYC, SF, Austin, Boston, Seattle, Houston, DC, Miami/Tampa/Orlando + DFW metro)
 
 ---
 
@@ -110,6 +110,9 @@ python dinescores_pipeline.py --mode test --dry-run
 | Boston | CKAN datastore SQL API (`data.boston.gov`), updated daily. One row per violation; `*`/`**`/`***` levels map to severity. |
 | Seattle (King County) | Socrata (`data.kingcounty.gov`), ~30 King County cities. Violation POINTS (lower = better) converted to 100-scale; RED = priority, BLUE = core. County feed last updated 2025-11; weekly refresh auto-resumes if publication restarts. |
 | Dallas / Plano / Frisco (DFW) | MyHealthDepartment portal JSON search API in 7-day windows (auto-bisected when the ~225-record query cap is hit), then each inspection's public detail page is scraped for violation observations — they are rendered server-side in the HTML (or inline JS for Frisco), so no browser is needed. Frisco scores are demerit-based (lower = better) and are converted. |
+| Houston | Tyler `healthinspections.us` portal: session-based date-window searches (bisected at the 500-row cap); each inspection's detail page carries full ordinance text per violation in its tooltip markup. |
+| Washington DC | Tyler portal (different template): monthly window searches; report pages publish OFFICIAL Priority/Priority Foundation/Core counts + observation text. DC-located records only (mobile-vendor commissary addresses in VA/MD are skipped). |
+| Miami / Tampa / Orlando | Florida DBPR statewide CSV extracts (districts 1/3/4), official High Priority/Intermediate/Basic counts. Extracts roll over each July 1 with the state fiscal year, so history accumulates weekly from FY start. |
 | Geocoding | Census Bureau batch geocoder (thousands of addresses per request), Nominatim fallback for stragglers. |
 
 Data hygiene: placeholder dates (NYC `1900-01-01` = not yet inspected) and

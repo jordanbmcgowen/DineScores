@@ -1166,6 +1166,654 @@ def fetch_seattle(since_date=None, limit=None):
     return results
 
 
+# ─── HOUSTON (Tyler healthinspections.us portal) ────────────────────────────
+
+HOUSTON_BASE = 'https://houston-tx.healthinspections.us/media/'
+HOUSTON_DELAY = 1.2
+HOUSTON_MAXROWS = 500
+TYLER_DETAIL_WORKERS = 2   # Tyler portals rate-limit hard — go gently
+TYLER_DETAIL_DELAY = 0.7
+TYLER_RETRIES = 5
+# A detail fetch that fails outright must never be recorded as a clean
+# inspection. This many consecutive failures means the network (not a page)
+# is broken — abort the run instead of accumulating false-clean records.
+TYLER_ABORT_AFTER = 15
+
+
+def _tyler_request(session, method, url, **kwargs):
+    """
+    Request against a Tyler healthinspections.us portal with exponential
+    backoff — these servers intermittently 503 under modest request rates.
+    Returns the response, or None after exhausting retries.
+    """
+    for attempt in range(TYLER_RETRIES):
+        try:
+            r = session.request(method, url, timeout=90, **kwargs)
+            if r.status_code in (429, 500, 502, 503, 504):
+                wait = 20 * (attempt + 1)
+                log.warning(f"  Tyler {r.status_code} on {url[:60]} — retry in {wait}s "
+                            f"({attempt + 1}/{TYLER_RETRIES})")
+                time.sleep(wait)
+                continue
+            r.raise_for_status()
+            return r
+        except requests.RequestException as e:
+            wait = 20 * (attempt + 1)
+            log.warning(f"  Tyler error {str(e)[:80]} — retry in {wait}s "
+                        f"({attempt + 1}/{TYLER_RETRIES})")
+            time.sleep(wait)
+    return None
+
+
+def _houston_session():
+    s = requests.Session()
+    s.headers.update({'User-Agent': CHROME_UA})
+    _tyler_request(s, 'GET', HOUSTON_BASE + 'search.cfm')  # establish CF session
+    return s
+
+
+def _houston_search_window(session, start, end):
+    """POST one date-window search; returns list of (f_id, i_id, name, address, city, zip, date, status)."""
+    data = {
+        'q': 's', 'e': '', 'k': '', 'r': '', 'tp': '',
+        'sd_month': f'{start.month:02d}', 'sd_day': f'{start.day:02d}', 'sd_year': str(start.year),
+        'sd': start.strftime('%m/%d/%Y'),
+        'ed_month': f'{end.month:02d}', 'ed_day': f'{end.day:02d}', 'ed_year': str(end.year),
+        'ed': end.strftime('%m/%d/%Y'),
+        'z': '', 'm': '', 'maxrows': str(HOUSTON_MAXROWS), 'Submit': 'Search',
+    }
+    r = _tyler_request(session, 'POST', HOUSTON_BASE + 'search.cfm', data=data,
+                       headers={'Referer': HOUSTON_BASE + 'search.cfm'})
+    if r is None:
+        raise RuntimeError('Houston search failed after retries')
+    rows = []
+    pattern = re.compile(
+        r'href="search\.cfm\?q=d&f=([A-F0-9-]+)&i=([A-F0-9-]+)[^"]*">([^<]+)</a><br>\s*'
+        r'([^<]+?)\s*</td>\s*<td[^>]*>([^<]*)</td>\s*'
+        r'<td[^>]*>(\d{2}/\d{2}/\d{4})</td>\s*<td[^>]*>\s*([^<]*)</td>', re.S)
+    for m in pattern.finditer(r.text):
+        f_id, i_id, name, addr_line, site, date_str, status = m.groups()
+        # Format: "4395 WEST SAM HOUSTON PKWY HOUSTON TX, 77041" — the
+        # department covers Houston city limits, so the city token before
+        # "TX" is (near-)always HOUSTON; strip it from the street greedily.
+        addr = addr_line.strip()
+        zm = re.search(r'\bTX,?\s*(\d{5})', addr)
+        zip_code = zm.group(1) if zm else ''
+        street = re.sub(r'\s+TX,?\s*\d{5}.*$', '', addr).strip()
+        city = 'Houston'
+        cm = re.match(r'^(.*)\s+HOUSTON$', street, re.I)
+        if cm:
+            street = cm.group(1).strip()
+        rows.append((f_id, i_id, name.strip(), street, city,
+                     zip_code, date_str, status.strip()))
+    return rows
+
+
+# Houston's "Inspection Results" table has two layouts: most pages list only
+# the violated items, but some list the ENTIRE inspection checklist — one row
+# per form item, where non-violated items carry a section-header tooltip
+# ("Foodborne Illness Risk Factors and Public Health Interventions: 12") and
+# an empty Status cell, while actual violations have ordinance text in the
+# tooltip and "Violation" in the Status cell.
+HOUSTON_ROW_RE = re.compile(
+    r"ddrivetip\('(.{10,600}?)'\s*,.*?</a></td>\s*<td[^>]*>(.*?)</td>", re.S)
+HOUSTON_FORM_HEADER_RE = re.compile(
+    r'^(Foodborne Illness Risk Factors and Public Health Interventions|'
+    r'Good Retail Practices)\s*:?\s*[\d.]*\s*$')
+
+
+def _houston_fetch_detail(session, f_id, i_id, date_str):
+    """
+    Fetch one inspection detail page. Returns the list of violation texts
+    (empty for a genuinely clean page), or None when the fetch itself failed —
+    callers must not record None as a clean inspection.
+    """
+    url = (f'{HOUSTON_BASE}search.cfm?q=d&f={f_id}&i={i_id}'
+           f'&sd={date_str}&ed={date_str}&z=&m=&maxrows=10&e=&tp=')
+    try:
+        r = _tyler_request(session, 'GET', url,
+                           headers={'Referer': HOUSTON_BASE + 'search.cfm'})
+        if r is None:
+            return None
+        seg = r.text
+        i = seg.find('Inspection Results')
+        if i >= 0:
+            seg = seg[i:]
+        out, fallback = [], []
+        for tip, status in HOUSTON_ROW_RE.findall(seg):
+            text = html_lib.unescape(tip).replace("\\'", "'")
+            text = re.sub(r'<[^>]+>', ' ', text)
+            text = re.sub(r'\s+', ' ', text).strip()
+            if len(text) <= 10 or HOUSTON_FORM_HEADER_RE.match(text):
+                continue
+            status_txt = re.sub(r'<[^>]+>', ' ', status)
+            status_txt = re.sub(r'\s+', ' ', status_txt).strip()
+            if 'Violation' in status_txt:
+                out.append(text[:500])
+            fallback.append(text[:500])
+        # If no row carried a "Violation" status the page is either clean
+        # (fallback is empty too) or a template variant without status
+        # cells — fall back to the non-header tooltips.
+        return out if out else fallback
+    except requests.RequestException:
+        return None
+
+
+def fetch_houston(since_date=None, until_date=None, limit=None, fetch_violations=True):
+    """
+    Fetch Houston food inspections from the city's Tyler Technologies portal
+    (houston-tx.healthinspections.us). Date-windowed searches (bisected when
+    the 500-row cap is hit); each inspection's detail page carries the full
+    ordinance text of every violation in its tooltip markup. No numeric
+    score is published — risk is computed from violations.
+    """
+    log.info(f"Fetching Houston data (since={since_date}, limit={limit})")
+    session = _houston_session()
+
+    start = datetime.strptime(str(since_date)[:10], '%Y-%m-%d') if since_date \
+        else datetime(datetime.now().year, 1, 1)
+    end = datetime.now()
+    if until_date:
+        end = min(end, datetime.strptime(str(until_date)[:10], '%Y-%m-%d'))
+
+    # 3-day windows, bisected on cap
+    stack = []
+    cur = start
+    while cur <= end:
+        wend = min(cur + timedelta(days=2), end)
+        stack.append((cur, wend))
+        cur = wend + timedelta(days=1)
+    stack.reverse()
+
+    seen = set()
+    raw = []
+    while stack:
+        ws, we = stack.pop()
+        rows = _houston_search_window(session, ws, we)
+        if len(rows) >= HOUSTON_MAXROWS and ws < we:
+            mid = ws + (we - ws) / 2
+            stack.append((ws, mid))
+            stack.append((mid + timedelta(days=1), we))
+            continue
+        if len(rows) >= HOUSTON_MAXROWS:
+            log.warning(f"  Houston {ws:%m/%d}: single day hit the 500-row cap")
+        new = 0
+        for row in rows:
+            key = (row[0], row[1])
+            if key not in seen:
+                seen.add(key)
+                raw.append(row)
+                new += 1
+        log.info(f"  Houston {ws:%m/%d}..{we:%m/%d}: {len(rows)} rows ({new} new), total {len(raw)}")
+        if limit and len(raw) >= limit:
+            raw = raw[:limit]
+            break
+        time.sleep(HOUSTON_DELAY)
+
+    results = []
+    for f_id, i_id, name, street, city, zip_code, date_str, status in raw:
+        insp_date = sane_inspection_date(datetime.strptime(date_str, '%m/%d/%Y').strftime('%Y-%m-%d'))
+        if not insp_date or not name:
+            continue
+        results.append({
+            'name': name.title() if name.isupper() else name,
+            'address': street.title() if street.isupper() else street,
+            'city': city or 'Houston',
+            'state': 'TX',
+            'zip': zip_code,
+            'latitude': None,
+            'longitude': None,
+            'inspection_date': insp_date,
+            'original_score': None,
+            'risk_score': 100,
+            'priority_violations': 0,
+            'priority_foundation_violations': 0,
+            'core_violations': 0,
+            'total_violations': 0,
+            'violations': [],
+            'inspection_type': '',
+            'results': status,
+            'source': 'Houston Health Dept',
+            'source_url': 'https://houston-tx.healthinspections.us/media/search.cfm',
+            'source_id': f'hou_{f_id}_{i_id}',
+            'metro': '',
+            '_hou_ids': (f_id, i_id, date_str),
+        })
+
+    if fetch_violations and results:
+        log.info(f"Houston: fetching violation details for {len(results)} inspections "
+                 f"({TYLER_DETAIL_WORKERS} workers)...")
+        local = threading.local()
+
+        def get_session():
+            if not hasattr(local, 's'):
+                local.s = _houston_session()
+            return local.s
+
+        def work(rec):
+            f_id, i_id, date_str = rec['_hou_ids']
+            texts = _houston_fetch_detail(get_session(), f_id, i_id, date_str)
+            time.sleep(TYLER_DETAIL_DELAY)
+            return rec, texts
+
+        def apply_texts(rec, texts):
+            violations = [classify_violation(t) for t in texts]
+            risk, pv, pfv, cv = calc_risk_score(violations)
+            rec.update(risk_score=risk, priority_violations=pv,
+                       priority_foundation_violations=pfv, core_violations=cv,
+                       total_violations=len(violations),
+                       violations=[[c, s, d] for c, s, d in violations])
+
+        done = withv = consecutive_failures = 0
+        failed = []
+        with ThreadPoolExecutor(max_workers=TYLER_DETAIL_WORKERS) as pool:
+            futures = [pool.submit(work, r) for r in results]
+            for future in as_completed(futures):
+                rec, texts = future.result()
+                done += 1
+                if texts is None:
+                    failed.append(rec)
+                    consecutive_failures += 1
+                    if consecutive_failures >= TYLER_ABORT_AFTER:
+                        for f in futures:
+                            f.cancel()
+                        raise RuntimeError(
+                            f"Houston: {consecutive_failures} consecutive detail "
+                            f"failures — aborting instead of recording "
+                            f"false-clean inspections")
+                else:
+                    consecutive_failures = 0
+                    if texts:
+                        apply_texts(rec, texts)
+                        withv += 1
+                if done % 200 == 0:
+                    log.info(f"  Houston details: {done}/{len(results)} ({withv} with violations)")
+
+        if failed:
+            log.warning(f"Houston: retrying {len(failed)} failed detail fetches")
+            retry_session = _houston_session()
+            still_failed = []
+            for rec in failed:
+                f_id, i_id, date_str = rec['_hou_ids']
+                texts = _houston_fetch_detail(retry_session, f_id, i_id, date_str)
+                time.sleep(TYLER_DETAIL_DELAY)
+                if texts is None:
+                    still_failed.append(rec)
+                elif texts:
+                    apply_texts(rec, texts)
+                    withv += 1
+            if still_failed:
+                # An inspection whose violations could not be read must not
+                # appear violation-free — drop it; the weekly refresh or a
+                # later backfill picks it up again.
+                log.warning(f"Houston: dropping {len(still_failed)} inspections "
+                            f"with unreadable detail pages")
+                drop = {id(r) for r in still_failed}
+                results = [r for r in results if id(r) not in drop]
+        log.info(f"Houston: {withv}/{len(results)} inspections had violations")
+
+    for rec in results:
+        rec.pop('_hou_ids', None)
+    log.info(f"Houston: {len(results)} inspections")
+    return results
+
+
+# ─── WASHINGTON DC (Tyler healthinspections.us portal) ──────────────────────
+
+DC_BASE = 'https://dc.healthinspections.us/'
+DC_DELAY = 1.5
+
+
+def _dc_parse_report(html):
+    """
+    Parse a DC inspection report page: official Priority / Priority
+    Foundation / Core counts plus the OBSERVATIONS item texts.
+    """
+    counts = {}
+    for label, key in (('Priority', 'priority'),
+                       ('Priority Foundation', 'priority_foundation'),
+                       ('Core', 'core')):
+        m = re.search(re.escape(label) + r'\s*</[^>]+>[^<]*<[^>]*>\s*Violations\s*'
+                      r'</[^>]+>[^<]*<[^>]*>\s*(?:&nbsp;)*\s*(\d+)', html)
+        if not m:
+            m = re.search(re.escape(label) + r'\s*(?:<[^>]+>|\s|&nbsp;)*Violations'
+                          r'(?:<[^>]+>|\s|&nbsp;)*(\d+)', html)
+        if m:
+            counts[key] = int(m.group(1))
+
+    observations = []
+    i = html.find('OBSERVATIONS')
+    if i >= 0:
+        seg = html[i:i + 40000]
+        text = re.sub(r'<[^>]+>', '\n', seg)
+        text = html_lib.unescape(text)
+        for m in re.finditer(r'^\s*(\d{1,2})\.\s*-\s*(.{10,600}?)$', text, re.M):
+            desc = re.sub(r'\s+', ' ', m.group(2)).strip()
+            observations.append(desc[:500])
+    return counts, observations
+
+
+def fetch_dc(since_date=None, until_date=None, limit=None, fetch_violations=True):
+    """
+    Fetch Washington DC food inspections from DC Health's Tyler portal
+    (dc.healthinspections.us). Monthly window searches return all results in
+    one response; each inspection links a full report page that publishes
+    OFFICIAL Priority / Priority Foundation / Core violation counts plus
+    observation text — the counts drive the risk score directly.
+    """
+    log.info(f"Fetching DC data (since={since_date}, limit={limit})")
+    session = requests.Session()
+    session.headers.update({'User-Agent': CHROME_UA})
+    session.get(DC_BASE + '?a=Inspections', timeout=30)
+
+    start = datetime.strptime(str(since_date)[:10], '%Y-%m-%d') if since_date \
+        else datetime(datetime.now().year, 1, 1)
+    end = datetime.now()
+    if until_date:
+        end = min(end, datetime.strptime(str(until_date)[:10], '%Y-%m-%d'))
+
+    months = []
+    cur = datetime(start.year, start.month, 1)
+    while cur <= end:
+        nxt = datetime(cur.year + (cur.month == 12), (cur.month % 12) + 1, 1)
+        months.append((max(cur, start), min(nxt - timedelta(days=1), end)))
+        cur = nxt
+
+    est_re = re.compile(
+        r'<h3><a href="\?a=inspections&permitID=(\d+)">([^<]+)</a></h3>\s*'
+        r'([^<]+?)<br\s*/>\s*Ward:\s*([^|<]*)\|[^<]*<br\s*/>\s*Type:\s*([^<\n]*)'
+        r'(.*?)</div>\s*</li>', re.S)
+    insp_re = re.compile(
+        r'href="\.\./lib/mod/inspection/paper/(_paper_food_inspection_report\.cfm\?inspectionID=(\d+)[^"]*)"[^>]*>'
+        r'\s*([^:<]+):\s*\w+,\s*(\w+ \d{1,2}, \d{4})')
+
+    raw = []
+    seen = set()
+    for ws, we in months:
+        data = {
+            'a': 'Inspections', 'inputEstabName': '', 'inputPermitType': '',
+            'inputInspType': '', 'inputWard': '', 'inputQuad': '',
+            'startDate': ws.strftime('%m/%d/%Y'), 'endDate': we.strftime('%m/%d/%Y'),
+            'btnSearch': 'Search',
+        }
+        r = _tyler_request(session, 'POST', DC_BASE + 'index.cfm', data=data,
+                           headers={'Referer': DC_BASE + '?a=Inspections'})
+        if r is None:
+            raise RuntimeError('DC search failed after retries')
+        month_count = 0
+        for em in est_re.finditer(r.text):
+            permit_id, name, addr_line, ward, ftype, insp_block = em.groups()
+            # Format: "716 MONROE ST NE WASHINGTON, DC 20017" — the city sits
+            # between a GREEDY street match and the ", ST zip" tail. Known
+            # two-word suburb names are checked before the one-word default.
+            addr = addr_line.strip()
+            am = re.match(
+                r'^(.*?)\s+((?:FALLS CHURCH|SILVER SPRING|OXON HILL|COLLEGE PARK|'
+                r'TAKOMA PARK|CAPITOL HEIGHTS|[A-Za-z.]+))\s*,?\s+([A-Z]{2})\s+(\d{5})',
+                addr, re.I)
+            if am and am.group(2):
+                # re-run greedily so the street keeps everything but the city
+                street_end = addr.rfind(am.group(2))
+                street = addr[:street_end].strip()
+                city, state, zip_code = am.group(2), am.group(3), am.group(4)
+                if not street:
+                    street, city = city, 'Washington'
+            else:
+                street, city, state, zip_code = addr, 'Washington', 'DC', ''
+            for im in insp_re.finditer(insp_block):
+                report_path, insp_id, insp_type, date_words = im.groups()
+                if insp_id in seen:
+                    continue
+                seen.add(insp_id)
+                try:
+                    d = datetime.strptime(date_words, '%B %d, %Y').strftime('%Y-%m-%d')
+                except ValueError:
+                    continue
+                raw.append({
+                    'permit_id': permit_id, 'insp_id': insp_id,
+                    'report_path': report_path,
+                    'name': name.strip(), 'street': street, 'city': city.strip().title(),
+                    'state': state, 'zip': zip_code, 'type': insp_type.strip(),
+                    'date': d,
+                })
+                month_count += 1
+        log.info(f"  DC {ws:%Y-%m}: {month_count} inspections (total {len(raw)})")
+        if limit and len(raw) >= limit:
+            raw = raw[:limit]
+            break
+        time.sleep(DC_DELAY)
+
+    results = []
+    for item in raw:
+        insp_date = sane_inspection_date(item['date'])
+        if not insp_date or not item['name']:
+            continue
+        # Keep DC locations only: mobile-vendor records carry their VA/MD
+        # commissary addresses (not dining locations), and suburb names like
+        # "Arlington, VA" would collide with same-named cities in other states.
+        if (item['state'] or 'DC') != 'DC':
+            continue
+        results.append({
+            'name': item['name'].title() if item['name'].isupper() else item['name'],
+            'address': item['street'].title() if item['street'].isupper() else item['street'],
+            'city': item['city'] or 'Washington',
+            'state': item['state'] or 'DC',
+            'zip': item['zip'],
+            'latitude': None,
+            'longitude': None,
+            'inspection_date': insp_date,
+            'original_score': None,
+            'risk_score': 100,
+            'priority_violations': 0,
+            'priority_foundation_violations': 0,
+            'core_violations': 0,
+            'total_violations': 0,
+            'violations': [],
+            'inspection_type': item['type'],
+            'results': '',
+            'source': 'DC Health',
+            'source_url': f"{DC_BASE}?a=inspections&permitID={item['permit_id']}",
+            'source_id': f"dc_{item['insp_id']}",
+            'metro': '',
+            '_dc_report': item['report_path'],
+        })
+
+    if fetch_violations and results:
+        log.info(f"DC: fetching {len(results)} inspection reports "
+                 f"({TYLER_DETAIL_WORKERS} workers)...")
+        local = threading.local()
+
+        def get_session():
+            if not hasattr(local, 's'):
+                local.s = requests.Session()
+                local.s.headers.update({'User-Agent': CHROME_UA})
+                local.s.get(DC_BASE + '?a=Inspections', timeout=30)
+            return local.s
+
+        def work(rec):
+            url = DC_BASE + 'lib/mod/inspection/paper/' + rec['_dc_report']
+            r = _tyler_request(get_session(), 'GET', url)
+            time.sleep(TYLER_DETAIL_DELAY)
+            if r is not None and r.status_code == 200:
+                return rec, _dc_parse_report(r.text)
+            # None = fetch failed; must not be recorded as a clean inspection
+            return rec, None
+
+        def apply_report(rec, counts, observations):
+            pv = counts.get('priority', 0)
+            pfv = counts.get('priority_foundation', 0)
+            cv = counts.get('core', 0)
+            violations = [list(classify_violation(t)) for t in observations]
+            if counts:
+                # DC publishes official severity counts — use them for
+                # the score rather than our regex-derived tallies.
+                risk = max(0, 100 - pv * 5 - pfv * 2 - cv * 1)
+            else:
+                risk, pv, pfv, cv = calc_risk_score(
+                    [tuple(v) for v in violations])
+            rec.update(risk_score=risk, priority_violations=pv,
+                       priority_foundation_violations=pfv, core_violations=cv,
+                       total_violations=max(pv + pfv + cv, len(violations)),
+                       violations=[[c, s, str(d)[:500]] for c, s, d in violations])
+
+        done = withv = consecutive_failures = 0
+        failed = []
+        with ThreadPoolExecutor(max_workers=TYLER_DETAIL_WORKERS) as pool:
+            futures = [pool.submit(work, r) for r in results]
+            for future in as_completed(futures):
+                rec, payload = future.result()
+                done += 1
+                if payload is None:
+                    failed.append(rec)
+                    consecutive_failures += 1
+                    if consecutive_failures >= TYLER_ABORT_AFTER:
+                        for f in futures:
+                            f.cancel()
+                        raise RuntimeError(
+                            f"DC: {consecutive_failures} consecutive report "
+                            f"failures — aborting instead of recording "
+                            f"false-clean inspections")
+                else:
+                    consecutive_failures = 0
+                    counts, observations = payload
+                    if counts or observations:
+                        apply_report(rec, counts, observations)
+                        withv += 1
+                if done % 200 == 0:
+                    log.info(f"  DC reports: {done}/{len(results)} ({withv} parsed)")
+
+        if failed:
+            log.warning(f"DC: retrying {len(failed)} failed report fetches")
+            retry_session = requests.Session()
+            retry_session.headers.update({'User-Agent': CHROME_UA})
+            try:
+                retry_session.get(DC_BASE + '?a=Inspections', timeout=30)
+            except requests.RequestException:
+                pass
+            still_failed = []
+            for rec in failed:
+                url = DC_BASE + 'lib/mod/inspection/paper/' + rec['_dc_report']
+                r = _tyler_request(retry_session, 'GET', url)
+                time.sleep(TYLER_DETAIL_DELAY)
+                if r is not None and r.status_code == 200:
+                    counts, observations = _dc_parse_report(r.text)
+                    if counts or observations:
+                        apply_report(rec, counts, observations)
+                        withv += 1
+                else:
+                    still_failed.append(rec)
+            if still_failed:
+                log.warning(f"DC: dropping {len(still_failed)} inspections "
+                            f"with unreadable reports")
+                drop = {id(r) for r in still_failed}
+                results = [r for r in results if id(r) not in drop]
+        log.info(f"DC: {withv}/{len(results)} reports parsed")
+
+    for rec in results:
+        rec.pop('_dc_report', None)
+    log.info(f"DC: {len(results)} inspections")
+    return results
+
+
+# ─── FLORIDA DBPR (Miami / Orlando / Tampa) ─────────────────────────────────
+
+FL_EXTRACTS = 'https://www2.myfloridalicense.com/sto/file_download/extracts/'
+# District file -> counties of interest (marquee metros)
+FL_DISTRICTS = {
+    '1fdinspi.csv': {'Dade': 'FL'},          # Miami-Dade
+    '3fdinspi.csv': {'Hillsborough': 'FL'},  # Tampa
+    '4fdinspi.csv': {'Orange': 'FL'},        # Orlando
+}
+
+
+def fetch_florida(since_date=None, limit=None):
+    """
+    Fetch Florida DBPR statewide food inspections for the Miami, Tampa, and
+    Orlando metros (current-fiscal-year CSV extracts, updated continuously).
+    Florida publishes OFFICIAL High Priority / Intermediate / Basic violation
+    counts per inspection, which map directly to priority / priority
+    foundation / core. No violation text or coordinates in the extracts —
+    records are Census-geocoded downstream.
+
+    NOTE: the extracts roll over each July 1 with the state fiscal year, so
+    history accumulates from FY start; the weekly refresh keeps it growing.
+    """
+    log.info(f"Fetching Florida DBPR data (since={since_date}, limit={limit})")
+    import csv as csv_mod
+    import io
+
+    results = []
+    for fname, counties in FL_DISTRICTS.items():
+        try:
+            r = requests.get(FL_EXTRACTS + fname,
+                             headers={'User-Agent': CHROME_UA}, timeout=180)
+            r.raise_for_status()
+        except requests.RequestException as e:
+            log.error(f"  Florida {fname} download failed: {e}")
+            continue
+        reader = csv_mod.reader(io.StringIO(r.content.decode('latin-1')))
+        header = next(reader, None)
+        if not header:
+            continue
+        idx = {c.strip(): i for i, c in enumerate(header)}
+        kept = 0
+        for row in reader:
+            try:
+                county = row[idx['County Name']].strip()
+                if county not in counties:
+                    continue
+                if row[idx['Inspection Class']].strip() != 'Food':
+                    continue
+                raw_date = row[idx['Inspection Date']].strip()
+                insp_date = sane_inspection_date(
+                    datetime.strptime(raw_date, '%m/%d/%Y').strftime('%Y-%m-%d'))
+                if not insp_date:
+                    continue
+                if since_date and insp_date < str(since_date)[:10]:
+                    continue
+                name = row[idx['Business (DBA-Does Business As) Name']].strip()
+                if not name:
+                    continue
+                hp = int(row[idx['Number of High Priority Violations']] or 0)
+                inter = int(row[idx['Number of Intermediate Violations']] or 0)
+                basic = int(row[idx['Number of Basic Violations']] or 0)
+                total = int(row[idx['Number of Total Violations']] or 0)
+                city = row[idx['Location City']].strip().title()
+                results.append({
+                    'name': name.title() if name.isupper() else name,
+                    'address': row[idx['Location Address']].strip().title(),
+                    'city': city,
+                    'state': 'FL',
+                    'zip': row[idx['Location Zip Code']].strip()[:5],
+                    'latitude': None,
+                    'longitude': None,
+                    'inspection_date': insp_date,
+                    'original_score': None,
+                    'risk_score': max(0, 100 - hp * 5 - inter * 2 - basic * 1),
+                    'priority_violations': hp,
+                    'priority_foundation_violations': inter,
+                    'core_violations': basic,
+                    'total_violations': total or (hp + inter + basic),
+                    'violations': [],
+                    'inspection_type': row[idx['Inspection Type']].strip(),
+                    'results': row[idx['Inspection Disposition']].strip(),
+                    'source': 'Florida DBPR',
+                    'source_url': 'https://www2.myfloridalicense.com/hotels-restaurants/public-records/inspection-records/',
+                    'source_id': f"fl_{row[idx['Inspection Number']]}_{row[idx['Visit Number']]}",
+                    'metro': '',
+                })
+                kept += 1
+                if limit and kept >= limit:
+                    break
+            except (IndexError, KeyError, ValueError):
+                continue
+        log.info(f"  Florida {fname}: {kept} inspections kept")
+        if limit and len(results) >= limit:
+            break
+    log.info(f"Florida: {len(results)} inspections")
+    return results
+
+
 # ─── MYHEALTHDEPARTMENT PORTAL SCRAPER (DFW + generic) ─────────────────────
 # Uses direct HTTP POST to the portal's JSON API (no browser needed).
 # The API is the same one the portal's JavaScript frontend calls.
@@ -1719,6 +2367,8 @@ def fetch_richardson(since_date=None, limit=None, fetch_violations=True):
     start = datetime.strptime(str(since_date)[:10], '%Y-%m-%d') if since_date \
         else datetime(datetime.now().year, 1, 1)
     end = datetime.now()
+    if until_date:
+        end = min(end, datetime.strptime(str(until_date)[:10], '%Y-%m-%d'))
 
     months = []
     cursor = datetime(start.year, start.month, 1)
@@ -2569,6 +3219,11 @@ def main():
                              'Required for weekly refreshes so partial pulls do not wipe the dataset.')
     parser.add_argument('--no-dfw-violations', action='store_true',
                         help='Skip scraping DFW inspection detail pages for violation text (faster)')
+    parser.add_argument('--since-date', default=None,
+                        help='Override start date (YYYY-MM-DD) for scraped portal sources '
+                             '(houston/dc) — useful for chunked, restart-safe backfills')
+    parser.add_argument('--until-date', default=None,
+                        help='Override end date (YYYY-MM-DD) for scraped portal sources')
     parser.add_argument('--output-d1-sql', default=None,
                         help='Write idempotent Cloudflare D1 SQL (schema + upserts) for this '
                              'run\'s data. Used by CI to refresh the D1 database weekly.')
@@ -2626,6 +3281,13 @@ def main():
     if 'seattle' in args.cities:
         socrata_jobs['Seattle'] = lambda: fetch_seattle(
             since_date=since_date, limit=record_limit)
+    if 'florida' in args.cities or 'miami' in args.cities:
+        def _florida():
+            data = fetch_florida(since_date=(str(since_date)[:10] if since_date else None),
+                                 limit=record_limit)
+            geocode_missing_coords(data)
+            return data
+        socrata_jobs['Florida'] = _florida
 
     if socrata_jobs:
         with ThreadPoolExecutor(max_workers=len(socrata_jobs)) as pool:
@@ -2638,6 +3300,26 @@ def main():
                     log.info(f"{city}: {len(data)} records")
                 except Exception as e:
                     log.error(f"{city} fetch failed: {e}")
+
+    # Houston and DC use the Tyler healthinspections.us portals (scraped)
+    for slug, fetcher in (('houston', fetch_houston), ('dc', fetch_dc)):
+        if slug in args.cities:
+            try:
+                scrape_since = None
+                if args.mode == 'weekly':
+                    scrape_since = (datetime.now() - timedelta(days=8)).strftime('%Y-%m-%d')
+                elif args.mode == 'full':
+                    scrape_since = '2026-01-01'
+                if args.since_date:
+                    scrape_since = args.since_date
+                data = fetcher(since_date=scrape_since, until_date=args.until_date,
+                               limit=record_limit,
+                               fetch_violations=not args.no_dfw_violations)
+                geocode_missing_coords(data)
+                all_inspections.extend(data)
+                log.info(f"{slug}: {len(data)} records")
+            except Exception as e:
+                log.error(f"{slug} fetch failed: {e}")
 
     # Richardson uses its own HealthTrak source (not the MHD portal)
     if 'richardson' in args.cities or 'dfw' in args.cities:
