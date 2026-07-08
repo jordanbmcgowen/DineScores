@@ -1932,6 +1932,314 @@ def fetch_nys(since_date=None, limit=None):
     return results
 
 
+# ─── RALEIGH / WAKE COUNTY, NC (ArcGIS open data) ───────────────────────────
+
+WAKE_BASE = ('https://maps.wake.gov/arcgis/rest/services/Inspections/'
+             'RestaurantInspectionsOpenData/MapServer')
+
+
+def _arcgis_query_all(layer_url, where='1=1', out_fields='*', page_size=2000):
+    """Fetch every row of an ArcGIS layer via resultOffset pagination."""
+    rows = []
+    offset = 0
+    while True:
+        r = requests.get(layer_url + '/query', params={
+            'where': where, 'outFields': out_fields, 'outSR': '4326',
+            'orderByFields': 'OBJECTID', 'resultOffset': offset,
+            'resultRecordCount': page_size, 'f': 'json',
+        }, headers={'User-Agent': CHROME_UA}, timeout=120)
+        r.raise_for_status()
+        data = r.json()
+        if 'error' in data:
+            raise RuntimeError(f"ArcGIS error: {data['error'].get('message')}")
+        feats = data.get('features', [])
+        rows.extend(feats)
+        if len(feats) < page_size:
+            return rows
+        offset += page_size
+        time.sleep(0.3)
+
+
+def fetch_wake(since_date=None, limit=None):
+    """
+    Fetch Raleigh / Wake County, NC inspections from the county's ArcGIS
+    open-data service: a restaurants layer (with coordinates), an inspections
+    layer carrying the OFFICIAL North Carolina 0-100 sanitation score, and a
+    violations layer with item text and point deductions. Updated daily.
+    """
+    log.info(f"Fetching Wake County data (since={since_date}, limit={limit})")
+    sd = str(since_date)[:10] if since_date else '2024-01-01'
+
+    rest_rows = _arcgis_query_all(
+        f'{WAKE_BASE}/0',
+        out_fields='HSISID,NAME,ADDRESS1,CITY,STATE,POSTALCODE,X,Y')
+    facilities = {}
+    for f in rest_rows:
+        a = f.get('attributes', {})
+        if a.get('HSISID'):
+            facilities[str(a['HSISID'])] = a
+    log.info(f"  Wake: {len(facilities)} facilities")
+
+    insp_rows = _arcgis_query_all(
+        f'{WAKE_BASE}/1', where=f"DATE_ >= DATE '{sd}'",
+        out_fields='HSISID,SCORE,DATE_,TYPE')
+    log.info(f"  Wake: {len(insp_rows)} inspections since {sd}")
+
+    viol_rows = _arcgis_query_all(
+        f'{WAKE_BASE}/2', where=f"INSPECTDATE >= DATE '{sd}'",
+        out_fields='HSISID,INSPECTDATE,SHORTDESC,COMMENTS,POINTVALUE')
+    by_key = defaultdict(list)
+    for f in viol_rows:
+        a = f.get('attributes', {})
+        ts = a.get('INSPECTDATE')
+        if not a.get('HSISID') or not ts:
+            continue
+        d = datetime.utcfromtimestamp(ts / 1000).strftime('%Y-%m-%d')
+        by_key[(str(a['HSISID']), d)].append(a)
+    log.info(f"  Wake: {len(viol_rows)} violation rows")
+
+    results = []
+    for f in insp_rows:
+        a = f.get('attributes', {})
+        hsis = str(a.get('HSISID') or '')
+        fac = facilities.get(hsis)
+        ts = a.get('DATE_')
+        if not fac or not ts:
+            continue
+        insp_date = sane_inspection_date(
+            datetime.utcfromtimestamp(ts / 1000).strftime('%Y-%m-%d'))
+        if not insp_date:
+            continue
+        try:
+            score = round(float(a.get('SCORE')))
+        except (TypeError, ValueError):
+            continue
+        if score <= 0:  # unscored visit (e.g. status check) — no grade basis
+            continue
+        name = (fac.get('NAME') or '').strip()
+        if not name:
+            continue
+
+        violations = []
+        pv = pfv = cv = 0
+        for v in by_key.get((hsis, insp_date), []):
+            desc = ' '.join(x for x in [(v.get('SHORTDESC') or '').strip(),
+                                        (v.get('COMMENTS') or '').strip()] if x)
+            if not desc:
+                continue
+            try:
+                pts = float(v.get('POINTVALUE') or 0)
+            except (TypeError, ValueError):
+                pts = 0.0
+            # NC deducts up to 3 points per item; anchor severity to the
+            # deduction actually assessed on this inspection.
+            if pts >= 1.5:
+                sev = 'priority'; pv += 1
+            elif pts >= 0.5:
+                sev = 'priority_foundation'; pfv += 1
+            else:
+                sev = 'core'; cv += 1
+            cat, _, _ = classify_violation(desc)
+            violations.append([cat, sev, desc[:500]])
+
+        city = (fac.get('CITY') or 'Raleigh').strip().title()
+        results.append({
+            'name': name.title() if name.isupper() else name,
+            'address': (fac.get('ADDRESS1') or '').strip().title(),
+            'city': city,
+            'state': 'NC',
+            'zip': (str(fac.get('POSTALCODE') or ''))[:5],
+            'latitude': fac.get('Y'),
+            'longitude': fac.get('X'),
+            'inspection_date': insp_date,
+            'original_score': score,
+            'risk_score': max(0, min(100, score)),  # official NC 0-100 score
+            'priority_violations': pv,
+            'priority_foundation_violations': pfv,
+            'core_violations': cv,
+            'total_violations': len(violations),
+            'violations': violations,
+            'inspection_type': (a.get('TYPE') or '').strip(),
+            'results': '',
+            'source': 'Wake County Open Data',
+            'source_url': 'https://data.wake.gov/datasets/Wake::food-inspections/about',
+            'source_id': f'wake_{hsis}_{insp_date}',
+            'metro': '',
+        })
+        if limit and len(results) >= limit:
+            break
+    log.info(f"Wake County: {len(results)} inspections")
+    return results
+
+
+# ─── LAS VEGAS (Southern Nevada Health District JSON API) ────────────────────
+
+SNHD_API = ('https://www.southernnevadahealthdistrict.org/wp-json/'
+            'snhd-eh-restaurants/v1/restaurants')
+SNHD_PAGE = 100          # server caps per_page at 100
+SNHD_DETAIL_WORKERS = 4
+
+
+def _snhd_get(url, params=None, retries=3):
+    for attempt in range(retries):
+        try:
+            r = requests.get(url, params=params,
+                             headers={'User-Agent': CHROME_UA}, timeout=60)
+            r.raise_for_status()
+            return r.json()
+        except (requests.RequestException, ValueError):
+            if attempt == retries - 1:
+                return None
+            time.sleep(2 * (attempt + 1))
+
+
+def _snhd_violations(resolved, demerits_by_sev=True):
+    """Convert SNHD resolved-violation dicts to (cat, sev, desc) tuples."""
+    out = []
+    for v in resolved or []:
+        desc = (v.get('description') or '').strip()
+        if not desc:
+            continue
+        try:
+            dem = int(v.get('demerits') or 0)
+        except (TypeError, ValueError):
+            dem = 0
+        # SNHD assesses 5 demerits for critical items, 3 for major, 0 for
+        # observations/good-practice notes.
+        sev = 'priority' if dem >= 5 else ('priority_foundation' if dem >= 3 else 'core')
+        cat, _, _ = classify_violation(desc)
+        out.append([cat, sev, desc[:500]])
+    return out
+
+
+def fetch_vegas(since_date=None, limit=None, fetch_violations=True):
+    """
+    Fetch Las Vegas area inspections from the Southern Nevada Health
+    District's live JSON API (~18k permitted food establishments across
+    Las Vegas, Henderson, North Las Vegas, and the rest of Clark County).
+    The list endpoint carries each permit's current OFFICIAL grade,
+    demerits, coordinates, and inspection date; the per-permit detail adds
+    violation descriptions with demerit values and prior inspections.
+    SNHD demerit bands map exactly onto risk = 100 - demerits
+    (A: 0-10 -> 90+, B: 11-20 -> 80-89, C: 21-40 -> 60-79).
+    """
+    log.info(f"Fetching Las Vegas (SNHD) data (since={since_date}, limit={limit})")
+    sd = str(since_date)[:10] if since_date else None
+
+    permits, page = {}, 1
+    while True:
+        d = _snhd_get(SNHD_API, {'per_page': SNHD_PAGE, 'page': page})
+        if d is None:
+            raise RuntimeError('SNHD list fetch failed')
+        rows = d.get('results') or []
+        for row in rows:
+            pn = row.get('permit_number')
+            if pn:
+                permits[pn] = row
+        if len(rows) < SNHD_PAGE:
+            break
+        page += 1
+        if page % 30 == 0:
+            log.info(f"  SNHD list: {len(permits)} permits so far...")
+        time.sleep(0.15)
+    log.info(f"  SNHD: {len(permits)} permits listed")
+
+    # Only permits inspected in the window need (re)fetching.
+    todo = []
+    for pn, row in permits.items():
+        d_cur = str(row.get('date_current') or '')[:10]
+        if not d_cur:
+            continue
+        if sd and d_cur < sd:
+            continue
+        todo.append(pn)
+    if limit:
+        todo = todo[:limit]
+
+    def build(row, insp_date, grade, demerits, insp_type, violations):
+        try:
+            dem = max(0, int(demerits))
+        except (TypeError, ValueError):
+            dem = 0
+        name = (row.get('restaurant_name') or row.get('location_name') or '').strip()
+        return {
+            'name': name.title() if name.isupper() else name,
+            'address': (row.get('address') or '').strip().title(),
+            'city': (row.get('city_name') or 'Las Vegas').strip(),
+            'state': 'NV',
+            'zip': (row.get('zip_code') or '')[:5],
+            'latitude': row.get('latitude'),
+            'longitude': row.get('longitude'),
+            'inspection_date': insp_date,
+            'original_score': dem,
+            'risk_score': max(0, 100 - dem),
+            'priority_violations': sum(1 for v in violations if v[1] == 'priority'),
+            'priority_foundation_violations': sum(1 for v in violations if v[1] == 'priority_foundation'),
+            'core_violations': sum(1 for v in violations if v[1] == 'core'),
+            'total_violations': len(violations),
+            'violations': violations,
+            'inspection_type': (insp_type or '').strip(),
+            'results': f'"{grade}" Grade' if grade else '',
+            'source': 'Southern Nevada Health District',
+            'source_url': 'https://www.southernnevadahealthdistrict.org/permits-and-regulations/restaurant-inspections/restaurant-inspection-search/',
+            'source_id': f"snhd_{row.get('permit_number')}_{insp_date}",
+            'metro': 'Las Vegas',
+        }
+
+    results = []
+    skipped = 0
+    if fetch_violations:
+        log.info(f"  SNHD: fetching details for {len(todo)} permits "
+                 f"({SNHD_DETAIL_WORKERS} workers)...")
+
+        def work(pn):
+            d = _snhd_get(f'{SNHD_API}/{pn}')
+            time.sleep(0.1)
+            return pn, d
+
+        done = 0
+        with ThreadPoolExecutor(max_workers=SNHD_DETAIL_WORKERS) as pool:
+            for future in as_completed([pool.submit(work, pn) for pn in todo]):
+                pn, d = future.result()
+                done += 1
+                if done % 1000 == 0:
+                    log.info(f"  SNHD details: {done}/{len(todo)}")
+                if d is None:
+                    # Unreadable permit: skip rather than record without
+                    # violation context (same policy as the Tyler portals).
+                    skipped += 1
+                    continue
+                row = permits[pn]
+                cur_date = sane_inspection_date(str(d.get('date_current') or row.get('date_current') or '')[:10])
+                if cur_date:
+                    results.append(build(
+                        row, cur_date, d.get('current_grade') or row.get('current_grade'),
+                        d.get('current_demerits') if d.get('current_demerits') is not None else row.get('current_demerits'),
+                        d.get('inspection_type') or row.get('inspection_type'),
+                        _snhd_violations(d.get('current_violations_resolved'))))
+                for prev in d.get('previous_inspections') or []:
+                    p_date = sane_inspection_date(str(prev.get('inspection_date') or '')[:10])
+                    if not p_date or (sd and p_date < sd):
+                        continue
+                    results.append(build(
+                        row, p_date, prev.get('inspection_grade'),
+                        prev.get('inspection_demerits'),
+                        prev.get('inspection_type'),
+                        _snhd_violations(prev.get('violations_resolved'))))
+    else:
+        for pn in todo:
+            row = permits[pn]
+            cur_date = sane_inspection_date(str(row.get('date_current') or '')[:10])
+            if cur_date:
+                results.append(build(row, cur_date, row.get('current_grade'),
+                                     row.get('current_demerits'),
+                                     row.get('inspection_type'), []))
+    if skipped:
+        log.warning(f"  SNHD: skipped {skipped} permits with unreadable details")
+    log.info(f"Las Vegas (SNHD): {len(results)} inspections")
+    return results
+
+
 # ─── MYHEALTHDEPARTMENT PORTAL SCRAPER (DFW + generic) ─────────────────────
 # Uses direct HTTP POST to the portal's JSON API (no browser needed).
 # The API is the same one the portal's JavaScript frontend calls.
@@ -3431,6 +3739,12 @@ def main():
             geocode_missing_coords(data)
             return data
         socrata_jobs['NY State'] = _nys
+    if 'wake' in args.cities or 'raleigh' in args.cities:
+        socrata_jobs['Wake County'] = lambda: fetch_wake(
+            since_date=since_date, limit=record_limit)
+    if 'vegas' in args.cities or 'lasvegas' in args.cities:
+        socrata_jobs['Las Vegas'] = lambda: fetch_vegas(
+            since_date=since_date, limit=record_limit)
 
     if socrata_jobs:
         with ThreadPoolExecutor(max_workers=len(socrata_jobs)) as pool:
