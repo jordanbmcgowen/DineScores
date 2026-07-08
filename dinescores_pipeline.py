@@ -1249,6 +1249,19 @@ def _houston_search_window(session, start, end):
     return rows
 
 
+# Houston's "Inspection Results" table has two layouts: most pages list only
+# the violated items, but some list the ENTIRE inspection checklist — one row
+# per form item, where non-violated items carry a section-header tooltip
+# ("Foodborne Illness Risk Factors and Public Health Interventions: 12") and
+# an empty Status cell, while actual violations have ordinance text in the
+# tooltip and "Violation" in the Status cell.
+HOUSTON_ROW_RE = re.compile(
+    r"ddrivetip\('(.{10,600}?)'\s*,.*?</a></td>\s*<td[^>]*>(.*?)</td>", re.S)
+HOUSTON_FORM_HEADER_RE = re.compile(
+    r'^(Foodborne Illness Risk Factors and Public Health Interventions|'
+    r'Good Retail Practices)\s*:?\s*[\d.]*\s*$')
+
+
 def _houston_fetch_detail(session, f_id, i_id, date_str):
     """
     Fetch one inspection detail page. Returns the list of violation texts
@@ -1266,15 +1279,22 @@ def _houston_fetch_detail(session, f_id, i_id, date_str):
         i = seg.find('Inspection Results')
         if i >= 0:
             seg = seg[i:]
-        tips = re.findall(r"ddrivetip\('(.{15,600}?)'\s*,", seg, re.S)
-        out = []
-        for t in tips:
-            text = html_lib.unescape(t).replace("\\'", "'")
+        out, fallback = [], []
+        for tip, status in HOUSTON_ROW_RE.findall(seg):
+            text = html_lib.unescape(tip).replace("\\'", "'")
             text = re.sub(r'<[^>]+>', ' ', text)
             text = re.sub(r'\s+', ' ', text).strip()
-            if len(text) > 10:
+            if len(text) <= 10 or HOUSTON_FORM_HEADER_RE.match(text):
+                continue
+            status_txt = re.sub(r'<[^>]+>', ' ', status)
+            status_txt = re.sub(r'\s+', ' ', status_txt).strip()
+            if 'Violation' in status_txt:
                 out.append(text[:500])
-        return out
+            fallback.append(text[:500])
+        # If no row carried a "Violation" status the page is either clean
+        # (fallback is empty too) or a template variant without status
+        # cells — fall back to the non-header tooltips.
+        return out if out else fallback
     except requests.RequestException:
         return None
 
