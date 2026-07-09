@@ -3533,7 +3533,24 @@ CREATE INDEX IF NOT EXISTS idx_inspections_restaurant
   ON inspections(restaurant_id, inspection_date DESC);
 """
 
-D1_BATCH_ROWS = 40  # rows per multi-row INSERT (keeps statements well under D1 limits)
+D1_BATCH_ROWS = 40       # max rows per multi-row INSERT
+D1_BATCH_BYTES = 80_000  # max statement size; D1 rejects statements over 100KB
+                         # with SQLITE_TOOBIG, and rows with long violation text
+                         # can blow past that in far fewer than 40 rows
+
+
+def _d1_row_batches(rows):
+    """Yield row groups capped at D1_BATCH_ROWS rows and D1_BATCH_BYTES bytes."""
+    batch, size = [], 0
+    for row in rows:
+        if batch and (len(batch) >= D1_BATCH_ROWS
+                      or size + len(row) > D1_BATCH_BYTES):
+            yield batch
+            batch, size = [], 0
+        batch.append(row)
+        size += len(row) + 2
+    if batch:
+        yield batch
 
 
 def _sql_quote(value):
@@ -3653,8 +3670,7 @@ def write_d1_sql(all_inspections, output_path, include_schema=True):
     with open(output_path, 'w') as f:
         if include_schema:
             f.write(D1_SCHEMA_SQL)
-        for start in range(0, len(insp_rows), D1_BATCH_ROWS):
-            batch = insp_rows[start:start + D1_BATCH_ROWS]
+        for batch in _d1_row_batches(insp_rows):
             # Upsert (not INSERT OR IGNORE) so a re-fetch that recovers
             # violation details heals an inspection row ingested during a
             # source outage. Post-hardening, fetchers never emit an
@@ -3670,8 +3686,7 @@ def write_d1_sql(all_inspections, output_path, include_schema=True):
                     "inspection_type=excluded.inspection_type, "
                     "results=excluded.results, "
                     "violations=excluded.violations;\n")
-        for start in range(0, len(rest_rows), D1_BATCH_ROWS):
-            batch = rest_rows[start:start + D1_BATCH_ROWS]
+        for batch in _d1_row_batches(rest_rows):
             f.write("INSERT INTO restaurants "
                     "(id,name,address,city,state,zip,lat,lng,metro,inspection_date,"
                     "original_score,risk_score,weighted_score,vetted_grade,"
