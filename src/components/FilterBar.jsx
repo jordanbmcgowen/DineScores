@@ -1,12 +1,14 @@
 import React from 'react';
 import { gradeMeta } from './GradeBadge.jsx';
 
+// Filterable issue categories. `docs` (paperwork violations) is deliberately
+// not offered as a filter — nobody avoids a restaurant over paperwork — but
+// it still shows on cards and in the detail modal.
 const INFRACTION_META = {
   pests: { label: 'Pests' },
   temp: { label: 'Temperature' },
   hygiene: { label: 'Hygiene' },
   equipment: { label: 'Equipment' },
-  docs: { label: 'Paperwork' },
 };
 
 function Chip({ active, onClick, children, activeClass }) {

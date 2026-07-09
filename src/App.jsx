@@ -288,9 +288,12 @@ export default function App() {
     return filtered.filter(r => r.ln >= w && r.ln <= e && r.lt >= s && r.lt <= n);
   }, [filtered, mapView]);
 
-  // Re-frame the map only on an intentional new result set — not on pan/zoom
-  // or lazy-load merges (sort is excluded; it doesn't change geography).
-  const fitSignal = `${cityFilter}|${metroFilter}|${gradeFilter.join('')}|${infractionFilter.join('')}|${debouncedSearch}`;
+  // Camera signals: a city/metro change re-frames the map to that area
+  // (fitSignal); grade/issue/search changes only ever zoom OUT to the nearest
+  // match if none is on screen (narrowSignal). Sort and lazy-load merges
+  // never move the camera.
+  const fitSignal = `${cityFilter}|${metroFilter}`;
+  const narrowSignal = `${gradeFilter.join('')}|${infractionFilter.join('')}|${debouncedSearch}`;
 
   const handleMarkerClick = useCallback((restaurant) => {
     setSelectedRestaurant(restaurant);
@@ -348,6 +351,7 @@ export default function App() {
           onMarkerClick={handleMarkerClick}
           onViewportChange={handleViewportChange}
           fitSignal={fitSignal}
+          narrowSignal={narrowSignal}
           flyTo={flyTo}
         />
       </div>
@@ -519,7 +523,7 @@ function RestaurantCard({ restaurant: r, formatDate, onClick, selected }) {
         selected ? 'bg-brand-50 dark:bg-brand-900/20' : ''
       }`}
     >
-      <GradeBadge grade={r.vg} score={r.ws ?? r.rs} size="sm" />
+      <GradeBadge grade={r.vg} size="sm" />
       <div className="flex-1 min-w-0">
         <h3 className="font-bold text-[15px] leading-snug truncate">{r.n}</h3>
         <p className="text-[13px] text-slate-500 dark:text-slate-400 truncate mt-0.5">

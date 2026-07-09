@@ -85,7 +85,7 @@ export default function InspectionModal({ restaurant: r, onClose, formatDate, on
   const infractions = (detail ? detail.inf : r.inf) || [];
   const grade = r.vg;
   const meta = gradeMeta(grade);
-  const score = r.ws ?? r.rs ?? 0;
+  const officialUrl = detail?.url ?? r.url;
   const mapsUrl = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(
     `${r.n} ${r.a} ${r.c}`)}`;
 
@@ -106,7 +106,7 @@ export default function InspectionModal({ restaurant: r, onClose, formatDate, on
       >
         {/* Header */}
         <div className="px-5 pt-5 pb-4 md:px-6 flex items-start gap-4 shrink-0 border-b border-slate-100 dark:border-slate-800">
-          <GradeBadge grade={grade} score={score} />
+          <GradeBadge grade={grade} />
           <div className="flex-1 min-w-0 pr-8">
             <div className={`inline-flex items-center px-2 py-0.5 rounded-md text-[11px] font-bold uppercase tracking-wide ring-1 ${meta.soft}`}>
               {meta.label}
@@ -140,10 +140,9 @@ export default function InspectionModal({ restaurant: r, onClose, formatDate, on
         {/* Body */}
         <div className="overflow-y-auto flex-1 px-5 md:px-6 py-5 space-y-6">
           {/* Stat tiles */}
-          <div className="grid grid-cols-3 gap-2.5">
+          <div className="grid grid-cols-2 gap-2.5">
             <StatTile label="Last inspected" value={formatDate(r.d)} />
-            <StatTile label="Weighted score" value={score} hint="60/30/10 of last 3" />
-            <StatTile label="Inspections" value={r.ic || history.length || 1} />
+            <StatTile label="Inspections on file" value={r.ic || history.length || 1} />
           </div>
 
           {/* Infraction chips */}
@@ -242,14 +241,17 @@ export default function InspectionModal({ restaurant: r, onClose, formatDate, on
                 const inspScore = insp.rs || 0;
                 const g = inspScore >= 90 ? 'A' : inspScore >= 80 ? 'B' : inspScore >= 70 ? 'C' : 'F';
                 const gm = gradeMeta(g);
+                // Per-inspection official record when the API provides one;
+                // otherwise the restaurant-level source link still applies.
+                const recordUrl = insp.url || officialUrl;
                 return (
                   <div
                     key={insp.id || idx}
-                    className="flex items-center justify-between px-3.5 py-2.5 rounded-xl bg-slate-50 dark:bg-slate-800/60 ring-1 ring-slate-100 dark:ring-slate-800"
+                    className="flex items-center justify-between gap-2 px-3.5 py-2.5 rounded-xl bg-slate-50 dark:bg-slate-800/60 ring-1 ring-slate-100 dark:ring-slate-800"
                   >
                     <div className="flex items-center gap-3 min-w-0">
-                      <span className={`w-9 h-9 shrink-0 rounded-lg flex items-center justify-center text-xs font-black tabular-nums ${gm.tile}`}>
-                        {inspScore}
+                      <span className={`w-9 h-9 shrink-0 rounded-lg flex items-center justify-center text-base font-black ${gm.tile}`}>
+                        {g}
                       </span>
                       <div className="min-w-0">
                         <div className="font-semibold text-sm tabular-nums">{formatDate(insp.date)}</div>
@@ -258,11 +260,27 @@ export default function InspectionModal({ restaurant: r, onClose, formatDate, on
                         )}
                       </div>
                     </div>
-                    {idx === 0 && (
-                      <span className="text-[10px] font-bold bg-slate-200 dark:bg-slate-700 text-slate-600 dark:text-slate-300 px-2 py-1 rounded-full shrink-0">
-                        Latest
-                      </span>
-                    )}
+                    <div className="flex items-center gap-2 shrink-0">
+                      {idx === 0 && (
+                        <span className="text-[10px] font-bold bg-slate-200 dark:bg-slate-700 text-slate-600 dark:text-slate-300 px-2 py-1 rounded-full">
+                          Latest
+                        </span>
+                      )}
+                      {recordUrl && (
+                        <a
+                          href={recordUrl}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          aria-label={`Official record for the ${formatDate(insp.date)} inspection`}
+                          className="w-7 h-7 flex items-center justify-center rounded-lg text-slate-400 hover:text-brand-600 hover:bg-white dark:hover:bg-slate-700 transition-colors"
+                        >
+                          <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                            <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/>
+                            <path d="M15 3h6v6"/><path d="M10 14 21 3"/>
+                          </svg>
+                        </a>
+                      )}
+                    </div>
                   </div>
                 );
               })}
@@ -278,9 +296,9 @@ export default function InspectionModal({ restaurant: r, onClose, formatDate, on
           <span className="text-[11px] text-slate-400 truncate">
             Data: {(detail?.src ?? r.src) || 'official health department records'}
           </span>
-          {(detail?.url ?? r.url) && (
+          {officialUrl && (
             <a
-              href={detail?.url ?? r.url}
+              href={officialUrl}
               target="_blank"
               rel="noopener noreferrer"
               className="text-[12px] font-bold text-brand-600 dark:text-brand-500 hover:underline whitespace-nowrap"

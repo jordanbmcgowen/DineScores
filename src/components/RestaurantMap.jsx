@@ -27,52 +27,48 @@ function basemapStyle(dark) {
 const DONUT_COLORS = { safe: '#10b981', caution: '#f59e0b', avoid: '#ef4444', unrated: '#94a3b8' };
 
 /**
- * Grade markers are pre-rendered to bitmaps (colored disc + white letter)
- * instead of a circle layer + SDF text layer. Map-font glyphs degrade badly
- * at small text sizes — an 8px SDF "A" rasterizes as a triangle-ish blob —
- * while a canvas-drawn letter stays a letter at every size. One image per
- * grade, drawn at 4x and scaled down by icon-size, so it is crisp on any DPI.
+ * Grade markers are a hybrid: the colored disc + white ring is a MapLibre
+ * circle layer (true vector — the edge is shader-smooth at every radius),
+ * and only the grade LETTER is a pre-rendered bitmap glyph on top. Map-font
+ * SDF glyphs degrade badly at small text sizes (an 8px SDF "A" rasterizes
+ * as a triangle-ish blob), while a canvas-drawn letter survives scaling.
+ * Rendering the disc in the bitmap too made its silhouette look rough when
+ * minified — hence the split.
  */
-const ICON_BASE = 64; // logical px of the icon bitmap (diameter incl. border)
+const LETTER_BASE = 32; // logical px of the letter glyph box at icon-size 1
 
-function makeGradeIcon(letter, color) {
-  const pr = 4;
-  const s = ICON_BASE * pr;
+function makeLetterIcon(letter) {
+  const pr = 3;
+  const s = LETTER_BASE * pr;
   const canvas = document.createElement('canvas');
   canvas.width = s;
   canvas.height = s;
   const ctx = canvas.getContext('2d');
-  const c = s / 2;
-
-  ctx.beginPath();
-  ctx.arc(c, c, c - 2 * pr, 0, Math.PI * 2);
-  ctx.fillStyle = color;
-  ctx.fill();
-  ctx.lineWidth = 4 * pr;
-  ctx.strokeStyle = '#ffffff';
-  ctx.stroke();
-
   ctx.fillStyle = '#ffffff';
-  ctx.font = `900 ${34 * pr}px system-ui, -apple-system, sans-serif`;
+  ctx.font = `900 ${26 * pr}px system-ui, -apple-system, sans-serif`;
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
-  ctx.fillText(letter, c, c + 1.5 * pr);
-
+  ctx.fillText(letter, s / 2, s / 2 + pr);
   return { data: ctx.getImageData(0, 0, s, s), pixelRatio: pr };
 }
 
 const GRADE_LETTERS = ['A', 'B', 'C', 'F', '?'];
 
-// icon-size expression: zoom-scaled base size times a density factor —
-// markers grow when few restaurants are in view and shrink (down to a
-// still-readable floor) when the viewport is packed.
-function iconSizeExpr(density) {
+// Marker radius by zoom, times a density factor — markers grow when few
+// restaurants are in view and shrink (to a still-readable floor) when the
+// viewport is packed. The letter's icon-size derives from the same numbers
+// so the glyph always fills ~70% of its disc.
+const RADIUS_STOPS = [[8, 9], [11, 12.5], [13.5, 16], [16, 19]];
+
+function circleRadiusExpr(density) {
   return ['interpolate', ['linear'], ['zoom'],
-    8, 0.30 * density,
-    11, 0.40 * density,
-    13.5, 0.52 * density,
-    16, 0.62 * density,
-  ];
+    ...RADIUS_STOPS.flatMap(([z, r]) => [z, r * density])];
+}
+
+function letterSizeExpr(density) {
+  // Glyph cap height is ~18 logical px at icon-size 1 (26px font, 900 weight)
+  return ['interpolate', ['linear'], ['zoom'],
+    ...RADIUS_STOPS.flatMap(([z, r]) => [z, (r * density * 1.25) / 18])];
 }
 
 function densityFactor(count) {
@@ -152,15 +148,17 @@ function createDonutChart(props, dark) {
  * Camera behavior is deliberately split from data:
  *   - the data effect updates markers whenever `restaurants` changes, and never
  *     moves the camera (so viewport-driven data loading can't fight the user);
- *   - the fit effect re-frames the map only when `fitSignal` changes (i.e. a
- *     filter, city, or search change — an intentional new result set);
+ *   - the fit effect re-frames the map only when `fitSignal` changes (a city
+ *     or metro change — an intentional move to a new area), while
+ *     `narrowSignal` (grade/issue/search changes) at most zooms OUT to the
+ *     nearest match and otherwise leaves the camera alone;
  *   - `flyTo` ({lng, lat, zoom, key}) centers the camera once per key — used
  *     to open on the user's own location. When it arrives before the first
  *     fit, it wins over that initial nationwide framing.
  * `onViewportChange({ zoom, bounds })` fires (debounced) after the user pans or
  * zooms, so the parent can lazy-load whatever is now in view.
  */
-export default function RestaurantMap({ restaurants, onMarkerClick, onViewportChange, fitSignal, flyTo }) {
+export default function RestaurantMap({ restaurants, onMarkerClick, onViewportChange, fitSignal, narrowSignal, flyTo }) {
   const mapContainer = useRef(null);
   const mapRef = useRef(null);
   const restaurantsRef = useRef(restaurants);
@@ -170,6 +168,7 @@ export default function RestaurantMap({ restaurants, onMarkerClick, onViewportCh
   const densityRef = useRef(1.0);
   const gpsCenteredRef = useRef(false);
   const didInitialFitRef = useRef(false);
+  const narrowInitRef = useRef(true);
   restaurantsRef.current = restaurants;
   onViewportChangeRef.current = onViewportChange;
 
@@ -234,6 +233,7 @@ export default function RestaurantMap({ restaurants, onMarkerClick, onViewportCh
           properties: {
             id: r.i,
             grade: GRADE_LETTERS.includes(r.vg) ? r.vg : '?',
+            color: gradeMeta(r.vg).dot,
           },
         })),
     };
@@ -247,8 +247,8 @@ export default function RestaurantMap({ restaurants, onMarkerClick, onViewportCh
     }
 
     for (const letter of GRADE_LETTERS) {
-      const { data, pixelRatio } = makeGradeIcon(letter, gradeMeta(letter).dot);
-      map.addImage(`grade-${letter}`, data, { pixelRatio });
+      const { data, pixelRatio } = makeLetterIcon(letter);
+      map.addImage(`letter-${letter}`, data, { pixelRatio });
     }
 
     map.addSource('restaurants', {
@@ -279,15 +279,27 @@ export default function RestaurantMap({ restaurants, onMarkerClick, onViewportCh
       paint: { 'circle-radius': 1, 'circle-opacity': 0.01 },
     });
 
-    // Individual markers: pre-rendered grade icon (disc + letter in one image)
+    // Individual markers: vector disc (smooth at any radius) + bitmap letter
     map.addLayer({
       id: 'unclustered-point',
+      type: 'circle',
+      source: 'restaurants',
+      filter: ['!', ['has', 'point_count']],
+      paint: {
+        'circle-color': ['get', 'color'],
+        'circle-radius': circleRadiusExpr(densityRef.current),
+        'circle-stroke-width': 2,
+        'circle-stroke-color': '#ffffff',
+      },
+    });
+    map.addLayer({
+      id: 'unclustered-letter',
       type: 'symbol',
       source: 'restaurants',
       filter: ['!', ['has', 'point_count']],
       layout: {
-        'icon-image': ['concat', 'grade-', ['get', 'grade']],
-        'icon-size': iconSizeExpr(densityRef.current),
+        'icon-image': ['concat', 'letter-', ['get', 'grade']],
+        'icon-size': letterSizeExpr(densityRef.current),
         'icon-allow-overlap': true,
         'icon-ignore-placement': true,
       },
@@ -349,7 +361,8 @@ export default function RestaurantMap({ restaurants, onMarkerClick, onViewportCh
       const next = densityFactor(feats.length);
       if (next !== densityRef.current) {
         densityRef.current = next;
-        map.setLayoutProperty('unclustered-point', 'icon-size', iconSizeExpr(next));
+        map.setPaintProperty('unclustered-point', 'circle-radius', circleRadiusExpr(next));
+        map.setLayoutProperty('unclustered-letter', 'icon-size', letterSizeExpr(next));
       }
     };
 
@@ -386,6 +399,40 @@ export default function RestaurantMap({ restaurants, onMarkerClick, onViewportCh
     gpsCenteredRef.current = true;
     map.easeTo({ center: [flyTo.lng, flyTo.lat], zoom: flyTo.zoom || 12.5, duration: 900 });
   }, [flyTo, mapLoaded]);
+
+  // Narrow effect: grade/issue/search filters must not throw the user back
+  // to a nationwide view. If matches are already on screen, the camera stays
+  // put; otherwise zoom out just far enough to bring the nearest match into
+  // view (never zooming in — that would feel like the map acting on its own).
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !mapLoaded) return;
+    if (narrowInitRef.current) { narrowInitRef.current = false; return; }
+    const pts = restaurantsRef.current.filter(r => r.lt && r.ln && r.lt !== 0 && r.ln !== 0);
+    if (pts.length === 0) return;
+    const b = map.getBounds();
+    const inView = pts.some(r =>
+      r.ln >= b.getWest() && r.ln <= b.getEast() &&
+      r.lt >= b.getSouth() && r.lt <= b.getNorth());
+    if (inView) return;
+    const c = map.getCenter();
+    const cosLat = Math.cos((c.lat * Math.PI) / 180);
+    let best = null, bestD = Infinity;
+    for (const r of pts) {
+      const d = (r.lt - c.lat) ** 2 + ((r.ln - c.lng) * cosLat) ** 2;
+      if (d < bestD) { bestD = d; best = r; }
+    }
+    const bounds = new maplibregl.LngLatBounds([c.lng, c.lat], [c.lng, c.lat])
+      .extend([best.ln, best.lt]);
+    const desktop = window.innerWidth >= 768;
+    map.fitBounds(bounds, {
+      padding: desktop
+        ? { top: 150, left: 460, right: 60, bottom: 60 }
+        : { top: 140, left: 50, right: 50, bottom: 140 },
+      maxZoom: map.getZoom(), // only ever zoom OUT to reveal the match
+      duration: 600,
+    });
+  }, [narrowSignal, mapLoaded]);
 
   // Fit effect: re-frame only on an intentional new result set (fitSignal).
   useEffect(() => {

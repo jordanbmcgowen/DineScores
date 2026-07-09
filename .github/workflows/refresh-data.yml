@@ -68,6 +68,11 @@ jobs:
             echo "Run the 'Setup D1 Database' workflow prerequisites to enable it."
             exit 0
           fi
+          # One-time migration: SQLite has no ADD COLUMN IF NOT EXISTS, so
+          # tolerate "duplicate column" once the column exists.
+          npx --yes wrangler@4 d1 execute dinescores --remote -y \
+            --command "ALTER TABLE inspections ADD COLUMN source_url TEXT" \
+            || echo "source_url column already present"
           npx --yes wrangler@4 d1 execute dinescores --remote -y \
             --file /tmp/dinescores_weekly.sql
 

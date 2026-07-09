@@ -477,6 +477,63 @@ def build_violation_text(violations):
     return '|||'.join(p for p in parts if p)
 
 
+# ─── COORDINATE SANITY ───────────────────────────────────────────────────────
+
+# Sources and geocoders occasionally emit garbage coordinates (a Texas
+# restaurant in the Pacific off Mexico). Wrong coordinates are worse than
+# none: both merge paths preserve previously-known good coordinates, and a
+# no-coord record simply stays off the map instead of appearing in the ocean.
+CONUS_BOUNDS = (24.3, 49.5, -125.5, -66.5)  # (south, north, west, east)
+STATE_BOUNDS = {  # generous per-state boxes for the states we cover
+    'NY': (40.45, 45.05, -79.85, -71.75),
+    'TX': (25.75, 36.55, -106.70, -93.45),
+    'WA': (45.50, 49.05, -124.90, -116.85),
+    'NV': (34.95, 42.05, -120.10, -113.95),
+    'NC': (33.75, 36.65, -84.40, -75.35),
+    'CA': (32.45, 42.05, -124.55, -114.05),
+    'MA': (41.15, 42.95, -73.60, -69.85),
+    'IL': (36.90, 42.55, -91.60, -87.00),
+    'DC': (38.75, 39.05, -77.15, -76.85),
+    'FL': (24.35, 31.05, -87.70, -79.95),
+}
+COORD_MARGIN = 0.6  # ° of slack around state boxes (metro suburbs, borders)
+
+
+def coords_plausible(lat, lng, state=None):
+    """True unless the point is outside the continental US, or the record
+    names a covered state and the point is far outside it."""
+    s, n, w, e = CONUS_BOUNDS
+    if not (s <= lat <= n and w <= lng <= e):
+        return False
+    st = (state or '').strip().upper()
+    if st == 'TEXAS':
+        st = 'TX'
+    box = STATE_BOUNDS.get(st)
+    if not box:
+        return True
+    bs, bn, bw, be = box
+    m = COORD_MARGIN
+    return bs - m <= lat <= bn + m and bw - m <= lng <= be + m
+
+
+def drop_implausible_coords(records):
+    """Null out obviously-wrong coordinates so they geocode fresh next run
+    instead of shipping to the map."""
+    dropped = 0
+    for r in records:
+        lat, lng = r.get('latitude'), r.get('longitude')
+        if not lat or not lng:
+            continue
+        if not coords_plausible(float(lat), float(lng), r.get('state')):
+            log.warning(f"Dropping implausible coords ({lat}, {lng}) for "
+                        f"{r.get('name')} ({r.get('city')}, {r.get('state')})")
+            r['latitude'] = None
+            r['longitude'] = None
+            dropped += 1
+    if dropped:
+        log.info(f"Coordinate sanity: dropped {dropped} implausible pairs")
+
+
 # ─── GEOCODING ───────────────────────────────────────────────────────────────
 
 _GEOCODE_CACHE = {}
@@ -3327,7 +3384,8 @@ CREATE TABLE IF NOT EXISTS inspections (
   inspection_type TEXT,
   results TEXT,
   violations TEXT,
-  source_id TEXT
+  source_id TEXT,
+  source_url TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_inspections_restaurant
   ON inspections(restaurant_id, inspection_date DESC);
@@ -3417,6 +3475,7 @@ def write_d1_sql(all_inspections, output_path, include_schema=True):
                 _sql_json([list(v)[:2] + [str(list(v)[2])[:400]]
                            for v in (i.get('violations') or [])[:20]]),
                 _sql_quote(i.get('source_id', '')),
+                _sql_quote(i.get('source_url', '')),
             ]) + ')')
 
         violation_text = build_violation_text(latest.get('violations', []))
@@ -3478,14 +3537,15 @@ def write_d1_sql(all_inspections, output_path, include_schema=True):
             # only improve a stored row.
             f.write("INSERT INTO inspections "
                     "(id,restaurant_id,inspection_date,risk_score,original_score,"
-                    "inspection_type,results,violations,source_id) VALUES\n"
+                    "inspection_type,results,violations,source_id,source_url) VALUES\n"
                     + ',\n'.join(batch) +
                     " ON CONFLICT(id) DO UPDATE SET "
                     "risk_score=excluded.risk_score, "
                     "original_score=excluded.original_score, "
                     "inspection_type=excluded.inspection_type, "
                     "results=excluded.results, "
-                    "violations=excluded.violations;\n")
+                    "violations=excluded.violations, "
+                    "source_url=excluded.source_url;\n")
         for batch in _d1_row_batches(rest_rows):
             f.write("INSERT INTO restaurants "
                     "(id,name,address,city,state,zip,lat,lng,metro,inspection_date,"
@@ -3689,6 +3749,9 @@ def main():
             log.info(f"DFW: {len(dfw_data)} records")
         except Exception as e:
             log.error(f"DFW fetch failed: {e}")
+
+    # Drop coordinates that are obviously wrong before any output is written
+    drop_implausible_coords(all_inspections)
 
     log.info(f"\nTotal inspections collected: {len(all_inspections)}")
 
