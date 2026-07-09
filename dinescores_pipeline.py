@@ -2136,6 +2136,156 @@ def fetch_wake(since_date=None, limit=None):
     return results
 
 
+# ─── LOS ANGELES COUNTY (Environmental Health hosted CSVs) ───────────────────
+# LA County DPH Environmental Health covers unincorporated areas plus 85 of
+# the county's 88 cities (all except Long Beach, Pasadena, and Vernon). The
+# open-data portal (data.lacounty.gov) publishes rolling three-year extracts
+# as hosted CSV items on the county ArcGIS hub, refreshed weekly:
+#   inspections — one row per inspection with the official 0-100 SCORE
+#   violations  — join on SERIAL NUMBER; POINTS is the deduction assessed
+#                 (4 = major/critical, 2 = minor critical, 1 = good practice)
+#   inventory   — active facilities with coordinates, keyed by FACILITY ID
+# The CSVs are Windows-1252 encoded and dates are MM/DD/YYYY.
+
+LA_HUB_ITEM_URL = 'https://www.arcgis.com/sharing/rest/content/items/{item}/data'
+LA_INSPECTIONS_ITEM = '19b6607ac82c4512b10811870975dbdc'
+LA_VIOLATIONS_ITEM = '5eaea9f89b7549ee841da7617d3a9cba'
+LA_INVENTORY_ITEM = '4f31c9a99e444a40a3806e3bbe7b5fdd'
+LA_SOURCE_PAGE = ('https://data.lacounty.gov/datasets/'
+                  'lacounty::environmental-health-restaurant-and-market-inspections')
+
+
+def _la_csv_rows(item_id):
+    """Download a hosted-CSV hub item; yield dicts with normalized keys.
+
+    Header names drift between extracts ('FACILITY  STATE' has a double
+    space in the inventory file), so keys are whitespace-collapsed.
+    """
+    import csv as _csv
+    import io as _io
+    resp = requests.get(LA_HUB_ITEM_URL.format(item=item_id), timeout=600)
+    resp.raise_for_status()
+    text = resp.content.decode('cp1252', errors='replace')
+    for row in _csv.DictReader(_io.StringIO(text)):
+        yield {re.sub(r'\s+', ' ', (k or '')).strip(): (v or '').strip()
+               for k, v in row.items()}
+
+
+def _la_date(mdy):
+    """'07/01/2023' → '2023-07-01' (None if unparseable)."""
+    try:
+        return datetime.strptime(mdy.strip(), '%m/%d/%Y').strftime('%Y-%m-%d')
+    except (ValueError, AttributeError):
+        return None
+
+
+def fetch_la(since_date=None, limit=None):
+    """
+    Fetch LA County restaurant & market inspections from the county's
+    hosted open-data CSVs. Coordinates come from the facility inventory;
+    facilities absent from it (recently closed or re-permitted) fall back
+    to the Census batch geocoder downstream.
+    """
+    log.info(f"Fetching LA County data (since={since_date}, limit={limit})")
+    since = str(since_date)[:10] if since_date else None
+
+    coords = {}
+    for row in _la_csv_rows(LA_INVENTORY_ITEM):
+        fid = row.get('FACILITY ID')
+        try:
+            lat = float(row.get('FACILITY LATITUDE') or 0)
+            lng = float(row.get('FACILITY LONGITUDE') or 0)
+        except ValueError:
+            continue
+        if fid and lat and lng:
+            coords[fid] = (lat, lng)
+    log.info(f"  LA: {len(coords)} facilities with coordinates in inventory")
+
+    inspections = []
+    for row in _la_csv_rows(LA_INSPECTIONS_ITEM):
+        insp_date = sane_inspection_date(_la_date(row.get('ACTIVITY DATE', '')))
+        if not insp_date or (since and insp_date < since):
+            continue
+        # INACTIVE programs are closed businesses (or prior ownership of a
+        # re-permitted location) — don't resurrect them on the map.
+        if row.get('PROGRAM STATUS') == 'INACTIVE':
+            continue
+        name = row.get('FACILITY NAME') or ''
+        serial = row.get('SERIAL NUMBER') or ''
+        try:
+            score = int(float(row.get('SCORE')))
+        except (TypeError, ValueError):
+            continue
+        if not name or not serial or score <= 0:
+            continue
+        inspections.append((serial, insp_date, score, row))
+        if limit and len(inspections) >= limit:
+            break
+    log.info(f"  LA: {len(inspections)} scored inspections since {since or 'start'}")
+    if not inspections:
+        return []
+
+    wanted = {serial for serial, _, _, _ in inspections}
+    by_serial = defaultdict(list)
+    for row in _la_csv_rows(LA_VIOLATIONS_ITEM):
+        serial = row.get('SERIAL NUMBER')
+        if serial in wanted:
+            by_serial[serial].append(row)
+    log.info(f"  LA: violation rows matched for {len(by_serial)} inspections")
+
+    results = []
+    for serial, insp_date, score, row in inspections:
+        violations = []
+        pv = pfv = cv = 0
+        for v in by_serial.get(serial, []):
+            desc = re.sub(r'^#\s*\d+\.\s*', '', v.get('VIOLATION DESCRIPTION') or '')
+            if not desc:
+                continue
+            try:
+                pts = float(v.get('POINTS') or 0)
+            except ValueError:
+                pts = 0.0
+            if pts >= 4:
+                sev = 'priority'; pv += 1
+            elif pts >= 2:
+                sev = 'priority_foundation'; pfv += 1
+            else:
+                sev = 'core'; cv += 1
+            cat, _, _ = classify_violation(desc)
+            violations.append([cat, sev, desc[:500]])
+
+        name = row.get('FACILITY NAME') or ''
+        address = row.get('FACILITY ADDRESS') or ''
+        city = (row.get('FACILITY CITY') or 'Los Angeles').title()
+        fid = row.get('FACILITY ID') or ''
+        lat, lng = coords.get(fid, (None, None))
+        results.append({
+            'name': name.title() if name.isupper() else name,
+            'address': address.title() if address.isupper() else address,
+            'city': city,
+            'state': 'CA',
+            'zip': (row.get('FACILITY ZIP') or '').split('-')[0][:5],
+            'latitude': lat,
+            'longitude': lng,
+            'inspection_date': insp_date,
+            'original_score': score,
+            'risk_score': max(0, min(100, score)),  # official LA County 0-100 score
+            'priority_violations': pv,
+            'priority_foundation_violations': pfv,
+            'core_violations': cv,
+            'total_violations': len(violations),
+            'violations': violations,
+            'inspection_type': row.get('SERVICE DESCRIPTION', ''),
+            'results': row.get('GRADE', ''),
+            'source': 'LA County Open Data',
+            'source_url': LA_SOURCE_PAGE,
+            'source_id': f'la_{serial}',
+            'metro': 'Los Angeles',
+        })
+    log.info(f"LA County: {len(results)} inspections")
+    return results
+
+
 # ─── LAS VEGAS (Southern Nevada Health District JSON API) ────────────────────
 
 SNHD_API = ('https://www.southernnevadahealthdistrict.org/wp-json/'
@@ -3656,6 +3806,12 @@ def main():
     if 'wake' in args.cities or 'raleigh' in args.cities:
         socrata_jobs['Wake County'] = lambda: fetch_wake(
             since_date=since_date, limit=record_limit)
+    if 'la' in args.cities or 'losangeles' in args.cities:
+        def _la():
+            data = fetch_la(since_date=since_date, limit=record_limit)
+            geocode_missing_coords(data)
+            return data
+        socrata_jobs['LA County'] = _la
     if 'vegas' in args.cities or 'lasvegas' in args.cities:
         socrata_jobs['Las Vegas'] = lambda: fetch_vegas(
             since_date=since_date, limit=record_limit)
