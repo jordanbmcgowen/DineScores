@@ -1,7 +1,7 @@
 /**
  * GET /api/restaurants — query the D1 restaurants table.
  *
- * Query params (at least one of city/metro/bbox/q required):
+ * Query params (at least one of city/metro/bbox/q/cursor required):
  *   city=Dallas                 restaurants in a city (indexed)
  *   metro=DFW                   restaurants in a metro area
  *   bbox=west,south,east,north  restaurants inside a map viewport
@@ -9,6 +9,11 @@
  *   grade=F                     filter by vetted grade
  *   fields=lite                 omit violation summaries (bulk transfers —
  *                               whole-city loads; higher row limit applies)
+ *   cursor=<id>                 full-database sync page (lite only): keyset
+ *                               pagination ordered by id; pass '' for the
+ *                               first page, then the last id of each page.
+ *                               Deterministic URLs, so the CDN caches the
+ *                               whole chain between weekly refreshes.
  *   limit=2000                  max rows (default 2000; cap 5000 full,
  *                               30000 lite)
  *
@@ -30,12 +35,29 @@ export async function onRequestGet({ request, env }) {
   const bbox = url.searchParams.get('bbox');
   const q = url.searchParams.get('q');
   const grade = url.searchParams.get('grade');
+  const cursor = url.searchParams.get('cursor'); // null = absent, '' = first page
   const lite = url.searchParams.get('fields') === 'lite';
   const maxLimit = lite ? MAX_LIMIT_LITE : MAX_LIMIT_FULL;
   const limit = Math.min(
     parseInt(url.searchParams.get('limit') || '2000', 10) || 2000,
     maxLimit
   );
+
+  // Full-database sync: lite-only keyset pagination over the id primary key
+  // (stable order, no OFFSET scans). Used by the client to converge the map
+  // to the complete dataset right after first paint.
+  if (cursor !== null) {
+    if (!lite) {
+      return jsonResponse(
+        { error: 'cursor_requires_lite', hint: 'pass fields=lite' },
+        { status: 400, maxAge: 0 }
+      );
+    }
+    const { results } = await env.DB.prepare(
+      `SELECT ${LITE_COLUMNS} FROM restaurants WHERE id > ? ORDER BY id LIMIT ?`
+    ).bind(cursor, limit).all();
+    return jsonResponse(results.map(toLiteRecord));
+  }
 
   const where = [];
   const binds = [];

@@ -1,11 +1,13 @@
 import React, { useEffect, useState, useMemo, useCallback, useRef } from 'react';
-import { fetchAllRestaurants } from './firebase.js';
 import { ensureVettedFields } from './grading.js';
-import { probeApi, fetchBboxFromApi, fetchAreaFromApi, fetchRestaurantDetail } from './api.js';
+import { probeApi, fetchBboxFromApi, fetchAreaFromApi, fetchAllFromApi, fetchRestaurantDetail } from './api.js';
 import GradeBadge from './components/GradeBadge.jsx';
 import RestaurantMap from './components/RestaurantMap.jsx';
 import InspectionModal from './components/InspectionModal.jsx';
 import FilterBar from './components/FilterBar.jsx';
+import BottomSheet from './components/BottomSheet.jsx';
+import PreviewCard from './components/PreviewCard.jsx';
+import SearchBar from './components/SearchBar.jsx';
 
 // Below this zoom the embedded overview is enough; above it, lazy-load the
 // uncapped records for whatever is in view from the D1 API.
@@ -17,8 +19,19 @@ export default function App() {
   const [error, setError] = useState(null);
   const [searchTerm, setSearchTerm] = useState('');
   const [debouncedSearch, setDebouncedSearch] = useState('');
+  // Two-tier selection: `preview` is the light card floating over the live
+  // map; `selectedRestaurant` is the full-report modal (one more tap).
+  const [preview, setPreview] = useState(null);
   const [selectedRestaurant, setSelectedRestaurant] = useState(null);
-  const [sortBy, setSortBy] = useState('score-desc');
+  // Co-located stack (one address, many restaurants): the list temporarily
+  // shows just its members until dismissed.
+  const [stack, setStack] = useState(null); // { records }
+  const [sheetCollapseKey, setSheetCollapseKey] = useState(0);
+  const [sheetExpandKey, setSheetExpandKey] = useState(0);
+  // Default ordering: most recent inspections; upgraded to nearest-first the
+  // moment a GPS fix lands (unless the user has picked a sort themselves).
+  const [sortBy, setSortBy] = useState('date-desc');
+  const sortTouchedRef = useRef(false);
 
   // Filters
   const [cityFilter, setCityFilter] = useState('all');
@@ -26,13 +39,14 @@ export default function App() {
   const [gradeFilter, setGradeFilter] = useState([]);
   const [infractionFilter, setInfractionFilter] = useState([]);
 
-  // Mobile bottom sheet: collapsed | half | full
-  const [sheetState, setSheetState] = useState('collapsed');
-
   // Progressive loading from the D1 API when it is reachable
   const [mapView, setMapView] = useState(null); // { zoom, bounds:{w,s,e,n} }
-  const [cityTotals, setCityTotals] = useState(null); // Map(city -> true count)
+  const mapViewRef = useRef(null);
+  const [apiReady, setApiReady] = useState(false);
+  const [dbTotal, setDbTotal] = useState(null); // true database size, from the API
   const [loadingArea, setLoadingArea] = useState(null); // city/metro being fetched
+  const [syncCount, setSyncCount] = useState(null); // full-DB sync progress (null = idle)
+  const fullyLoadedRef = useRef(false); // every DB record is in memory
   const apiAvailableRef = useRef(false);
   const knownIdsRef = useRef(new Set());
   const coveredBoxesRef = useRef([]); // boxes fully fetched (not row-capped)
@@ -59,6 +73,12 @@ export default function App() {
     );
   }, []);
 
+  // Once we know where the user is, "nearest first" is the most useful
+  // default ordering — but never override a sort they chose explicitly.
+  useEffect(() => {
+    if (userPos && !sortTouchedRef.current) setSortBy('distance');
+  }, [userPos]);
+
   // Center on the user only when we actually cover their area (~within
   // 100km of any loaded restaurant) — recentring onto an empty map would
   // be worse than the default nationwide view.
@@ -76,36 +96,20 @@ export default function App() {
     async function load() {
       setLoading(true);
       try {
-        // Embedded data.js is the primary source: it is refreshed weekly by
-        // CI and deployed with the site, so it is always current. Firestore
-        // is a secondary source for environments without the embedded file.
-        let data;
-        if (window.DATA && Array.isArray(window.DATA) && window.DATA.length > 0) {
-          data = window.DATA.slice();
-        } else {
-          try {
-            const firestoreData = await fetchAllRestaurants();
-            if (firestoreData && firestoreData.length > 0) {
-              data = firestoreData;
-            }
-          } catch (fsErr) {
-            console.warn('Firestore fetch failed and no embedded data:', fsErr);
-          }
-        }
-        // Ensure all records have vetted grading fields
-        const seeded = data.map(ensureVettedFields);
-        for (const r of seeded) if (r.i) knownIdsRef.current.add(r.i);
-        setAllData(seeded);
-      } catch (err) {
-        console.error('Data load failed:', err);
-        // Fallback to embedded data
+        // Embedded data.js is the only bulk source: it is refreshed weekly by
+        // CI and deployed with the site. The D1 API layers uncapped records
+        // on top once probed.
         if (window.DATA && Array.isArray(window.DATA) && window.DATA.length > 0) {
           const seeded = window.DATA.map(ensureVettedFields);
           for (const r of seeded) if (r.i) knownIdsRef.current.add(r.i);
           setAllData(seeded);
+          openDeepLink(seeded);
         } else {
           setError('Failed to load restaurant data. Please refresh.');
         }
+      } catch (err) {
+        console.error('Data load failed:', err);
+        setError('Failed to load restaurant data. Please refresh.');
       } finally {
         setLoading(false);
         // Remove loading overlay
@@ -117,14 +121,27 @@ export default function App() {
       }
     }
     load();
-    // Probe the D1 API once; when reachable it returns the cities index with
-    // TRUE per-city totals and enables progressive loading.
-    probeApi().then(cities => {
-      if (cities) {
-        apiAvailableRef.current = true;
-        setCityTotals(new Map(cities.map(c => [c.city, c.restaurant_count])));
-      }
+    // Probe the D1 API once; when reachable it reports the true database
+    // size and kicks off the full background sync: the embedded ~50k paint
+    // instantly, then the remaining records stream in page by page so
+    // cluster counts converge to the real database totals within seconds.
+    probeApi().then(total => {
+      if (!total) return;
+      apiAvailableRef.current = true;
+      setApiReady(true);
+      setDbTotal(total);
+      let merged = 0;
+      setSyncCount(0);
+      fetchAllFromApi(batch => {
+        merged += batch.length;
+        mergeRecords(batch);
+        setSyncCount(merged);
+      }).then(complete => {
+        fullyLoadedRef.current = complete;
+        setSyncCount(null);
+      });
     });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // Merge lazily-loaded viewport records into the pool (dedup by id)
@@ -143,7 +160,7 @@ export default function App() {
   // one time per area) so the view isn't limited to the embedded per-city cap.
   useEffect(() => {
     const area = metroFilter ? { metro: metroFilter } : (cityFilter !== 'all' ? { city: cityFilter } : null);
-    if (!area || !apiAvailableRef.current) return;
+    if (!area || !apiAvailableRef.current || fullyLoadedRef.current) return;
     const key = metroFilter ? `m:${metroFilter}` : `c:${cityFilter}`;
     if (loadedAreasRef.current.has(key)) return;
     loadedAreasRef.current.add(key);
@@ -156,7 +173,7 @@ export default function App() {
       loadedAreasRef.current.delete(key);
       setLoadingArea(prev => (prev === (area.metro || area.city) ? null : prev));
     });
-  }, [cityFilter, metroFilter, mergeRecords, cityTotals]);
+  }, [cityFilter, metroFilter, mergeRecords, apiReady]);
 
   // A lite record was opened and its full detail fetched: upgrade it in place.
   const upgradeRecord = useCallback((full) => {
@@ -164,10 +181,45 @@ export default function App() {
     setAllData(prev => prev.map(x => (x.i === rec.i ? { ...x, ...rec } : x)));
   }, []);
 
+  // Shareable deep link: #r/<id> opens that restaurant's full report on load
+  // (fetched from the API when it isn't in the embedded dataset).
+  function openDeepLink(seeded) {
+    const m = window.location.hash.match(/^#r\/([a-f0-9]{16})$/);
+    if (!m) return;
+    const openRec = (rec) => {
+      setPreview(rec);
+      setSelectedRestaurant(rec);
+      if (rec.lt && rec.ln) setFlyTo({ lng: rec.ln, lat: rec.lt, zoom: 16, key: Date.now() });
+    };
+    const rec = seeded.find(x => x.i === m[1]);
+    if (rec) {
+      openRec(rec);
+    } else {
+      fetchRestaurantDetail(m[1]).then(full => {
+        if (!full) return;
+        const vetted = ensureVettedFields(full);
+        mergeRecords([vetted]);
+        openRec(vetted);
+      });
+    }
+  }
+
+  // Keep the URL in sync with the open report, so the address bar is always
+  // copy-pasteable. Cleared when the report closes.
+  useEffect(() => {
+    if (selectedRestaurant?.i) {
+      window.history.replaceState(null, '', `#r/${selectedRestaurant.i}`);
+    } else if (window.location.hash.startsWith('#r/')) {
+      window.history.replaceState(null, '', window.location.pathname + window.location.search);
+    }
+  }, [selectedRestaurant]);
+
   // Viewport changed: remember it, and (when zoomed in) lazy-load its records.
   const handleViewportChange = useCallback(({ zoom, bounds }) => {
     setMapView({ zoom, bounds });
-    if (!apiAvailableRef.current || zoom < VIEWPORT_ZOOM) return;
+    mapViewRef.current = { zoom, bounds };
+    // Once the full sync has landed, viewport fetches have nothing to add
+    if (!apiAvailableRef.current || fullyLoadedRef.current || zoom < VIEWPORT_ZOOM) return;
 
     // Pad the box ~18% so small pans don't re-fetch
     const padX = (bounds.e - bounds.w) * 0.18;
@@ -260,62 +312,105 @@ export default function App() {
     // Sort
     const sorted = [...data];
     switch (sortBy) {
+      case 'distance': {
+        if (!userPos) {
+          sorted.sort((a, b) => (b.d || '').localeCompare(a.d || ''));
+          break;
+        }
+        // Squared equirectangular distance — monotonic with true distance,
+        // cheap enough to run over the whole result set. No coords sorts last.
+        const cosLat = Math.cos((userPos.lat * Math.PI) / 180);
+        const dist = r => (r.lt && r.ln)
+          ? (r.lt - userPos.lat) ** 2 + ((r.ln - userPos.lng) * cosLat) ** 2
+          : Infinity;
+        sorted.sort((a, b) => dist(a) - dist(b));
+        break;
+      }
       case 'score-asc':
         sorted.sort((a, b) => (a.rs || 0) - (b.rs || 0));
+        break;
+      case 'score-desc':
+        sorted.sort((a, b) => (b.rs || 0) - (a.rs || 0));
         break;
       case 'name-asc':
         sorted.sort((a, b) => (a.n || '').localeCompare(b.n || ''));
         break;
-      case 'date-desc':
+      default: // date-desc
         sorted.sort((a, b) => (b.d || '').localeCompare(a.d || ''));
-        break;
-      default: // score-desc
-        sorted.sort((a, b) => (b.rs || 0) - (a.rs || 0));
     }
 
     return sorted;
-  }, [allData, cityFilter, metroFilter, gradeFilter, infractionFilter, debouncedSearch, sortBy]);
+  }, [allData, cityFilter, metroFilter, gradeFilter, infractionFilter, debouncedSearch, sortBy, userPos]);
 
-  // The list and header count are viewport-aware: once zoomed in, they reflect
-  // what's actually on screen (which is where lazy-loaded records show up).
-  // Zoomed out, they mirror the full filtered set. The MAP always gets the full
-  // filtered set — it clusters, so density isn't a problem.
+  // The list and header count mirror the VISIBLE map exactly, at every zoom
+  // (the map reports bounds that exclude the sidebar/header/sheet overlays).
+  // Coordless records still surface during a text search — that's the only
+  // way to reach them. The MAP always gets the full filtered set — it
+  // clusters, so density isn't a problem.
   const visible = useMemo(() => {
-    if (!mapView || mapView.zoom < VIEWPORT_ZOOM) return filtered;
+    if (!mapView) return filtered;
     const { w, s, e, n } = mapView.bounds;
-    return filtered.filter(r => r.ln >= w && r.ln <= e && r.lt >= s && r.lt <= n);
-  }, [filtered, mapView]);
+    return filtered.filter(r => (r.lt && r.ln)
+      ? (r.ln >= w && r.ln <= e && r.lt >= s && r.lt <= n)
+      : !!debouncedSearch);
+  }, [filtered, mapView, debouncedSearch]);
 
-  // Re-frame the map only on an intentional new result set — not on pan/zoom
-  // or lazy-load merges (sort is excluded; it doesn't change geography).
-  const fitSignal = `${cityFilter}|${metroFilter}|${gradeFilter.join('')}|${infractionFilter.join('')}|${debouncedSearch}`;
+  // Camera signals: a city/metro change re-frames the map to that area
+  // (fitSignal); grade/issue/search changes only ever zoom OUT to the nearest
+  // match if none is on screen (narrowSignal). Sort and lazy-load merges
+  // never move the camera.
+  const fitSignal = `${cityFilter}|${metroFilter}`;
+  const narrowSignal = `${gradeFilter.join('')}|${infractionFilter.join('')}|${debouncedSearch}`;
 
-  // Headline count for the search pill: the true size of the current scope.
-  // With no grade/issue/search narrowing, the database's per-city totals are
-  // authoritative (loaded records converge to them once the eager area fetch
-  // lands); otherwise count what's actually loaded and matching.
-  const scopeCount = useMemo(() => {
-    const unfiltered = gradeFilter.length === 0 && infractionFilter.length === 0 && !debouncedSearch;
-    if (unfiltered && cityTotals) {
-      // Single city: the database total is authoritative.
-      if (!metroFilter && cityFilter !== 'all' && cityTotals.has(cityFilter)) {
-        return cityTotals.get(cityFilter);
-      }
-      // All cities: sum of database totals (loaded records converge upward).
-      if (!metroFilter && cityFilter === 'all') {
-        let sum = 0;
-        for (const n of cityTotals.values()) sum += n;
-        return Math.max(sum, filtered.length);
-      }
-      // Metro: no index entry — loaded count converges to complete after the
-      // eager metro fetch lands.
-    }
-    return filtered.length;
-  }, [cityTotals, cityFilter, metroFilter, gradeFilter, infractionFilter, debouncedSearch, filtered]);
-
+  // Marker tap → light preview over the live map (report is one more tap)
   const handleMarkerClick = useCallback((restaurant) => {
-    setSelectedRestaurant(restaurant);
+    setPreview(restaurant);
+    setSheetCollapseKey(k => k + 1); // free up the map on mobile
   }, []);
+
+  const handleBackgroundClick = useCallback(() => {
+    setPreview(prev => (prev ? null : prev));
+    setStack(prev => (prev ? null : prev));
+  }, []);
+
+  // Terminal cluster (all one location): show its members in the list —
+  // the sidebar on desktop, the raised bottom sheet on mobile.
+  const handleStackClick = useCallback((records) => {
+    const sorted = [...records].sort((a, b) => (a.n || '').localeCompare(b.n || ''));
+    setPreview(null);
+    setStack({ records: sorted });
+    setSheetExpandKey(k => k + 1);
+  }, []);
+
+  // List card / search suggestion → preview + glide the camera there
+  const focusRestaurant = useCallback((restaurant, { fly = true } = {}) => {
+    const rec = ensureVettedFields(restaurant);
+    mergeRecords([rec]); // no-op if already loaded
+    setPreview(rec);
+    setSheetCollapseKey(k => k + 1);
+    if (fly && rec.lt && rec.ln) {
+      // Deep enough that only same-address stacks remain grouped; a target
+      // inside such a stack stays in its counted donut (the docked preview
+      // still identifies it), otherwise it shows individually with a halo.
+      setFlyTo(prev => ({
+        lng: rec.ln, lat: rec.lt,
+        zoom: Math.max(16.5, mapViewRef.current?.zoom || 0),
+        key: Date.now(),
+      }));
+    }
+  }, [mergeRecords]);
+
+  // Esc dismisses the preview, then the stack (the modal handles its own Esc)
+  useEffect(() => {
+    if ((!preview && !stack) || selectedRestaurant) return;
+    const onKey = e => {
+      if (e.key !== 'Escape') return;
+      if (preview) setPreview(null);
+      else setStack(null);
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [preview, stack, selectedRestaurant]);
 
   const toggleGrade = useCallback((grade) => {
     setGradeFilter(prev => {
@@ -345,16 +440,37 @@ export default function App() {
   // Loading state — the HTML overlay handles it
   if (loading) return null;
 
+  // Banner + scoped items while a co-located stack is open
+  const listItems = stack ? stack.records : visible;
+  const stackBanner = stack && (
+    <div className="shrink-0 px-4 py-2.5 bg-brand-50/70 dark:bg-brand-900/20 border-b border-brand-100 dark:border-brand-900/40 flex items-center justify-between gap-2">
+      <span className="text-xs font-bold text-brand-800 dark:text-brand-100 min-w-0 truncate">
+        {stack.records.length} restaurants at {stack.records[0]?.a || 'this location'}
+      </span>
+      <button
+        onClick={() => setStack(null)}
+        className="shrink-0 inline-flex items-center gap-1 text-[11px] font-bold text-brand-700 dark:text-brand-100 hover:text-brand-900 dark:hover:text-white"
+        aria-label="Back to all results"
+      >
+        <svg viewBox="0 0 20 20" width="12" height="12" fill="none">
+          <path d="M6 6l8 8M14 6l-8 8" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/>
+        </svg>
+        Show all
+      </button>
+    </div>
+  );
+
   const sortSelect = (
     <select
       value={sortBy}
-      onChange={e => setSortBy(e.target.value)}
+      onChange={e => { sortTouchedRef.current = true; setSortBy(e.target.value); }}
       className="text-xs font-semibold bg-transparent text-slate-500 dark:text-slate-400 border-0 outline-none cursor-pointer pr-1"
       aria-label="Sort results"
     >
-      <option value="score-desc">Best score first</option>
-      <option value="score-asc">Worst score first</option>
+      {userPos && <option value="distance">Nearest first</option>}
       <option value="date-desc">Recently inspected</option>
+      <option value="score-asc">Worst score first</option>
+      <option value="score-desc">Best score first</option>
       <option value="name-asc">Name A–Z</option>
     </select>
   );
@@ -366,9 +482,13 @@ export default function App() {
         <RestaurantMap
           restaurants={filtered}
           onMarkerClick={handleMarkerClick}
+          onBackgroundClick={handleBackgroundClick}
+          onStackClick={handleStackClick}
           onViewportChange={handleViewportChange}
           fitSignal={fitSignal}
+          narrowSignal={narrowSignal}
           flyTo={flyTo}
+          selectedId={preview?.i || selectedRestaurant?.i || null}
         />
       </div>
 
@@ -384,35 +504,17 @@ export default function App() {
             <span className="text-[17px] font-extrabold tracking-tight">DineScores</span>
           </div>
 
-          {/* Search */}
-          <div className="relative flex-1 max-w-xl">
-            <svg className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 pointer-events-none" viewBox="0 0 20 20" fill="none" aria-hidden="true">
-              <circle cx="8.5" cy="8.5" r="5.5" stroke="currentColor" strokeWidth="1.8"/>
-              <path d="M13 13l4 4" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"/>
-            </svg>
-            <input
-              type="search"
-              placeholder="Search restaurants, addresses…"
-              className="w-full h-11 bg-white/90 dark:bg-slate-800/90 backdrop-blur text-slate-900 dark:text-white pl-10 pr-20 rounded-2xl shadow-lg ring-1 ring-slate-900/5 dark:ring-white/10 focus:ring-2 focus:ring-brand-500 outline-none text-[15px] placeholder:text-slate-400"
-              value={searchTerm}
-              onChange={e => setSearchTerm(e.target.value)}
-            />
-            {searchTerm ? (
-              <button
-                onClick={() => setSearchTerm('')}
-                className="absolute right-3 top-1/2 -translate-y-1/2 p-1 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200"
-                aria-label="Clear search"
-              >
-                <svg viewBox="0 0 20 20" width="16" height="16" fill="none">
-                  <path d="M6 6l8 8M14 6l-8 8" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"/>
-                </svg>
-              </button>
-            ) : (
-              <span className="absolute right-3.5 top-1/2 -translate-y-1/2 text-[11px] font-bold text-slate-400 tabular-nums whitespace-nowrap">
-                {scopeCount.toLocaleString()}
-              </span>
-            )}
-          </div>
+          {/* Search with suggestions. The idle pill shows total database
+              coverage; the results list header stays viewport-scoped. */}
+          <SearchBar
+            value={searchTerm}
+            onChange={setSearchTerm}
+            count={dbTotal ?? allData.length}
+            allData={allData}
+            cityOptions={cityOptions}
+            onPickRestaurant={r => focusRestaurant(r)}
+            onPickArea={opt => { setCityFilter(opt.city); setMetroFilter(opt.metro); }}
+          />
         </div>
 
         {/* Filter rail */}
@@ -429,69 +531,94 @@ export default function App() {
         />
       </div>
 
-      {/* Desktop results panel */}
+      {/* Desktop results panel (also hosts the docked selection preview) */}
       <aside className="hidden md:flex flex-col absolute left-4 top-[118px] bottom-4 w-[400px] z-10 rounded-3xl bg-white/95 dark:bg-slate-900/95 backdrop-blur shadow-2xl ring-1 ring-slate-900/5 dark:ring-white/10 overflow-hidden">
+        {preview && !selectedRestaurant && (
+          <PreviewCard
+            docked
+            restaurant={allData.find(x => x.i === preview.i) || preview}
+            userPos={userPos}
+            formatDate={formatDate}
+            onClose={() => setPreview(null)}
+            onFullReport={() => setSelectedRestaurant(preview)}
+          />
+        )}
+        {stackBanner}
         <div className="px-4 h-11 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between shrink-0">
           <span className="text-xs font-bold text-slate-500 dark:text-slate-400 tabular-nums flex items-center gap-2">
-            {visible.length.toLocaleString()} restaurants
+            {listItems.length.toLocaleString()} restaurants
             {loadingArea && (
               <span className="inline-flex items-center gap-1 text-brand-600 dark:text-brand-500 normal-case">
                 <span className="w-3 h-3 border-2 border-brand-200 border-t-brand-600 rounded-full animate-spin" />
                 loading {loadingArea}…
               </span>
             )}
+            {!loadingArea && syncCount !== null && (
+              <span className="inline-flex items-center gap-1 text-slate-400 normal-case font-semibold">
+                <span className="w-3 h-3 border-2 border-slate-200 border-t-slate-400 rounded-full animate-spin" />
+                syncing {Math.round((allData.length) / 1000)}k of {Math.round((dbTotal || 0) / 1000)}k…
+              </span>
+            )}
           </span>
           {sortSelect}
         </div>
         <div className="flex-1 overflow-y-auto">
-          {visible.slice(0, 100).map(r => (
+          {listItems.slice(0, 100).map(r => (
             <RestaurantCard
               key={r.i}
               restaurant={r}
               formatDate={formatDate}
-              onClick={() => setSelectedRestaurant(r)}
-              selected={selectedRestaurant?.i === r.i}
+              onClick={() => focusRestaurant(r, { fly: !stack })}
+              selected={preview?.i === r.i || selectedRestaurant?.i === r.i}
             />
           ))}
-          {visible.length > 100 && (
+          {listItems.length > 100 && (
             <p className="p-4 text-center text-xs text-slate-400">
-              Showing 100 of {visible.length.toLocaleString()} — zoom in or search to narrow.
+              Showing 100 of {listItems.length.toLocaleString()} — zoom in or search to narrow.
             </p>
           )}
-          {visible.length === 0 && <EmptyState />}
+          {listItems.length === 0 && <EmptyState />}
         </div>
       </aside>
 
-      {/* Mobile bottom sheet */}
-      <div className={`md:hidden sheet bg-white dark:bg-slate-900 shadow-2xl ring-1 ring-slate-900/10 dark:ring-white/10 flex flex-col sheet-${sheetState}`}>
-        <button
-          className="w-full pt-3 pb-2 flex flex-col items-center gap-2 shrink-0"
-          onClick={() => setSheetState(prev =>
-            prev === 'collapsed' ? 'half' : prev === 'half' ? 'full' : 'collapsed'
-          )}
-          aria-label="Toggle results list"
-        >
-          <div className="w-10 h-1.5 bg-slate-300 dark:bg-slate-600 rounded-full" />
-          <div className="w-full px-4 flex items-center justify-between">
+      {/* Mobile bottom sheet (drag the header to resize) */}
+      <BottomSheet
+        collapseKey={sheetCollapseKey}
+        expandKey={sheetExpandKey}
+        header={
+          <div className="w-full px-4 pb-2 flex items-center justify-between">
             <span className="text-sm font-bold tabular-nums">
-              {visible.length.toLocaleString()} restaurants
+              {listItems.length.toLocaleString()} restaurants
             </span>
-            <span onClick={e => e.stopPropagation()}>{sortSelect}</span>
+            <span onClick={e => e.stopPropagation()} onTouchStart={e => e.stopPropagation()}>
+              {sortSelect}
+            </span>
           </div>
-        </button>
-        <div className="flex-1 overflow-y-auto pb-safe" style={{ touchAction: 'pan-y' }}>
-          {visible.slice(0, 50).map(r => (
-            <RestaurantCard
-              key={r.i}
-              restaurant={r}
-              formatDate={formatDate}
-              onClick={() => setSelectedRestaurant(r)}
-              selected={false}
-            />
-          ))}
-          {visible.length === 0 && <EmptyState />}
-        </div>
-      </div>
+        }
+      >
+        {stackBanner}
+        {listItems.slice(0, 50).map(r => (
+          <RestaurantCard
+            key={r.i}
+            restaurant={r}
+            formatDate={formatDate}
+            onClick={() => focusRestaurant(r, { fly: !stack })}
+            selected={preview?.i === r.i}
+          />
+        ))}
+        {listItems.length === 0 && <EmptyState />}
+      </BottomSheet>
+
+      {/* Mobile-only floating preview (desktop docks it in the sidebar) */}
+      {preview && !selectedRestaurant && (
+        <PreviewCard
+          restaurant={allData.find(x => x.i === preview.i) || preview}
+          userPos={userPos}
+          formatDate={formatDate}
+          onClose={() => setPreview(null)}
+          onFullReport={() => setSelectedRestaurant(preview)}
+        />
+      )}
 
       {/* Inspection Modal */}
       {selectedRestaurant && (
@@ -525,15 +652,16 @@ function EmptyState() {
   );
 }
 
+// Paperwork (docs) is deliberately absent: not decision-relevant enough for
+// the result cards. It still appears in the detail modal.
 const CARD_TAGS = {
   pests: 'bg-red-50 text-red-700 dark:bg-red-500/10 dark:text-red-400',
   temp: 'bg-sky-50 text-sky-700 dark:bg-sky-500/10 dark:text-sky-400',
   hygiene: 'bg-violet-50 text-violet-700 dark:bg-violet-500/10 dark:text-violet-400',
   equipment: 'bg-slate-100 text-slate-600 dark:bg-slate-500/10 dark:text-slate-400',
-  docs: 'bg-amber-50 text-amber-700 dark:bg-amber-500/10 dark:text-amber-400',
 };
 const CARD_TAG_LABELS = {
-  pests: 'Pests', temp: 'Temp', hygiene: 'Hygiene', equipment: 'Equipment', docs: 'Paperwork',
+  pests: 'Pests', temp: 'Temp', hygiene: 'Hygiene', equipment: 'Equipment',
 };
 
 function RestaurantCard({ restaurant: r, formatDate, onClick, selected }) {
@@ -544,7 +672,7 @@ function RestaurantCard({ restaurant: r, formatDate, onClick, selected }) {
         selected ? 'bg-brand-50 dark:bg-brand-900/20' : ''
       }`}
     >
-      <GradeBadge grade={r.vg} score={r.ws ?? r.rs} size="sm" />
+      <GradeBadge grade={r.vg} size="sm" />
       <div className="flex-1 min-w-0">
         <h3 className="font-bold text-[15px] leading-snug truncate">{r.n}</h3>
         <p className="text-[13px] text-slate-500 dark:text-slate-400 truncate mt-0.5">
@@ -554,9 +682,9 @@ function RestaurantCard({ restaurant: r, formatDate, onClick, selected }) {
           <span className="text-[11px] text-slate-400 tabular-nums">
             Inspected {formatDate(r.d)}
           </span>
-          {(r.inf || []).slice(0, 3).map(cat => (
-            <span key={cat} className={`text-[10px] px-1.5 py-0.5 rounded-md font-bold ${CARD_TAGS[cat] || CARD_TAGS.equipment}`}>
-              {CARD_TAG_LABELS[cat] || cat}
+          {(r.inf || []).filter(cat => CARD_TAGS[cat]).slice(0, 3).map(cat => (
+            <span key={cat} className={`text-[10px] px-1.5 py-0.5 rounded-md font-bold ${CARD_TAGS[cat]}`}>
+              {CARD_TAG_LABELS[cat]}
             </span>
           ))}
         </div>

@@ -44,20 +44,20 @@ export function gradeMeta(grade) {
 }
 
 /**
- * Square grade tile: big letter, score underneath.
+ * Square grade tile: just the letter. Numeric scores are deliberately not
+ * shown anywhere in the UI — jurisdictions publish incompatible scales, so
+ * the nationally-consistent letter is the only user-facing grade (numbers
+ * still drive the grading behind the scenes).
  */
-export default function GradeBadge({ grade, score, size = 'md' }) {
+export default function GradeBadge({ grade, size = 'md' }) {
   const meta = gradeMeta(grade);
   const dims = size === 'sm'
-    ? { box: 'w-11 h-11 rounded-xl', letter: 'text-lg', score: 'text-[10px]' }
-    : { box: 'w-16 h-16 rounded-2xl', letter: 'text-3xl', score: 'text-xs' };
+    ? { box: 'w-11 h-11 rounded-xl', letter: 'text-xl' }
+    : { box: 'w-16 h-16 rounded-2xl', letter: 'text-4xl' };
 
   return (
-    <div className={`flex flex-col items-center justify-center shrink-0 ${dims.box} ${meta.tile} shadow-sm`}>
+    <div className={`flex items-center justify-center shrink-0 ${dims.box} ${meta.tile} shadow-sm`}>
       <span className={`font-black leading-none ${dims.letter}`}>{grade || '–'}</span>
-      {score != null && (
-        <span className={`font-bold leading-none mt-0.5 opacity-90 tabular-nums ${dims.score}`}>{score}</span>
-      )}
     </div>
   );
 }

@@ -4,9 +4,9 @@ DineScores Data Pipeline
 ========================
 Collects health inspection data from Chicago, NYC, SF, and DFW metroplex cities.
 DFW cities use the MyHealthDepartment portal (inspections.myhealthdepartment.com).
-Stores in Firestore with a multi-inspection history model:
-  - /restaurants/{restaurant_id}      → most recent inspection + metadata
-  - /restaurants/{restaurant_id}/inspections/{inspection_id} → all inspections (history)
+Outputs:
+  - data.js (--output-data-js)   embedded dataset the map loads instantly
+  - D1 SQL (--output-d1-sql)     idempotent upserts for the Cloudflare D1 database
 
 Run modes:
   --full    Pull all available data (initial load)
@@ -475,6 +475,63 @@ def build_violation_text(violations):
         elif isinstance(v, dict):
             parts.append(v.get('description', ''))
     return '|||'.join(p for p in parts if p)
+
+
+# ─── COORDINATE SANITY ───────────────────────────────────────────────────────
+
+# Sources and geocoders occasionally emit garbage coordinates (a Texas
+# restaurant in the Pacific off Mexico). Wrong coordinates are worse than
+# none: both merge paths preserve previously-known good coordinates, and a
+# no-coord record simply stays off the map instead of appearing in the ocean.
+CONUS_BOUNDS = (24.3, 49.5, -125.5, -66.5)  # (south, north, west, east)
+STATE_BOUNDS = {  # generous per-state boxes for the states we cover
+    'NY': (40.45, 45.05, -79.85, -71.75),
+    'TX': (25.75, 36.55, -106.70, -93.45),
+    'WA': (45.50, 49.05, -124.90, -116.85),
+    'NV': (34.95, 42.05, -120.10, -113.95),
+    'NC': (33.75, 36.65, -84.40, -75.35),
+    'CA': (32.45, 42.05, -124.55, -114.05),
+    'MA': (41.15, 42.95, -73.60, -69.85),
+    'IL': (36.90, 42.55, -91.60, -87.00),
+    'DC': (38.75, 39.05, -77.15, -76.85),
+    'FL': (24.35, 31.05, -87.70, -79.95),
+}
+COORD_MARGIN = 0.6  # ° of slack around state boxes (metro suburbs, borders)
+
+
+def coords_plausible(lat, lng, state=None):
+    """True unless the point is outside the continental US, or the record
+    names a covered state and the point is far outside it."""
+    s, n, w, e = CONUS_BOUNDS
+    if not (s <= lat <= n and w <= lng <= e):
+        return False
+    st = (state or '').strip().upper()
+    if st == 'TEXAS':
+        st = 'TX'
+    box = STATE_BOUNDS.get(st)
+    if not box:
+        return True
+    bs, bn, bw, be = box
+    m = COORD_MARGIN
+    return bs - m <= lat <= bn + m and bw - m <= lng <= be + m
+
+
+def drop_implausible_coords(records):
+    """Null out obviously-wrong coordinates so they geocode fresh next run
+    instead of shipping to the map."""
+    dropped = 0
+    for r in records:
+        lat, lng = r.get('latitude'), r.get('longitude')
+        if not lat or not lng:
+            continue
+        if not coords_plausible(float(lat), float(lng), r.get('state')):
+            log.warning(f"Dropping implausible coords ({lat}, {lng}) for "
+                        f"{r.get('name')} ({r.get('city')}, {r.get('state')})")
+            r['latitude'] = None
+            r['longitude'] = None
+            dropped += 1
+    if dropped:
+        log.info(f"Coordinate sanity: dropped {dropped} implausible pairs")
 
 
 # ─── GEOCODING ───────────────────────────────────────────────────────────────
@@ -3055,212 +3112,6 @@ def geocode_missing_coords(records, nominatim_fallback_cap=150):
                     f"(cap {nominatim_fallback_cap}); they will retry next run")
     log.info(f"Geocoded {geocoded}/{len(missing)} records")
 
-# ─── DATA MODEL / FIRESTORE UPLOADER ─────────────────────────────────────────
-
-def upload_to_firestore(all_inspections, firebase_creds_path=None, dry_run=False):
-    """
-    Upload inspections to Firestore using the multi-inspection history model.
-    
-    Data model:
-      /restaurants/{restaurant_id}
-        name, address, city, state, zip, latitude, longitude
-        latest_inspection_date, risk_score, original_score
-        priority_violations, priority_foundation_violations, core_violations
-        total_violations, violations (most recent)
-        source, inspection_type, results
-        inspection_count (total number of inspections in history)
-        updated_at
-      
-      /restaurants/{restaurant_id}/inspections/{inspection_id}
-        All fields from above + inspection-specific data
-    """
-    if dry_run:
-        log.info(f"DRY RUN: Would upload {len(all_inspections)} inspections")
-        return
-    
-    try:
-        import firebase_admin
-        from firebase_admin import credentials, firestore
-    except ImportError:
-        log.error("firebase-admin not installed")
-        return
-    
-    # Initialize Firebase
-    if not firebase_admin._apps:
-        if firebase_creds_path and os.path.exists(firebase_creds_path):
-            cred = credentials.Certificate(firebase_creds_path)
-        else:
-            # Try Application Default Credentials
-            cred = credentials.ApplicationDefault()
-        firebase_admin.initialize_app(cred, {'projectId': 'healthinspections'})
-    
-    db = firestore.client()
-    
-    # Group inspections by restaurant
-    restaurants = defaultdict(list)
-    for insp in all_inspections:
-        rest_id = make_restaurant_id(insp['name'], insp['address'], insp['city'])
-        insp['_restaurant_id'] = rest_id
-        restaurants[rest_id].append(insp)
-    
-    log.info(f"Uploading {len(all_inspections)} inspections across {len(restaurants)} unique restaurants...")
-    
-    batch_size = 400  # Firestore batch limit is 500
-    batch = db.batch()
-    batch_count = 0
-    total_written = 0
-    
-    for rest_id, inspections in restaurants.items():
-        # Sort by date descending (most recent first)
-        inspections.sort(key=lambda x: x.get('inspection_date', ''), reverse=True)
-        most_recent = inspections[0]
-        
-        # Restaurant document (most recent inspection data)
-        rest_ref = db.collection('restaurants').document(rest_id)
-
-        # ── Vetted grading: weighted score, grade, infractions, summaries ──
-        weighted_score = compute_weighted_score(inspections)
-        violation_text = build_violation_text(most_recent.get('violations', []))
-        vetted_grade = calculate_vetted_grade(weighted_score)
-        # Safety override: if latest inspection is F, venue is F
-        latest_grade = calculate_vetted_grade(
-            most_recent.get('risk_score', 0), violation_text)
-        if latest_grade == 'F':
-            vetted_grade = 'F'
-        infractions = detect_infractions(violation_text)
-        violation_summaries = summarize_violations(violation_text)
-
-        rest_data = {
-            'id': rest_id,
-            'name': most_recent['name'],
-            'address': most_recent['address'],
-            'city': most_recent['city'],
-            'state': most_recent['state'],
-            'zip': most_recent.get('zip', ''),
-            'latitude': most_recent.get('latitude'),
-            'longitude': most_recent.get('longitude'),
-            'inspection_date': most_recent['inspection_date'],
-            'original_score': most_recent.get('original_score'),
-            'risk_score': most_recent['risk_score'],
-            'priority_violations': most_recent['priority_violations'],
-            'priority_foundation_violations': most_recent['priority_foundation_violations'],
-            'core_violations': most_recent['core_violations'],
-            'total_violations': most_recent['total_violations'],
-            'violations': most_recent['violations'],
-            'source': most_recent['source'],
-            'source_url': most_recent.get('source_url', ''),
-            'inspection_type': most_recent.get('inspection_type', ''),
-            'results': most_recent.get('results', ''),
-            'metro': most_recent.get('metro', ''),
-            'inspection_count': len(inspections),
-            'updated_at': datetime.now(timezone.utc).isoformat(),
-            # ── New vetted grading fields ──
-            'weighted_score': weighted_score,
-            'vetted_grade': vetted_grade,
-            'infractions': infractions,
-            'violation_summaries': violation_summaries,
-        }
-
-        # Optional city-specific fields
-        if most_recent.get('nyc_grade'):
-            rest_data['nyc_grade'] = most_recent['nyc_grade']
-        if most_recent.get('cuisine'):
-            rest_data['cuisine'] = most_recent['cuisine']
-        if most_recent.get('neighborhood'):
-            rest_data['neighborhood'] = most_recent['neighborhood']
-        
-        # Filter out None lat/lng
-        if rest_data['latitude'] is None or rest_data['longitude'] is None:
-            del rest_data['latitude']
-            del rest_data['longitude']
-        
-        batch.set(rest_ref, rest_data, merge=True)
-        batch_count += 1
-        
-        # Write each inspection to the history subcollection
-        for insp in inspections:
-            insp_id = make_inspection_id(rest_id, insp['inspection_date'])
-            insp_ref = rest_ref.collection('inspections').document(insp_id)
-            
-            insp_data = {
-                'inspection_id': insp_id,
-                'restaurant_id': rest_id,
-                'inspection_date': insp['inspection_date'],
-                'risk_score': insp['risk_score'],
-                'original_score': insp.get('original_score'),
-                'priority_violations': insp['priority_violations'],
-                'priority_foundation_violations': insp['priority_foundation_violations'],
-                'core_violations': insp['core_violations'],
-                'total_violations': insp['total_violations'],
-                'violations': insp['violations'],
-                'inspection_type': insp.get('inspection_type', ''),
-                'results': insp.get('results', ''),
-                'source': insp['source'],
-                'source_url': insp.get('source_url', ''),
-                'source_id': insp.get('source_id', ''),
-            }
-            
-            # Remove None values
-            insp_data = {k: v for k, v in insp_data.items() if v is not None}
-            
-            batch.set(insp_ref, insp_data, merge=True)
-            batch_count += 1
-        
-        # Commit batch if full
-        if batch_count >= batch_size:
-            batch.commit()
-            total_written += batch_count
-            log.info(f"  Committed batch: {total_written} writes total")
-            batch = db.batch()
-            batch_count = 0
-            time.sleep(0.2)
-    
-    # Final batch
-    if batch_count > 0:
-        batch.commit()
-        total_written += batch_count
-    
-    log.info(f"Upload complete: {total_written} total Firestore writes")
-
-
-def delete_test_restaurant(firebase_creds_path=None):
-    """Delete the test restaurant located off the coast of Africa (near 0,0 coordinates)."""
-    try:
-        import firebase_admin
-        from firebase_admin import credentials, firestore
-    except ImportError:
-        log.error("firebase-admin not installed")
-        return
-    
-    if not firebase_admin._apps:
-        if firebase_creds_path and os.path.exists(firebase_creds_path):
-            cred = credentials.Certificate(firebase_creds_path)
-        else:
-            cred = credentials.ApplicationDefault()
-        firebase_admin.initialize_app(cred, {'projectId': 'healthinspections'})
-    
-    db = firestore.client()
-    
-    # Find restaurants with coordinates near (0, 0) — off coast of Africa
-    # Anything with lat between -10 and 10 AND lon between -10 and 10 is suspect
-    all_docs = db.collection('restaurants').get()
-    deleted = 0
-    
-    for doc in all_docs:
-        data = doc.to_dict()
-        lat = data.get('latitude', 999)
-        lon = data.get('longitude', 999)
-        
-        if lat is not None and lon is not None:
-            if -15 <= lat <= 15 and -15 <= lon <= 15:
-                log.info(f"Deleting test restaurant: {data.get('name')} at ({lat}, {lon})")
-                doc.reference.delete()
-                deleted += 1
-    
-    log.info(f"Deleted {deleted} test restaurant(s)")
-    return deleted
-
-
 # ─── SAVE TO JSON (for embedding in app as fallback) ─────────────────────────
 
 def save_to_json(all_inspections, output_path):
@@ -3476,7 +3327,7 @@ def write_data_js(all_inspections, output_path, top_per_city=1000,
 
     # Strip the raw violations array before writing: the frontend only reads
     # the vs summaries (which carry capped verbatim text), and 'v' alone is
-    # ~40% of the payload. Firestore keeps the full violation detail.
+    # ~40% of the payload. D1 keeps the full violation detail.
     for rec in final:
         rec.pop('v', None)
 
@@ -3533,7 +3384,8 @@ CREATE TABLE IF NOT EXISTS inspections (
   inspection_type TEXT,
   results TEXT,
   violations TEXT,
-  source_id TEXT
+  source_id TEXT,
+  source_url TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_inspections_restaurant
   ON inspections(restaurant_id, inspection_date DESC);
@@ -3623,6 +3475,7 @@ def write_d1_sql(all_inspections, output_path, include_schema=True):
                 _sql_json([list(v)[:2] + [str(list(v)[2])[:400]]
                            for v in (i.get('violations') or [])[:20]]),
                 _sql_quote(i.get('source_id', '')),
+                _sql_quote(i.get('source_url', '')),
             ]) + ')')
 
         violation_text = build_violation_text(latest.get('violations', []))
@@ -3684,14 +3537,15 @@ def write_d1_sql(all_inspections, output_path, include_schema=True):
             # only improve a stored row.
             f.write("INSERT INTO inspections "
                     "(id,restaurant_id,inspection_date,risk_score,original_score,"
-                    "inspection_type,results,violations,source_id) VALUES\n"
+                    "inspection_type,results,violations,source_id,source_url) VALUES\n"
                     + ',\n'.join(batch) +
                     " ON CONFLICT(id) DO UPDATE SET "
                     "risk_score=excluded.risk_score, "
                     "original_score=excluded.original_score, "
                     "inspection_type=excluded.inspection_type, "
                     "results=excluded.results, "
-                    "violations=excluded.violations;\n")
+                    "violations=excluded.violations, "
+                    "source_url=excluded.source_url;\n")
         for batch in _d1_row_batches(rest_rows):
             f.write("INSERT INTO restaurants "
                     "(id,name,address,city,state,zip,lat,lng,metro,inspection_date,"
@@ -3714,14 +3568,10 @@ def write_d1_sql(all_inspections, output_path, include_schema=True):
 
 def main():
     parser = argparse.ArgumentParser(description='DineScores Data Pipeline')
-    parser.add_argument('--mode', choices=['full', 'weekly', 'test', 'delete_test'], default='test',
-                        help='Run mode: full (all data), weekly (last 8 days), test (25 records), delete_test (remove bogus records)')
+    parser.add_argument('--mode', choices=['full', 'weekly', 'test'], default='test',
+                        help='Run mode: full (all data), weekly (last 8 days), test (25 records)')
     parser.add_argument('--cities', nargs='+', default=['chicago', 'nyc', 'sf', 'dfw'],
                         help='Cities to fetch (use "dfw" for all DFW metro cities, or individual slugs like "dallas", "fortworth")')
-    parser.add_argument('--creds', default=None,
-                        help='Path to Firebase service account JSON')
-    parser.add_argument('--dry-run', action='store_true',
-                        help='Process data but do not write to Firestore')
     parser.add_argument('--output', default=os.path.join(os.path.dirname(os.path.abspath(__file__)), 'dinescores_data.json'),
                         help='Output JSON file path')
     parser.add_argument('--output-data-js', default=None,
@@ -3748,11 +3598,7 @@ def main():
         logging.getLogger().setLevel(logging.DEBUG)
     
     log.info(f"DineScores Pipeline starting | mode={args.mode} cities={args.cities}")
-    
-    if args.mode == 'delete_test':
-        delete_test_restaurant(args.creds)
-        return
-    
+
     # Determine date filter
     since_date = None
     record_limit = None
@@ -3904,6 +3750,9 @@ def main():
         except Exception as e:
             log.error(f"DFW fetch failed: {e}")
 
+    # Drop coordinates that are obviously wrong before any output is written
+    drop_implausible_coords(all_inspections)
+
     log.info(f"\nTotal inspections collected: {len(all_inspections)}")
 
     # Show city breakdown
@@ -3932,15 +3781,7 @@ def main():
     # Optionally write D1 SQL (schema + upserts) for the Cloudflare database
     if args.output_d1_sql:
         write_d1_sql(all_inspections, args.output_d1_sql)
-    
-    # Upload to Firestore
-    if not args.dry_run and args.creds:
-        upload_to_firestore(all_inspections, args.creds, dry_run=False)
-    elif not args.dry_run and not args.creds:
-        log.info("No --creds provided — skipping Firestore upload (use --dry-run to suppress this warning)")
-    else:
-        log.info("Dry run mode — skipping Firestore upload")
-    
+
     log.info("Pipeline complete!")
 
 

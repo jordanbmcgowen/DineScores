@@ -69,13 +69,13 @@ body {
     transition: transform 0.35s cubic-bezier(0.16, 1, 0.3, 1);
     max-height: 78dvh;
     height: 78dvh;
-    touch-action: none;
   }
+  /* Snap offsets mirror BottomSheet.jsx (COLLAPSED_PEEK / offsetFor) */
   .sheet-collapsed {
-    transform: translateY(calc(100% - 92px));
+    transform: translateY(calc(100% - 96px));
   }
   .sheet-half {
-    transform: translateY(46%);
+    transform: translateY(50%);
   }
   .sheet-full {
     transform: translateY(0);

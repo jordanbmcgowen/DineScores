@@ -14,7 +14,7 @@ export async function onRequestGet({ params, env }) {
 
   const { results } = await env.DB.prepare(
     `SELECT id, inspection_date, risk_score, original_score,
-            inspection_type, results, violations
+            inspection_type, results, violations, source_url
        FROM inspections
       WHERE restaurant_id = ?
       ORDER BY inspection_date DESC
@@ -29,6 +29,7 @@ export async function onRequestGet({ params, env }) {
       os: row.original_score,
       type: row.inspection_type || '',
       result: row.results || '',
+      url: row.source_url || null,
       v: parseJson(row.violations, []),
     }))
   );

@@ -26,7 +26,7 @@ function serveDataJs() {
 
 export default defineConfig({
   plugins: [react(), serveDataJs()],
-  publicDir: 'static', // Avoid conflict with Firebase's public/ output dir
+  publicDir: 'static', // public/ is the build OUTPUT dir, so it can't also be the static-copy dir
   build: {
     outDir: 'public',
     emptyOutDir: false, // Don't delete data.js and other pipeline-generated files

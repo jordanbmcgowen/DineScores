@@ -37,6 +37,48 @@ export async function fetchAreaFromApi({ city, metro }, limit = 30000) {
   }
 }
 
+/**
+ * Stream the ENTIRE database as lite records, page by page (keyset cursor).
+ * Calls onBatch(records) as each page arrives so the map converges to the
+ * complete dataset progressively. Resolves true when the last page landed,
+ * false if the sync aborted mid-way (a later retry can start over — the
+ * client dedups by id, so re-fetched pages are cheap).
+ */
+export async function fetchAllFromApi(onBatch, { pageSize = 30000, maxPages = 12 } = {}) {
+  let cursor = '';
+  for (let page = 0; page < maxPages; page++) {
+    let rows;
+    try {
+      rows = await getJson(
+        `/api/restaurants?fields=lite&cursor=${encodeURIComponent(cursor)}&limit=${pageSize}`
+      );
+    } catch {
+      return false;
+    }
+    if (!Array.isArray(rows)) return false;
+    if (rows.length > 0) onBatch(rows);
+    if (rows.length < pageSize) return true; // final (possibly empty) page
+    cursor = rows[rows.length - 1].i;
+  }
+  return false; // maxPages exceeded — treat as incomplete
+}
+
+/**
+ * Name search across the ENTIRE database (not just loaded records), lite
+ * records. Used by the search box's suggestion dropdown.
+ */
+export async function fetchSearchFromApi(q, limit = 10) {
+  if (!q || q.length < 2) return [];
+  try {
+    const rows = await getJson(
+      `/api/restaurants?q=${encodeURIComponent(q)}&fields=lite&limit=${limit}`
+    );
+    return Array.isArray(rows) ? rows : [];
+  } catch {
+    return [];
+  }
+}
+
 /** One restaurant's full record (including violation summaries). */
 export async function fetchRestaurantDetail(id) {
   try {
@@ -44,16 +86,6 @@ export async function fetchRestaurantDetail(id) {
     return rec && rec.i ? rec : null;
   } catch {
     return null;
-  }
-}
-
-/** City index with counts and bounding boxes. */
-export async function fetchCitiesFromApi() {
-  try {
-    const rows = await getJson('/api/cities');
-    return Array.isArray(rows) ? rows : [];
-  } catch {
-    return [];
   }
 }
 
@@ -77,14 +109,21 @@ export async function fetchBboxFromApi(bbox, limit = 5000) {
 }
 
 /**
- * One-time probe: is the D1-backed API reachable? Returns the cities index
- * (true per-city totals) when it is, or null in environments (local dev,
- * offline) where only the embedded data.js exists.
+ * One-time probe: is the D1-backed API reachable? Returns the database's
+ * TRUE restaurant total when it is, or null in environments (local dev,
+ * offline) where only the embedded data.js exists. Tolerates both response
+ * shapes ({ total, cities } and the legacy bare array) so a stale cached
+ * response can't break the probe.
  */
 export async function probeApi() {
   try {
-    const rows = await getJson('/api/cities');
-    return Array.isArray(rows) && rows.length > 0 ? rows : null;
+    const body = await getJson('/api/cities');
+    if (body && typeof body.total === 'number' && body.total > 0) return body.total;
+    const rows = Array.isArray(body) ? body : body?.cities;
+    if (Array.isArray(rows) && rows.length > 0) {
+      return rows.reduce((sum, c) => sum + (c.restaurant_count || 0), 0);
+    }
+    return null;
   } catch {
     return null;
   }

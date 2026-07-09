@@ -1,12 +1,14 @@
 import React from 'react';
 import { gradeMeta } from './GradeBadge.jsx';
 
+// Filterable issue categories. `docs` (paperwork violations) is deliberately
+// not offered as a filter — nobody avoids a restaurant over paperwork — but
+// it still shows on cards and in the detail modal.
 const INFRACTION_META = {
   pests: { label: 'Pests' },
   temp: { label: 'Temperature' },
   hygiene: { label: 'Hygiene' },
   equipment: { label: 'Equipment' },
-  docs: { label: 'Paperwork' },
 };
 
 function Chip({ active, onClick, children, activeClass }) {
@@ -25,8 +27,9 @@ function Chip({ active, onClick, children, activeClass }) {
 }
 
 /**
- * Horizontally scrollable filter rail floating over the map:
- * city chips (derived from live data), grade segmented chips, issue chips.
+ * Filter rail floating over the map. The location picker is a single dropdown
+ * (the city list grew past what a chip row can hold), which keeps the grade
+ * and issue chips permanently visible beside it.
  */
 export default function FilterBar({
   cityOptions,
@@ -35,29 +38,59 @@ export default function FilterBar({
   gradeFilter, toggleGrade,
   infractionFilter, toggleInfraction,
 }) {
-  function handleCity(city, metro = null) {
-    setCityFilter(city);
-    setMetroFilter(metro);
-  }
+  // Encode the two-field selection (city XOR metro) as one select value.
+  const selectValue = metroFilter ? `m:${metroFilter}` : cityFilter !== 'all' ? `c:${cityFilter}` : 'all';
+  const handleSelect = (value) => {
+    if (value.startsWith('m:')) {
+      setCityFilter('all');
+      setMetroFilter(value.slice(2));
+    } else {
+      setCityFilter(value === 'all' ? 'all' : value.slice(2));
+      setMetroFilter(null);
+    }
+  };
+
+  const metros = cityOptions.filter(o => o.metro);
+  const cities = cityOptions.filter(o => !o.metro && o.city !== 'all');
+  const locationActive = selectValue !== 'all';
 
   return (
     <div className="flex items-center gap-2 overflow-x-auto no-scrollbar px-3 md:px-4 pb-1 pointer-events-auto">
-      {/* City chips */}
-      {cityOptions.map(opt => {
-        const active = opt.metro
-          ? metroFilter === opt.metro
-          : !metroFilter && cityFilter === opt.city;
-        return (
-          <Chip
-            key={opt.label}
-            active={active}
-            onClick={() => handleCity(opt.city, opt.metro)}
-            activeClass="bg-brand-600 text-white shadow-md"
-          >
-            {opt.label}
-          </Chip>
-        );
-      })}
+      {/* Location dropdown */}
+      <div className="relative shrink-0">
+        <select
+          value={selectValue}
+          onChange={e => handleSelect(e.target.value)}
+          aria-label="Filter by city or metro area"
+          className={`appearance-none h-9 pl-3.5 pr-8 rounded-full text-[13px] font-semibold outline-none cursor-pointer transition-colors max-w-[46vw] md:max-w-none truncate ${
+            locationActive
+              ? 'bg-brand-600 text-white shadow-md'
+              : 'bg-white/90 dark:bg-slate-800/90 text-slate-700 dark:text-slate-200 ring-1 ring-slate-200 dark:ring-slate-700 shadow-sm backdrop-blur'
+          }`}
+        >
+          <option value="all">All cities</option>
+          {metros.length > 0 && (
+            <optgroup label="Metro areas">
+              {metros.map(o => (
+                <option key={`m:${o.metro}`} value={`m:${o.metro}`}>{o.label}</option>
+              ))}
+            </optgroup>
+          )}
+          <optgroup label="Cities">
+            {cities.map(o => (
+              <option key={`c:${o.city}`} value={`c:${o.city}`}>{o.label}</option>
+            ))}
+          </optgroup>
+        </select>
+        <svg
+          className={`absolute right-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 pointer-events-none ${
+            locationActive ? 'text-white' : 'text-slate-400'
+          }`}
+          viewBox="0 0 20 20" fill="none" aria-hidden="true"
+        >
+          <path d="M5 8l5 5 5-5" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/>
+        </svg>
+      </div>
 
       <div className="shrink-0 w-px h-5 bg-slate-300/70 dark:bg-slate-600/70 mx-0.5" />
 
