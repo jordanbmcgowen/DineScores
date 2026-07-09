@@ -1,9 +1,11 @@
 # DineScores
 
 Restaurant health-inspection scores on a map: https://dinescores.com
-~50k restaurants embedded client-side, ~136k in the database, covering ~20
-metros (NYC, Chicago, SF, Seattle, Boston, Austin, Houston, DC, DFW, Las
-Vegas, Raleigh, Miami/Tampa/Orlando) plus all of Florida and New York State.
+~90k restaurants embedded client-side, ~185k in the database, covering ~25
+metros (NYC, Chicago, LA County, SF, Seattle, Boston, Austin, Houston, DC,
+DFW, Las Vegas, Raleigh, Miami/Tampa/Orlando, Louisville, Minneapolis,
+Cincinnati, Montgomery County MD) plus all of Florida, New York State, and
+Delaware.
 
 ## Architecture
 

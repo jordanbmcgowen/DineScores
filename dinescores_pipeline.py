@@ -2007,11 +2007,17 @@ def _arcgis_query_all(layer_url, where='1=1', out_fields='*', page_size=2000):
     rows = []
     offset = 0
     while True:
-        r = requests.get(layer_url + '/query', params={
-            'where': where, 'outFields': out_fields, 'outSR': '4326',
-            'orderByFields': 'OBJECTID', 'resultOffset': offset,
-            'resultRecordCount': page_size, 'f': 'json',
-        }, headers={'User-Agent': CHROME_UA}, timeout=120)
+        for attempt in (1, 2, 3):
+            r = requests.get(layer_url + '/query', params={
+                'where': where, 'outFields': out_fields, 'outSR': '4326',
+                'orderByFields': 'OBJECTID', 'resultOffset': offset,
+                'resultRecordCount': page_size, 'f': 'json',
+            }, headers={'User-Agent': CHROME_UA}, timeout=120)
+            # Hosted feature services intermittently 5xx on deep pagination;
+            # back off and retry before giving up on the whole layer.
+            if r.status_code < 500 or attempt == 3:
+                break
+            time.sleep(2 * attempt)
         r.raise_for_status()
         data = r.json()
         if 'error' in data:
@@ -2283,6 +2289,437 @@ def fetch_la(since_date=None, limit=None):
             'metro': 'Los Angeles',
         })
     log.info(f"LA County: {len(results)} inspections")
+    return results
+
+
+# ─── LOUISVILLE / JEFFERSON COUNTY, KY (Metro ArcGIS open data) ──────────────
+# Louisville Metro Public Health & Wellness publishes inspections with the
+# official Kentucky 0-100 score and letter grade. FoodServiceData keeps the
+# ~3 most recent inspections per establishment (name/address/score/grade).
+# The companion bulk violations table is a frozen extract (its newest
+# inspection dates to 2022-02) so, like Austin, records carry the official
+# score with no violation text. No layer carries coordinates — records
+# geocode downstream (Census batch).
+
+LOUISVILLE_BASE = ('https://services1.arcgis.com/79kfd2K6fskCAkyg/arcgis/rest/'
+                   'services')
+LOUISVILLE_SOURCE_PAGE = ('https://data.louisvilleky.gov/datasets/'
+                          'louisville::food-service-data')
+
+
+def fetch_louisville(since_date=None, limit=None):
+    log.info(f"Fetching Louisville data (since={since_date}, limit={limit})")
+    since = str(since_date)[:10] if since_date else None
+
+    where = "score IS NOT NULL"
+    if since:
+        # InspectionDate is an ISO YYYY-MM-DD string in this layer
+        where += f" AND InspectionDate >= '{since}'"
+    insp_rows = _arcgis_query_all(
+        f'{LOUISVILLE_BASE}/FoodServiceData/FeatureServer/0',
+        where=where,
+        out_fields='EstablishmentID,InspectionID,Ins_TypeDesc,EstablishmentName,'
+                   'Address,City,State,Zip,InspectionDate,score,Grade',
+        page_size=1000)
+    log.info(f"  Louisville: {len(insp_rows)} inspection rows")
+    if not insp_rows:
+        return []
+
+    results = []
+    for f in insp_rows:
+        a = f.get('attributes', {})
+        insp_date = sane_inspection_date(str(a.get('InspectionDate') or '')[:10])
+        name = (a.get('EstablishmentName') or '').strip()
+        try:
+            score = int(a.get('score'))
+        except (TypeError, ValueError):
+            continue
+        if not insp_date or not name or score <= 0:
+            continue
+
+        results.append({
+            'name': name.title() if name.isupper() else name,
+            'address': (a.get('Address') or '').strip().title(),
+            'city': ((a.get('City') or 'Louisville').strip().title()) or 'Louisville',
+            'state': 'KY',
+            'zip': str(a.get('Zip') or '')[:5],
+            'latitude': None,
+            'longitude': None,
+            'inspection_date': insp_date,
+            'original_score': score,
+            'risk_score': max(0, min(100, score)),  # official KY 0-100 score
+            'priority_violations': 0,
+            'priority_foundation_violations': 0,
+            'core_violations': 0,
+            'total_violations': 0,
+            'violations': [],
+            'inspection_type': (a.get('Ins_TypeDesc') or '').strip(),
+            'results': (a.get('Grade') or '').strip(),
+            'source': 'Louisville Metro Open Data',
+            'source_url': LOUISVILLE_SOURCE_PAGE,
+            'source_id': f"lou_{a.get('InspectionID')}",
+            'metro': '',
+        })
+        if limit and len(results) >= limit:
+            break
+    log.info(f"Louisville: {len(results)} inspections")
+    return results
+
+
+# ─── MINNEAPOLIS, MN (city ArcGIS open data) ─────────────────────────────────
+# Single layer, one row per violation (violation fields null on clean
+# inspections), with the city's 0-100 InspectionScore and Minnesota
+# Priority1/Priority2/Priority3 violation tiers. Coordinates included.
+
+MPLS_LAYER = ('https://services.arcgis.com/afSMGVsC7QlRK1kZ/arcgis/rest/'
+              'services/Food_Inspections/FeatureServer/0')
+MPLS_SOURCE_PAGE = ('https://opendata.minneapolismn.gov/datasets/'
+                    'cityoflakes::food-inspections')
+MPLS_SEVERITY = {'Priority1': 'priority', 'Priority2': 'priority_foundation',
+                 'Priority3': 'core'}
+
+
+def fetch_minneapolis(since_date=None, limit=None):
+    log.info(f"Fetching Minneapolis data (since={since_date}, limit={limit})")
+    since = str(since_date)[:10] if since_date else None
+    where = f"DateOfInspection >= DATE '{since}'" if since else '1=1'
+
+    rows = _arcgis_query_all(
+        MPLS_LAYER, where=where,
+        out_fields='InspectionIDNumber,DateOfInspection,InspectionScore,'
+                   'ViolationPriority,FoodCodeText,InspectorComments,'
+                   'BusinessName,FullAddress,City,ZipCode,Latitude,Longitude,'
+                   'InspectionType,InspectionResult')
+    log.info(f"  Minneapolis: {len(rows)} violation-level rows")
+
+    by_insp = defaultdict(list)
+    for f in rows:
+        a = f.get('attributes', {})
+        if a.get('InspectionIDNumber'):
+            by_insp[a['InspectionIDNumber']].append(a)
+
+    results = []
+    for insp_id, group in by_insp.items():
+        a = group[0]
+        ts = a.get('DateOfInspection')
+        if not ts:
+            continue
+        insp_date = sane_inspection_date(
+            datetime.utcfromtimestamp(ts / 1000).strftime('%Y-%m-%d'))
+        name = (a.get('BusinessName') or '').strip()
+        try:
+            score = int(a.get('InspectionScore'))
+        except (TypeError, ValueError):
+            continue
+        if not insp_date or not name or score <= 0:
+            continue
+
+        violations = []
+        pv = pfv = cv = 0
+        for v in group:
+            desc = ' '.join(x for x in [(v.get('FoodCodeText') or '').strip(),
+                                        (v.get('InspectorComments') or '').strip()] if x)
+            if not desc:
+                continue  # clean inspections carry one row with null violation fields
+            sev = MPLS_SEVERITY.get((v.get('ViolationPriority') or '').strip(), 'core')
+            if sev == 'priority':
+                pv += 1
+            elif sev == 'priority_foundation':
+                pfv += 1
+            else:
+                cv += 1
+            cat, _, _ = classify_violation(desc)
+            violations.append([cat, sev, desc[:500]])
+
+        results.append({
+            'name': name.title() if name.isupper() else name,
+            'address': (a.get('FullAddress') or '').strip().title(),
+            'city': ((a.get('City') or 'Minneapolis').strip().title()) or 'Minneapolis',
+            'state': 'MN',
+            'zip': str(a.get('ZipCode') or '')[:5],
+            'latitude': a.get('Latitude'),
+            'longitude': a.get('Longitude'),
+            'inspection_date': insp_date,
+            'original_score': score,
+            'risk_score': max(0, min(100, score)),  # official 0-100 score
+            'priority_violations': pv,
+            'priority_foundation_violations': pfv,
+            'core_violations': cv,
+            'total_violations': len(violations),
+            'violations': violations,
+            'inspection_type': (a.get('InspectionType') or '').strip(),
+            'results': (a.get('InspectionResult') or '').strip(),
+            'source': 'Minneapolis Open Data',
+            'source_url': MPLS_SOURCE_PAGE,
+            'source_id': f'mpls_{insp_id}',
+            'metro': '',
+        })
+        if limit and len(results) >= limit:
+            break
+    log.info(f"Minneapolis: {len(results)} inspections")
+    return results
+
+
+# ─── CINCINNATI, OH (Socrata) ────────────────────────────────────────────────
+# One row per violation per inspection (clean inspections appear as rows with
+# null violation fields), with coordinates and rich violation text but no
+# numeric score — risk_score is derived from violation severities the same
+# way as other scoreless sources (calc_risk_score).
+
+CINCINNATI_URL = 'https://data.cincinnati-oh.gov/resource/rg6p-b3h3.json'
+
+
+def _strip_wrapping_quotes(s):
+    return (s or '').strip().strip('"').strip()
+
+
+def fetch_cincinnati(since_date=None, limit=None):
+    log.info(f"Fetching Cincinnati data (since={since_date}, limit={limit})")
+    since = str(since_date)[:10] if since_date else '2024-01-01'
+    params = {
+        '$where': f"action_date >= '{since}'",
+        '$order': 'action_date DESC',
+        '$limit': 50000,
+        '$offset': 0,
+    }
+    rows = _socrata_fetch_pages(CINCINNATI_URL, params, limit)
+    log.info(f"  Cincinnati: {len(rows)} violation-level rows")
+
+    by_insp = defaultdict(list)
+    for rec in rows:
+        key = rec.get('recordnum_insp')
+        if key:
+            by_insp[key].append(rec)
+
+    results = []
+    for insp_id, group in by_insp.items():
+        rec = group[0]
+        insp_date = sane_inspection_date(str(rec.get('action_date', ''))[:10])
+        name = _strip_wrapping_quotes(rec.get('business_name'))
+        if not insp_date or not name:
+            continue
+
+        violations = []
+        for v in group:
+            desc = _strip_wrapping_quotes(v.get('violation_description'))
+            comments = _strip_wrapping_quotes(v.get('violation_comments'))
+            # Drop the leading Ohio code citation ("3717-1-04.8(F) - Violation - ")
+            desc = re.sub(r'^[\d.()\-A-Za-z]+\s*-\s*Violation\s*-\s*', '', desc)
+            desc = ' '.join(x for x in [desc.replace('\n', ' ').strip(), comments] if x)
+            if not desc:
+                continue  # clean inspection row
+            violations.append(classify_violation(desc[:500]))
+        risk_score, pv, pfv, cv = calc_risk_score(violations)
+
+        results.append({
+            'name': name.title() if name.isupper() else name,
+            'address': _strip_wrapping_quotes(rec.get('address')).title(),
+            'city': (_strip_wrapping_quotes(rec.get('city')) or 'Cincinnati').title(),
+            'state': 'OH',
+            'zip': (rec.get('postal_code') or '')[:5],
+            'latitude': float(rec['latitude']) if rec.get('latitude') else None,
+            'longitude': float(rec['longitude']) if rec.get('longitude') else None,
+            'inspection_date': insp_date,
+            'original_score': None,  # Cincinnati publishes no numeric score
+            'risk_score': risk_score,
+            'priority_violations': pv,
+            'priority_foundation_violations': pfv,
+            'core_violations': cv,
+            'total_violations': len(violations),
+            'violations': [list(v) for v in violations],
+            'inspection_type': (rec.get('insp_type') or '').strip(),
+            'results': (rec.get('action_status') or '').strip(),
+            'source': 'Cincinnati Open Data',
+            'source_url': CINCINNATI_URL,
+            'source_id': f'cin_{insp_id}',
+            'metro': '',
+        })
+        if limit and len(results) >= limit:
+            break
+    log.info(f"Cincinnati: {len(results)} inspections")
+    return results
+
+
+# ─── DELAWARE (statewide, Socrata) ───────────────────────────────────────────
+# Violations-only dataset (rolling ~2 years): an inspection appears only if it
+# cited at least one violation, so absence is NOT evidence of a clean record.
+# risk_score derives from violation severities; coordinates included.
+
+DELAWARE_URL = 'https://data.delaware.gov/resource/384s-wygj.json'
+
+
+def fetch_delaware(since_date=None, limit=None):
+    log.info(f"Fetching Delaware data (since={since_date}, limit={limit})")
+    since = str(since_date)[:10] if since_date else '2024-01-01'
+    params = {
+        '$where': f"insp_date >= '{since}'",
+        '$order': 'insp_date DESC',
+        '$limit': 50000,
+        '$offset': 0,
+    }
+    rows = _socrata_fetch_pages(DELAWARE_URL, params, limit)
+    log.info(f"  Delaware: {len(rows)} violation-level rows")
+
+    by_insp = defaultdict(list)
+    for rec in rows:
+        name = (rec.get('restname') or '').strip()
+        date = str(rec.get('insp_date', ''))[:10]
+        if name and date:
+            by_insp[(name, (rec.get('restaddress') or '').strip(), date)].append(rec)
+
+    results = []
+    for (name, address, date), group in by_insp.items():
+        insp_date = sane_inspection_date(date)
+        if not insp_date:
+            continue
+        rec = group[0]
+        violations = []
+        for v in group:
+            desc = ' '.join(x for x in [(v.get('violation') or '').strip(),
+                                        (v.get('vio_desc') or '').strip()] if x)
+            if desc:
+                violations.append(classify_violation(desc[:500]))
+        risk_score, pv, pfv, cv = calc_risk_score(violations)
+
+        geo = rec.get('geocoded_column') or {}
+        lat = lng = None
+        try:
+            lat = float(geo.get('latitude'))
+            lng = float(geo.get('longitude'))
+        except (TypeError, ValueError):
+            pass
+
+        results.append({
+            'name': name.title() if name.isupper() else name,
+            'address': address.title() if address.isupper() else address,
+            'city': ((rec.get('restcity') or '').strip().title()) or 'Delaware',
+            'state': 'DE',
+            'zip': (rec.get('restzip') or '')[:5],
+            'latitude': lat,
+            'longitude': lng,
+            'inspection_date': insp_date,
+            'original_score': None,
+            'risk_score': risk_score,
+            'priority_violations': pv,
+            'priority_foundation_violations': pfv,
+            'core_violations': cv,
+            'total_violations': len(violations),
+            'violations': [list(v) for v in violations],
+            'inspection_type': (rec.get('insp_type') or '').strip(),
+            'results': '',
+            'source': 'Delaware Open Data',
+            'source_url': DELAWARE_URL,
+            'source_id': f'de_{make_restaurant_id(name, address, "")}_{insp_date}',
+            'metro': '',
+        })
+        if limit and len(results) >= limit:
+            break
+    log.info(f"Delaware: {len(results)} inspections")
+    return results
+
+
+# ─── MONTGOMERY COUNTY, MD (DC suburbs, Socrata) ─────────────────────────────
+# Pass/Fail inspections with ~16 per-category compliance columns and no
+# violation free-text. Non-compliant categories become pseudo-violations so
+# risk derives from calc_risk_score; a Fail is capped below the F threshold.
+# The raw table duplicates each inspection ~180x (snapshot appends) — the
+# $group query dedupes server-side, then rows are merged per inspection.
+
+MOCO_URL = 'https://data.montgomerycountymd.gov/resource/dkrp-gr48.json'
+MOCO_CATEGORIES = {
+    'food_from_approved_source': 'Food not from an approved source',
+    'food_protected_from_contamination': 'Food not protected from contamination',
+    'workers_restricted': 'Ill food workers not restricted from working',
+    'proper_hand_washing': 'Improper hand washing',
+    'cooling_time_and_temperature': 'Improper cooling time and temperature',
+    'cold_holding_temperature': 'Improper cold holding temperature',
+    'hot_holding_temperature': 'Improper hot holding temperature',
+    'cooking_time_and_temperature': 'Improper cooking time and temperature',
+    'reheating_time_and_temperature': 'Improper reheating time and temperature',
+    'hot_and_cold_running_water_provided': 'Hot and cold running water not provided',
+    'proper_sewage_disposal': 'Improper sewage disposal',
+    'toxic_substances_and_pesticides': 'Toxic substances or pesticides not properly stored',
+    'rodents_and_insects': 'Evidence of rodents or insects observed',
+    'nutritional_labeling': 'Nutritional labeling not in compliance',
+    'trans_fat_ban': 'Trans fat ban not in compliance',
+    'nosmoking_sign_posted': 'No-smoking sign not posted',
+}
+
+
+def fetch_montgomery(since_date=None, limit=None):
+    log.info(f"Fetching Montgomery County data (since={since_date}, limit={limit})")
+    since = str(since_date)[:10] if since_date else None
+
+    cols = ['inspection_number', 'business_name', 'address', 'city', 'state',
+            'zip', 'inspection_type', 'inspection_start_date', 'status',
+            'location'] + list(MOCO_CATEGORIES)
+    params = {
+        '$select': ','.join(cols),
+        '$group': ','.join(cols),
+        '$limit': 50000,
+        '$offset': 0,
+    }
+    if since:
+        params['$where'] = f"inspection_start_date >= '{since}'"
+    rows = _socrata_fetch_pages(MOCO_URL, params, limit)
+    log.info(f"  Montgomery: {len(rows)} deduped rows")
+
+    # Snapshot variants of the same inspection can still differ in a column —
+    # merge them: any variant out of compliance marks the category, any Fail
+    # marks the inspection failed.
+    by_insp = defaultdict(list)
+    for rec in rows:
+        key = rec.get('inspection_number')
+        if key and rec.get('business_name'):
+            by_insp[key].append(rec)
+
+    results = []
+    for insp_id, group in by_insp.items():
+        rec = group[0]
+        insp_date = sane_inspection_date(str(rec.get('inspection_start_date', ''))[:10])
+        name = (rec.get('business_name') or '').strip()
+        if not insp_date or not name:
+            continue
+
+        failed = any((v.get('status') or '').strip().lower() == 'fail' for v in group)
+        out = set()
+        for v in group:
+            for col in MOCO_CATEGORIES:
+                val = (v.get(col) or '').strip().lower()
+                if val and 'not in compliance' in val:
+                    out.add(col)
+        violations = [classify_violation(MOCO_CATEGORIES[col]) for col in sorted(out)]
+        risk_score, pv, pfv, cv = calc_risk_score(violations)
+        if failed:
+            risk_score = min(risk_score, 65)  # a failed inspection is an F
+
+        geo = (rec.get('location') or {}).get('coordinates') or [None, None]
+        results.append({
+            'name': name.title() if name.isupper() else name,
+            'address': (rec.get('address') or '').strip().title(),
+            'city': ((rec.get('city') or '').strip().title()) or 'Montgomery County',
+            'state': 'MD',
+            'zip': (rec.get('zip') or '')[:5],
+            'latitude': geo[1],
+            'longitude': geo[0],
+            'inspection_date': insp_date,
+            'original_score': None,
+            'risk_score': risk_score,
+            'priority_violations': pv,
+            'priority_foundation_violations': pfv,
+            'core_violations': cv,
+            'total_violations': len(violations),
+            'violations': [list(v) for v in violations],
+            'inspection_type': (rec.get('inspection_type') or '').strip(),
+            'results': (rec.get('status') or '').strip(),
+            'source': 'Montgomery County Open Data',
+            'source_url': MOCO_URL,
+            'source_id': f'moco_{insp_id}',
+            'metro': '',
+        })
+        if limit and len(results) >= limit:
+            break
+    log.info(f"Montgomery County: {len(results)} inspections")
     return results
 
 
@@ -3812,6 +4249,24 @@ def main():
             geocode_missing_coords(data)
             return data
         socrata_jobs['LA County'] = _la
+    if 'louisville' in args.cities:
+        def _louisville():
+            data = fetch_louisville(since_date=since_date, limit=record_limit)
+            geocode_missing_coords(data)
+            return data
+        socrata_jobs['Louisville'] = _louisville
+    if 'minneapolis' in args.cities:
+        socrata_jobs['Minneapolis'] = lambda: fetch_minneapolis(
+            since_date=since_date, limit=record_limit)
+    if 'cincinnati' in args.cities:
+        socrata_jobs['Cincinnati'] = lambda: fetch_cincinnati(
+            since_date=since_date, limit=record_limit)
+    if 'delaware' in args.cities:
+        socrata_jobs['Delaware'] = lambda: fetch_delaware(
+            since_date=since_date, limit=record_limit)
+    if 'montgomery' in args.cities or 'moco' in args.cities:
+        socrata_jobs['Montgomery County'] = lambda: fetch_montgomery(
+            since_date=since_date, limit=record_limit)
     if 'vegas' in args.cities or 'lasvegas' in args.cities:
         socrata_jobs['Las Vegas'] = lambda: fetch_vegas(
             since_date=since_date, limit=record_limit)
