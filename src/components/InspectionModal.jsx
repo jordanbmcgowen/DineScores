@@ -366,7 +366,7 @@ export default function InspectionModal({ restaurant: r, onClose, formatDate, on
                           target="_blank"
                           rel="noopener noreferrer"
                           aria-label={`Official record for the ${formatDate(insp.date)} inspection`}
-                          className="w-7 h-7 flex items-center justify-center rounded-lg text-slate-400 hover:text-brand-600 hover:bg-white dark:hover:bg-slate-700 transition-colors"
+                          className="w-9 h-9 flex items-center justify-center rounded-lg text-slate-400 hover:text-brand-600 hover:bg-white dark:hover:bg-slate-700 transition-colors"
                         >
                           <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                             <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/>

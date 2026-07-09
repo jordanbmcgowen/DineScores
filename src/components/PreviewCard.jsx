@@ -42,7 +42,7 @@ export default function PreviewCard({ restaurant: r, userPos, formatDate, onClos
               <button
                 onClick={onClose}
                 aria-label="Close preview"
-                className="shrink-0 w-6 h-6 -mt-0.5 -mr-0.5 flex items-center justify-center rounded-full text-slate-400 hover:text-slate-600 hover:bg-slate-100 dark:hover:bg-slate-800 dark:hover:text-slate-200"
+                className="shrink-0 w-9 h-9 -mt-1.5 -mr-1.5 flex items-center justify-center rounded-full text-slate-400 hover:text-slate-600 hover:bg-slate-100 dark:hover:bg-slate-800 dark:hover:text-slate-200"
               >
                 <svg viewBox="0 0 20 20" width="13" height="13" fill="none">
                   <path d="M6 6l8 8M14 6l-8 8" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"/>
