@@ -7,14 +7,19 @@ const COLLAPSED_PEEK = 96; // px of sheet visible when collapsed
  * collapsed / half / full), tap it to cycle states. The list body scrolls
  * normally; only the header is a drag handle, so scrolling and dragging
  * never fight over the same gesture. Bumping `collapseKey` collapses the
- * sheet (used when a map preview card needs the space).
+ * sheet (a map preview card needs the space); bumping `expandKey` raises
+ * it to half (a stack of co-located restaurants was handed to the list).
  */
-export default function BottomSheet({ header, children, collapseKey }) {
+export default function BottomSheet({ header, children, collapseKey, expandKey }) {
   const [state, setState] = useState('collapsed'); // collapsed | half | full
 
   useEffect(() => {
     if (collapseKey) setState('collapsed');
   }, [collapseKey]);
+
+  useEffect(() => {
+    if (expandKey) setState('half');
+  }, [expandKey]);
   const sheetRef = useRef(null);
   const dragRef = useRef(null); // { startY, startOffset, height, moved }
   const suppressClickRef = useRef(false); // a drag's trailing click must not cycle

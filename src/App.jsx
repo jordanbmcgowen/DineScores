@@ -23,7 +23,11 @@ export default function App() {
   // map; `selectedRestaurant` is the full-report modal (one more tap).
   const [preview, setPreview] = useState(null);
   const [selectedRestaurant, setSelectedRestaurant] = useState(null);
+  // Co-located stack (one address, many restaurants): the list temporarily
+  // shows just its members until dismissed.
+  const [stack, setStack] = useState(null); // { records }
   const [sheetCollapseKey, setSheetCollapseKey] = useState(0);
+  const [sheetExpandKey, setSheetExpandKey] = useState(0);
   // Default ordering: most recent inspections; upgraded to nearest-first the
   // moment a GPS fix lands (unless the user has picked a sort themselves).
   const [sortBy, setSortBy] = useState('date-desc');
@@ -366,6 +370,16 @@ export default function App() {
 
   const handleBackgroundClick = useCallback(() => {
     setPreview(prev => (prev ? null : prev));
+    setStack(prev => (prev ? null : prev));
+  }, []);
+
+  // Terminal cluster (all one location): show its members in the list —
+  // the sidebar on desktop, the raised bottom sheet on mobile.
+  const handleStackClick = useCallback((records) => {
+    const sorted = [...records].sort((a, b) => (a.n || '').localeCompare(b.n || ''));
+    setPreview(null);
+    setStack({ records: sorted });
+    setSheetExpandKey(k => k + 1);
   }, []);
 
   // List card / search suggestion → preview + glide the camera there
@@ -375,23 +389,28 @@ export default function App() {
     setPreview(rec);
     setSheetCollapseKey(k => k + 1);
     if (fly && rec.lt && rec.ln) {
-      // 16.2 > clusterMaxZoom, so the target renders as an individual
-      // marker and its selection halo is guaranteed to be visible.
+      // Deep enough that only same-address stacks remain grouped; a target
+      // inside such a stack stays in its counted donut (the docked preview
+      // still identifies it), otherwise it shows individually with a halo.
       setFlyTo(prev => ({
         lng: rec.ln, lat: rec.lt,
-        zoom: Math.max(16.2, mapViewRef.current?.zoom || 0),
+        zoom: Math.max(16.5, mapViewRef.current?.zoom || 0),
         key: Date.now(),
       }));
     }
   }, [mergeRecords]);
 
-  // Esc dismisses the preview (the modal handles its own Esc)
+  // Esc dismisses the preview, then the stack (the modal handles its own Esc)
   useEffect(() => {
-    if (!preview || selectedRestaurant) return;
-    const onKey = e => { if (e.key === 'Escape') setPreview(null); };
+    if ((!preview && !stack) || selectedRestaurant) return;
+    const onKey = e => {
+      if (e.key !== 'Escape') return;
+      if (preview) setPreview(null);
+      else setStack(null);
+    };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [preview, selectedRestaurant]);
+  }, [preview, stack, selectedRestaurant]);
 
   const toggleGrade = useCallback((grade) => {
     setGradeFilter(prev => {
@@ -421,6 +440,26 @@ export default function App() {
   // Loading state — the HTML overlay handles it
   if (loading) return null;
 
+  // Banner + scoped items while a co-located stack is open
+  const listItems = stack ? stack.records : visible;
+  const stackBanner = stack && (
+    <div className="shrink-0 px-4 py-2.5 bg-brand-50/70 dark:bg-brand-900/20 border-b border-brand-100 dark:border-brand-900/40 flex items-center justify-between gap-2">
+      <span className="text-xs font-bold text-brand-800 dark:text-brand-100 min-w-0 truncate">
+        {stack.records.length} restaurants at {stack.records[0]?.a || 'this location'}
+      </span>
+      <button
+        onClick={() => setStack(null)}
+        className="shrink-0 inline-flex items-center gap-1 text-[11px] font-bold text-brand-700 dark:text-brand-100 hover:text-brand-900 dark:hover:text-white"
+        aria-label="Back to all results"
+      >
+        <svg viewBox="0 0 20 20" width="12" height="12" fill="none">
+          <path d="M6 6l8 8M14 6l-8 8" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/>
+        </svg>
+        Show all
+      </button>
+    </div>
+  );
+
   const sortSelect = (
     <select
       value={sortBy}
@@ -444,6 +483,7 @@ export default function App() {
           restaurants={filtered}
           onMarkerClick={handleMarkerClick}
           onBackgroundClick={handleBackgroundClick}
+          onStackClick={handleStackClick}
           onViewportChange={handleViewportChange}
           fitSignal={fitSignal}
           narrowSignal={narrowSignal}
@@ -503,9 +543,10 @@ export default function App() {
             onFullReport={() => setSelectedRestaurant(preview)}
           />
         )}
+        {stackBanner}
         <div className="px-4 h-11 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between shrink-0">
           <span className="text-xs font-bold text-slate-500 dark:text-slate-400 tabular-nums flex items-center gap-2">
-            {visible.length.toLocaleString()} restaurants
+            {listItems.length.toLocaleString()} restaurants
             {loadingArea && (
               <span className="inline-flex items-center gap-1 text-brand-600 dark:text-brand-500 normal-case">
                 <span className="w-3 h-3 border-2 border-brand-200 border-t-brand-600 rounded-full animate-spin" />
@@ -522,31 +563,32 @@ export default function App() {
           {sortSelect}
         </div>
         <div className="flex-1 overflow-y-auto">
-          {visible.slice(0, 100).map(r => (
+          {listItems.slice(0, 100).map(r => (
             <RestaurantCard
               key={r.i}
               restaurant={r}
               formatDate={formatDate}
-              onClick={() => focusRestaurant(r)}
+              onClick={() => focusRestaurant(r, { fly: !stack })}
               selected={preview?.i === r.i || selectedRestaurant?.i === r.i}
             />
           ))}
-          {visible.length > 100 && (
+          {listItems.length > 100 && (
             <p className="p-4 text-center text-xs text-slate-400">
-              Showing 100 of {visible.length.toLocaleString()} — zoom in or search to narrow.
+              Showing 100 of {listItems.length.toLocaleString()} — zoom in or search to narrow.
             </p>
           )}
-          {visible.length === 0 && <EmptyState />}
+          {listItems.length === 0 && <EmptyState />}
         </div>
       </aside>
 
       {/* Mobile bottom sheet (drag the header to resize) */}
       <BottomSheet
         collapseKey={sheetCollapseKey}
+        expandKey={sheetExpandKey}
         header={
           <div className="w-full px-4 pb-2 flex items-center justify-between">
             <span className="text-sm font-bold tabular-nums">
-              {visible.length.toLocaleString()} restaurants
+              {listItems.length.toLocaleString()} restaurants
             </span>
             <span onClick={e => e.stopPropagation()} onTouchStart={e => e.stopPropagation()}>
               {sortSelect}
@@ -554,16 +596,17 @@ export default function App() {
           </div>
         }
       >
-        {visible.slice(0, 50).map(r => (
+        {stackBanner}
+        {listItems.slice(0, 50).map(r => (
           <RestaurantCard
             key={r.i}
             restaurant={r}
             formatDate={formatDate}
-            onClick={() => focusRestaurant(r)}
+            onClick={() => focusRestaurant(r, { fly: !stack })}
             selected={preview?.i === r.i}
           />
         ))}
-        {visible.length === 0 && <EmptyState />}
+        {listItems.length === 0 && <EmptyState />}
       </BottomSheet>
 
       {/* Mobile-only floating preview (desktop docks it in the sidebar) */}

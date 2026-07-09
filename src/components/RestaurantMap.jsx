@@ -29,6 +29,14 @@ function basemapStyle(dark) {
 // Safe (A) / Caution (B, C) / Avoid (F) / Unrated.
 const DONUT_COLORS = { safe: '#10b981', caution: '#f59e0b', avoid: '#ef4444', unrated: '#94a3b8' };
 
+// Clustering runs all the way to max zoom: restaurants stacked at one
+// street address (casinos, food halls) stay a counted donut forever instead
+// of collapsing into what looks like a single restaurant. The map's maxZoom
+// stays fractionally below CLUSTER_MAX_ZOOM + 1 so no zoom level ever
+// renders the raw splat.
+const CLUSTER_MAX_ZOOM = 17;
+const MAP_MAX_ZOOM = 17.9;
+
 /**
  * Grade markers are a hybrid: the colored disc + white ring is a MapLibre
  * circle layer (true vector — the edge is shader-smooth at every radius),
@@ -186,7 +194,8 @@ function createDonutChart(props, dark, minR) {
   el.setAttribute('role', 'button');
   el.setAttribute('aria-label',
     `${total} restaurants: ${counts.safe} safe, ${counts.caution} caution, ` +
-    `${counts.avoid} avoid${counts.unrated ? `, ${counts.unrated} unrated` : ''}. Zoom in.`);
+    `${counts.avoid} avoid${counts.unrated ? `, ${counts.unrated} unrated` : ''}. ` +
+    'Tap to zoom in or list them.');
   el.title = el.getAttribute('aria-label');
   return el;
 }
@@ -211,7 +220,7 @@ function createDonutChart(props, dark, minR) {
  * zooms, so the parent can lazy-load whatever is now in view.
  */
 export default function RestaurantMap({
-  restaurants, onMarkerClick, onBackgroundClick, onViewportChange,
+  restaurants, onMarkerClick, onBackgroundClick, onStackClick, onViewportChange,
   fitSignal, narrowSignal, flyTo, selectedId,
 }) {
   const mapContainer = useRef(null);
@@ -220,6 +229,8 @@ export default function RestaurantMap({
   const onViewportChangeRef = useRef(onViewportChange);
   const onBackgroundClickRef = useRef(onBackgroundClick);
   onBackgroundClickRef.current = onBackgroundClick;
+  const onStackClickRef = useRef(onStackClick);
+  onStackClickRef.current = onStackClick;
   const [mapLoaded, setMapLoaded] = useState(false);
   const donutsRef = useRef({ markers: {}, onScreen: {} });
   const densityRef = useRef(1.0);
@@ -239,7 +250,7 @@ export default function RestaurantMap({
       style: basemapStyle(dark),
       center: [-96.9, 36.5],
       zoom: 4,
-      maxZoom: 18,
+      maxZoom: MAP_MAX_ZOOM,
       attributionControl: { compact: true },
     });
 
@@ -333,10 +344,11 @@ export default function RestaurantMap({
       data: geojson,
       cluster: true,
       // Radius ≈ one marker diameter: restaurants that would physically
-      // overlap (food courts, malls) stay grouped as a small donut instead
-      // of stacking; genuinely separate ones show individually. Everything
-      // unclusters at street level (16+).
-      clusterMaxZoom: 15,
+      // overlap stay grouped as a donut instead of stacking. Clustering
+      // never switches off (see CLUSTER_MAX_ZOOM) — a same-address stack
+      // remains a counted donut at max zoom, and clicking it lists the
+      // individual restaurants in the sidebar.
+      clusterMaxZoom: CLUSTER_MAX_ZOOM,
       clusterRadius: 40,
       // Aggregate the grade mix per cluster so donuts can render it.
       clusterProperties: {
@@ -454,10 +466,26 @@ export default function RestaurantMap({
         if (!marker) {
           const el = createDonutChart(props, darkScheme, minR);
           el.addEventListener('click', () => {
-            // v4 returns a Promise (the callback form is gone)
-            Promise.resolve(map.getSource('restaurants').getClusterExpansionZoom(id))
-              .then(zoom => map.easeTo({ center: f.geometry.coordinates, zoom }))
-              .catch(() => {});
+            const src = map.getSource('restaurants');
+            // v4 returns Promises (the callback forms are gone)
+            Promise.resolve(src.getClusterExpansionZoom(id)).then(zoom => {
+              if (zoom <= CLUSTER_MAX_ZOOM) {
+                map.easeTo({ center: f.geometry.coordinates, zoom });
+                return;
+              }
+              // Terminal stack: these restaurants share one location and no
+              // amount of zoom separates them — center on it and hand the
+              // member list to the sidebar instead.
+              map.easeTo({
+                center: f.geometry.coordinates,
+                zoom: Math.max(map.getZoom(), 16.5),
+              });
+              Promise.resolve(src.getClusterLeaves(id, 1000, 0)).then(leaves => {
+                const ids = new Set(leaves.map(l => l.properties.id));
+                const records = restaurantsRef.current.filter(r => ids.has(r.i));
+                if (records.length && onStackClickRef.current) onStackClickRef.current(records);
+              }).catch(() => {});
+            }).catch(() => {});
           });
           marker = cache.markers[id] =
             new maplibregl.Marker({ element: el }).setLngLat(f.geometry.coordinates);
