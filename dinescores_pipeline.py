@@ -3641,7 +3641,10 @@ def geocode_census_batch(records):
         return re.sub(r'\s{2,}', ' ', cleaned).strip()
 
     geocoded = 0
-    chunk_size = 5000
+    # 5k-row batches routinely exceed the Census service's comfortable
+    # response time and used to blow the request timeout, silently leaving
+    # whole cities ungeocoded — smaller chunks + a retry are far sturdier.
+    chunk_size = 2000
     for chunk_start in range(0, len(records), chunk_size):
         chunk = records[chunk_start:chunk_start + chunk_size]
         rows = io.StringIO()
@@ -3649,15 +3652,21 @@ def geocode_census_batch(records):
         for idx, r in enumerate(chunk):
             writer.writerow([idx, match_address(r.get('address', '')), r.get('city', ''),
                              r.get('state', ''), (r.get('zip', '') or '').split('-')[0]])
-        try:
-            resp = requests.post(
-                'https://geocoding.geo.census.gov/geocoder/locations/addressbatch',
-                files={'addressFile': ('addresses.csv', rows.getvalue(), 'text/csv')},
-                data={'benchmark': 'Public_AR_Current'},
-                timeout=300)
-            resp.raise_for_status()
-        except requests.RequestException as e:
-            log.warning(f"Census batch geocode failed: {e}")
+        resp = None
+        for attempt in (1, 2):
+            try:
+                resp = requests.post(
+                    'https://geocoding.geo.census.gov/geocoder/locations/addressbatch',
+                    files={'addressFile': ('addresses.csv', rows.getvalue(), 'text/csv')},
+                    data={'benchmark': 'Public_AR_Current'},
+                    timeout=600)
+                resp.raise_for_status()
+                break
+            except requests.RequestException as e:
+                log.warning(f"Census batch geocode failed (attempt {attempt}): {e}")
+                resp = None
+                time.sleep(5)
+        if resp is None:
             continue
         # Response CSV: id, input, match status, match type, matched addr, "lon,lat", ...
         for row in csv.reader(io.StringIO(resp.text)):
