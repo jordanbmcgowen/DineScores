@@ -3427,6 +3427,12 @@ def write_data_js(all_inspections, output_path, top_per_city=1000,
                 combined = sorted(hist.items(), reverse=True)[:MAX_HISTORY]
                 # Keep whichever record reflects the most recent inspection
                 rec = new if new.get('d', '') >= old.get('d', '') else old
+                # Never lose coordinates: a re-fetch during a geocoder outage
+                # produces records without lat/lng, but the old record's
+                # coordinates are still valid for the same restaurant id.
+                for k in ('lt', 'ln'):
+                    if rec.get(k) is None and (old if rec is new else new).get(k) is not None:
+                        rec[k] = (old if rec is new else new)[k]
                 rec['h'] = [[d, s] for d, s in combined]
                 rec['ic'] = (old.get('ic') or 1) + new_dates_added
                 by_id[new['i']] = rec
