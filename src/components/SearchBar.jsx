@@ -19,6 +19,8 @@ export default function SearchBar({
   const [active, setActive] = useState(-1);
   const [apiItems, setApiItems] = useState([]);
   const boxRef = useRef(null);
+  // Tracks a touch/pointer gesture so we can tell a tap from a scroll drag
+  const dragRef = useRef({ x: 0, y: 0, moved: false });
   const q = value.trim().toLowerCase();
 
   // Instant local matches, prefix matches first
@@ -143,14 +145,25 @@ export default function SearchBar({
       )}
 
       {showDropdown && (
-        <div className="absolute z-50 top-[50px] inset-x-0 rounded-2xl bg-white dark:bg-slate-900 shadow-2xl ring-1 ring-slate-900/10 dark:ring-white/10 overflow-hidden animate-fade-in" role="listbox">
+        <div className="absolute z-50 top-[50px] inset-x-0 rounded-2xl bg-white dark:bg-slate-900 shadow-2xl ring-1 ring-slate-900/10 dark:ring-white/10 overflow-y-auto overscroll-contain max-h-[60vh] animate-fade-in" role="listbox">
           {items.map((item, idx) => (
             <button
               key={item.key}
               role="option"
               aria-selected={idx === active}
-              // pointerdown (not click) so the pick lands before the input blurs
-              onPointerDown={e => { e.preventDefault(); pick(item); }}
+              // Track the gesture so a scroll drag doesn't count as a tap:
+              // record the start point, flag any real movement, and only
+              // commit the pick on release when the finger stayed put.
+              onPointerDown={e => { dragRef.current = { x: e.clientX, y: e.clientY, moved: false }; }}
+              onPointerMove={e => {
+                const d = dragRef.current;
+                if (Math.abs(e.clientX - d.x) > 8 || Math.abs(e.clientY - d.y) > 8) d.moved = true;
+              }}
+              onPointerUp={e => {
+                if (dragRef.current.moved) return;
+                e.preventDefault();
+                pick(item);
+              }}
               onMouseEnter={() => setActive(idx)}
               className={`w-full text-left px-3.5 py-2.5 flex items-center gap-3 transition-colors ${
                 idx === active ? 'bg-slate-50 dark:bg-slate-800/70' : ''
