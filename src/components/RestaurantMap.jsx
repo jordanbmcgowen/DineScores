@@ -35,7 +35,9 @@ const DONUT_COLORS = { safe: '#10b981', caution: '#f59e0b', avoid: '#ef4444', un
  * Rendering the disc in the bitmap too made its silhouette look rough when
  * minified — hence the split.
  */
-const LETTER_BASE = 32; // logical px of the letter glyph box at icon-size 1
+const LETTER_BASE = 24; // logical px of the letter glyph box at icon-size 1
+                        // (kept tight around the glyph — the box doubles as
+                        // the letter's collision footprint)
 
 function makeLetterIcon(letter) {
   const pr = 3;
@@ -53,6 +55,11 @@ function makeLetterIcon(letter) {
 }
 
 const GRADE_LETTERS = ['A', 'B', 'C', 'F', '?'];
+
+// Stacking hierarchy for markers that touch: the worse the grade, the more
+// the user needs to see it. Higher priority paints on top (circle-sort-key)
+// and wins the letter collision (symbol-sort-key, where LOWER places first).
+const GRADE_PRIORITY = { F: 4, C: 3, B: 2, A: 1, '?': 0 };
 
 // Marker radius by zoom, times a density factor — markers grow when few
 // restaurants are in view and shrink (to a still-readable floor) when the
@@ -234,6 +241,7 @@ export default function RestaurantMap({ restaurants, onMarkerClick, onViewportCh
             id: r.i,
             grade: GRADE_LETTERS.includes(r.vg) ? r.vg : '?',
             color: gradeMeta(r.vg).dot,
+            priority: GRADE_PRIORITY[GRADE_LETTERS.includes(r.vg) ? r.vg : '?'],
           },
         })),
     };
@@ -255,10 +263,12 @@ export default function RestaurantMap({ restaurants, onMarkerClick, onViewportCh
       type: 'geojson',
       data: geojson,
       cluster: true,
-      // Break clusters apart earlier: a tighter radius and lower max zoom
-      // reveal individual (density-sized) markers well before street level.
-      clusterMaxZoom: 13,
-      clusterRadius: 38,
+      // Radius ≈ one marker diameter: restaurants that would physically
+      // overlap (food courts, malls) stay grouped as a small donut instead
+      // of stacking; genuinely separate ones show individually. Everything
+      // unclusters at street level (16+).
+      clusterMaxZoom: 15,
+      clusterRadius: 40,
       // Aggregate the grade mix per cluster so donuts can render it.
       clusterProperties: {
         safe: ['+', ['case', ['==', ['get', 'grade'], 'A'], 1, 0]],
@@ -279,12 +289,19 @@ export default function RestaurantMap({ restaurants, onMarkerClick, onViewportCh
       paint: { 'circle-radius': 1, 'circle-opacity': 0.01 },
     });
 
-    // Individual markers: vector disc (smooth at any radius) + bitmap letter
+    // Individual markers: vector disc (smooth at any radius) + bitmap letter.
+    // When markers still touch (adjacent storefronts at street level), the
+    // hierarchy keeps it readable: worse grades paint on top of better ones,
+    // and letters collision-cull — the worst grade's letter always survives,
+    // so text never overlaps text.
     map.addLayer({
       id: 'unclustered-point',
       type: 'circle',
       source: 'restaurants',
       filter: ['!', ['has', 'point_count']],
+      layout: {
+        'circle-sort-key': ['get', 'priority'],
+      },
       paint: {
         'circle-color': ['get', 'color'],
         'circle-radius': circleRadiusExpr(densityRef.current),
@@ -300,8 +317,10 @@ export default function RestaurantMap({ restaurants, onMarkerClick, onViewportCh
       layout: {
         'icon-image': ['concat', 'letter-', ['get', 'grade']],
         'icon-size': letterSizeExpr(densityRef.current),
-        'icon-allow-overlap': true,
-        'icon-ignore-placement': true,
+        // Lower sort key places first and wins the collision — invert
+        // priority so F letters beat the A's they overlap.
+        'symbol-sort-key': ['-', 4, ['get', 'priority']],
+        'icon-padding': 0,
       },
     });
 
