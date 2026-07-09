@@ -11,9 +11,9 @@ Vegas, Raleigh, Miami/Tampa/Orlando) plus all of Florida and New York State.
 dinescores_pipeline.py  (Python, stdlib-only scrapers)
    ├─> public/data.js       embedded dataset the map loads instantly
    └─> D1 SQL               full dataset + inspection history
-Cloudflare Pages serves public/ as-is
+Cloudflare Pages builds on deploy, serves public/
    ├─ functions/api/*.js    Pages Functions backed by D1 (env.DB binding)
-   └─ src/ (React+Vite)     builds INTO public/ (committed build output)
+   └─ src/ (React+Vite)     builds INTO public/ (build output gitignored)
 ```
 
 - **Frontend**: React 19 + Vite + Tailwind + MapLibre GL. Entry `src/main.jsx`
@@ -34,14 +34,17 @@ Cloudflare Pages serves public/ as-is
   data.js at restaurant level; `write_d1_sql` emits idempotent SQL
   (INSERT-upserts; inspections keyed by restaurant+date).
 
-## CRITICAL: deploy model
+## Deploy model
 
-Cloudflare Pages serves the committed `public/` directory — there is no
-build step in CI. After ANY change under `src/`, run `npm run build` and
-commit the changed `public/` files (assets bundle + index.html), or the
-live site won't change. `vite.config.js` builds into `public/` with
-`emptyOutDir: false` so pipeline-generated `public/data.js` survives.
-`npm run dev` serves data.js through a dev middleware.
+Pushing to `main` triggers a Cloudflare Pages deploy (~2 min). Pages runs
+`npm run build` itself and serves the fresh output, so build artifacts
+(`public/assets/`, `public/index.html`) are gitignored — never commit
+them. `public/data.js` IS committed: it is pipeline-generated data, not
+build output, and the build leaves it alone (`vite.config.js` sets
+`emptyOutDir: false`). Verified 2026-07: the live site's bundle hash
+differs from any local build, while live `data.js` matches `main` — Pages
+builds from git on deploy. `npm run dev` serves data.js through a dev
+middleware.
 
 ## Workflows (.github/workflows/)
 

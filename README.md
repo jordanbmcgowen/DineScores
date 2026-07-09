@@ -72,13 +72,15 @@ npm run dev     # Vite dev server on port 3000
 ### 3. Production Build
 
 ```bash
-npm run build   # Outputs to public/ (committed — Cloudflare Pages serves it as-is)
+npm run build   # Outputs to public/ (build output is gitignored)
 ```
 
 ### 4. Deploy
 
-Merge to `main` — Cloudflare Pages auto-deploys the committed `public/`
-directory (~2 min).
+Merge to `main` — Cloudflare Pages runs the build and deploys it
+automatically (~2 min). Build artifacts are never committed; the only
+committed file in `public/` besides `CNAME` is the pipeline-generated
+`data.js`.
 
 ---
 

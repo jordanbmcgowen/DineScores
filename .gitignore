@@ -1,10 +1,12 @@
-serviceAccount.json
 node_modules/
-.firebase/
 *.log
 __pycache__/
 .env
 .env.local
 dist/
 dinescores_data.json
+# Build output — Cloudflare Pages runs `npm run build` on every deploy,
+# so built files are never committed (public/data.js IS committed: it is
+# pipeline-generated data, not build output).
 public/assets/
+public/index.html
