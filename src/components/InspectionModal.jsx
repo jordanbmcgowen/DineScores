@@ -52,6 +52,9 @@ function trendInfo(history) {
   if (prior.length > 0 && rank[latest] < rank[prior[0]]) {
     return { label: 'Declining', tone: latest, sentence: `Latest inspection rated ${latest}, down from ${prior[0]}.` };
   }
+  if (latest === 'A') {
+    return { label: 'Mostly clean', tone: 'A', sentence: `${aCount} of ${n} inspections rated A, including the latest.` };
+  }
   return { label: 'Mixed record', tone: latest, sentence: `${aCount} of ${n} inspections rated A.` };
 }
 
