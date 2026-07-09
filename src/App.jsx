@@ -39,11 +39,37 @@ export default function App() {
   const inFlightRef = useRef(new Set());
   const loadedAreasRef = useRef(new Set()); // cities/metros fully loaded
 
+  // Open the map on the user's own location (mobile-first): ask for a GPS
+  // fix once on load, and center there when it's near covered data.
+  const [userPos, setUserPos] = useState(null);
+  const [flyTo, setFlyTo] = useState(null);
+
   // Debounce search
   useEffect(() => {
     const timer = setTimeout(() => setDebouncedSearch(searchTerm), 300);
     return () => clearTimeout(timer);
   }, [searchTerm]);
+
+  useEffect(() => {
+    if (!navigator.geolocation) return;
+    navigator.geolocation.getCurrentPosition(
+      pos => setUserPos({ lat: pos.coords.latitude, lng: pos.coords.longitude }),
+      () => {}, // denied/unavailable — keep the default framing
+      { timeout: 8000, maximumAge: 300000 },
+    );
+  }, []);
+
+  // Center on the user only when we actually cover their area (~within
+  // 100km of any loaded restaurant) — recentring onto an empty map would
+  // be worse than the default nationwide view.
+  useEffect(() => {
+    if (!userPos || flyTo || allData.length === 0) return;
+    const near = allData.some(r =>
+      r.lt && r.ln &&
+      Math.abs(r.lt - userPos.lat) < 0.9 &&
+      Math.abs(r.ln - userPos.lng) < 0.9);
+    if (near) setFlyTo({ lng: userPos.lng, lat: userPos.lat, zoom: 12.5, key: Date.now() });
+  }, [userPos, allData, flyTo]);
 
   // Load data
   useEffect(() => {
@@ -342,6 +368,7 @@ export default function App() {
           onMarkerClick={handleMarkerClick}
           onViewportChange={handleViewportChange}
           fitSignal={fitSignal}
+          flyTo={flyTo}
         />
       </div>
 

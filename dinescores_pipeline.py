@@ -40,6 +40,7 @@ VIOLATION_CATEGORIES = {
         r'\bpests?\b', r'rodent', r'\brats?\b', r'\bmouse\b', r'\bmice\b',
         r'cockroach', r'roach', r'\bfly\b', r'\bflies\b', r'insect',
         r'vermin', r'\bbugs?\b', r'gnaw', r'droppings', r'bait station',
+        r'\bants?\b', r'\bgnats?\b', r'maggot', r'larva', r'weevil',
     ],
     'temperature_control': [
         r'temperat', r'hot hold', r'cold hold', r'phf', r'tcs food',
@@ -56,7 +57,9 @@ VIOLATION_CATEGORIES = {
         r'handwash', r'hand wash', r'hand\s+sanitiz', r'glove',
         r'bare hand', r'hair restrain', r'clean outer', r'wound',
         r'sick', r'illness', r'employee health', r'sneez', r'cough',
-        r'personal hygiene', r'hygiene',
+        r'personal hygiene', r'hygiene', r'lesion', r'open sore', r'\bboils?\b',
+        r'jewelry', r'\bwatch\b', r'bracelet', r'\bnails?\b',
+        r'(?:open |employee )drink', r'eating.{0,25}prep', r'drinking.{0,25}prep',
     ],
     'food_source': [
         r'approved source', r'food source', r'shellfish tag', r'shell\s?stock',
@@ -230,8 +233,11 @@ def calc_risk_score(violations):
 # the pest word within the same sentence.
 PEST_EVIDENCE_RE = re.compile(
     r'(?:evidence of|live|dead|observed|found|fresh|infestation|activity of|'
-    r'droppings?|excreta|feces)'
-    r'[^.]{0,60}?\b(?:rats?|mice|mouse|roach(?:es)?|cockroach(?:es)?|rodents?|vermin)\b',
+    r'crawling|droppings?|excreta|feces)'
+    r'[^.]{0,60}?\b(?:rats?|mice|mouse|roach(?:es)?|cockroach(?:es)?|rodents?|'
+    r'vermin|ants?|maggots?|larvae?)\b'
+    r'|\b(?:ants?|roach(?:es)?|maggots?)\b[^.]{0,40}?'
+    r'(?:crawling|in(?:side)? (?:the |of )?(?:food|ice|soda|drink|prep|machine|container))',
     re.I)
 SEWAGE_ISSUE_RE = re.compile(
     r'sewage[^.]{0,40}(?:back|overflow|leak|expos|floor|discharg)|'
@@ -272,7 +278,8 @@ def detect_infractions(text):
     lower = (text or '').lower()
     infractions = []
 
-    if re.search(r'\b(vermin|roach|rodent|rats?|mice|insect|fly|flies|gnat|pest)\b', lower):
+    if re.search(r'\b(vermin|roach(?:es)?|rodents?|rats?|mice|insects?|fly|flies|'
+                 r'gnats?|pests?|ants?|maggots?)\b', lower):
         infractions.append('pests')
     if re.search(r'(temp|cool|heat|thaw|thermometer|refrigerat|hot|cold|hold)', lower):
         infractions.append('temp')
@@ -1932,6 +1939,314 @@ def fetch_nys(since_date=None, limit=None):
     return results
 
 
+# ─── RALEIGH / WAKE COUNTY, NC (ArcGIS open data) ───────────────────────────
+
+WAKE_BASE = ('https://maps.wake.gov/arcgis/rest/services/Inspections/'
+             'RestaurantInspectionsOpenData/MapServer')
+
+
+def _arcgis_query_all(layer_url, where='1=1', out_fields='*', page_size=2000):
+    """Fetch every row of an ArcGIS layer via resultOffset pagination."""
+    rows = []
+    offset = 0
+    while True:
+        r = requests.get(layer_url + '/query', params={
+            'where': where, 'outFields': out_fields, 'outSR': '4326',
+            'orderByFields': 'OBJECTID', 'resultOffset': offset,
+            'resultRecordCount': page_size, 'f': 'json',
+        }, headers={'User-Agent': CHROME_UA}, timeout=120)
+        r.raise_for_status()
+        data = r.json()
+        if 'error' in data:
+            raise RuntimeError(f"ArcGIS error: {data['error'].get('message')}")
+        feats = data.get('features', [])
+        rows.extend(feats)
+        if len(feats) < page_size:
+            return rows
+        offset += page_size
+        time.sleep(0.3)
+
+
+def fetch_wake(since_date=None, limit=None):
+    """
+    Fetch Raleigh / Wake County, NC inspections from the county's ArcGIS
+    open-data service: a restaurants layer (with coordinates), an inspections
+    layer carrying the OFFICIAL North Carolina 0-100 sanitation score, and a
+    violations layer with item text and point deductions. Updated daily.
+    """
+    log.info(f"Fetching Wake County data (since={since_date}, limit={limit})")
+    sd = str(since_date)[:10] if since_date else '2024-01-01'
+
+    rest_rows = _arcgis_query_all(
+        f'{WAKE_BASE}/0',
+        out_fields='HSISID,NAME,ADDRESS1,CITY,STATE,POSTALCODE,X,Y')
+    facilities = {}
+    for f in rest_rows:
+        a = f.get('attributes', {})
+        if a.get('HSISID'):
+            facilities[str(a['HSISID'])] = a
+    log.info(f"  Wake: {len(facilities)} facilities")
+
+    insp_rows = _arcgis_query_all(
+        f'{WAKE_BASE}/1', where=f"DATE_ >= DATE '{sd}'",
+        out_fields='HSISID,SCORE,DATE_,TYPE')
+    log.info(f"  Wake: {len(insp_rows)} inspections since {sd}")
+
+    viol_rows = _arcgis_query_all(
+        f'{WAKE_BASE}/2', where=f"INSPECTDATE >= DATE '{sd}'",
+        out_fields='HSISID,INSPECTDATE,SHORTDESC,COMMENTS,POINTVALUE')
+    by_key = defaultdict(list)
+    for f in viol_rows:
+        a = f.get('attributes', {})
+        ts = a.get('INSPECTDATE')
+        if not a.get('HSISID') or not ts:
+            continue
+        d = datetime.utcfromtimestamp(ts / 1000).strftime('%Y-%m-%d')
+        by_key[(str(a['HSISID']), d)].append(a)
+    log.info(f"  Wake: {len(viol_rows)} violation rows")
+
+    results = []
+    for f in insp_rows:
+        a = f.get('attributes', {})
+        hsis = str(a.get('HSISID') or '')
+        fac = facilities.get(hsis)
+        ts = a.get('DATE_')
+        if not fac or not ts:
+            continue
+        insp_date = sane_inspection_date(
+            datetime.utcfromtimestamp(ts / 1000).strftime('%Y-%m-%d'))
+        if not insp_date:
+            continue
+        try:
+            score = round(float(a.get('SCORE')))
+        except (TypeError, ValueError):
+            continue
+        if score <= 0:  # unscored visit (e.g. status check) — no grade basis
+            continue
+        name = (fac.get('NAME') or '').strip()
+        if not name:
+            continue
+
+        violations = []
+        pv = pfv = cv = 0
+        for v in by_key.get((hsis, insp_date), []):
+            desc = ' '.join(x for x in [(v.get('SHORTDESC') or '').strip(),
+                                        (v.get('COMMENTS') or '').strip()] if x)
+            if not desc:
+                continue
+            try:
+                pts = float(v.get('POINTVALUE') or 0)
+            except (TypeError, ValueError):
+                pts = 0.0
+            # NC deducts up to 3 points per item; anchor severity to the
+            # deduction actually assessed on this inspection.
+            if pts >= 1.5:
+                sev = 'priority'; pv += 1
+            elif pts >= 0.5:
+                sev = 'priority_foundation'; pfv += 1
+            else:
+                sev = 'core'; cv += 1
+            cat, _, _ = classify_violation(desc)
+            violations.append([cat, sev, desc[:500]])
+
+        city = (fac.get('CITY') or 'Raleigh').strip().title()
+        results.append({
+            'name': name.title() if name.isupper() else name,
+            'address': (fac.get('ADDRESS1') or '').strip().title(),
+            'city': city,
+            'state': 'NC',
+            'zip': (str(fac.get('POSTALCODE') or ''))[:5],
+            'latitude': fac.get('Y'),
+            'longitude': fac.get('X'),
+            'inspection_date': insp_date,
+            'original_score': score,
+            'risk_score': max(0, min(100, score)),  # official NC 0-100 score
+            'priority_violations': pv,
+            'priority_foundation_violations': pfv,
+            'core_violations': cv,
+            'total_violations': len(violations),
+            'violations': violations,
+            'inspection_type': (a.get('TYPE') or '').strip(),
+            'results': '',
+            'source': 'Wake County Open Data',
+            'source_url': 'https://data.wake.gov/datasets/Wake::food-inspections/about',
+            'source_id': f'wake_{hsis}_{insp_date}',
+            'metro': '',
+        })
+        if limit and len(results) >= limit:
+            break
+    log.info(f"Wake County: {len(results)} inspections")
+    return results
+
+
+# ─── LAS VEGAS (Southern Nevada Health District JSON API) ────────────────────
+
+SNHD_API = ('https://www.southernnevadahealthdistrict.org/wp-json/'
+            'snhd-eh-restaurants/v1/restaurants')
+SNHD_PAGE = 100          # server caps per_page at 100
+SNHD_DETAIL_WORKERS = 4
+
+
+def _snhd_get(url, params=None, retries=3):
+    for attempt in range(retries):
+        try:
+            r = requests.get(url, params=params,
+                             headers={'User-Agent': CHROME_UA}, timeout=60)
+            r.raise_for_status()
+            return r.json()
+        except (requests.RequestException, ValueError):
+            if attempt == retries - 1:
+                return None
+            time.sleep(2 * (attempt + 1))
+
+
+def _snhd_violations(resolved, demerits_by_sev=True):
+    """Convert SNHD resolved-violation dicts to (cat, sev, desc) tuples."""
+    out = []
+    for v in resolved or []:
+        desc = (v.get('description') or '').strip()
+        if not desc:
+            continue
+        try:
+            dem = int(v.get('demerits') or 0)
+        except (TypeError, ValueError):
+            dem = 0
+        # SNHD assesses 5 demerits for critical items, 3 for major, 0 for
+        # observations/good-practice notes.
+        sev = 'priority' if dem >= 5 else ('priority_foundation' if dem >= 3 else 'core')
+        cat, _, _ = classify_violation(desc)
+        out.append([cat, sev, desc[:500]])
+    return out
+
+
+def fetch_vegas(since_date=None, limit=None, fetch_violations=True):
+    """
+    Fetch Las Vegas area inspections from the Southern Nevada Health
+    District's live JSON API (~18k permitted food establishments across
+    Las Vegas, Henderson, North Las Vegas, and the rest of Clark County).
+    The list endpoint carries each permit's current OFFICIAL grade,
+    demerits, coordinates, and inspection date; the per-permit detail adds
+    violation descriptions with demerit values and prior inspections.
+    SNHD demerit bands map exactly onto risk = 100 - demerits
+    (A: 0-10 -> 90+, B: 11-20 -> 80-89, C: 21-40 -> 60-79).
+    """
+    log.info(f"Fetching Las Vegas (SNHD) data (since={since_date}, limit={limit})")
+    sd = str(since_date)[:10] if since_date else None
+
+    permits, page = {}, 1
+    while True:
+        d = _snhd_get(SNHD_API, {'per_page': SNHD_PAGE, 'page': page})
+        if d is None:
+            raise RuntimeError('SNHD list fetch failed')
+        rows = d.get('results') or []
+        for row in rows:
+            pn = row.get('permit_number')
+            if pn:
+                permits[pn] = row
+        if len(rows) < SNHD_PAGE:
+            break
+        page += 1
+        if page % 30 == 0:
+            log.info(f"  SNHD list: {len(permits)} permits so far...")
+        time.sleep(0.15)
+    log.info(f"  SNHD: {len(permits)} permits listed")
+
+    # Only permits inspected in the window need (re)fetching.
+    todo = []
+    for pn, row in permits.items():
+        d_cur = str(row.get('date_current') or '')[:10]
+        if not d_cur:
+            continue
+        if sd and d_cur < sd:
+            continue
+        todo.append(pn)
+    if limit:
+        todo = todo[:limit]
+
+    def build(row, insp_date, grade, demerits, insp_type, violations):
+        try:
+            dem = max(0, int(demerits))
+        except (TypeError, ValueError):
+            dem = 0
+        name = (row.get('restaurant_name') or row.get('location_name') or '').strip()
+        return {
+            'name': name.title() if name.isupper() else name,
+            'address': (row.get('address') or '').strip().title(),
+            'city': (row.get('city_name') or 'Las Vegas').strip(),
+            'state': 'NV',
+            'zip': (row.get('zip_code') or '')[:5],
+            'latitude': row.get('latitude'),
+            'longitude': row.get('longitude'),
+            'inspection_date': insp_date,
+            'original_score': dem,
+            'risk_score': max(0, 100 - dem),
+            'priority_violations': sum(1 for v in violations if v[1] == 'priority'),
+            'priority_foundation_violations': sum(1 for v in violations if v[1] == 'priority_foundation'),
+            'core_violations': sum(1 for v in violations if v[1] == 'core'),
+            'total_violations': len(violations),
+            'violations': violations,
+            'inspection_type': (insp_type or '').strip(),
+            'results': f'"{grade}" Grade' if grade else '',
+            'source': 'Southern Nevada Health District',
+            'source_url': 'https://www.southernnevadahealthdistrict.org/permits-and-regulations/restaurant-inspections/restaurant-inspection-search/',
+            'source_id': f"snhd_{row.get('permit_number')}_{insp_date}",
+            'metro': 'Las Vegas',
+        }
+
+    results = []
+    skipped = 0
+    if fetch_violations:
+        log.info(f"  SNHD: fetching details for {len(todo)} permits "
+                 f"({SNHD_DETAIL_WORKERS} workers)...")
+
+        def work(pn):
+            d = _snhd_get(f'{SNHD_API}/{pn}')
+            time.sleep(0.1)
+            return pn, d
+
+        done = 0
+        with ThreadPoolExecutor(max_workers=SNHD_DETAIL_WORKERS) as pool:
+            for future in as_completed([pool.submit(work, pn) for pn in todo]):
+                pn, d = future.result()
+                done += 1
+                if done % 1000 == 0:
+                    log.info(f"  SNHD details: {done}/{len(todo)}")
+                if d is None:
+                    # Unreadable permit: skip rather than record without
+                    # violation context (same policy as the Tyler portals).
+                    skipped += 1
+                    continue
+                row = permits[pn]
+                cur_date = sane_inspection_date(str(d.get('date_current') or row.get('date_current') or '')[:10])
+                if cur_date:
+                    results.append(build(
+                        row, cur_date, d.get('current_grade') or row.get('current_grade'),
+                        d.get('current_demerits') if d.get('current_demerits') is not None else row.get('current_demerits'),
+                        d.get('inspection_type') or row.get('inspection_type'),
+                        _snhd_violations(d.get('current_violations_resolved'))))
+                for prev in d.get('previous_inspections') or []:
+                    p_date = sane_inspection_date(str(prev.get('inspection_date') or '')[:10])
+                    if not p_date or (sd and p_date < sd):
+                        continue
+                    results.append(build(
+                        row, p_date, prev.get('inspection_grade'),
+                        prev.get('inspection_demerits'),
+                        prev.get('inspection_type'),
+                        _snhd_violations(prev.get('violations_resolved'))))
+    else:
+        for pn in todo:
+            row = permits[pn]
+            cur_date = sane_inspection_date(str(row.get('date_current') or '')[:10])
+            if cur_date:
+                results.append(build(row, cur_date, row.get('current_grade'),
+                                     row.get('current_demerits'),
+                                     row.get('inspection_type'), []))
+    if skipped:
+        log.warning(f"  SNHD: skipped {skipped} permits with unreadable details")
+    log.info(f"Las Vegas (SNHD): {len(results)} inspections")
+    return results
+
+
 # ─── MYHEALTHDEPARTMENT PORTAL SCRAPER (DFW + generic) ─────────────────────
 # Uses direct HTTP POST to the portal's JSON API (no browser needed).
 # The API is the same one the portal's JavaScript frontend calls.
@@ -2117,14 +2432,14 @@ def _mhd_fetch_inspection_detail(session, slug, inspection_id, retry_count=0):
             if retry_count < 2:
                 time.sleep(MHD_RETRY_DELAY)
                 return _mhd_fetch_inspection_detail(session, slug, inspection_id, retry_count + 1)
-            return []
+            return None  # blocked — must not read as "no violations"
         if r.status_code != 200:
-            return []
+            return None
         r.encoding = 'utf-8'  # pages omit charset; default latin-1 mangles § etc.
         return _mhd_parse_detail_html(r.text)
     except Exception as e:
         log.debug(f"  Detail fetch failed for {inspection_id}: {e}")
-        return []
+        return None
 
 
 def _mhd_fetch_details_bulk(slug, records, trust_official_score=True):
@@ -2148,30 +2463,51 @@ def _mhd_fetch_details_bulk(slug, records, trust_official_score=True):
         time.sleep(MHD_DETAIL_DELAY)
         return rec, texts
 
+    def apply_texts(rec, texts):
+        violations = [classify_violation(t) for t in texts]
+        computed_score, pv, pfv, cv = calc_risk_score(violations)
+        rec['violations'] = [[c, s, d] for c, s, d in violations]
+        rec['priority_violations'] = pv
+        rec['priority_foundation_violations'] = pfv
+        rec['core_violations'] = cv
+        rec['total_violations'] = len(violations)
+        # Keep the health department's official score when present
+        # and trustworthy; otherwise use our computed score.
+        if not trust_official_score or rec.get('original_score') is None:
+            rec['risk_score'] = computed_score
+
     fetched = 0
     done = 0
+    failed = []
     with ThreadPoolExecutor(max_workers=MHD_DETAIL_WORKERS) as pool:
         futures = [pool.submit(fetch_one, rec) for rec in records]
         for future in as_completed(futures):
             rec, texts = future.result()
             done += 1
-            if texts:
-                violations = [classify_violation(t) for t in texts]
-                computed_score, pv, pfv, cv = calc_risk_score(violations)
-                rec['violations'] = [[c, s, d] for c, s, d in violations]
-                rec['priority_violations'] = pv
-                rec['priority_foundation_violations'] = pfv
-                rec['core_violations'] = cv
-                rec['total_violations'] = len(violations)
-                # Keep the health department's official score when present
-                # and trustworthy; otherwise use our computed score.
-                if not trust_official_score or rec.get('original_score') is None:
-                    rec['risk_score'] = computed_score
+            if texts is None:
+                # Blocked/failed fetch — queue for retry; never record the
+                # inspection as violation-free on the strength of a 403.
+                failed.append(rec)
+            elif texts:
+                apply_texts(rec, texts)
                 fetched += 1
             if done % 100 == 0:
                 log.info(f"  Details: {done}/{len(records)} inspections fetched "
                          f"({fetched} with violations)")
-    return fetched
+
+    still_failed = []
+    if failed:
+        log.warning(f"  {slug}: retrying {len(failed)} failed detail fetches")
+        retry_session = _mhd_session()
+        for rec in failed:
+            texts = _mhd_fetch_inspection_detail(retry_session, slug, rec['source_id'])
+            time.sleep(MHD_DETAIL_DELAY)
+            if texts is None:
+                still_failed.append(rec)
+            elif texts:
+                apply_texts(rec, texts)
+                fetched += 1
+    return fetched, still_failed
 
 
 def fetch_dfw(jurisdictions=None, since_date=None, limit_per_jurisdiction=None,
@@ -2293,11 +2629,19 @@ def _fetch_mhd_jurisdiction_api(session, slug, config, since_date=None, limit=No
         log.info(f"{display_name}: fetching violation details for "
                  f"{len(inspections_with_id)} inspections "
                  f"({MHD_DETAIL_WORKERS} workers)...")
-        fetched_violations = _mhd_fetch_details_bulk(
+        fetched_violations, unreadable = _mhd_fetch_details_bulk(
             slug, inspections_with_id,
             trust_official_score=config.get('score_scale', '100') != 'demerit')
         log.info(f"{display_name}: {fetched_violations}/{len(inspections_with_id)} "
                  f"inspections had violation details")
+        if unreadable:
+            # An inspection whose observations could not be read must not
+            # ship looking violation-free — drop it; a later run (or the
+            # next weekly refresh) re-attempts it.
+            log.warning(f"{display_name}: dropping {len(unreadable)} inspections "
+                        f"with unreadable detail pages")
+            drop = {id(r) for r in unreadable}
+            all_records = [r for r in all_records if id(r) not in drop]
 
     if stopped_early:
         log.warning(f"{display_name}: scrape stopped early — run again to get remaining data")
@@ -3311,10 +3655,21 @@ def write_d1_sql(all_inspections, output_path, include_schema=True):
             f.write(D1_SCHEMA_SQL)
         for start in range(0, len(insp_rows), D1_BATCH_ROWS):
             batch = insp_rows[start:start + D1_BATCH_ROWS]
-            f.write("INSERT OR IGNORE INTO inspections "
+            # Upsert (not INSERT OR IGNORE) so a re-fetch that recovers
+            # violation details heals an inspection row ingested during a
+            # source outage. Post-hardening, fetchers never emit an
+            # inspection whose details failed to load, so an upsert can
+            # only improve a stored row.
+            f.write("INSERT INTO inspections "
                     "(id,restaurant_id,inspection_date,risk_score,original_score,"
                     "inspection_type,results,violations,source_id) VALUES\n"
-                    + ',\n'.join(batch) + ';\n')
+                    + ',\n'.join(batch) +
+                    " ON CONFLICT(id) DO UPDATE SET "
+                    "risk_score=excluded.risk_score, "
+                    "original_score=excluded.original_score, "
+                    "inspection_type=excluded.inspection_type, "
+                    "results=excluded.results, "
+                    "violations=excluded.violations;\n")
         for start in range(0, len(rest_rows), D1_BATCH_ROWS):
             batch = rest_rows[start:start + D1_BATCH_ROWS]
             f.write("INSERT INTO restaurants "
@@ -3431,6 +3786,12 @@ def main():
             geocode_missing_coords(data)
             return data
         socrata_jobs['NY State'] = _nys
+    if 'wake' in args.cities or 'raleigh' in args.cities:
+        socrata_jobs['Wake County'] = lambda: fetch_wake(
+            since_date=since_date, limit=record_limit)
+    if 'vegas' in args.cities or 'lasvegas' in args.cities:
+        socrata_jobs['Las Vegas'] = lambda: fetch_vegas(
+            since_date=since_date, limit=record_limit)
 
     if socrata_jobs:
         with ThreadPoolExecutor(max_workers=len(socrata_jobs)) as pool:
