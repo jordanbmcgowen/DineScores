@@ -39,6 +39,7 @@ export default function App() {
   const [mapView, setMapView] = useState(null); // { zoom, bounds:{w,s,e,n} }
   const mapViewRef = useRef(null);
   const [apiReady, setApiReady] = useState(false);
+  const [dbTotal, setDbTotal] = useState(null); // true database size, from the API
   const [loadingArea, setLoadingArea] = useState(null); // city/metro being fetched
   const apiAvailableRef = useRef(false);
   const knownIdsRef = useRef(new Set());
@@ -114,11 +115,13 @@ export default function App() {
       }
     }
     load();
-    // Probe the D1 API once; when reachable it enables progressive loading.
-    probeApi().then(ok => {
-      if (ok) {
+    // Probe the D1 API once; when reachable it enables progressive loading
+    // and reports the true database size.
+    probeApi().then(total => {
+      if (total) {
         apiAvailableRef.current = true;
         setApiReady(true);
+        setDbTotal(total);
       }
     });
   }, []);
@@ -446,11 +449,12 @@ export default function App() {
             <span className="text-[17px] font-extrabold tracking-tight">DineScores</span>
           </div>
 
-          {/* Search with suggestions (count mirrors the results list) */}
+          {/* Search with suggestions. The idle pill shows total database
+              coverage; the results list header stays viewport-scoped. */}
           <SearchBar
             value={searchTerm}
             onChange={setSearchTerm}
-            count={visible.length}
+            count={dbTotal ?? allData.length}
             allData={allData}
             cityOptions={cityOptions}
             onPickRestaurant={r => focusRestaurant(r)}

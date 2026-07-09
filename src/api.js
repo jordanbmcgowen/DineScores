@@ -83,14 +83,22 @@ export async function fetchBboxFromApi(bbox, limit = 5000) {
 }
 
 /**
- * One-time probe: is the D1-backed API reachable? True when it is, false in
- * environments (local dev, offline) where only the embedded data.js exists.
+ * One-time probe: is the D1-backed API reachable? Returns the database's
+ * TRUE restaurant total when it is, or null in environments (local dev,
+ * offline) where only the embedded data.js exists. Tolerates both response
+ * shapes ({ total, cities } and the legacy bare array) so a stale cached
+ * response can't break the probe.
  */
 export async function probeApi() {
   try {
-    const rows = await getJson('/api/cities');
-    return Array.isArray(rows) && rows.length > 0;
+    const body = await getJson('/api/cities');
+    if (body && typeof body.total === 'number' && body.total > 0) return body.total;
+    const rows = Array.isArray(body) ? body : body?.cities;
+    if (Array.isArray(rows) && rows.length > 0) {
+      return rows.reduce((sum, c) => sum + (c.restaurant_count || 0), 0);
+    }
+    return null;
   } catch {
-    return false;
+    return null;
   }
 }
