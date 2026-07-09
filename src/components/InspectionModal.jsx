@@ -1,5 +1,4 @@
 import React, { useState, useEffect } from 'react';
-import { fetchInspectionHistory } from '../firebase.js';
 import { fetchHistoryFromApi, fetchRestaurantDetail } from '../api.js';
 import GradeBadge, { gradeMeta } from './GradeBadge.jsx';
 
@@ -55,8 +54,8 @@ export default function InspectionModal({ restaurant: r, onClose, formatDate, on
   }, [r, isLite, onUpgrade]);
 
   // Inspection history sources, best first: the D1-backed API (full history
-  // with violations), then Firestore (legacy), then the embedded score
-  // history (r.h = [[date, score], ...]) shipped in data.js.
+  // with violations), then the embedded score history
+  // (r.h = [[date, score], ...]) shipped in data.js.
   useEffect(() => {
     if (!r) return;
     setExpandedSummary(null);
@@ -66,10 +65,7 @@ export default function InspectionModal({ restaurant: r, onClose, formatDate, on
         .filter(entry => Array.isArray(entry) && entry[0])
         .map(([date, rs]) => ({ id: `${r.i}_${date}`, date, rs: rs || 0, type: '' }));
     (async () => {
-      let h = await fetchHistoryFromApi(r.i);
-      if (!h || h.length === 0) {
-        h = await fetchInspectionHistory(r.i).catch(() => []);
-      }
+      const h = await fetchHistoryFromApi(r.i);
       setHistory(h && h.length > 0 ? h : embeddedHistory());
       setLoadingHistory(false);
     })();

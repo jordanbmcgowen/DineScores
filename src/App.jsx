@@ -1,11 +1,11 @@
 import React, { useEffect, useState, useMemo, useCallback, useRef } from 'react';
-import { fetchAllRestaurants } from './firebase.js';
 import { ensureVettedFields } from './grading.js';
-import { probeApi, fetchBboxFromApi, fetchAreaFromApi, fetchRestaurantDetail } from './api.js';
+import { probeApi, fetchBboxFromApi, fetchAreaFromApi } from './api.js';
 import GradeBadge from './components/GradeBadge.jsx';
 import RestaurantMap from './components/RestaurantMap.jsx';
 import InspectionModal from './components/InspectionModal.jsx';
 import FilterBar from './components/FilterBar.jsx';
+import BottomSheet from './components/BottomSheet.jsx';
 
 // Below this zoom the embedded overview is enough; above it, lazy-load the
 // uncapped records for whatever is in view from the D1 API.
@@ -18,7 +18,10 @@ export default function App() {
   const [searchTerm, setSearchTerm] = useState('');
   const [debouncedSearch, setDebouncedSearch] = useState('');
   const [selectedRestaurant, setSelectedRestaurant] = useState(null);
-  const [sortBy, setSortBy] = useState('score-desc');
+  // Default ordering: most recent inspections; upgraded to nearest-first the
+  // moment a GPS fix lands (unless the user has picked a sort themselves).
+  const [sortBy, setSortBy] = useState('date-desc');
+  const sortTouchedRef = useRef(false);
 
   // Filters
   const [cityFilter, setCityFilter] = useState('all');
@@ -26,12 +29,9 @@ export default function App() {
   const [gradeFilter, setGradeFilter] = useState([]);
   const [infractionFilter, setInfractionFilter] = useState([]);
 
-  // Mobile bottom sheet: collapsed | half | full
-  const [sheetState, setSheetState] = useState('collapsed');
-
   // Progressive loading from the D1 API when it is reachable
   const [mapView, setMapView] = useState(null); // { zoom, bounds:{w,s,e,n} }
-  const [cityTotals, setCityTotals] = useState(null); // Map(city -> true count)
+  const [apiReady, setApiReady] = useState(false);
   const [loadingArea, setLoadingArea] = useState(null); // city/metro being fetched
   const apiAvailableRef = useRef(false);
   const knownIdsRef = useRef(new Set());
@@ -59,6 +59,12 @@ export default function App() {
     );
   }, []);
 
+  // Once we know where the user is, "nearest first" is the most useful
+  // default ordering — but never override a sort they chose explicitly.
+  useEffect(() => {
+    if (userPos && !sortTouchedRef.current) setSortBy('distance');
+  }, [userPos]);
+
   // Center on the user only when we actually cover their area (~within
   // 100km of any loaded restaurant) — recentring onto an empty map would
   // be worse than the default nationwide view.
@@ -76,29 +82,9 @@ export default function App() {
     async function load() {
       setLoading(true);
       try {
-        // Embedded data.js is the primary source: it is refreshed weekly by
-        // CI and deployed with the site, so it is always current. Firestore
-        // is a secondary source for environments without the embedded file.
-        let data;
-        if (window.DATA && Array.isArray(window.DATA) && window.DATA.length > 0) {
-          data = window.DATA.slice();
-        } else {
-          try {
-            const firestoreData = await fetchAllRestaurants();
-            if (firestoreData && firestoreData.length > 0) {
-              data = firestoreData;
-            }
-          } catch (fsErr) {
-            console.warn('Firestore fetch failed and no embedded data:', fsErr);
-          }
-        }
-        // Ensure all records have vetted grading fields
-        const seeded = data.map(ensureVettedFields);
-        for (const r of seeded) if (r.i) knownIdsRef.current.add(r.i);
-        setAllData(seeded);
-      } catch (err) {
-        console.error('Data load failed:', err);
-        // Fallback to embedded data
+        // Embedded data.js is the only bulk source: it is refreshed weekly by
+        // CI and deployed with the site. The D1 API layers uncapped records
+        // on top once probed.
         if (window.DATA && Array.isArray(window.DATA) && window.DATA.length > 0) {
           const seeded = window.DATA.map(ensureVettedFields);
           for (const r of seeded) if (r.i) knownIdsRef.current.add(r.i);
@@ -106,6 +92,9 @@ export default function App() {
         } else {
           setError('Failed to load restaurant data. Please refresh.');
         }
+      } catch (err) {
+        console.error('Data load failed:', err);
+        setError('Failed to load restaurant data. Please refresh.');
       } finally {
         setLoading(false);
         // Remove loading overlay
@@ -117,12 +106,11 @@ export default function App() {
       }
     }
     load();
-    // Probe the D1 API once; when reachable it returns the cities index with
-    // TRUE per-city totals and enables progressive loading.
-    probeApi().then(cities => {
-      if (cities) {
+    // Probe the D1 API once; when reachable it enables progressive loading.
+    probeApi().then(ok => {
+      if (ok) {
         apiAvailableRef.current = true;
-        setCityTotals(new Map(cities.map(c => [c.city, c.restaurant_count])));
+        setApiReady(true);
       }
     });
   }, []);
@@ -156,7 +144,7 @@ export default function App() {
       loadedAreasRef.current.delete(key);
       setLoadingArea(prev => (prev === (area.metro || area.city) ? null : prev));
     });
-  }, [cityFilter, metroFilter, mergeRecords, cityTotals]);
+  }, [cityFilter, metroFilter, mergeRecords, apiReady]);
 
   // A lite record was opened and its full detail fetched: upgrade it in place.
   const upgradeRecord = useCallback((full) => {
@@ -260,21 +248,35 @@ export default function App() {
     // Sort
     const sorted = [...data];
     switch (sortBy) {
+      case 'distance': {
+        if (!userPos) {
+          sorted.sort((a, b) => (b.d || '').localeCompare(a.d || ''));
+          break;
+        }
+        // Squared equirectangular distance — monotonic with true distance,
+        // cheap enough to run over the whole result set. No coords sorts last.
+        const cosLat = Math.cos((userPos.lat * Math.PI) / 180);
+        const dist = r => (r.lt && r.ln)
+          ? (r.lt - userPos.lat) ** 2 + ((r.ln - userPos.lng) * cosLat) ** 2
+          : Infinity;
+        sorted.sort((a, b) => dist(a) - dist(b));
+        break;
+      }
       case 'score-asc':
         sorted.sort((a, b) => (a.rs || 0) - (b.rs || 0));
+        break;
+      case 'score-desc':
+        sorted.sort((a, b) => (b.rs || 0) - (a.rs || 0));
         break;
       case 'name-asc':
         sorted.sort((a, b) => (a.n || '').localeCompare(b.n || ''));
         break;
-      case 'date-desc':
+      default: // date-desc
         sorted.sort((a, b) => (b.d || '').localeCompare(a.d || ''));
-        break;
-      default: // score-desc
-        sorted.sort((a, b) => (b.rs || 0) - (a.rs || 0));
     }
 
     return sorted;
-  }, [allData, cityFilter, metroFilter, gradeFilter, infractionFilter, debouncedSearch, sortBy]);
+  }, [allData, cityFilter, metroFilter, gradeFilter, infractionFilter, debouncedSearch, sortBy, userPos]);
 
   // The list and header count are viewport-aware: once zoomed in, they reflect
   // what's actually on screen (which is where lazy-loaded records show up).
@@ -289,29 +291,6 @@ export default function App() {
   // Re-frame the map only on an intentional new result set — not on pan/zoom
   // or lazy-load merges (sort is excluded; it doesn't change geography).
   const fitSignal = `${cityFilter}|${metroFilter}|${gradeFilter.join('')}|${infractionFilter.join('')}|${debouncedSearch}`;
-
-  // Headline count for the search pill: the true size of the current scope.
-  // With no grade/issue/search narrowing, the database's per-city totals are
-  // authoritative (loaded records converge to them once the eager area fetch
-  // lands); otherwise count what's actually loaded and matching.
-  const scopeCount = useMemo(() => {
-    const unfiltered = gradeFilter.length === 0 && infractionFilter.length === 0 && !debouncedSearch;
-    if (unfiltered && cityTotals) {
-      // Single city: the database total is authoritative.
-      if (!metroFilter && cityFilter !== 'all' && cityTotals.has(cityFilter)) {
-        return cityTotals.get(cityFilter);
-      }
-      // All cities: sum of database totals (loaded records converge upward).
-      if (!metroFilter && cityFilter === 'all') {
-        let sum = 0;
-        for (const n of cityTotals.values()) sum += n;
-        return Math.max(sum, filtered.length);
-      }
-      // Metro: no index entry — loaded count converges to complete after the
-      // eager metro fetch lands.
-    }
-    return filtered.length;
-  }, [cityTotals, cityFilter, metroFilter, gradeFilter, infractionFilter, debouncedSearch, filtered]);
 
   const handleMarkerClick = useCallback((restaurant) => {
     setSelectedRestaurant(restaurant);
@@ -348,13 +327,14 @@ export default function App() {
   const sortSelect = (
     <select
       value={sortBy}
-      onChange={e => setSortBy(e.target.value)}
+      onChange={e => { sortTouchedRef.current = true; setSortBy(e.target.value); }}
       className="text-xs font-semibold bg-transparent text-slate-500 dark:text-slate-400 border-0 outline-none cursor-pointer pr-1"
       aria-label="Sort results"
     >
-      <option value="score-desc">Best score first</option>
-      <option value="score-asc">Worst score first</option>
+      {userPos && <option value="distance">Nearest first</option>}
       <option value="date-desc">Recently inspected</option>
+      <option value="score-asc">Worst score first</option>
+      <option value="score-desc">Best score first</option>
       <option value="name-asc">Name A–Z</option>
     </select>
   );
@@ -408,8 +388,9 @@ export default function App() {
                 </svg>
               </button>
             ) : (
+              // Same count the results list reports, so the two never disagree
               <span className="absolute right-3.5 top-1/2 -translate-y-1/2 text-[11px] font-bold text-slate-400 tabular-nums whitespace-nowrap">
-                {scopeCount.toLocaleString()}
+                {visible.length.toLocaleString()}
               </span>
             )}
           </div>
@@ -462,36 +443,30 @@ export default function App() {
         </div>
       </aside>
 
-      {/* Mobile bottom sheet */}
-      <div className={`md:hidden sheet bg-white dark:bg-slate-900 shadow-2xl ring-1 ring-slate-900/10 dark:ring-white/10 flex flex-col sheet-${sheetState}`}>
-        <button
-          className="w-full pt-3 pb-2 flex flex-col items-center gap-2 shrink-0"
-          onClick={() => setSheetState(prev =>
-            prev === 'collapsed' ? 'half' : prev === 'half' ? 'full' : 'collapsed'
-          )}
-          aria-label="Toggle results list"
-        >
-          <div className="w-10 h-1.5 bg-slate-300 dark:bg-slate-600 rounded-full" />
-          <div className="w-full px-4 flex items-center justify-between">
+      {/* Mobile bottom sheet (drag the header to resize) */}
+      <BottomSheet
+        header={
+          <div className="w-full px-4 pb-2 flex items-center justify-between">
             <span className="text-sm font-bold tabular-nums">
               {visible.length.toLocaleString()} restaurants
             </span>
-            <span onClick={e => e.stopPropagation()}>{sortSelect}</span>
+            <span onClick={e => e.stopPropagation()} onTouchStart={e => e.stopPropagation()}>
+              {sortSelect}
+            </span>
           </div>
-        </button>
-        <div className="flex-1 overflow-y-auto pb-safe" style={{ touchAction: 'pan-y' }}>
-          {visible.slice(0, 50).map(r => (
-            <RestaurantCard
-              key={r.i}
-              restaurant={r}
-              formatDate={formatDate}
-              onClick={() => setSelectedRestaurant(r)}
-              selected={false}
-            />
-          ))}
-          {visible.length === 0 && <EmptyState />}
-        </div>
-      </div>
+        }
+      >
+        {visible.slice(0, 50).map(r => (
+          <RestaurantCard
+            key={r.i}
+            restaurant={r}
+            formatDate={formatDate}
+            onClick={() => setSelectedRestaurant(r)}
+            selected={false}
+          />
+        ))}
+        {visible.length === 0 && <EmptyState />}
+      </BottomSheet>
 
       {/* Inspection Modal */}
       {selectedRestaurant && (

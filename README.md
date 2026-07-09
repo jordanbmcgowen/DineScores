@@ -60,7 +60,7 @@ and violation summaries for Chicago, NYC, San Francisco, and DFW metro.
 npm install
 
 # Pipeline
-pip install requests firebase-admin
+pip install requests
 ```
 
 ### 2. Development
@@ -72,14 +72,13 @@ npm run dev     # Vite dev server on port 3000
 ### 3. Production Build
 
 ```bash
-npm run build   # Outputs to public/ for Firebase Hosting
+npm run build   # Outputs to public/ (committed — Cloudflare Pages serves it as-is)
 ```
 
 ### 4. Deploy
 
-```bash
-firebase deploy  # Deploys hosting + Firestore rules/indexes
-```
+Merge to `main` — Cloudflare Pages auto-deploys the committed `public/`
+directory (~2 min).
 
 ---
 
@@ -88,17 +87,18 @@ firebase deploy  # Deploys hosting + Firestore rules/indexes
 ```bash
 # Full load (Socrata cities 2024+, DFW cities current year)
 python dinescores_pipeline.py --mode full --cities chicago nyc sf dallas plano \
-  --creds serviceAccount.json --output-data-js public/data.js \
+  --output-data-js public/data.js \
   --merge-existing-data-js public/data.js
 
 # Weekly refresh (last 8 days; ALWAYS pass --merge-existing-data-js so the
 # partial pull merges into the accumulated dataset instead of replacing it)
 python dinescores_pipeline.py --mode weekly --cities chicago nyc sf dallas plano \
-  --creds serviceAccount.json --output-data-js public/data.js \
-  --merge-existing-data-js public/data.js
+  --output-data-js public/data.js \
+  --merge-existing-data-js public/data.js \
+  --output-d1-sql /tmp/weekly.sql
 
-# Test run (25 records per city, no Firestore upload)
-python dinescores_pipeline.py --mode test --dry-run
+# Test run (25 records per city)
+python dinescores_pipeline.py --mode test
 ```
 
 ### Data sources & scraping notes
@@ -171,37 +171,22 @@ The pipeline computes these fields for each restaurant:
 
 ---
 
-## Firestore Schema
-
-```
-restaurants/{id}
-  ├── name, address, city, state, zip, latitude, longitude
-  ├── risk_score, weighted_score, vetted_grade
-  ├── infractions[]           (pests, temp, hygiene, equipment, docs)
-  ├── violation_summaries[]   (text, verbatim, severity, category)
-  ├── violations[]            (category, severity, description)
-  ├── inspection_date, inspection_type, inspection_count
-  └── inspections/{id}        (subcollection: full history)
-```
-
----
-
 ## File Reference
 
 | File | Purpose |
 |------|---------|
-| `dinescores_pipeline.py` | Multi-city data pipeline (fetch + grade + upload) |
+| `dinescores_pipeline.py` | Multi-city data pipeline (fetch + grade + emit data.js / D1 SQL) |
 | `src/` | React frontend source (JSX components) |
 | `src/App.jsx` | Main app: map, sidebar, filters, bottom sheet |
-| `src/components/GradeBadge.jsx` | Grade badge with thumbs icons |
+| `src/api.js` | D1 API client (fail-soft helpers) |
+| `src/components/GradeBadge.jsx` | Grade badge + shared grade colors/labels |
 | `src/components/RestaurantMap.jsx` | MapLibre GL JS map with clustering |
 | `src/components/InspectionModal.jsx` | Detail modal with summaries + history |
-| `src/components/FilterBar.jsx` | City/risk/grade/infraction filters |
-| `src/firebase.js` | Firebase SDK init + Firestore queries |
+| `src/components/FilterBar.jsx` | City dropdown + grade/infraction filters |
+| `src/components/BottomSheet.jsx` | Draggable mobile results sheet |
 | `src/grading.js` | Client-side grading for fallback data |
+| `functions/api/` | Cloudflare Pages Functions (D1-backed API) |
 | `vite.config.js` | Vite build config (outputs to public/) |
-| `firebase.json` | Firebase Hosting + Firestore config |
-| `firestore.rules` | Security rules (public read, admin write) |
-| `firestore.indexes.json` | Composite indexes for queries |
 | `.github/workflows/refresh-data.yml` | Weekly automated refresh |
-| `public/data.js` | Auto-generated fallback data file |
+| `.github/workflows/setup-database.yml` | One-time D1 bulk load |
+| `public/data.js` | Auto-generated embedded dataset |

@@ -47,16 +47,6 @@ export async function fetchRestaurantDetail(id) {
   }
 }
 
-/** City index with counts and bounding boxes. */
-export async function fetchCitiesFromApi() {
-  try {
-    const rows = await getJson('/api/cities');
-    return Array.isArray(rows) ? rows : [];
-  } catch {
-    return [];
-  }
-}
-
 /**
  * Restaurants within a map bounding box (compact data.js-shaped records).
  * bbox = { w, s, e, n }. Returns { records, truncated } — truncated is true
@@ -77,15 +67,14 @@ export async function fetchBboxFromApi(bbox, limit = 5000) {
 }
 
 /**
- * One-time probe: is the D1-backed API reachable? Returns the cities index
- * (true per-city totals) when it is, or null in environments (local dev,
- * offline) where only the embedded data.js exists.
+ * One-time probe: is the D1-backed API reachable? True when it is, false in
+ * environments (local dev, offline) where only the embedded data.js exists.
  */
 export async function probeApi() {
   try {
     const rows = await getJson('/api/cities');
-    return Array.isArray(rows) && rows.length > 0 ? rows : null;
+    return Array.isArray(rows) && rows.length > 0;
   } catch {
-    return null;
+    return false;
   }
 }

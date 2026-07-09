@@ -2,13 +2,10 @@ import React, { useEffect, useRef, useState } from 'react';
 import maplibregl from 'maplibre-gl';
 import { gradeMeta } from './GradeBadge.jsx';
 
-const GLYPHS_URL = 'https://tiles.basemaps.cartocdn.com/fonts/{fontstack}/{range}.pbf';
-
 function basemapStyle(dark) {
   const flavor = dark ? 'dark_all' : 'light_all';
   return {
     version: 8,
-    glyphs: GLYPHS_URL,
     sources: {
       basemap: {
         type: 'raster',
@@ -28,6 +25,64 @@ function basemapStyle(dark) {
 // Cluster ring segments use the same status vocabulary as everything else:
 // Safe (A) / Caution (B, C) / Avoid (F) / Unrated.
 const DONUT_COLORS = { safe: '#10b981', caution: '#f59e0b', avoid: '#ef4444', unrated: '#94a3b8' };
+
+/**
+ * Grade markers are pre-rendered to bitmaps (colored disc + white letter)
+ * instead of a circle layer + SDF text layer. Map-font glyphs degrade badly
+ * at small text sizes — an 8px SDF "A" rasterizes as a triangle-ish blob —
+ * while a canvas-drawn letter stays a letter at every size. One image per
+ * grade, drawn at 4x and scaled down by icon-size, so it is crisp on any DPI.
+ */
+const ICON_BASE = 64; // logical px of the icon bitmap (diameter incl. border)
+
+function makeGradeIcon(letter, color) {
+  const pr = 4;
+  const s = ICON_BASE * pr;
+  const canvas = document.createElement('canvas');
+  canvas.width = s;
+  canvas.height = s;
+  const ctx = canvas.getContext('2d');
+  const c = s / 2;
+
+  ctx.beginPath();
+  ctx.arc(c, c, c - 2 * pr, 0, Math.PI * 2);
+  ctx.fillStyle = color;
+  ctx.fill();
+  ctx.lineWidth = 4 * pr;
+  ctx.strokeStyle = '#ffffff';
+  ctx.stroke();
+
+  ctx.fillStyle = '#ffffff';
+  ctx.font = `900 ${34 * pr}px system-ui, -apple-system, sans-serif`;
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText(letter, c, c + 1.5 * pr);
+
+  return { data: ctx.getImageData(0, 0, s, s), pixelRatio: pr };
+}
+
+const GRADE_LETTERS = ['A', 'B', 'C', 'F', '?'];
+
+// icon-size expression: zoom-scaled base size times a density factor —
+// markers grow when few restaurants are in view and shrink (down to a
+// still-readable floor) when the viewport is packed.
+function iconSizeExpr(density) {
+  return ['interpolate', ['linear'], ['zoom'],
+    8, 0.30 * density,
+    11, 0.40 * density,
+    13.5, 0.52 * density,
+    16, 0.62 * density,
+  ];
+}
+
+function densityFactor(count) {
+  if (count <= 12) return 1.5;
+  if (count <= 30) return 1.3;
+  if (count <= 80) return 1.12;
+  if (count <= 200) return 1.0;
+  if (count <= 500) return 0.85;
+  return 0.72; // floor: ~14px marker at mid zoom, letter still readable
+}
 
 function donutSegment(start, end, r, r0, color) {
   if (end - start === 1) end -= 0.00001;
@@ -112,6 +167,7 @@ export default function RestaurantMap({ restaurants, onMarkerClick, onViewportCh
   const onViewportChangeRef = useRef(onViewportChange);
   const [mapLoaded, setMapLoaded] = useState(false);
   const donutsRef = useRef({ markers: {}, onScreen: {} });
+  const densityRef = useRef(1.0);
   const gpsCenteredRef = useRef(false);
   const didInitialFitRef = useRef(false);
   restaurantsRef.current = restaurants;
@@ -177,8 +233,7 @@ export default function RestaurantMap({ restaurants, onMarkerClick, onViewportCh
           geometry: { type: 'Point', coordinates: [r.ln, r.lt] },
           properties: {
             id: r.i,
-            grade: r.vg || '?',
-            color: gradeMeta(r.vg).dot,
+            grade: GRADE_LETTERS.includes(r.vg) ? r.vg : '?',
           },
         })),
     };
@@ -191,12 +246,19 @@ export default function RestaurantMap({ restaurants, onMarkerClick, onViewportCh
       return;
     }
 
+    for (const letter of GRADE_LETTERS) {
+      const { data, pixelRatio } = makeGradeIcon(letter, gradeMeta(letter).dot);
+      map.addImage(`grade-${letter}`, data, { pixelRatio });
+    }
+
     map.addSource('restaurants', {
       type: 'geojson',
       data: geojson,
       cluster: true,
-      clusterMaxZoom: 14,
-      clusterRadius: 46,
+      // Break clusters apart earlier: a tighter radius and lower max zoom
+      // reveal individual (density-sized) markers well before street level.
+      clusterMaxZoom: 13,
+      clusterRadius: 38,
       // Aggregate the grade mix per cluster so donuts can render it.
       clusterProperties: {
         safe: ['+', ['case', ['==', ['get', 'grade'], 'A'], 1, 0]],
@@ -215,6 +277,20 @@ export default function RestaurantMap({ restaurants, onMarkerClick, onViewportCh
       source: 'restaurants',
       filter: ['has', 'point_count'],
       paint: { 'circle-radius': 1, 'circle-opacity': 0.01 },
+    });
+
+    // Individual markers: pre-rendered grade icon (disc + letter in one image)
+    map.addLayer({
+      id: 'unclustered-point',
+      type: 'symbol',
+      source: 'restaurants',
+      filter: ['!', ['has', 'point_count']],
+      layout: {
+        'icon-image': ['concat', 'grade-', ['get', 'grade']],
+        'icon-size': iconSizeExpr(densityRef.current),
+        'icon-allow-overlap': true,
+        'icon-ignore-placement': true,
+      },
     });
 
     // Clusters render as HTML donut markers (grade distribution + count),
@@ -261,44 +337,36 @@ export default function RestaurantMap({ restaurants, onMarkerClick, onViewportCh
         }
       }
     };
+
+    // Density-adaptive marker size: count the individual markers currently
+    // rendered and rescale so sparse views get big, tappable markers and
+    // packed views shrink them only as far as legibility allows.
+    const updateDensity = () => {
+      let feats = [];
+      try {
+        feats = map.queryRenderedFeatures({ layers: ['unclustered-point'] });
+      } catch (e) { return; }
+      const next = densityFactor(feats.length);
+      if (next !== densityRef.current) {
+        densityRef.current = next;
+        map.setLayoutProperty('unclustered-point', 'icon-size', iconSizeExpr(next));
+      }
+    };
+
     // 'sourcedata' covers initial load and every setData; move/zoom events
     // cover cluster recomposition. ('render' alone misses source loads that
     // complete while the map is idle — it stops firing between frames.)
     const syncDonuts = () => {
-      if (map.getSource('restaurants') && map.isSourceLoaded('restaurants')) updateDonuts();
+      if (map.getSource('restaurants') && map.isSourceLoaded('restaurants')) {
+        updateDonuts();
+        updateDensity();
+      }
     };
     map.on('sourcedata', e => {
       if (e.sourceId === 'restaurants' && e.isSourceLoaded) syncDonuts();
     });
     map.on('move', syncDonuts);
     map.on('moveend', syncDonuts);
-
-    // Individual markers: grade color + grade letter
-    map.addLayer({
-      id: 'unclustered-point',
-      type: 'circle',
-      source: 'restaurants',
-      filter: ['!', ['has', 'point_count']],
-      paint: {
-        'circle-color': ['get', 'color'],
-        'circle-radius': ['interpolate', ['linear'], ['zoom'], 10, 7, 14, 11],
-        'circle-stroke-width': 2,
-        'circle-stroke-color': '#ffffff',
-      },
-    });
-    map.addLayer({
-      id: 'unclustered-letter',
-      type: 'symbol',
-      source: 'restaurants',
-      filter: ['!', ['has', 'point_count']],
-      layout: {
-        'text-field': '{grade}',
-        'text-size': ['interpolate', ['linear'], ['zoom'], 10, 8, 14, 12],
-        'text-font': ['Montserrat Bold'],
-        'text-allow-overlap': true,
-      },
-      paint: { 'text-color': '#ffffff' },
-    });
 
     // Interactions (cluster donuts carry their own click handlers)
     map.on('click', 'unclustered-point', e => {
