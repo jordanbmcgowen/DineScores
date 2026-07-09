@@ -6,6 +6,9 @@ function basemapStyle(dark) {
   const flavor = dark ? 'dark_all' : 'light_all';
   return {
     version: 8,
+    // Needed for the restaurant-name labels (SDF text). The grade LETTERS
+    // deliberately don't use this — see makeLetterIcon.
+    glyphs: 'https://tiles.basemaps.cartocdn.com/fonts/{fontstack}/{range}.pbf',
     sources: {
       basemap: {
         type: 'raster',
@@ -78,6 +81,33 @@ function letterSizeExpr(density) {
     ...RADIUS_STOPS.flatMap(([z, r]) => [z, (r * density * 1.25) / 18])];
 }
 
+const NAME_TEXT_SIZE = 11.5;
+
+// Name labels sit just outside the disc edge (radial offset is in ems)
+function nameOffsetExpr(density) {
+  return ['interpolate', ['linear'], ['zoom'],
+    ...RADIUS_STOPS.flatMap(([z, r]) => [z, (r * density + 5) / NAME_TEXT_SIZE])];
+}
+
+// Marker radius in px at an exact zoom (the JS twin of circleRadiusExpr),
+// used to size cluster donuts to at least match individual markers.
+function radiusAtZoom(zoom, density) {
+  const s = RADIUS_STOPS;
+  let r = s[s.length - 1][1];
+  if (zoom <= s[0][0]) r = s[0][1];
+  else {
+    for (let i = 1; i < s.length; i++) {
+      if (zoom <= s[i][0]) {
+        const [z0, r0] = s[i - 1];
+        const [z1, r1] = s[i];
+        r = r0 + ((r1 - r0) * (zoom - z0)) / (z1 - z0);
+        break;
+      }
+    }
+  }
+  return r * density;
+}
+
 function densityFactor(count) {
   if (count <= 12) return 1.5;
   if (count <= 30) return 1.3;
@@ -106,7 +136,15 @@ function donutSegment(start, end, r, r0, color) {
  * cluster's health mix legible without zooming; exact numbers are in the
  * aria-label/tooltip.
  */
-function createDonutChart(props, dark) {
+// A cluster stands in for SEVERAL restaurants, so it must never look smaller
+// than the individual markers around it: its radius is the count tier or the
+// current marker radius + a bit, whichever is larger.
+function donutRadius(total, minR) {
+  const tier = total >= 500 ? 32 : total >= 100 ? 26 : total >= 25 ? 21 : 16;
+  return Math.max(tier, Math.round(minR));
+}
+
+function createDonutChart(props, dark, minR) {
   const counts = {
     safe: props.safe || 0,
     caution: props.caution || 0,
@@ -115,7 +153,7 @@ function createDonutChart(props, dark) {
   const total = props.point_count;
   counts.unrated = Math.max(0, total - counts.safe - counts.caution - counts.avoid);
 
-  const r = total >= 500 ? 32 : total >= 100 ? 26 : total >= 25 ? 21 : 16;
+  const r = donutRadius(total, minR);
   const r0 = Math.round(r * 0.62);
   const w = r * 2;
 
@@ -133,10 +171,11 @@ function createDonutChart(props, dark) {
     : total >= 1000 ? `${(total / 1000).toFixed(1)}k` : String(total);
   html += `<circle cx="${r}" cy="${r}" r="${r0}" fill="${centerBg}"/>` +
     `<text x="${r}" y="${r}" text-anchor="middle" dominant-baseline="central" ` +
-    `style="font: 700 ${r >= 26 ? 12 : 11}px system-ui, sans-serif; fill:${centerFg};">${label}</text></svg>`;
+    `style="font: 700 ${r >= 26 ? 13 : 12}px system-ui, sans-serif; fill:${centerFg};">${label}</text></svg>`;
 
   const el = document.createElement('div');
   el.innerHTML = html;
+  el._dsRadius = r; // so a zoom/density change can tell the donut is stale
   el.style.cursor = 'pointer';
   el.setAttribute('role', 'button');
   el.setAttribute('aria-label',
@@ -239,6 +278,7 @@ export default function RestaurantMap({ restaurants, onMarkerClick, onViewportCh
           geometry: { type: 'Point', coordinates: [r.ln, r.lt] },
           properties: {
             id: r.i,
+            name: r.n || '',
             grade: GRADE_LETTERS.includes(r.vg) ? r.vg : '?',
             color: gradeMeta(r.vg).dot,
             priority: GRADE_PRIORITY[GRADE_LETTERS.includes(r.vg) ? r.vg : '?'],
@@ -309,6 +349,11 @@ export default function RestaurantMap({ restaurants, onMarkerClick, onViewportCh
         'circle-stroke-color': '#ffffff',
       },
     });
+    const darkScheme = window.matchMedia('(prefers-color-scheme: dark)').matches;
+
+    // One symbol per restaurant: the grade letter (mandatory icon) plus the
+    // restaurant name beside the disc (text-optional — it drops out where
+    // space is tight, the letter never does). Names appear from z13 up.
     map.addLayer({
       id: 'unclustered-letter',
       type: 'symbol',
@@ -321,12 +366,24 @@ export default function RestaurantMap({ restaurants, onMarkerClick, onViewportCh
         // priority so F letters beat the A's they overlap.
         'symbol-sort-key': ['-', 4, ['get', 'priority']],
         'icon-padding': 0,
+        'text-field': ['step', ['zoom'], '', 13, ['get', 'name']],
+        'text-font': ['Montserrat Bold'],
+        'text-size': NAME_TEXT_SIZE,
+        'text-variable-anchor': ['left', 'right', 'top', 'bottom'],
+        'text-radial-offset': nameOffsetExpr(densityRef.current),
+        'text-justify': 'auto',
+        'text-max-width': 9,
+        'text-optional': true,
+      },
+      paint: {
+        'text-color': darkScheme ? '#e2e8f0' : '#334155',
+        'text-halo-color': darkScheme ? '#0f172a' : '#ffffff',
+        'text-halo-width': 1.6,
       },
     });
 
     // Clusters render as HTML donut markers (grade distribution + count),
-    // synced to the current clustering.
-    const darkScheme = window.matchMedia('(prefers-color-scheme: dark)').matches;
+    // synced to the current clustering and sized to the current markers.
     const updateDonuts = () => {
       const cache = donutsRef.current;
       const seen = {};
@@ -334,14 +391,23 @@ export default function RestaurantMap({ restaurants, onMarkerClick, onViewportCh
       try {
         feats = map.queryRenderedFeatures({ layers: ['clusters'] });
       } catch (e) { return; }
+      // Donuts must read as ≥ the individual markers beside them
+      const minR = radiusAtZoom(map.getZoom(), densityRef.current) + 3;
       for (const f of feats) {
         const props = f.properties;
         if (!props.cluster) continue;
         const id = props.cluster_id;
         if (seen[id]) continue;
         let marker = cache.markers[id];
+        // Zoom/density moved the target size: rebuild this donut
+        if (marker && Math.abs(marker.getElement()._dsRadius - donutRadius(props.point_count, minR)) > 2) {
+          marker.remove();
+          delete cache.markers[id];
+          delete cache.onScreen[id];
+          marker = null;
+        }
         if (!marker) {
-          const el = createDonutChart(props, darkScheme);
+          const el = createDonutChart(props, darkScheme, minR);
           el.addEventListener('click', () => {
             // v4 returns a Promise (the callback form is gone)
             Promise.resolve(map.getSource('restaurants').getClusterExpansionZoom(id))
@@ -382,6 +448,7 @@ export default function RestaurantMap({ restaurants, onMarkerClick, onViewportCh
         densityRef.current = next;
         map.setPaintProperty('unclustered-point', 'circle-radius', circleRadiusExpr(next));
         map.setLayoutProperty('unclustered-letter', 'icon-size', letterSizeExpr(next));
+        map.setLayoutProperty('unclustered-letter', 'text-radial-offset', nameOffsetExpr(next));
       }
     };
 

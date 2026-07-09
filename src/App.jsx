@@ -504,15 +504,16 @@ function EmptyState() {
   );
 }
 
+// Paperwork (docs) is deliberately absent: not decision-relevant enough for
+// the result cards. It still appears in the detail modal.
 const CARD_TAGS = {
   pests: 'bg-red-50 text-red-700 dark:bg-red-500/10 dark:text-red-400',
   temp: 'bg-sky-50 text-sky-700 dark:bg-sky-500/10 dark:text-sky-400',
   hygiene: 'bg-violet-50 text-violet-700 dark:bg-violet-500/10 dark:text-violet-400',
   equipment: 'bg-slate-100 text-slate-600 dark:bg-slate-500/10 dark:text-slate-400',
-  docs: 'bg-amber-50 text-amber-700 dark:bg-amber-500/10 dark:text-amber-400',
 };
 const CARD_TAG_LABELS = {
-  pests: 'Pests', temp: 'Temp', hygiene: 'Hygiene', equipment: 'Equipment', docs: 'Paperwork',
+  pests: 'Pests', temp: 'Temp', hygiene: 'Hygiene', equipment: 'Equipment',
 };
 
 function RestaurantCard({ restaurant: r, formatDate, onClick, selected }) {
@@ -533,9 +534,9 @@ function RestaurantCard({ restaurant: r, formatDate, onClick, selected }) {
           <span className="text-[11px] text-slate-400 tabular-nums">
             Inspected {formatDate(r.d)}
           </span>
-          {(r.inf || []).slice(0, 3).map(cat => (
-            <span key={cat} className={`text-[10px] px-1.5 py-0.5 rounded-md font-bold ${CARD_TAGS[cat] || CARD_TAGS.equipment}`}>
-              {CARD_TAG_LABELS[cat] || cat}
+          {(r.inf || []).filter(cat => CARD_TAGS[cat]).slice(0, 3).map(cat => (
+            <span key={cat} className={`text-[10px] px-1.5 py-0.5 rounded-md font-bold ${CARD_TAGS[cat]}`}>
+              {CARD_TAG_LABELS[cat]}
             </span>
           ))}
         </div>
