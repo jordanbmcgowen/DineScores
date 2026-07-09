@@ -320,15 +320,18 @@ export default function App() {
     return sorted;
   }, [allData, cityFilter, metroFilter, gradeFilter, infractionFilter, debouncedSearch, sortBy, userPos]);
 
-  // The list and header count are viewport-aware: once zoomed in, they reflect
-  // what's actually on screen (which is where lazy-loaded records show up).
-  // Zoomed out, they mirror the full filtered set. The MAP always gets the full
-  // filtered set — it clusters, so density isn't a problem.
+  // The list and header count mirror the VISIBLE map exactly, at every zoom
+  // (the map reports bounds that exclude the sidebar/header/sheet overlays).
+  // Coordless records still surface during a text search — that's the only
+  // way to reach them. The MAP always gets the full filtered set — it
+  // clusters, so density isn't a problem.
   const visible = useMemo(() => {
-    if (!mapView || mapView.zoom < VIEWPORT_ZOOM) return filtered;
+    if (!mapView) return filtered;
     const { w, s, e, n } = mapView.bounds;
-    return filtered.filter(r => r.ln >= w && r.ln <= e && r.lt >= s && r.lt <= n);
-  }, [filtered, mapView]);
+    return filtered.filter(r => (r.lt && r.ln)
+      ? (r.ln >= w && r.ln <= e && r.lt >= s && r.lt <= n)
+      : !!debouncedSearch);
+  }, [filtered, mapView, debouncedSearch]);
 
   // Camera signals: a city/metro change re-frames the map to that area
   // (fitSignal); grade/issue/search changes only ever zoom OUT to the nearest
@@ -469,8 +472,18 @@ export default function App() {
         />
       </div>
 
-      {/* Desktop results panel */}
+      {/* Desktop results panel (also hosts the docked selection preview) */}
       <aside className="hidden md:flex flex-col absolute left-4 top-[118px] bottom-4 w-[400px] z-10 rounded-3xl bg-white/95 dark:bg-slate-900/95 backdrop-blur shadow-2xl ring-1 ring-slate-900/5 dark:ring-white/10 overflow-hidden">
+        {preview && !selectedRestaurant && (
+          <PreviewCard
+            docked
+            restaurant={allData.find(x => x.i === preview.i) || preview}
+            userPos={userPos}
+            formatDate={formatDate}
+            onClose={() => setPreview(null)}
+            onFullReport={() => setSelectedRestaurant(preview)}
+          />
+        )}
         <div className="px-4 h-11 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between shrink-0">
           <span className="text-xs font-bold text-slate-500 dark:text-slate-400 tabular-nums flex items-center gap-2">
             {visible.length.toLocaleString()} restaurants
@@ -528,7 +541,7 @@ export default function App() {
         {visible.length === 0 && <EmptyState />}
       </BottomSheet>
 
-      {/* Preview card over the live map */}
+      {/* Mobile-only floating preview (desktop docks it in the sidebar) */}
       {preview && !selectedRestaurant && (
         <PreviewCard
           restaurant={allData.find(x => x.i === preview.i) || preview}

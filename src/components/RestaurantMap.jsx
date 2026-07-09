@@ -251,18 +251,36 @@ export default function RestaurantMap({
 
     map.on('load', () => setMapLoaded(true));
 
-    // Debounced viewport reporting
+    // Debounced viewport reporting. Bounds cover only the part of the map
+    // the user can actually SEE — the strips hidden under the sidebar, the
+    // header rail, and the mobile sheet are excluded, so the results list
+    // mirrors the visible map exactly.
+    const visibleBounds = () => {
+      const el = map.getContainer();
+      const w = el.clientWidth;
+      const h = el.clientHeight;
+      const desktop = window.innerWidth >= 768;
+      const inset = desktop
+        ? { left: 432, top: 112, right: 8, bottom: 8 }
+        : { left: 0, top: 148, right: 0, bottom: 104 };
+      if (inset.left + inset.right > w * 0.8 || inset.top + inset.bottom > h * 0.8) {
+        const b = map.getBounds();
+        return { w: b.getWest(), s: b.getSouth(), e: b.getEast(), n: b.getNorth() };
+      }
+      const p1 = map.unproject([inset.left, h - inset.bottom]);
+      const p2 = map.unproject([w - inset.right, inset.top]);
+      return {
+        w: Math.min(p1.lng, p2.lng), s: Math.min(p1.lat, p2.lat),
+        e: Math.max(p1.lng, p2.lng), n: Math.max(p1.lat, p2.lat),
+      };
+    };
     let moveTimer;
     map.on('moveend', () => {
       clearTimeout(moveTimer);
       moveTimer = setTimeout(() => {
         const cb = onViewportChangeRef.current;
         if (!cb) return;
-        const b = map.getBounds();
-        cb({
-          zoom: map.getZoom(),
-          bounds: { w: b.getWest(), s: b.getSouth(), e: b.getEast(), n: b.getNorth() },
-        });
+        cb({ zoom: map.getZoom(), bounds: visibleBounds() });
       }, 350);
     });
 
@@ -514,11 +532,16 @@ export default function RestaurantMap({
     map.on('mouseleave', 'unclustered-point', () => { map.getCanvas().style.cursor = ''; });
   }, [restaurants, mapLoaded, onMarkerClick]);
 
-  // Selection halo follows whichever restaurant is previewed/open
+  // Selection follows whichever restaurant is previewed/open: halo behind
+  // its disc, and its letter jumps to top collision priority so the marker
+  // the user just clicked never shows as a letterless disc.
   useEffect(() => {
     const map = mapRef.current;
     if (!map || !mapLoaded || !map.getLayer('selected-halo')) return;
-    map.setFilter('selected-halo', ['==', ['get', 'id'], selectedId || '___none']);
+    const id = selectedId || '___none';
+    map.setFilter('selected-halo', ['==', ['get', 'id'], id]);
+    map.setLayoutProperty('unclustered-letter', 'symbol-sort-key',
+      ['case', ['==', ['get', 'id'], id], -1, ['-', 4, ['get', 'priority']]]);
   }, [selectedId, mapLoaded, restaurants]);
 
   // GPS effect: center on the user once per flyTo key. If it lands before

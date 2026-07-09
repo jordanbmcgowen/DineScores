@@ -16,19 +16,24 @@ function distanceMiles(userPos, r) {
 }
 
 /**
- * Compact preview that floats over the live map when a marker (or list card,
- * or search suggestion) is selected — the map keeps working underneath.
- * The full report is one more tap away.
+ * Compact selection preview — the full report is one more tap away.
+ * Two placements: `docked` renders as a block pinned at the top of the
+ * desktop sidebar; the default floats over the live map (mobile, where
+ * there is no sidebar).
  */
-export default function PreviewCard({ restaurant: r, userPos, formatDate, onClose, onFullReport }) {
+export default function PreviewCard({ restaurant: r, userPos, formatDate, onClose, onFullReport, docked = false }) {
   const meta = gradeMeta(r.vg);
   const dist = userPos && r.lt && r.ln ? distanceMiles(userPos, r) : null;
   const mapsUrl = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(
     `${r.n} ${r.a} ${r.c}`)}`;
 
   return (
-    <div className="absolute z-30 bottom-[110px] left-3 right-3 md:bottom-6 md:right-auto md:left-[calc(50%+210px)] md:-translate-x-1/2 md:w-[400px] animate-slide-up pb-safe">
-      <div className="rounded-2xl bg-white/95 dark:bg-slate-900/95 backdrop-blur shadow-2xl ring-1 ring-slate-900/10 dark:ring-white/10 overflow-hidden">
+    <div className={docked
+      ? 'shrink-0 bg-brand-50/60 dark:bg-brand-900/15 border-b-2 border-brand-200 dark:border-brand-900/40 animate-fade-in'
+      : 'md:hidden absolute z-30 bottom-[110px] left-3 right-3 animate-slide-up pb-safe'}>
+      <div className={docked
+        ? ''
+        : 'rounded-2xl bg-white/95 dark:bg-slate-900/95 backdrop-blur shadow-2xl ring-1 ring-slate-900/10 dark:ring-white/10 overflow-hidden'}>
         <div className="p-3.5 flex items-start gap-3">
           <GradeBadge grade={r.vg} size="sm" />
           <div className="flex-1 min-w-0">
