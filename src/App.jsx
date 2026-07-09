@@ -1,6 +1,6 @@
 import React, { useEffect, useState, useMemo, useCallback, useRef } from 'react';
 import { ensureVettedFields } from './grading.js';
-import { probeApi, fetchBboxFromApi, fetchAreaFromApi, fetchRestaurantDetail } from './api.js';
+import { probeApi, fetchBboxFromApi, fetchAreaFromApi, fetchAllFromApi, fetchRestaurantDetail } from './api.js';
 import GradeBadge from './components/GradeBadge.jsx';
 import RestaurantMap from './components/RestaurantMap.jsx';
 import InspectionModal from './components/InspectionModal.jsx';
@@ -41,6 +41,8 @@ export default function App() {
   const [apiReady, setApiReady] = useState(false);
   const [dbTotal, setDbTotal] = useState(null); // true database size, from the API
   const [loadingArea, setLoadingArea] = useState(null); // city/metro being fetched
+  const [syncCount, setSyncCount] = useState(null); // full-DB sync progress (null = idle)
+  const fullyLoadedRef = useRef(false); // every DB record is in memory
   const apiAvailableRef = useRef(false);
   const knownIdsRef = useRef(new Set());
   const coveredBoxesRef = useRef([]); // boxes fully fetched (not row-capped)
@@ -115,15 +117,27 @@ export default function App() {
       }
     }
     load();
-    // Probe the D1 API once; when reachable it enables progressive loading
-    // and reports the true database size.
+    // Probe the D1 API once; when reachable it reports the true database
+    // size and kicks off the full background sync: the embedded ~50k paint
+    // instantly, then the remaining records stream in page by page so
+    // cluster counts converge to the real database totals within seconds.
     probeApi().then(total => {
-      if (total) {
-        apiAvailableRef.current = true;
-        setApiReady(true);
-        setDbTotal(total);
-      }
+      if (!total) return;
+      apiAvailableRef.current = true;
+      setApiReady(true);
+      setDbTotal(total);
+      let merged = 0;
+      setSyncCount(0);
+      fetchAllFromApi(batch => {
+        merged += batch.length;
+        mergeRecords(batch);
+        setSyncCount(merged);
+      }).then(complete => {
+        fullyLoadedRef.current = complete;
+        setSyncCount(null);
+      });
     });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // Merge lazily-loaded viewport records into the pool (dedup by id)
@@ -142,7 +156,7 @@ export default function App() {
   // one time per area) so the view isn't limited to the embedded per-city cap.
   useEffect(() => {
     const area = metroFilter ? { metro: metroFilter } : (cityFilter !== 'all' ? { city: cityFilter } : null);
-    if (!area || !apiAvailableRef.current) return;
+    if (!area || !apiAvailableRef.current || fullyLoadedRef.current) return;
     const key = metroFilter ? `m:${metroFilter}` : `c:${cityFilter}`;
     if (loadedAreasRef.current.has(key)) return;
     loadedAreasRef.current.add(key);
@@ -200,7 +214,8 @@ export default function App() {
   const handleViewportChange = useCallback(({ zoom, bounds }) => {
     setMapView({ zoom, bounds });
     mapViewRef.current = { zoom, bounds };
-    if (!apiAvailableRef.current || zoom < VIEWPORT_ZOOM) return;
+    // Once the full sync has landed, viewport fetches have nothing to add
+    if (!apiAvailableRef.current || fullyLoadedRef.current || zoom < VIEWPORT_ZOOM) return;
 
     // Pad the box ~18% so small pans don't re-fetch
     const padX = (bounds.e - bounds.w) * 0.18;
@@ -495,6 +510,12 @@ export default function App() {
               <span className="inline-flex items-center gap-1 text-brand-600 dark:text-brand-500 normal-case">
                 <span className="w-3 h-3 border-2 border-brand-200 border-t-brand-600 rounded-full animate-spin" />
                 loading {loadingArea}…
+              </span>
+            )}
+            {!loadingArea && syncCount !== null && (
+              <span className="inline-flex items-center gap-1 text-slate-400 normal-case font-semibold">
+                <span className="w-3 h-3 border-2 border-slate-200 border-t-slate-400 rounded-full animate-spin" />
+                syncing {Math.round((allData.length) / 1000)}k of {Math.round((dbTotal || 0) / 1000)}k…
               </span>
             )}
           </span>
