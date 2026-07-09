@@ -1,11 +1,13 @@
 import React, { useEffect, useState, useMemo, useCallback, useRef } from 'react';
 import { ensureVettedFields } from './grading.js';
-import { probeApi, fetchBboxFromApi, fetchAreaFromApi } from './api.js';
+import { probeApi, fetchBboxFromApi, fetchAreaFromApi, fetchRestaurantDetail } from './api.js';
 import GradeBadge from './components/GradeBadge.jsx';
 import RestaurantMap from './components/RestaurantMap.jsx';
 import InspectionModal from './components/InspectionModal.jsx';
 import FilterBar from './components/FilterBar.jsx';
 import BottomSheet from './components/BottomSheet.jsx';
+import PreviewCard from './components/PreviewCard.jsx';
+import SearchBar from './components/SearchBar.jsx';
 
 // Below this zoom the embedded overview is enough; above it, lazy-load the
 // uncapped records for whatever is in view from the D1 API.
@@ -17,7 +19,11 @@ export default function App() {
   const [error, setError] = useState(null);
   const [searchTerm, setSearchTerm] = useState('');
   const [debouncedSearch, setDebouncedSearch] = useState('');
+  // Two-tier selection: `preview` is the light card floating over the live
+  // map; `selectedRestaurant` is the full-report modal (one more tap).
+  const [preview, setPreview] = useState(null);
   const [selectedRestaurant, setSelectedRestaurant] = useState(null);
+  const [sheetCollapseKey, setSheetCollapseKey] = useState(0);
   // Default ordering: most recent inspections; upgraded to nearest-first the
   // moment a GPS fix lands (unless the user has picked a sort themselves).
   const [sortBy, setSortBy] = useState('date-desc');
@@ -31,6 +37,7 @@ export default function App() {
 
   // Progressive loading from the D1 API when it is reachable
   const [mapView, setMapView] = useState(null); // { zoom, bounds:{w,s,e,n} }
+  const mapViewRef = useRef(null);
   const [apiReady, setApiReady] = useState(false);
   const [loadingArea, setLoadingArea] = useState(null); // city/metro being fetched
   const apiAvailableRef = useRef(false);
@@ -89,6 +96,7 @@ export default function App() {
           const seeded = window.DATA.map(ensureVettedFields);
           for (const r of seeded) if (r.i) knownIdsRef.current.add(r.i);
           setAllData(seeded);
+          openDeepLink(seeded);
         } else {
           setError('Failed to load restaurant data. Please refresh.');
         }
@@ -152,9 +160,43 @@ export default function App() {
     setAllData(prev => prev.map(x => (x.i === rec.i ? { ...x, ...rec } : x)));
   }, []);
 
+  // Shareable deep link: #r/<id> opens that restaurant's full report on load
+  // (fetched from the API when it isn't in the embedded dataset).
+  function openDeepLink(seeded) {
+    const m = window.location.hash.match(/^#r\/([a-f0-9]{16})$/);
+    if (!m) return;
+    const openRec = (rec) => {
+      setPreview(rec);
+      setSelectedRestaurant(rec);
+      if (rec.lt && rec.ln) setFlyTo({ lng: rec.ln, lat: rec.lt, zoom: 16, key: Date.now() });
+    };
+    const rec = seeded.find(x => x.i === m[1]);
+    if (rec) {
+      openRec(rec);
+    } else {
+      fetchRestaurantDetail(m[1]).then(full => {
+        if (!full) return;
+        const vetted = ensureVettedFields(full);
+        mergeRecords([vetted]);
+        openRec(vetted);
+      });
+    }
+  }
+
+  // Keep the URL in sync with the open report, so the address bar is always
+  // copy-pasteable. Cleared when the report closes.
+  useEffect(() => {
+    if (selectedRestaurant?.i) {
+      window.history.replaceState(null, '', `#r/${selectedRestaurant.i}`);
+    } else if (window.location.hash.startsWith('#r/')) {
+      window.history.replaceState(null, '', window.location.pathname + window.location.search);
+    }
+  }, [selectedRestaurant]);
+
   // Viewport changed: remember it, and (when zoomed in) lazy-load its records.
   const handleViewportChange = useCallback(({ zoom, bounds }) => {
     setMapView({ zoom, bounds });
+    mapViewRef.current = { zoom, bounds };
     if (!apiAvailableRef.current || zoom < VIEWPORT_ZOOM) return;
 
     // Pad the box ~18% so small pans don't re-fetch
@@ -295,9 +337,40 @@ export default function App() {
   const fitSignal = `${cityFilter}|${metroFilter}`;
   const narrowSignal = `${gradeFilter.join('')}|${infractionFilter.join('')}|${debouncedSearch}`;
 
+  // Marker tap → light preview over the live map (report is one more tap)
   const handleMarkerClick = useCallback((restaurant) => {
-    setSelectedRestaurant(restaurant);
+    setPreview(restaurant);
+    setSheetCollapseKey(k => k + 1); // free up the map on mobile
   }, []);
+
+  const handleBackgroundClick = useCallback(() => {
+    setPreview(prev => (prev ? null : prev));
+  }, []);
+
+  // List card / search suggestion → preview + glide the camera there
+  const focusRestaurant = useCallback((restaurant, { fly = true } = {}) => {
+    const rec = ensureVettedFields(restaurant);
+    mergeRecords([rec]); // no-op if already loaded
+    setPreview(rec);
+    setSheetCollapseKey(k => k + 1);
+    if (fly && rec.lt && rec.ln) {
+      // 16.2 > clusterMaxZoom, so the target renders as an individual
+      // marker and its selection halo is guaranteed to be visible.
+      setFlyTo(prev => ({
+        lng: rec.ln, lat: rec.lt,
+        zoom: Math.max(16.2, mapViewRef.current?.zoom || 0),
+        key: Date.now(),
+      }));
+    }
+  }, [mergeRecords]);
+
+  // Esc dismisses the preview (the modal handles its own Esc)
+  useEffect(() => {
+    if (!preview || selectedRestaurant) return;
+    const onKey = e => { if (e.key === 'Escape') setPreview(null); };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [preview, selectedRestaurant]);
 
   const toggleGrade = useCallback((grade) => {
     setGradeFilter(prev => {
@@ -349,10 +422,12 @@ export default function App() {
         <RestaurantMap
           restaurants={filtered}
           onMarkerClick={handleMarkerClick}
+          onBackgroundClick={handleBackgroundClick}
           onViewportChange={handleViewportChange}
           fitSignal={fitSignal}
           narrowSignal={narrowSignal}
           flyTo={flyTo}
+          selectedId={preview?.i || selectedRestaurant?.i || null}
         />
       </div>
 
@@ -368,36 +443,16 @@ export default function App() {
             <span className="text-[17px] font-extrabold tracking-tight">DineScores</span>
           </div>
 
-          {/* Search */}
-          <div className="relative flex-1 max-w-xl">
-            <svg className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 pointer-events-none" viewBox="0 0 20 20" fill="none" aria-hidden="true">
-              <circle cx="8.5" cy="8.5" r="5.5" stroke="currentColor" strokeWidth="1.8"/>
-              <path d="M13 13l4 4" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"/>
-            </svg>
-            <input
-              type="search"
-              placeholder="Search restaurants, addresses…"
-              className="w-full h-11 bg-white/90 dark:bg-slate-800/90 backdrop-blur text-slate-900 dark:text-white pl-10 pr-20 rounded-2xl shadow-lg ring-1 ring-slate-900/5 dark:ring-white/10 focus:ring-2 focus:ring-brand-500 outline-none text-[15px] placeholder:text-slate-400"
-              value={searchTerm}
-              onChange={e => setSearchTerm(e.target.value)}
-            />
-            {searchTerm ? (
-              <button
-                onClick={() => setSearchTerm('')}
-                className="absolute right-3 top-1/2 -translate-y-1/2 p-1 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200"
-                aria-label="Clear search"
-              >
-                <svg viewBox="0 0 20 20" width="16" height="16" fill="none">
-                  <path d="M6 6l8 8M14 6l-8 8" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"/>
-                </svg>
-              </button>
-            ) : (
-              // Same count the results list reports, so the two never disagree
-              <span className="absolute right-3.5 top-1/2 -translate-y-1/2 text-[11px] font-bold text-slate-400 tabular-nums whitespace-nowrap">
-                {visible.length.toLocaleString()}
-              </span>
-            )}
-          </div>
+          {/* Search with suggestions (count mirrors the results list) */}
+          <SearchBar
+            value={searchTerm}
+            onChange={setSearchTerm}
+            count={visible.length}
+            allData={allData}
+            cityOptions={cityOptions}
+            onPickRestaurant={r => focusRestaurant(r)}
+            onPickArea={opt => { setCityFilter(opt.city); setMetroFilter(opt.metro); }}
+          />
         </div>
 
         {/* Filter rail */}
@@ -434,8 +489,8 @@ export default function App() {
               key={r.i}
               restaurant={r}
               formatDate={formatDate}
-              onClick={() => setSelectedRestaurant(r)}
-              selected={selectedRestaurant?.i === r.i}
+              onClick={() => focusRestaurant(r)}
+              selected={preview?.i === r.i || selectedRestaurant?.i === r.i}
             />
           ))}
           {visible.length > 100 && (
@@ -449,6 +504,7 @@ export default function App() {
 
       {/* Mobile bottom sheet (drag the header to resize) */}
       <BottomSheet
+        collapseKey={sheetCollapseKey}
         header={
           <div className="w-full px-4 pb-2 flex items-center justify-between">
             <span className="text-sm font-bold tabular-nums">
@@ -465,12 +521,23 @@ export default function App() {
             key={r.i}
             restaurant={r}
             formatDate={formatDate}
-            onClick={() => setSelectedRestaurant(r)}
-            selected={false}
+            onClick={() => focusRestaurant(r)}
+            selected={preview?.i === r.i}
           />
         ))}
         {visible.length === 0 && <EmptyState />}
       </BottomSheet>
+
+      {/* Preview card over the live map */}
+      {preview && !selectedRestaurant && (
+        <PreviewCard
+          restaurant={allData.find(x => x.i === preview.i) || preview}
+          userPos={userPos}
+          formatDate={formatDate}
+          onClose={() => setPreview(null)}
+          onFullReport={() => setSelectedRestaurant(preview)}
+        />
+      )}
 
       {/* Inspection Modal */}
       {selectedRestaurant && (

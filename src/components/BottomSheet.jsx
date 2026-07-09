@@ -1,4 +1,4 @@
-import React, { useRef, useState, useCallback } from 'react';
+import React, { useRef, useState, useCallback, useEffect } from 'react';
 
 const COLLAPSED_PEEK = 96; // px of sheet visible when collapsed
 
@@ -6,10 +6,15 @@ const COLLAPSED_PEEK = 96; // px of sheet visible when collapsed
  * Mobile results sheet: drag the header up/down to resize (snaps to
  * collapsed / half / full), tap it to cycle states. The list body scrolls
  * normally; only the header is a drag handle, so scrolling and dragging
- * never fight over the same gesture.
+ * never fight over the same gesture. Bumping `collapseKey` collapses the
+ * sheet (used when a map preview card needs the space).
  */
-export default function BottomSheet({ header, children }) {
+export default function BottomSheet({ header, children, collapseKey }) {
   const [state, setState] = useState('collapsed'); // collapsed | half | full
+
+  useEffect(() => {
+    if (collapseKey) setState('collapsed');
+  }, [collapseKey]);
   const sheetRef = useRef(null);
   const dragRef = useRef(null); // { startY, startOffset, height, moved }
   const suppressClickRef = useRef(false); // a drag's trailing click must not cycle

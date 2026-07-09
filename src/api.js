@@ -37,6 +37,22 @@ export async function fetchAreaFromApi({ city, metro }, limit = 30000) {
   }
 }
 
+/**
+ * Name search across the ENTIRE database (not just loaded records), lite
+ * records. Used by the search box's suggestion dropdown.
+ */
+export async function fetchSearchFromApi(q, limit = 10) {
+  if (!q || q.length < 2) return [];
+  try {
+    const rows = await getJson(
+      `/api/restaurants?q=${encodeURIComponent(q)}&fields=lite&limit=${limit}`
+    );
+    return Array.isArray(rows) ? rows : [];
+  } catch {
+    return [];
+  }
+}
+
 /** One restaurant's full record (including violation summaries). */
 export async function fetchRestaurantDetail(id) {
   try {

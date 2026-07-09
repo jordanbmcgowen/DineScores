@@ -83,6 +83,12 @@ function letterSizeExpr(density) {
 
 const NAME_TEXT_SIZE = 11.5;
 
+// Soft brand-colored halo behind the selected restaurant's marker
+function haloRadiusExpr(density) {
+  return ['interpolate', ['linear'], ['zoom'],
+    ...RADIUS_STOPS.flatMap(([z, r]) => [z, r * density + 7])];
+}
+
 // Name labels sit just outside the disc edge (radial offset is in ems)
 function nameOffsetExpr(density) {
   return ['interpolate', ['linear'], ['zoom'],
@@ -204,11 +210,16 @@ function createDonutChart(props, dark, minR) {
  * `onViewportChange({ zoom, bounds })` fires (debounced) after the user pans or
  * zooms, so the parent can lazy-load whatever is now in view.
  */
-export default function RestaurantMap({ restaurants, onMarkerClick, onViewportChange, fitSignal, narrowSignal, flyTo }) {
+export default function RestaurantMap({
+  restaurants, onMarkerClick, onBackgroundClick, onViewportChange,
+  fitSignal, narrowSignal, flyTo, selectedId,
+}) {
   const mapContainer = useRef(null);
   const mapRef = useRef(null);
   const restaurantsRef = useRef(restaurants);
   const onViewportChangeRef = useRef(onViewportChange);
+  const onBackgroundClickRef = useRef(onBackgroundClick);
+  onBackgroundClickRef.current = onBackgroundClick;
   const [mapLoaded, setMapLoaded] = useState(false);
   const donutsRef = useRef({ markers: {}, onScreen: {} });
   const densityRef = useRef(1.0);
@@ -327,6 +338,22 @@ export default function RestaurantMap({ restaurants, onMarkerClick, onViewportCh
       source: 'restaurants',
       filter: ['has', 'point_count'],
       paint: { 'circle-radius': 1, 'circle-opacity': 0.01 },
+    });
+
+    // Halo behind the currently-selected marker (filter swaps per selection)
+    map.addLayer({
+      id: 'selected-halo',
+      type: 'circle',
+      source: 'restaurants',
+      filter: ['==', ['get', 'id'], '___none'],
+      paint: {
+        'circle-radius': haloRadiusExpr(densityRef.current),
+        'circle-color': '#0d9488',
+        'circle-opacity': 0.30,
+        'circle-stroke-color': '#0d9488',
+        'circle-stroke-width': 2,
+        'circle-stroke-opacity': 0.65,
+      },
     });
 
     // Individual markers: vector disc (smooth at any radius) + bitmap letter.
@@ -449,6 +476,7 @@ export default function RestaurantMap({ restaurants, onMarkerClick, onViewportCh
         map.setPaintProperty('unclustered-point', 'circle-radius', circleRadiusExpr(next));
         map.setLayoutProperty('unclustered-letter', 'icon-size', letterSizeExpr(next));
         map.setLayoutProperty('unclustered-letter', 'text-radial-offset', nameOffsetExpr(next));
+        map.setPaintProperty('selected-halo', 'circle-radius', haloRadiusExpr(next));
       }
     };
 
@@ -473,9 +501,25 @@ export default function RestaurantMap({ restaurants, onMarkerClick, onViewportCh
       const r = restaurantsRef.current.find(x => x.i === props.id);
       if (r && onMarkerClick) onMarkerClick(r);
     });
+    // A click on empty map (no marker under the pointer) dismisses the
+    // preview card — same dismissal gesture as Google Maps.
+    map.on('click', e => {
+      let hits = [];
+      try {
+        hits = map.queryRenderedFeatures(e.point, { layers: ['unclustered-point'] });
+      } catch { /* layer not ready */ }
+      if (hits.length === 0 && onBackgroundClickRef.current) onBackgroundClickRef.current();
+    });
     map.on('mouseenter', 'unclustered-point', () => { map.getCanvas().style.cursor = 'pointer'; });
     map.on('mouseleave', 'unclustered-point', () => { map.getCanvas().style.cursor = ''; });
   }, [restaurants, mapLoaded, onMarkerClick]);
+
+  // Selection halo follows whichever restaurant is previewed/open
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !mapLoaded || !map.getLayer('selected-halo')) return;
+    map.setFilter('selected-halo', ['==', ['get', 'id'], selectedId || '___none']);
+  }, [selectedId, mapLoaded, restaurants]);
 
   // GPS effect: center on the user once per flyTo key. If it lands before
   // the initial nationwide fit, it takes precedence over that fit.

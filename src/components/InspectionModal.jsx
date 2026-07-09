@@ -25,12 +25,75 @@ const SEVERITY_STYLE = {
   },
 };
 
+const gradeForScore = s => (s >= 90 ? 'A' : s >= 80 ? 'B' : s >= 70 ? 'C' : 'F');
+
+/**
+ * Turn the raw inspection history into a one-glance story: a chronological
+ * strip of grade chips plus a plain-English verdict. Pure presentation —
+ * grading itself is unchanged.
+ */
+function trendInfo(history) {
+  const grades = history.map(h => gradeForScore(h.rs || 0)); // newest first
+  const n = grades.length;
+  const aCount = grades.filter(g => g === 'A').length;
+  const rank = { A: 3, B: 2, C: 1, F: 0 };
+  const latest = grades[0];
+  const prior = grades.slice(1);
+
+  if (grades.every(g => g === 'A')) {
+    return { label: 'Consistently clean', tone: 'A', sentence: `Rated A on all ${n} inspections on file.` };
+  }
+  if (latest === 'F') {
+    return { label: 'Failed latest inspection', tone: 'F', sentence: `${aCount} of ${n} inspections rated A.` };
+  }
+  if (latest === 'A' && prior.length > 0 && prior[0] !== 'A') {
+    return { label: 'Improving', tone: 'A', sentence: 'Latest inspection passed after earlier issues.' };
+  }
+  if (prior.length > 0 && rank[latest] < rank[prior[0]]) {
+    return { label: 'Declining', tone: latest, sentence: `Latest inspection rated ${latest}, down from ${prior[0]}.` };
+  }
+  return { label: 'Mixed record', tone: latest, sentence: `${aCount} of ${n} inspections rated A.` };
+}
+
+function TrendStrip({ history }) {
+  const { label, tone, sentence } = trendInfo(history);
+  const meta = gradeMeta(tone);
+  const chron = [...history].reverse().slice(-10); // oldest → newest
+  return (
+    <div className="rounded-2xl bg-slate-50 dark:bg-slate-800/60 ring-1 ring-slate-100 dark:ring-slate-800 px-3.5 py-3">
+      <div className="flex items-center justify-between gap-2 flex-wrap">
+        <span className={`inline-flex items-center px-2 py-0.5 rounded-md text-[11px] font-bold uppercase tracking-wide ring-1 ${meta.soft}`}>
+          {label}
+        </span>
+        <div className="flex items-center gap-1" aria-label="Grade history, oldest to newest">
+          {chron.map((h, i) => {
+            const g = gradeForScore(h.rs || 0);
+            return (
+              <span
+                key={h.id || i}
+                title={h.date}
+                className={`w-5 h-5 rounded-md flex items-center justify-center text-[10px] font-black ${gradeMeta(g).tile} ${
+                  i === chron.length - 1 ? 'ring-2 ring-offset-1 ring-slate-300 dark:ring-slate-600 dark:ring-offset-slate-900' : ''
+                }`}
+              >
+                {g}
+              </span>
+            );
+          })}
+        </div>
+      </div>
+      <p className="text-[12px] text-slate-500 dark:text-slate-400 mt-1.5">{sentence}</p>
+    </div>
+  );
+}
+
 export default function InspectionModal({ restaurant: r, onClose, formatDate, onUpgrade }) {
   const [history, setHistory] = useState([]);
   const [loadingHistory, setLoadingHistory] = useState(false);
   const [expandedSummary, setExpandedSummary] = useState(null);
   const [detail, setDetail] = useState(null);
   const [loadingDetail, setLoadingDetail] = useState(false);
+  const [copied, setCopied] = useState(false);
 
   // Lite records (bulk-loaded from the API) omit the `vs` key entirely.
   // Fetch the full record before showing findings, so we never display
@@ -89,6 +152,18 @@ export default function InspectionModal({ restaurant: r, onClose, formatDate, on
   const mapsUrl = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(
     `${r.n} ${r.a} ${r.c}`)}`;
 
+  const share = () => {
+    const url = `${window.location.origin}/#r/${r.i}`;
+    if (navigator.share) {
+      navigator.share({ title: `${r.n} — DineScores`, url }).catch(() => {});
+    } else if (navigator.clipboard) {
+      navigator.clipboard.writeText(url).then(() => {
+        setCopied(true);
+        setTimeout(() => setCopied(false), 1800);
+      }).catch(() => {});
+    }
+  };
+
   return (
     <div className="fixed inset-0 z-[9999] flex items-end md:items-center justify-center">
       {/* Backdrop */}
@@ -107,7 +182,7 @@ export default function InspectionModal({ restaurant: r, onClose, formatDate, on
         {/* Header */}
         <div className="px-5 pt-5 pb-4 md:px-6 flex items-start gap-4 shrink-0 border-b border-slate-100 dark:border-slate-800">
           <GradeBadge grade={grade} />
-          <div className="flex-1 min-w-0 pr-8">
+          <div className="flex-1 min-w-0 pr-28">
             <div className={`inline-flex items-center px-2 py-0.5 rounded-md text-[11px] font-bold uppercase tracking-wide ring-1 ${meta.soft}`}>
               {meta.label}
             </div>
@@ -126,15 +201,28 @@ export default function InspectionModal({ restaurant: r, onClose, formatDate, on
               <span className="truncate">{r.a}, {r.c}{r.z ? ` ${r.z}` : ''}</span>
             </a>
           </div>
-          <button
-            onClick={onClose}
-            className="absolute top-4 right-4 w-8 h-8 flex items-center justify-center rounded-full bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors"
-            aria-label="Close"
-          >
-            <svg className="w-4 h-4" viewBox="0 0 20 20" fill="none">
-              <path d="M6 6l8 8M14 6l-8 8" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"/>
-            </svg>
-          </button>
+          <div className="absolute top-4 right-4 flex items-center gap-2">
+            <button
+              onClick={share}
+              className="h-8 px-2.5 flex items-center gap-1.5 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors text-[11px] font-bold"
+              aria-label={`Share a link to ${r.n}`}
+            >
+              <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/>
+                <path d="m8.6 13.5 6.8 4M15.4 6.5l-6.8 4"/>
+              </svg>
+              {copied ? 'Copied!' : 'Share'}
+            </button>
+            <button
+              onClick={onClose}
+              className="w-8 h-8 flex items-center justify-center rounded-full bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors"
+              aria-label="Close"
+            >
+              <svg className="w-4 h-4" viewBox="0 0 20 20" fill="none">
+                <path d="M6 6l8 8M14 6l-8 8" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"/>
+              </svg>
+            </button>
+          </div>
         </div>
 
         {/* Body */}
@@ -144,6 +232,9 @@ export default function InspectionModal({ restaurant: r, onClose, formatDate, on
             <StatTile label="Last inspected" value={formatDate(r.d)} />
             <StatTile label="Inspections on file" value={r.ic || history.length || 1} />
           </div>
+
+          {/* Grade trend at a glance */}
+          {history.length >= 2 && <TrendStrip history={history} />}
 
           {/* Infraction chips */}
           {infractions.length > 0 && (
