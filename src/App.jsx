@@ -28,6 +28,10 @@ export default function App() {
   const [stack, setStack] = useState(null); // { records }
   const [sheetCollapseKey, setSheetCollapseKey] = useState(0);
   const [sheetExpandKey, setSheetExpandKey] = useState(0);
+  // True while the user is actively typing in the search box: the mobile
+  // results sheet and floating preview slide away so the suggestions own
+  // the screen.
+  const [searchOpen, setSearchOpen] = useState(false);
   // Default ordering: most recent inspections; upgraded to nearest-first the
   // moment a GPS fix lands (unless the user has picked a sort themselves).
   const [sortBy, setSortBy] = useState('date-desc');
@@ -514,6 +518,7 @@ export default function App() {
             cityOptions={cityOptions}
             onPickRestaurant={r => focusRestaurant(r)}
             onPickArea={opt => { setCityFilter(opt.city); setMetroFilter(opt.metro); }}
+            onSearchingChange={setSearchOpen}
           />
         </div>
 
@@ -585,6 +590,7 @@ export default function App() {
       <BottomSheet
         collapseKey={sheetCollapseKey}
         expandKey={sheetExpandKey}
+        hidden={searchOpen}
         header={
           <div className="w-full px-4 pb-2 flex items-center justify-between">
             <span className="text-sm font-bold tabular-nums">
@@ -609,8 +615,9 @@ export default function App() {
         {listItems.length === 0 && <EmptyState />}
       </BottomSheet>
 
-      {/* Mobile-only floating preview (desktop docks it in the sidebar) */}
-      {preview && !selectedRestaurant && (
+      {/* Mobile-only floating preview (desktop docks it in the sidebar).
+          Hidden while searching so it doesn't cover the suggestions. */}
+      {preview && !selectedRestaurant && !searchOpen && (
         <PreviewCard
           restaurant={allData.find(x => x.i === preview.i) || preview}
           userPos={userPos}

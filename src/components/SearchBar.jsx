@@ -13,7 +13,7 @@ const MAX_API_EXTRA = 4;
  */
 export default function SearchBar({
   value, onChange, count, allData, cityOptions,
-  onPickRestaurant, onPickArea,
+  onPickRestaurant, onPickArea, onSearchingChange,
 }) {
   const [open, setOpen] = useState(false);
   const [active, setActive] = useState(-1);
@@ -69,6 +69,14 @@ export default function SearchBar({
   }, [areaItems, localItems, apiItems]);
 
   const showDropdown = open && q.length >= 2 && items.length > 0;
+
+  // Tell the parent when the user is actively searching, so the mobile
+  // results sheet and preview card can slide out of the way and let the
+  // suggestion dropdown own the screen.
+  const searching = open && q.length >= 1;
+  useEffect(() => {
+    onSearchingChange?.(searching);
+  }, [searching, onSearchingChange]);
 
   const pick = (item) => {
     setOpen(false);
