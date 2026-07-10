@@ -569,6 +569,13 @@ export default function RestaurantMap({
     });
     map.on('move', syncDonuts);
     map.on('moveend', syncDonuts);
+    // 'idle' is the settle point after a zoom: during the transition the
+    // renderer briefly shows BOTH the old and new zoom's tiles, so a pass
+    // triggered mid-transition caches donuts for clusters that are about
+    // to be evicted — and no sourcedata/move event fires on the eviction
+    // itself. The idle pass sees only the final clusters and sweeps any
+    // stale donuts (their counts otherwise linger from the previous zoom).
+    map.on('idle', syncDonuts);
 
     // Interactions (cluster donuts carry their own click handlers)
     map.on('click', 'unclustered-point', e => {
