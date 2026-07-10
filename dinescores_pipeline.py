@@ -155,6 +155,58 @@ DFW_JURISDICTIONS = {
     # a jurisdiction out.
 }
 
+# Non-DFW jurisdictions on the same MyHealthDepartment portal (verified live
+# 2026-07-10). Same machinery as DFW_JURISDICTIONS; extra keys:
+#   metro:       metro chip label ('' = none; DFW entries implicitly 'DFW')
+#   score_scale: '100' (higher better) | 'demerit' (lower better) |
+#                'none' (portal publishes no score — risk must come from the
+#                scraped violation details; search-only records keep a
+#                neutral placeholder and are refined by the detail pass)
+MHD_METRO_JURISDICTIONS = {
+    # Orange County, CA — ~3.2M pop, all OC cities; no published score
+    'orange-county': {'display_name': 'Orange County', 'default_city': 'Orange County',
+                      'state': 'CA', 'score_scale': 'none', 'metro': 'Orange County'},
+    # Portland, OR metro: Multnomah + Washington + Clackamas counties (official
+    # OR 0-100 scores) and Clark County WA across the river (pass/fail only).
+    # Note ~2-week publishing lag — recent empty windows are normal.
+    'multco-eh':            {'display_name': 'Multnomah County', 'default_city': 'Portland',
+                             'state': 'OR', 'metro': 'Portland'},
+    'or-washington-county': {'display_name': 'Washington County OR', 'default_city': 'Hillsboro',
+                             'state': 'OR', 'metro': 'Portland'},
+    'or-clackamas-county':  {'display_name': 'Clackamas County', 'default_city': 'Oregon City',
+                             'state': 'OR', 'metro': 'Portland'},
+    'clarkcountywa':        {'display_name': 'Clark County WA', 'default_city': 'Vancouver',
+                             'state': 'WA', 'score_scale': 'none', 'metro': 'Portland'},
+    # Colorado Front Range (demerit points, lower better)
+    'epcph':                {'display_name': 'El Paso County CO', 'default_city': 'Colorado Springs',
+                             'state': 'CO', 'score_scale': 'demerit', 'metro': ''},
+    'larimer-county-health': {'display_name': 'Larimer County', 'default_city': 'Fort Collins',
+                              'state': 'CO', 'score_scale': 'demerit', 'metro': ''},
+    'weldcounty':           {'display_name': 'Weld County', 'default_city': 'Greeley',
+                             'state': 'CO', 'score_scale': 'demerit', 'metro': ''},
+    'adcogoveh':            {'display_name': 'Adams County', 'default_city': 'Brighton',
+                             'state': 'CO', 'score_scale': 'demerit', 'metro': ''},
+    # Utah County (Provo/Orem) — demerits
+    'utah-utahcounty':      {'display_name': 'Utah County', 'default_city': 'Provo',
+                             'state': 'UT', 'score_scale': 'demerit', 'metro': ''},
+    # Yolo County, CA (Davis/Woodland) — pass/fail only
+    'yolocountyeh':         {'display_name': 'Yolo County', 'default_city': 'Woodland',
+                             'state': 'CA', 'score_scale': 'none', 'metro': ''},
+}
+
+# CLI city slugs → MHD_METRO_JURISDICTIONS subsets
+MHD_METRO_SLUG_GROUPS = {
+    'orangecounty': ['orange-county'],
+    'portland': ['multco-eh', 'or-washington-county', 'or-clackamas-county',
+                 'clarkcountywa'],
+    'coloradosprings': ['epcph'],
+    'larimer': ['larimer-county-health'],
+    'weld': ['weldcounty'],
+    'adams': ['adcogoveh'],
+    'utahcounty': ['utah-utahcounty'],
+    'yolo': ['yolocountyeh'],
+}
+
 CHROME_UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36'
 
 
@@ -2723,6 +2775,218 @@ def fetch_montgomery(since_date=None, limit=None):
     return results
 
 
+# ─── DETROIT, MI (city ArcGIS open data, 3-layer relational service) ─────────
+# Published May 2025 (replaces a deprecated service that lacked addresses):
+# layer 0 = establishments (points), layer 1 = inspections, layer 2 =
+# violations with Michigan Priority/Foundation/Core classes. No numeric
+# score — risk derives from violation severities (calc_risk_score).
+
+DETROIT_BASE = ('https://services2.arcgis.com/qvkbeam7Wirps6zC/arcgis/rest/'
+                'services/food_service_establishment_inspections/FeatureServer')
+DETROIT_SEVERITY = {'Priority': 'priority', 'Foundation': 'priority_foundation',
+                    'Core': 'core'}
+
+
+def fetch_detroit(since_date=None, limit=None):
+    log.info(f"Fetching Detroit data (since={since_date}, limit={limit})")
+    since = str(since_date)[:10] if since_date else '2024-01-01'
+
+    fac_rows = _arcgis_query_all(
+        f'{DETROIT_BASE}/0',
+        out_fields='establishment_id,establishment_name,address,city,zip_code,'
+                   'latitude,longitude,establishment_status')
+    facilities = {}
+    for f in fac_rows:
+        a = f.get('attributes', {})
+        if a.get('establishment_id'):
+            facilities[str(a['establishment_id'])] = a
+    log.info(f"  Detroit: {len(facilities)} establishments")
+
+    # inspection_date is an esriFieldTypeDateOnly string ("2026-06-23")
+    insp_rows = _arcgis_query_all(
+        f'{DETROIT_BASE}/1', where=f"inspection_date >= DATE '{since}'",
+        out_fields='inspection_id,establishment_id,inspection_date,'
+                   'inspection_type,is_in_compliance', page_size=1000)
+    log.info(f"  Detroit: {len(insp_rows)} inspections since {since}")
+
+    viol_rows = _arcgis_query_all(
+        f'{DETROIT_BASE}/2', where=f"inspection_date >= DATE '{since}'",
+        out_fields='inspection_id,violation_description,violation_type,'
+                   'problem_description', page_size=1000)
+    by_insp = defaultdict(list)
+    for f in viol_rows:
+        a = f.get('attributes', {})
+        if a.get('inspection_id'):
+            by_insp[str(a['inspection_id'])].append(a)
+    log.info(f"  Detroit: {len(viol_rows)} violation rows")
+
+    results = []
+    for f in insp_rows:
+        a = f.get('attributes', {})
+        fac = facilities.get(str(a.get('establishment_id') or ''))
+        insp_date = sane_inspection_date(str(a.get('inspection_date') or '')[:10])
+        if not fac or not insp_date:
+            continue
+        name = (fac.get('establishment_name') or '').strip()
+        if not name:
+            continue
+
+        violations = []
+        pv = pfv = cv = 0
+        for v in by_insp.get(str(a.get('inspection_id')), []):
+            desc = ' '.join(x for x in [(v.get('violation_description') or '').strip(),
+                                        (v.get('problem_description') or '').strip()] if x)
+            if not desc:
+                continue
+            sev = DETROIT_SEVERITY.get((v.get('violation_type') or '').strip(), 'core')
+            if sev == 'priority':
+                pv += 1
+            elif sev == 'priority_foundation':
+                pfv += 1
+            else:
+                cv += 1
+            cat, _, _ = classify_violation(desc)
+            violations.append([cat, sev, desc[:500]])
+        risk_score = max(0, 100 - (pv * 5) - (pfv * 2) - (cv * 1))
+
+        results.append({
+            'name': name.title() if name.isupper() else name,
+            'address': (fac.get('address') or '').strip().title(),
+            'city': ((fac.get('city') or 'Detroit').strip().title()) or 'Detroit',
+            'state': 'MI',
+            'zip': str(fac.get('zip_code') or '')[:5],
+            'latitude': fac.get('latitude'),
+            'longitude': fac.get('longitude'),
+            'inspection_date': insp_date,
+            'original_score': None,  # Detroit publishes no numeric score
+            'risk_score': risk_score,
+            'priority_violations': pv,
+            'priority_foundation_violations': pfv,
+            'core_violations': cv,
+            'total_violations': len(violations),
+            'violations': violations,
+            'inspection_type': (a.get('inspection_type') or '').strip(),
+            'results': (a.get('is_in_compliance') or '').strip()
+                       if isinstance(a.get('is_in_compliance'), str) else '',
+            'source': 'Detroit Open Data',
+            'source_url': 'https://data.detroitmi.gov/datasets/food-service-establishment-inspections',
+            'source_id': f"det_{a.get('inspection_id')}",
+            'metro': '',
+        })
+        if limit and len(results) >= limit:
+            break
+    log.info(f"Detroit: {len(results)} inspections")
+    return results
+
+
+# ─── SACRAMENTO COUNTY, CA (county ArcGIS, MHD-backed) ───────────────────────
+# Layer 0 = facilities with point geometry; layer 1 = inspection/violation
+# history rows. No numeric score — the county publishes categorical results
+# (PASS / MINOR VIOLATIONS / CONDITIONAL PASS / CRITICAL VIOLATIONS / CLOSED),
+# mapped onto the risk scale below; violation text (when present) feeds the
+# chips/summaries and the pest auto-F.
+
+SACRAMENTO_BASE = ('https://services1.arcgis.com/5NARefyPVtAeuJPU/arcgis/rest/'
+                   'services/Food_Inspections/FeatureServer')
+SACRAMENTO_RESULT_RISK = {
+    'PASS': 100, 'IN COMPLIANCE': 100, 'MINOR VIOLATIONS': 85,
+    'CONDITIONAL PASS': 70, 'CRITICAL VIOLATIONS': 60,
+    'SUSPENSION': 45, 'CLOSED': 40,
+}
+
+
+def _sac_parse_address(combined):
+    """'5321 Date Ave, Sacramento 95841-2512' → (street, city, zip)."""
+    m = re.match(r'^(.*?),\s*(.*?)\s+(\d{5})(?:-\d{4})?\s*$', combined or '')
+    if m:
+        return m.group(1).strip(), m.group(2).strip(), m.group(3)
+    return (combined or '').strip(), 'Sacramento', ''
+
+
+def fetch_sacramento(since_date=None, limit=None):
+    log.info(f"Fetching Sacramento County data (since={since_date}, limit={limit})")
+    since = str(since_date)[:10] if since_date else '2024-01-01'
+
+    fac_rows = _arcgis_query_all(
+        f'{SACRAMENTO_BASE}/0', out_fields='Facility_ID,Facility_Name,Facility_Address')
+    facilities = {}
+    for f in fac_rows:
+        a = f.get('attributes', {})
+        geom = f.get('geometry') or {}
+        if a.get('Facility_ID'):
+            a['_lng'], a['_lat'] = geom.get('x'), geom.get('y')
+            facilities[str(a['Facility_ID'])] = a
+    log.info(f"  Sacramento: {len(facilities)} facilities")
+
+    rows = _arcgis_query_all(
+        f'{SACRAMENTO_BASE}/1', where=f"Inspection_Date >= DATE '{since}'",
+        out_fields='Facility_ID,Inspection_Type,Inspection_Result,'
+                   'Inspection_Date,Violation_Description')
+    log.info(f"  Sacramento: {len(rows)} inspection/violation rows since {since}")
+
+    by_insp = defaultdict(list)
+    for f in rows:
+        a = f.get('attributes', {})
+        ts = a.get('Inspection_Date')
+        if not a.get('Facility_ID') or not ts:
+            continue
+        if isinstance(ts, (int, float)):
+            d = datetime.utcfromtimestamp(ts / 1000).strftime('%Y-%m-%d')
+        else:
+            d = str(ts)[:10]
+        by_insp[(str(a['Facility_ID']), d)].append(a)
+
+    results = []
+    for (fid, d), group in by_insp.items():
+        fac = facilities.get(fid)
+        insp_date = sane_inspection_date(d)
+        if not fac or not insp_date:
+            continue
+        name = (fac.get('Facility_Name') or '').strip()
+        if not name:
+            continue
+        result = next(((a.get('Inspection_Result') or '').strip().upper()
+                       for a in group if a.get('Inspection_Result')), '')
+        risk_score = SACRAMENTO_RESULT_RISK.get(result, 70)
+
+        violations = []
+        for a in group:
+            desc = (a.get('Violation_Description') or '').strip()
+            if desc:
+                violations.append(classify_violation(desc[:500]))
+        _, pv, pfv, cv = calc_risk_score(violations)
+
+        street, city, zip_code = _sac_parse_address(fac.get('Facility_Address'))
+        results.append({
+            'name': name.title() if name.isupper() else name,
+            'address': street.title() if street.isupper() else street,
+            'city': city.title() if city.isupper() else city,
+            'state': 'CA',
+            'zip': zip_code,
+            'latitude': fac.get('_lat'),
+            'longitude': fac.get('_lng'),
+            'inspection_date': insp_date,
+            'original_score': None,
+            'risk_score': risk_score,
+            'priority_violations': pv,
+            'priority_foundation_violations': pfv,
+            'core_violations': cv,
+            'total_violations': len(violations),
+            'violations': [list(v) for v in violations],
+            'inspection_type': next(((a.get('Inspection_Type') or '').strip()
+                                     for a in group if a.get('Inspection_Type')), ''),
+            'results': result.title(),
+            'source': 'Sacramento County Open Data',
+            'source_url': 'https://data.saccounty.gov',
+            'source_id': f'sac_{fid}_{insp_date}',
+            'metro': 'Sacramento',
+        })
+        if limit and len(results) >= limit:
+            break
+    log.info(f"Sacramento County: {len(results)} inspections")
+    return results
+
+
 # ─── LAS VEGAS (Southern Nevada Health District JSON API) ────────────────────
 
 SNHD_API = ('https://www.southernnevadahealthdistrict.org/wp-json/'
@@ -3250,7 +3514,8 @@ def _fetch_mhd_jurisdiction_api(session, slug, config, since_date=None, limit=No
         new_count = 0
         for rec in raw_records:
             parsed = _parse_mhd_record(rec, slug, display_name, default_city,
-                                       default_state, config.get('score_scale', '100'))
+                                       default_state, config.get('score_scale', '100'),
+                                       config.get('metro', 'DFW'))
             if parsed:
                 uid = parsed.get('source_id') or f"{parsed['name']}|{parsed['inspection_date']}"
                 if uid not in seen_ids:
@@ -3275,7 +3540,7 @@ def _fetch_mhd_jurisdiction_api(session, slug, config, since_date=None, limit=No
                  f"({MHD_DETAIL_WORKERS} workers)...")
         fetched_violations, unreadable = _mhd_fetch_details_bulk(
             slug, inspections_with_id,
-            trust_official_score=config.get('score_scale', '100') != 'demerit')
+            trust_official_score=config.get('score_scale', '100') == '100')
         log.info(f"{display_name}: {fetched_violations}/{len(inspections_with_id)} "
                  f"inspections had violation details")
         if unreadable:
@@ -3312,7 +3577,7 @@ def _mhd_is_food_record(rec):
 
 
 def _parse_mhd_record(rec, slug, display_name, default_city, default_state,
-                      score_scale='100'):
+                      score_scale='100', metro='DFW'):
     """Parse a single inspection record from the MyHealthDepartment API JSON response."""
     try:
         name = (rec.get('establishmentName') or '').strip()
@@ -3350,7 +3615,12 @@ def _parse_mhd_record(rec, slug, display_name, default_city, default_state,
             except Exception:
                 score = None
 
-        if score is None:
+        if score_scale == 'none':
+            # Portal publishes no score (e.g. Orange County) — neutral
+            # placeholder; the violation-detail pass recomputes real risk.
+            score = None
+            risk_score = 70
+        elif score is None:
             risk_score = 70
         elif score_scale == 'demerit':
             # Demerit points: lower is better. Rough mapping until the
@@ -3388,7 +3658,7 @@ def _parse_mhd_record(rec, slug, display_name, default_city, default_state,
             'source': f'{display_name} Health Dept',
             'source_url': f'https://inspections.myhealthdepartment.com/{slug}/inspection/?inspectionID={insp_id}' if insp_id else f'https://inspections.myhealthdepartment.com/{slug}',
             'source_id': insp_id or permit_id,
-            'metro': 'DFW',
+            'metro': metro,
         }
     except Exception as e:
         log.warning(f"{display_name}: failed to parse record: {e} — {str(rec)[:100]}")
@@ -4276,6 +4546,12 @@ def main():
     if 'montgomery' in args.cities or 'moco' in args.cities:
         socrata_jobs['Montgomery County'] = lambda: fetch_montgomery(
             since_date=since_date, limit=record_limit)
+    if 'detroit' in args.cities:
+        socrata_jobs['Detroit'] = lambda: fetch_detroit(
+            since_date=since_date, limit=record_limit)
+    if 'sacramento' in args.cities:
+        socrata_jobs['Sacramento'] = lambda: fetch_sacramento(
+            since_date=since_date, limit=record_limit)
     if 'vegas' in args.cities or 'lasvegas' in args.cities:
         socrata_jobs['Las Vegas'] = lambda: fetch_vegas(
             since_date=since_date, limit=record_limit)
@@ -4339,6 +4615,37 @@ def main():
             log.info(f"Arlington: {len(arl_data)} records")
         except Exception as e:
             log.error(f"Arlington fetch failed: {e}")
+
+    # Non-DFW MyHealthDepartment metros (Orange County, Portland, CO Front
+    # Range, Utah County, Yolo) — same portal machinery as DFW below.
+    mhd_metro_slugs = []
+    for city_slug, portal_slugs in MHD_METRO_SLUG_GROUPS.items():
+        if city_slug in args.cities:
+            mhd_metro_slugs.extend(portal_slugs)
+    mhd_metro_slugs.extend(s for s in args.cities
+                           if s in MHD_METRO_JURISDICTIONS and s not in mhd_metro_slugs)
+    if mhd_metro_slugs:
+        try:
+            mhd_since = None
+            if args.mode == 'full':
+                mhd_since = '2026-01-01'
+            elif args.mode == 'weekly':
+                # These portals publish with up to ~2 weeks of lag (Oregon
+                # especially) — look further back than the 8-day default so
+                # late-published inspections aren't permanently missed.
+                mhd_since = (datetime.now() - timedelta(days=21)).strftime('%Y-%m-%d')
+            if args.since_date:
+                mhd_since = args.since_date
+            mhd_data = fetch_dfw(
+                jurisdictions={s: MHD_METRO_JURISDICTIONS[s] for s in mhd_metro_slugs},
+                since_date=mhd_since,
+                limit_per_jurisdiction=record_limit,
+                fetch_violations=not args.no_dfw_violations)
+            geocode_missing_coords(mhd_data)
+            all_inspections.extend(mhd_data)
+            log.info(f"MHD metros: {len(mhd_data)} records")
+        except Exception as e:
+            log.error(f"MHD metros fetch failed: {e}")
 
     # DFW metroplex — supports 'dfw' (all MHD cities), 'dallas' (single), or any slug
     dfw_slugs_requested = [c for c in args.cities if c in DFW_JURISDICTIONS]
