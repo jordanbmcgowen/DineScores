@@ -10,7 +10,7 @@ const COLLAPSED_PEEK = 96; // px of sheet visible when collapsed
  * sheet (a map preview card needs the space); bumping `expandKey` raises
  * it to half (a stack of co-located restaurants was handed to the list).
  */
-export default function BottomSheet({ header, children, collapseKey, expandKey }) {
+export default function BottomSheet({ header, children, collapseKey, expandKey, hidden = false }) {
   const [state, setState] = useState('collapsed'); // collapsed | half | full
 
   useEffect(() => {
@@ -80,7 +80,10 @@ export default function BottomSheet({ header, children, collapseKey, expandKey }
   return (
     <div
       ref={sheetRef}
-      className={`md:hidden sheet bg-white dark:bg-slate-900 shadow-2xl ring-1 ring-slate-900/10 dark:ring-white/10 flex flex-col sheet-${state}`}
+      aria-hidden={hidden}
+      className={`md:hidden sheet bg-white dark:bg-slate-900 shadow-2xl ring-1 ring-slate-900/10 dark:ring-white/10 flex flex-col ${
+        hidden ? 'sheet-hidden' : `sheet-${state}`
+      }`}
     >
       <div
         className="shrink-0 cursor-grab active:cursor-grabbing select-none"

@@ -8,6 +8,11 @@ html,
 body,
 #root {
   height: 100%;
+  /* Never let the layout exceed the device width (no horizontal jiggle on
+     mobile). Clamp width and clip any stray horizontal overflow. */
+  width: 100%;
+  max-width: 100%;
+  overflow-x: hidden;
   overscroll-behavior: none;
 }
 
@@ -79,5 +84,11 @@ body {
   }
   .sheet-full {
     transform: translateY(0);
+  }
+  /* Fully off-screen: used while the user is searching so the suggestion
+     dropdown owns the screen. Animates back in via the shared transition. */
+  .sheet-hidden {
+    transform: translateY(100%);
+    pointer-events: none;
   }
 }
