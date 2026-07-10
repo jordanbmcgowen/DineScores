@@ -136,11 +136,17 @@ export default function App() {
       setDbTotal(total);
       let merged = 0;
       setSyncCount(0);
+      // Buffer pages before merging: every merge re-clusters the whole map,
+      // so applying each ~30k page separately makes the donuts churn once
+      // per page. ~60k chunks keep the sync to a few smooth updates.
+      const buffer = [];
       fetchAllFromApi(batch => {
         merged += batch.length;
-        mergeRecords(batch);
+        buffer.push(...batch);
         setSyncCount(merged);
+        if (buffer.length >= 60000) mergeRecords(buffer.splice(0));
       }).then(complete => {
+        if (buffer.length) mergeRecords(buffer.splice(0));
         fullyLoadedRef.current = complete;
         setSyncCount(null);
       });

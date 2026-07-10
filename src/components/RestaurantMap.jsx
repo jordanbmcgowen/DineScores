@@ -232,7 +232,7 @@ export default function RestaurantMap({
   const onStackClickRef = useRef(onStackClick);
   onStackClickRef.current = onStackClick;
   const [mapLoaded, setMapLoaded] = useState(false);
-  const donutsRef = useRef({ markers: {}, onScreen: {} });
+  const donutsRef = useRef({ byPos: {} });
   const densityRef = useRef(1.0);
   const gpsCenteredRef = useRef(false);
   const didInitialFitRef = useRef(false);
@@ -327,9 +327,9 @@ export default function RestaurantMap({
     };
 
     if (map.getSource('restaurants')) {
-      // New data invalidates cluster ids — rebuild the donut marker cache.
-      for (const m of Object.values(donutsRef.current.markers)) m.remove();
-      donutsRef.current = { markers: {}, onScreen: {} };
+      // Donut markers persist across setData: they are cached by map
+      // position (not cluster_id), so the next sourcedata pass morphs
+      // their contents in place instead of blinking them out and back.
       map.getSource('restaurants').setData(geojson);
       return;
     }
@@ -441,43 +441,76 @@ export default function RestaurantMap({
 
     // Clusters render as HTML donut markers (grade distribution + count),
     // synced to the current clustering and sized to the current markers.
+    // The cache is keyed by QUANTIZED MAP POSITION, not cluster_id: every
+    // setData (each background-sync merge) reassigns all cluster_ids, so
+    // id-keyed donuts blink out and back on every merge. A position key
+    // survives re-clustering, and the donut at that spot just has its
+    // contents redrawn in place as its count converges.
+    const donutPosKey = (coords, zb, used) => {
+      // ~64px grid cells at the current integer zoom (world is 256*2^z px)
+      const scale = Math.pow(2, zb) * 4;
+      const x = ((coords[0] + 180) / 360) * scale;
+      const latRad = (coords[1] * Math.PI) / 180;
+      const y = (0.5 - Math.log(Math.tan(Math.PI / 4 + latRad / 2)) / (2 * Math.PI)) * scale;
+      let key = `${zb}:${Math.round(x)}:${Math.round(y)}`;
+      while (used[key]) key += '+'; // two clusters in one cell: distinct keys
+      return key;
+    };
+
     const updateDonuts = () => {
-      const cache = donutsRef.current;
+      const cache = donutsRef.current.byPos;
       const seen = {};
+      const seenClusters = {};
       let feats = [];
       try {
         feats = map.queryRenderedFeatures({ layers: ['clusters'] });
       } catch (e) { return; }
+      const zb = Math.round(map.getZoom());
       // Donuts must read as ≥ the individual markers beside them
       const minR = radiusAtZoom(map.getZoom(), densityRef.current) + 3;
       for (const f of feats) {
         const props = f.properties;
-        if (!props.cluster) continue;
-        const id = props.cluster_id;
-        if (seen[id]) continue;
-        let marker = cache.markers[id];
-        // Zoom/density moved the target size: rebuild this donut
-        if (marker && Math.abs(marker.getElement()._dsRadius - donutRadius(props.point_count, minR)) > 2) {
-          marker.remove();
-          delete cache.markers[id];
-          delete cache.onScreen[id];
-          marker = null;
-        }
-        if (!marker) {
+        if (!props.cluster || seenClusters[props.cluster_id]) continue;
+        seenClusters[props.cluster_id] = true;
+        const coords = f.geometry.coordinates;
+        const key = donutPosKey(coords, zb, seen);
+        const sig = `${props.point_count}|${props.safe || 0}|${props.caution || 0}|` +
+          `${props.avoid || 0}|${donutRadius(props.point_count, minR)}`;
+        let entry = cache[key];
+        if (entry) {
+          // Same spot: keep the marker, refresh position and contents in
+          // place (no remove+add — that's the blink this cache avoids).
+          entry.marker.setLngLat(coords);
+          if (entry.sig !== sig) {
+            const el = entry.marker.getElement();
+            const next = createDonutChart(props, darkScheme, minR);
+            el.replaceChildren(...next.children);
+            el._dsRadius = next._dsRadius;
+            el.title = next.title;
+            el.setAttribute('aria-label', next.title);
+            entry.sig = sig;
+          }
+        } else {
           const el = createDonutChart(props, darkScheme, minR);
+          entry = cache[key] = {
+            marker: new maplibregl.Marker({ element: el }).setLngLat(coords),
+            sig,
+          };
+          const ent = entry; // click reads LIVE cluster id/coords from the entry
           el.addEventListener('click', () => {
             const src = map.getSource('restaurants');
+            const id = ent.clusterId;
             // v4 returns Promises (the callback forms are gone)
             Promise.resolve(src.getClusterExpansionZoom(id)).then(zoom => {
               if (zoom <= CLUSTER_MAX_ZOOM) {
-                map.easeTo({ center: f.geometry.coordinates, zoom });
+                map.easeTo({ center: ent.coords, zoom });
                 return;
               }
               // Terminal stack: these restaurants share one location and no
               // amount of zoom separates them — center on it and hand the
               // member list to the sidebar instead.
               map.easeTo({
-                center: f.geometry.coordinates,
+                center: ent.coords,
                 zoom: Math.max(map.getZoom(), 16.5),
               });
               Promise.resolve(src.getClusterLeaves(id, 1000, 0)).then(leaves => {
@@ -487,23 +520,19 @@ export default function RestaurantMap({
               }).catch(() => {});
             }).catch(() => {});
           });
-          marker = cache.markers[id] =
-            new maplibregl.Marker({ element: el }).setLngLat(f.geometry.coordinates);
-        }
-        seen[id] = true;
-        if (!cache.onScreen[id]) {
-          marker.addTo(map);
+          entry.marker.addTo(map);
           // addTo() stamps a generic "Map marker" aria-label — replace it
           // with the descriptive one (grade mix + count, mirrored in title).
-          const el = marker.getElement();
           el.setAttribute('aria-label', el.title);
-          cache.onScreen[id] = marker;
         }
+        entry.clusterId = props.cluster_id;
+        entry.coords = coords;
+        seen[key] = true;
       }
-      for (const id of Object.keys(cache.onScreen)) {
-        if (!seen[id]) {
-          cache.onScreen[id].remove();
-          delete cache.onScreen[id];
+      for (const key of Object.keys(cache)) {
+        if (!seen[key]) {
+          cache[key].marker.remove();
+          delete cache[key];
         }
       }
     };
