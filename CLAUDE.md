@@ -1,11 +1,13 @@
 # DineScores
 
 Restaurant health-inspection scores on a map: https://dinescores.com
-~90k restaurants embedded client-side, ~185k in the database, covering ~25
+~126k restaurants embedded client-side, ~237k in the database, covering ~40
 metros (NYC, Chicago, LA County, SF, Seattle, Boston, Austin, Houston, DC,
 DFW, Las Vegas, Raleigh, Miami/Tampa/Orlando, Louisville, Minneapolis,
-Cincinnati, Montgomery County MD) plus all of Florida, New York State, and
-Delaware.
+Cincinnati, Montgomery County MD, Detroit, Sacramento, Fairfax County,
+Portland OR metro incl. Clark County WA, Colorado Springs/Fort Collins/
+Greeley/Adams County CO, Provo/Orem, Yolo County) plus all of Florida,
+New York State, Delaware, and South Carolina.
 
 ## Architecture
 
