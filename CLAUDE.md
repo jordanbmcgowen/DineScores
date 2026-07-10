@@ -1,7 +1,7 @@
 # DineScores
 
 Restaurant health-inspection scores on a map: https://dinescores.com
-~126k restaurants embedded client-side, ~237k in the database, covering ~40
+~63k restaurants embedded client-side, ~243k in the database, covering ~40
 metros (NYC, Chicago, LA County, SF, Seattle, Boston, Austin, Houston, DC,
 DFW, Las Vegas, Raleigh, Miami/Tampa/Orlando, Louisville, Minneapolis,
 Cincinnati, Montgomery County MD, Detroit, Sacramento, Fairfax County,
@@ -62,6 +62,10 @@ middleware.
 
 ## Hard-won invariants (violate at your peril)
 
+- **Cloudflare Pages rejects any asset over 25 MiB**, and `public/data.js`
+  is the asset that grows. `write_data_js` bounds it (EMBED_BUDGET global
+  cap + EMBED_CITY_FLOOR per-city floor, ~24 MB); a deploy that fails with
+  no error on the commit is usually this. The full dataset lives in D1.
 - **D1 rejects any SQL statement over 100KB** (`SQLITE_TOOBIG`), and its
   file imports are atomic. `write_d1_sql` caps multi-row INSERTs at 40 rows
   AND 80KB (`_d1_row_batches`) — keep both caps on anything that emits SQL.

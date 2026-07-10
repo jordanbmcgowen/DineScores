@@ -4190,6 +4190,11 @@ def _load_existing_data_js(path):
 
 MAX_HISTORY = 6            # [date, risk_score] pairs kept per restaurant
 STALE_MONTHS = 30          # merged records older than this are pruned
+EMBED_BUDGET = 55000       # global cap on embedded records: Cloudflare Pages
+                           # rejects any asset over 25 MiB, and ~62k compact
+                           # records ≈ 24 MB. Completeness comes from D1.
+EMBED_CITY_FLOOR = 20      # per-city minimum kept regardless of the global
+                           # budget, so every covered town paints instantly
 
 
 def _weighted_from_history(history_pairs):
@@ -4350,6 +4355,22 @@ def write_data_js(all_inspections, output_path, top_per_city=1000,
         # Keep the most recently inspected restaurants per city
         city_recs.sort(key=lambda x: x.get('d', ''), reverse=True)
         final.extend(city_recs[:top_per_city])
+
+    # Global budget on top of the per-city cap: with statewide sources the
+    # long tail of small towns dominates, and Cloudflare Pages rejects any
+    # asset over 25 MiB — keep the most recently inspected EMBED_BUDGET
+    # records overall plus a small floor per city so every town still gets
+    # instant first paint. The full roster streams from D1.
+    if len(final) > EMBED_BUDGET:
+        final.sort(key=lambda x: x.get('d', ''), reverse=True)
+        keep = {id(r) for r in final[:EMBED_BUDGET]}
+        for city_recs in by_city.values():
+            for r in city_recs[:EMBED_CITY_FLOOR]:
+                keep.add(id(r))
+        dropped = len(final) - len(keep)
+        final = [r for r in final if id(r) in keep]
+        log.info(f"Embed budget: kept {len(final)} records ({dropped} beyond "
+                 f"budget live in D1 only)")
 
     # Global detail budget: embed violation summaries (and the source
     # label/link, which the detail modal can fetch from the API instead)
