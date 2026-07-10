@@ -2,7 +2,8 @@ name: Setup D1 Database
 
 # One-time (idempotent) setup for the Cloudflare D1 database:
 #   1. Creates the "dinescores" D1 database if it doesn't exist
-#   2. Loads the committed seed (data/d1_seed.sql.gz — full multi-city dataset)
+#   2. Loads the committed seeds (data/d1_seed*.sql.gz — the full multi-city
+#      dataset plus any expansion seeds added since)
 #   3. Writes wrangler.toml with the D1 binding and commits it, which makes
 #      the /api/* Pages Functions live on the next deploy
 #
@@ -16,6 +17,11 @@ name: Setup D1 Database
 
 on:
   workflow_dispatch:
+    inputs:
+      seeds:
+        description: 'Glob of seed files to load (e.g. data/d1_seed_2*.sql.gz to load only an expansion seed)'
+        required: false
+        default: 'data/d1_seed*.sql.gz'
 
 jobs:
   setup:
@@ -64,9 +70,16 @@ jobs:
       - name: Load seed data
         run: |
           set -e
-          gunzip -c data/d1_seed.sql.gz > /tmp/d1_seed.sql
-          wc -l /tmp/d1_seed.sql
-          npx --yes wrangler@4 d1 execute "$DB_NAME" --remote --file /tmp/d1_seed.sql -y
+          # Selected seeds, in lexical order: by default the original full
+          # seed plus any expansion seeds (data/d1_seed_*.sql.gz) added
+          # since. Upserts are idempotent, so reloading an already-applied
+          # seed is safe; pass a narrower glob to load only a new seed.
+          for SEED in ${{ github.event.inputs.seeds || 'data/d1_seed*.sql.gz' }}; do
+            echo "Loading $SEED..."
+            gunzip -c "$SEED" > /tmp/d1_seed.sql
+            wc -l /tmp/d1_seed.sql
+            npx --yes wrangler@4 d1 execute "$DB_NAME" --remote --file /tmp/d1_seed.sql -y
+          done
 
       - name: Verify row counts
         run: |
