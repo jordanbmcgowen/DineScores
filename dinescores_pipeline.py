@@ -163,9 +163,6 @@ DFW_JURISDICTIONS = {
 #                scraped violation details; search-only records keep a
 #                neutral placeholder and are refined by the detail pass)
 MHD_METRO_JURISDICTIONS = {
-    # Orange County, CA — ~3.2M pop, all OC cities; no published score
-    'orange-county': {'display_name': 'Orange County', 'default_city': 'Orange County',
-                      'state': 'CA', 'score_scale': 'none', 'metro': 'Orange County'},
     # Portland, OR metro: Multnomah + Washington + Clackamas counties (official
     # OR 0-100 scores) and Clark County WA across the river (pass/fail only).
     # Note ~2-week publishing lag — recent empty windows are normal.
@@ -192,17 +189,17 @@ MHD_METRO_JURISDICTIONS = {
     # Yolo County, CA (Davis/Woodland) — pass/fail only
     'yolocountyeh':         {'display_name': 'Yolo County', 'default_city': 'Woodland',
                              'state': 'CA', 'score_scale': 'none', 'metro': ''},
-    # NOT included despite live portals: 'tennessee' and 'virginia' are
-    # STATEWIDE MHD portals (TN even has official 0-100 scores), but the
-    # search API truncates every query at ~225 records and both states
-    # exceed that EVERY day — date bisection cannot go below one day, so
-    # any fetch is a silently-partial sample. Revisit if the portal adds
-    # deeper pagination or a bulk export.
+    # NOT included despite live portals: 'tennessee' and 'virginia'
+    # (statewide; TN even has official 0-100 scores) and 'orange-county'
+    # (CA, ~3.2M pop). The search API truncates every query at ~225 records
+    # (verified: offsets past 225 return nothing) and these jurisdictions
+    # exceed that EVERY day — date bisection cannot go below one day, so any
+    # fetch is a silently-partial sample. Revisit if the portal adds deeper
+    # pagination or a bulk export.
 }
 
 # CLI city slugs → MHD_METRO_JURISDICTIONS subsets
 MHD_METRO_SLUG_GROUPS = {
-    'orangecounty': ['orange-county'],
     'portland': ['multco-eh', 'or-washington-county', 'or-clackamas-county',
                  'clarkcountywa'],
     'coloradosprings': ['epcph'],
