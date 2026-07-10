@@ -2076,9 +2076,13 @@ def _arcgis_query_all(layer_url, where='1=1', out_fields='*', page_size=2000):
             raise RuntimeError(f"ArcGIS error: {data['error'].get('message')}")
         feats = data.get('features', [])
         rows.extend(feats)
-        if len(feats) < page_size:
+        # Servers silently clamp responses to their maxRecordCount (which can
+        # be smaller than page_size) — only stop when the server says the
+        # transfer limit was NOT exceeded AND the page came back short.
+        if not feats or (len(feats) < page_size
+                         and not data.get('exceededTransferLimit')):
             return rows
-        offset += page_size
+        offset += len(feats)
         time.sleep(0.3)
 
 
