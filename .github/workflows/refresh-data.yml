@@ -33,7 +33,7 @@ jobs:
         run: |
           python3 dinescores_pipeline.py \
             --mode weekly \
-            --cities chicago nyc sf austin boston seattle florida nys wake vegas la louisville minneapolis cincinnati delaware montgomery detroit sacramento orangecounty portland coloradosprings larimer weld adams utahcounty yolo houston dc dallas plano frisco fort-worth-texas tarrant arlington richardson \
+            --cities chicago nyc sf austin boston seattle florida nys wake vegas la louisville minneapolis cincinnati delaware montgomery detroit sacramento southcarolina fairfax orangecounty portland coloradosprings larimer weld adams utahcounty yolo houston dc dallas plano frisco fort-worth-texas tarrant arlington richardson \
             --output /tmp/dinescores_data.json \
             --output-data-js public/data.js \
             --merge-existing-data-js public/data.js \

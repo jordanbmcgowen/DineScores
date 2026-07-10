@@ -192,6 +192,12 @@ MHD_METRO_JURISDICTIONS = {
     # Yolo County, CA (Davis/Woodland) — pass/fail only
     'yolocountyeh':         {'display_name': 'Yolo County', 'default_city': 'Woodland',
                              'state': 'CA', 'score_scale': 'none', 'metro': ''},
+    # NOT included despite live portals: 'tennessee' and 'virginia' are
+    # STATEWIDE MHD portals (TN even has official 0-100 scores), but the
+    # search API truncates every query at ~225 records and both states
+    # exceed that EVERY day — date bisection cannot go below one day, so
+    # any fetch is a silently-partial sample. Revisit if the portal adds
+    # deeper pagination or a bulk export.
 }
 
 # CLI city slugs → MHD_METRO_JURISDICTIONS subsets
@@ -2991,6 +2997,157 @@ def fetch_sacramento(since_date=None, limit=None):
     return results
 
 
+# ─── SOUTH CAROLINA (statewide, SC DPH ArcGIS) ───────────────────────────────
+# Two-layer join like Wake: a points layer with coordinates and an
+# inspections table with dates and POSTED_GRADE (A/B/C — no numeric score
+# and no violation text; the full report is only a PDF). Grades map onto
+# representative risk scores so the A/B/C/F scheme carries through.
+
+SC_BASE = ('https://services5.arcgis.com/G4BLIH7rTQoIjCFv/arcgis/rest/'
+           'services/Restaurants/FeatureServer')
+SC_GRADE_RISK = {'A': 95, 'B': 85, 'C': 75}
+
+
+def fetch_sc(since_date=None, limit=None):
+    log.info(f"Fetching South Carolina data (since={since_date}, limit={limit})")
+    since = str(since_date)[:10] if since_date else '2024-01-01'
+
+    fac_rows = _arcgis_query_all(
+        f'{SC_BASE}/0', out_fields='PERMIT_ID,FACILITY,ADDRESS,CITY,STATE,ZIPCODE',
+        page_size=2000)
+    facilities = {}
+    for f in fac_rows:
+        a = f.get('attributes', {})
+        geom = f.get('geometry') or {}
+        if a.get('PERMIT_ID'):
+            a['_lng'], a['_lat'] = geom.get('x'), geom.get('y')
+            facilities[str(a['PERMIT_ID']).strip()] = a
+    log.info(f"  SC: {len(facilities)} facilities")
+
+    insp_rows = _arcgis_query_all(
+        f'{SC_BASE}/4', where=f"INSP_DATE >= DATE '{since}'",
+        out_fields='PERMIT_ID,POSTED_GRADE,INSP_DATE,AC_CODE,Active',
+        page_size=2000)
+    log.info(f"  SC: {len(insp_rows)} inspections since {since}")
+
+    results = []
+    for f in insp_rows:
+        a = f.get('attributes', {})
+        fac = facilities.get(str(a.get('PERMIT_ID') or '').strip())
+        ts = a.get('INSP_DATE')
+        grade = (a.get('POSTED_GRADE') or '').strip().upper()
+        if not fac or not ts or grade not in SC_GRADE_RISK:
+            continue
+        insp_date = sane_inspection_date(
+            datetime.utcfromtimestamp(ts / 1000).strftime('%Y-%m-%d'))
+        name = (fac.get('FACILITY') or '').strip()
+        if not insp_date or not name:
+            continue
+        results.append({
+            'name': name.title() if name.isupper() else name,
+            'address': (fac.get('ADDRESS') or '').strip().title(),
+            'city': ((fac.get('CITY') or '').strip().title()) or 'South Carolina',
+            'state': 'SC',
+            'zip': str(fac.get('ZIPCODE') or '')[:5],
+            'latitude': fac.get('_lat'),
+            'longitude': fac.get('_lng'),
+            'inspection_date': insp_date,
+            'original_score': None,  # SC publishes only letter grades
+            'risk_score': SC_GRADE_RISK[grade],
+            'priority_violations': 0,
+            'priority_foundation_violations': 0,
+            'core_violations': 0,
+            'total_violations': 0,
+            'violations': [],
+            'inspection_type': (a.get('AC_CODE') or '').strip(),
+            'results': grade,
+            'source': 'SC DPH Food Grades',
+            'source_url': 'https://dataviz.dph.sc.gov/foodgrades/',
+            'source_id': f"sc_{a.get('PERMIT_ID')}_{insp_date}",
+            'metro': '',
+        })
+        if limit and len(results) >= limit:
+            break
+    log.info(f"South Carolina: {len(results)} inspections")
+    return results
+
+
+# ─── FAIRFAX COUNTY, VA (county ArcGIS; not covered by VDH statewide) ────────
+# Rolling 2-year window of pass/fail results (no score, no violation text —
+# detail is behind Accela). Result categories map onto representative risk.
+
+FAIRFAX_BASE = ('https://www.fairfaxcounty.gov/gispub2/rest/services/Health/'
+                'PermittedFoodEstablishments/FeatureServer')
+FAIRFAX_RESULT_RISK = {
+    'PASSED': 95, 'PARTIAL PASS': 80,
+    'FAILED': 55, 'FAILED - SELF CLOSED': 45,
+}
+
+
+def fetch_fairfax(since_date=None, limit=None):
+    log.info(f"Fetching Fairfax County data (since={since_date}, limit={limit})")
+    since = str(since_date)[:10] if since_date else '2024-01-01'
+
+    fac_rows = _arcgis_query_all(
+        f'{FAIRFAX_BASE}/0',
+        out_fields='RECORDID,ESTABLISHMENT_NAME,PERMIT_ADDRESS,PERMIT_CITY,'
+                   'PERMIT_STATE,PERMIT_ZIP,ESTABLISHMENT_STATUS')
+    facilities = {}
+    for f in fac_rows:
+        a = f.get('attributes', {})
+        geom = f.get('geometry') or {}
+        if a.get('RECORDID'):
+            a['_lng'], a['_lat'] = geom.get('x'), geom.get('y')
+            facilities[str(a['RECORDID'])] = a
+    log.info(f"  Fairfax: {len(facilities)} establishments")
+
+    insp_rows = _arcgis_query_all(
+        f'{FAIRFAX_BASE}/1', where=f"INSPECTIONDATE >= DATE '{since}'",
+        out_fields='INSPECTIONID,RECORDID,INSPECTIONDATE,INSPECTIONRESULT')
+    log.info(f"  Fairfax: {len(insp_rows)} inspections since {since}")
+
+    results = []
+    for f in insp_rows:
+        a = f.get('attributes', {})
+        fac = facilities.get(str(a.get('RECORDID') or ''))
+        ts = a.get('INSPECTIONDATE')
+        result = (a.get('INSPECTIONRESULT') or '').strip().upper()
+        if not fac or not ts or result not in FAIRFAX_RESULT_RISK:
+            continue
+        insp_date = sane_inspection_date(
+            datetime.utcfromtimestamp(ts / 1000).strftime('%Y-%m-%d'))
+        name = (fac.get('ESTABLISHMENT_NAME') or '').strip()
+        if not insp_date or not name:
+            continue
+        results.append({
+            'name': name.title() if name.isupper() else name,
+            'address': (fac.get('PERMIT_ADDRESS') or '').strip().title(),
+            'city': ((fac.get('PERMIT_CITY') or 'Fairfax').strip().title()) or 'Fairfax',
+            'state': 'VA',
+            'zip': str(fac.get('PERMIT_ZIP') or '')[:5],
+            'latitude': fac.get('_lat'),
+            'longitude': fac.get('_lng'),
+            'inspection_date': insp_date,
+            'original_score': None,
+            'risk_score': FAIRFAX_RESULT_RISK[result],
+            'priority_violations': 0,
+            'priority_foundation_violations': 0,
+            'core_violations': 0,
+            'total_violations': 0,
+            'violations': [],
+            'inspection_type': '',
+            'results': result.title(),
+            'source': 'Fairfax County Open Data',
+            'source_url': 'https://www.fairfaxcounty.gov/health-humanservices/food',
+            'source_id': f"ffx_{a.get('INSPECTIONID')}",
+            'metro': '',
+        })
+        if limit and len(results) >= limit:
+            break
+    log.info(f"Fairfax County: {len(results)} inspections")
+    return results
+
+
 # ─── LAS VEGAS (Southern Nevada Health District JSON API) ────────────────────
 
 SNHD_API = ('https://www.southernnevadahealthdistrict.org/wp-json/'
@@ -3269,9 +3426,15 @@ def _mhd_fetch_window(session, slug, start_day, end_day):
         start += MHD_PAGE_SIZE
         time.sleep(MHD_DELAY)
 
-    if len(all_results) >= MHD_QUERY_CAP and start_day < end_day:
+    if len(all_results) >= MHD_QUERY_CAP and start_day.date() < end_day.date():
         # Cap hit on a multi-day window: bisect and refetch both halves.
+        # Split on CALENDAR-DAY boundaries — the server treats any
+        # timestamp as its whole day, so sub-day midpoints re-query the
+        # same day forever (and the retry storm ends in a 403 block).
         mid = start_day + (end_day - start_day) / 2
+        mid = datetime(mid.year, mid.month, mid.day)
+        if mid < start_day:
+            mid = datetime(start_day.year, start_day.month, start_day.day)
         log.info(f"  {slug} {date_range}: hit query cap, splitting window")
         left = _mhd_fetch_window(session, slug, start_day, mid)
         right = _mhd_fetch_window(session, slug, mid + timedelta(days=1), end_day)
@@ -3400,7 +3563,10 @@ def _mhd_fetch_details_bulk(slug, records, trust_official_score=True):
                 # Blocked/failed fetch — queue for retry; never record the
                 # inspection as violation-free on the strength of a 403.
                 failed.append(rec)
-            elif texts:
+            else:
+                # An EMPTY list is a successfully-read clean inspection —
+                # apply it so no-score jurisdictions get risk 100, not the
+                # neutral placeholder.
                 apply_texts(rec, texts)
                 fetched += 1
             if done % 100 == 0:
@@ -3416,7 +3582,7 @@ def _mhd_fetch_details_bulk(slug, records, trust_official_score=True):
             time.sleep(MHD_DETAIL_DELAY)
             if texts is None:
                 still_failed.append(rec)
-            elif texts:
+            else:
                 apply_texts(rec, texts)
                 fetched += 1
     return fetched, still_failed
@@ -3599,9 +3765,14 @@ def _parse_mhd_record(rec, slug, display_name, default_city, default_state,
         state = (rec.get('state') or default_state).strip()
         zip_code = (rec.get('zip') or '').strip()
 
-        # Inspection date — may be ISO string or timestamp
+        # Inspection date — may be ISO string, MM/DD/YYYY (Virginia), or timestamp
         raw_date = rec.get('inspectionDate') or rec.get('date') or ''
         date_str = sane_inspection_date(raw_date) or ''
+        if not date_str and raw_date:
+            m = re.match(r'^(\d{2})/(\d{2})/(\d{4})', str(raw_date))
+            if m:
+                date_str = sane_inspection_date(
+                    f'{m.group(3)}-{m.group(1)}-{m.group(2)}') or ''
         if not date_str and raw_date:
             try:
                 date_str = sane_inspection_date(
@@ -4549,6 +4720,12 @@ def main():
             since_date=since_date, limit=record_limit)
     if 'montgomery' in args.cities or 'moco' in args.cities:
         socrata_jobs['Montgomery County'] = lambda: fetch_montgomery(
+            since_date=since_date, limit=record_limit)
+    if 'sc' in args.cities or 'southcarolina' in args.cities:
+        socrata_jobs['South Carolina'] = lambda: fetch_sc(
+            since_date=since_date, limit=record_limit)
+    if 'fairfax' in args.cities:
+        socrata_jobs['Fairfax County'] = lambda: fetch_fairfax(
             since_date=since_date, limit=record_limit)
     if 'detroit' in args.cities:
         socrata_jobs['Detroit'] = lambda: fetch_detroit(
