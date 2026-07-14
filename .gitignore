@@ -10,3 +10,4 @@ dinescores_data.json
 # pipeline-generated data, not build output).
 public/assets/
 public/index.html
+data/tmp_seeds/
