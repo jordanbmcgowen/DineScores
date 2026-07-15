@@ -61,6 +61,41 @@ export default function App() {
   // fix once on load, and center there when it's near covered data.
   const [userPos, setUserPos] = useState(null);
   const [flyTo, setFlyTo] = useState(null);
+  // Set when a fix came from the map's own GPS button — that control moves
+  // the camera itself, so the auto-center effect must stand down.
+  const gpsFromControlRef = useRef(false);
+
+  // Theme: 'auto' follows the OS until the user flips the header toggle,
+  // after which their choice is persisted. index.html applies the same
+  // logic pre-hydration so first paint never flashes the wrong theme.
+  const [themePref, setThemePref] = useState(() => {
+    try { return localStorage.getItem('ds-theme') || 'auto'; } catch { return 'auto'; }
+  });
+  const [systemDark, setSystemDark] = useState(
+    () => window.matchMedia('(prefers-color-scheme: dark)').matches);
+  useEffect(() => {
+    const mq = window.matchMedia('(prefers-color-scheme: dark)');
+    const onChange = e => setSystemDark(e.matches);
+    mq.addEventListener('change', onChange);
+    return () => mq.removeEventListener('change', onChange);
+  }, []);
+  const dark = themePref === 'auto' ? systemDark : themePref === 'dark';
+  useEffect(() => {
+    document.documentElement.classList.toggle('dark', dark);
+    // Keep the browser/OS chrome (status bar, tab strip) matching the app
+    document.querySelectorAll('meta[name="theme-color"]')
+      .forEach(m => m.setAttribute('content', dark ? '#0f172a' : '#ffffff'));
+  }, [dark]);
+  const toggleTheme = useCallback(() => {
+    setThemePref(prev => {
+      const wasDark = prev === 'auto'
+        ? window.matchMedia('(prefers-color-scheme: dark)').matches
+        : prev === 'dark';
+      const next = wasDark ? 'light' : 'dark';
+      try { localStorage.setItem('ds-theme', next); } catch { /* storage blocked */ }
+      return next;
+    });
+  }, []);
 
   // Debounce search
   useEffect(() => {
@@ -83,11 +118,20 @@ export default function App() {
     if (userPos && !sortTouchedRef.current) setSortBy('distance');
   }, [userPos]);
 
+  // The map's GPS button got a fix: the GeolocateControl flies the camera
+  // there itself, so just record the position (it powers "Nearest first"
+  // sorting and the distance shown on preview cards).
+  const handleGeolocate = useCallback(pos => {
+    gpsFromControlRef.current = true;
+    setUserPos(pos);
+  }, []);
+
   // Center on the user only when we actually cover their area (~within
   // 100km of any loaded restaurant) — recentring onto an empty map would
   // be worse than the default nationwide view.
   useEffect(() => {
     if (!userPos || flyTo || allData.length === 0) return;
+    if (gpsFromControlRef.current) return; // GPS button already moved the camera
     const near = allData.some(r =>
       r.lt && r.ln &&
       Math.abs(r.lt - userPos.lat) < 0.9 &&
@@ -499,6 +543,8 @@ export default function App() {
           narrowSignal={narrowSignal}
           flyTo={flyTo}
           selectedId={preview?.i || selectedRestaurant?.i || null}
+          dark={dark}
+          onGeolocate={handleGeolocate}
         />
       </div>
 
@@ -526,6 +572,25 @@ export default function App() {
             onPickArea={opt => { setCityFilter(opt.city); setMetroFilter(opt.metro); }}
             onSearchingChange={setSearchOpen}
           />
+
+          {/* Light/dark toggle — follows the OS until first use */}
+          <button
+            onClick={toggleTheme}
+            aria-label={dark ? 'Switch to light mode' : 'Switch to dark mode'}
+            title={dark ? 'Switch to light mode' : 'Switch to dark mode'}
+            className="h-11 w-11 shrink-0 rounded-2xl bg-white/90 dark:bg-slate-800/90 backdrop-blur shadow-lg ring-1 ring-slate-900/5 dark:ring-white/10 flex items-center justify-center text-slate-500 hover:text-slate-800 dark:text-slate-300 dark:hover:text-white transition-colors"
+          >
+            {dark ? (
+              <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true">
+                <circle cx="12" cy="12" r="4.5" />
+                <path d="M12 2.5v2.2M12 19.3v2.2M2.5 12h2.2M19.3 12h2.2M5.3 5.3l1.5 1.5M17.2 17.2l1.5 1.5M18.7 5.3l-1.5 1.5M6.8 17.2l-1.5 1.5" />
+              </svg>
+            ) : (
+              <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <path d="M20.5 14.5A8.5 8.5 0 0 1 9.5 3.5a8.5 8.5 0 1 0 11 11z" />
+              </svg>
+            )}
+          </button>
         </div>
 
         {/* Filter rail */}

@@ -2,28 +2,42 @@ import React, { useEffect, useRef, useState } from 'react';
 import maplibregl from 'maplibre-gl';
 import { gradeMeta } from './GradeBadge.jsx';
 
+// Both basemap flavors live in the style permanently and the theme toggle
+// just flips layer visibility — map.setStyle() would tear down every custom
+// source/layer/marker, and hidden raster layers cost nothing (tiles are only
+// requested for visible layers).
 function basemapStyle(dark) {
-  const flavor = dark ? 'dark_all' : 'light_all';
+  const tiles = flavor => ['a', 'b', 'c'].map(
+    sub => `https://${sub}.basemaps.cartocdn.com/${flavor}/{z}/{x}/{y}@2x.png`);
+  const source = flavor => ({
+    type: 'raster',
+    tiles: tiles(flavor),
+    tileSize: 256,
+    attribution: '&copy; OpenStreetMap &copy; CARTO',
+  });
   return {
     version: 8,
     // Needed for the restaurant-name labels (SDF text). The grade LETTERS
     // deliberately don't use this — see makeLetterIcon.
     glyphs: 'https://tiles.basemaps.cartocdn.com/fonts/{fontstack}/{range}.pbf',
     sources: {
-      basemap: {
-        type: 'raster',
-        tiles: [
-          `https://a.basemaps.cartocdn.com/${flavor}/{z}/{x}/{y}@2x.png`,
-          `https://b.basemaps.cartocdn.com/${flavor}/{z}/{x}/{y}@2x.png`,
-          `https://c.basemaps.cartocdn.com/${flavor}/{z}/{x}/{y}@2x.png`,
-        ],
-        tileSize: 256,
-        attribution: '&copy; OpenStreetMap &copy; CARTO',
-      },
+      'basemap-light': source('light_all'),
+      'basemap-dark': source('dark_all'),
     },
-    layers: [{ id: 'basemap', type: 'raster', source: 'basemap' }],
+    layers: [
+      { id: 'basemap-light', type: 'raster', source: 'basemap-light',
+        layout: { visibility: dark ? 'none' : 'visible' } },
+      { id: 'basemap-dark', type: 'raster', source: 'basemap-dark',
+        layout: { visibility: dark ? 'visible' : 'none' } },
+    ],
   };
 }
+
+// Label/halo colors for the restaurant-name text, per theme
+const NAME_COLORS = {
+  light: { text: '#334155', halo: '#ffffff' },
+  dark: { text: '#e2e8f0', halo: '#0f172a' },
+};
 
 // Cluster ring segments use the same status vocabulary as everything else:
 // Safe (A) / Caution (B, C) / Avoid (F) / Unrated.
@@ -218,10 +232,13 @@ function createDonutChart(props, dark, minR) {
  *     fit, it wins over that initial nationwide framing.
  * `onViewportChange({ zoom, bounds })` fires (debounced) after the user pans or
  * zooms, so the parent can lazy-load whatever is now in view.
+ * `onGeolocate({ lat, lng })` fires when the GPS control gets a fix (the
+ * control moves the camera itself; the parent just learns the position).
+ * `dark` switches the basemap flavor, label colors, and donut centers live.
  */
 export default function RestaurantMap({
   restaurants, onMarkerClick, onBackgroundClick, onStackClick, onViewportChange,
-  fitSignal, narrowSignal, flyTo, selectedId,
+  fitSignal, narrowSignal, flyTo, selectedId, dark = false, onGeolocate,
 }) {
   const mapContainer = useRef(null);
   const mapRef = useRef(null);
@@ -231,9 +248,13 @@ export default function RestaurantMap({
   onBackgroundClickRef.current = onBackgroundClick;
   const onStackClickRef = useRef(onStackClick);
   onStackClickRef.current = onStackClick;
+  const onGeolocateRef = useRef(onGeolocate);
+  onGeolocateRef.current = onGeolocate;
   const [mapLoaded, setMapLoaded] = useState(false);
   const donutsRef = useRef({ byPos: {} });
   const densityRef = useRef(1.0);
+  const darkRef = useRef(dark); // read live by donut redraws (closures below)
+  darkRef.current = dark;
   const gpsCenteredRef = useRef(false);
   const didInitialFitRef = useRef(false);
   const narrowInitRef = useRef(true);
@@ -243,11 +264,10 @@ export default function RestaurantMap({
   // Initialize map (once)
   useEffect(() => {
     if (mapRef.current) return;
-    const dark = window.matchMedia('(prefers-color-scheme: dark)').matches;
 
     const map = new maplibregl.Map({
       container: mapContainer.current,
-      style: basemapStyle(dark),
+      style: basemapStyle(darkRef.current),
       center: [-96.9, 36.5],
       zoom: 4,
       maxZoom: MAP_MAX_ZOOM,
@@ -255,10 +275,19 @@ export default function RestaurantMap({
     });
 
     map.addControl(new maplibregl.NavigationControl({ showCompass: false }), 'bottom-right');
-    map.addControl(new maplibregl.GeolocateControl({
+    const geolocate = new maplibregl.GeolocateControl({
       positionOptions: { enableHighAccuracy: true },
-      trackUserLocation: false,
-    }), 'bottom-right');
+      // Follow mode: the button flies to the fix AND keeps a live blue dot
+      // on the user until they pan away — the expected phone-maps behavior.
+      trackUserLocation: true,
+      showUserLocation: true,
+    });
+    map.addControl(geolocate, 'bottom-right');
+    geolocate.on('geolocate', pos => {
+      if (onGeolocateRef.current) {
+        onGeolocateRef.current({ lat: pos.coords.latitude, lng: pos.coords.longitude });
+      }
+    });
 
     map.on('load', () => setMapLoaded(true));
 
@@ -406,7 +435,7 @@ export default function RestaurantMap({
         'circle-stroke-color': '#ffffff',
       },
     });
-    const darkScheme = window.matchMedia('(prefers-color-scheme: dark)').matches;
+    const names = NAME_COLORS[darkRef.current ? 'dark' : 'light'];
 
     // One symbol per restaurant: the grade letter (mandatory icon) plus the
     // restaurant name beside the disc (text-optional — it drops out where
@@ -433,8 +462,8 @@ export default function RestaurantMap({
         'text-optional': true,
       },
       paint: {
-        'text-color': darkScheme ? '#e2e8f0' : '#334155',
-        'text-halo-color': darkScheme ? '#0f172a' : '#ffffff',
+        'text-color': names.text,
+        'text-halo-color': names.halo,
         'text-halo-width': 1.6,
       },
     });
@@ -483,7 +512,7 @@ export default function RestaurantMap({
           entry.marker.setLngLat(coords);
           if (entry.sig !== sig) {
             const el = entry.marker.getElement();
-            const next = createDonutChart(props, darkScheme, minR);
+            const next = createDonutChart(props, darkRef.current, minR);
             el.replaceChildren(...next.children);
             el._dsRadius = next._dsRadius;
             el.title = next.title;
@@ -491,7 +520,7 @@ export default function RestaurantMap({
             entry.sig = sig;
           }
         } else {
-          const el = createDonutChart(props, darkScheme, minR);
+          const el = createDonutChart(props, darkRef.current, minR);
           entry = cache[key] = {
             marker: new maplibregl.Marker({ element: el }).setLngLat(coords),
             sig,
@@ -607,6 +636,31 @@ export default function RestaurantMap({
     map.setLayoutProperty('unclustered-letter', 'symbol-sort-key',
       ['case', ['==', ['get', 'id'], id], -1, ['-', 4, ['get', 'priority']]]);
   }, [selectedId, mapLoaded, restaurants]);
+
+  // Theme effect: swap basemap flavor and label colors in place (never
+  // map.setStyle — that would tear down every custom layer and marker).
+  // Dropping the donut cache forces the next sync pass (the repaint these
+  // property changes trigger ends in 'idle') to rebuild donuts with the
+  // new center colors.
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !mapLoaded) return;
+    if (map.getLayer('basemap-light')) {
+      map.setLayoutProperty('basemap-light', 'visibility', dark ? 'none' : 'visible');
+      map.setLayoutProperty('basemap-dark', 'visibility', dark ? 'visible' : 'none');
+    }
+    const names = NAME_COLORS[dark ? 'dark' : 'light'];
+    if (map.getLayer('unclustered-letter')) {
+      map.setPaintProperty('unclustered-letter', 'text-color', names.text);
+      map.setPaintProperty('unclustered-letter', 'text-halo-color', names.halo);
+    }
+    const cache = donutsRef.current.byPos;
+    for (const key of Object.keys(cache)) {
+      cache[key].marker.remove();
+      delete cache[key];
+    }
+    map.triggerRepaint();
+  }, [dark, mapLoaded]);
 
   // GPS effect: center on the user once per flyTo key. If it lands before
   // the initial nationwide fit, it takes precedence over that fit.
