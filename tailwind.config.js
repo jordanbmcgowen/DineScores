@@ -1,6 +1,9 @@
 /** @type {import('tailwindcss').Config} */
 export default {
-  darkMode: 'media',
+  // Class strategy so the in-app toggle can override the OS preference.
+  // The pre-hydration script in index.html stamps <html class="dark"> from
+  // localStorage('ds-theme'), falling back to prefers-color-scheme.
+  darkMode: 'class',
   content: ['./index.html', './src/**/*.{js,jsx}'],
   theme: {
     extend: {

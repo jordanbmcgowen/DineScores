@@ -53,6 +53,27 @@ body {
 .maplibregl-ctrl-group {
   @apply !rounded-xl !shadow-lg overflow-hidden;
 }
+/* Night mode for the stock control buttons: inverting the group turns the
+   white buttons slate-dark and their dark glyph icons light; the hue-rotate
+   swings the geolocate dot's inverted orange back to its intended blue. */
+html.dark .maplibregl-ctrl-group {
+  filter: invert(1) hue-rotate(180deg);
+}
+
+@media (max-width: 767px) {
+  /* The results sheet (z-30) covers the bottom of the map even when
+     collapsed (96px peek), which used to bury the zoom/GPS buttons under
+     it — taps never reached them. Keep the whole bottom-right control
+     column floating above the collapsed sheet. */
+  .maplibregl-ctrl-bottom-right {
+    bottom: calc(96px + env(safe-area-inset-bottom, 0px));
+  }
+  /* Finger-sized targets (the maplibre default is a desktop-y 29px) */
+  .maplibregl-ctrl-group button {
+    width: 44px;
+    height: 44px;
+  }
+}
 .maplibregl-ctrl-attrib {
   font-size: 10px;
   @apply !bg-white/70 dark:!bg-slate-900/70 dark:!text-slate-400;

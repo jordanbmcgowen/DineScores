@@ -9,6 +9,19 @@
   <meta name="theme-color" media="(prefers-color-scheme: dark)" content="#0f172a">
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Cpath d='M16 2L4 8v8c0 7.18 5.12 13.88 12 16 6.88-2.12 12-8.82 12-16V8L16 2z' fill='%230d9488'/%3E%3Ctext x='16' y='21' text-anchor='middle' fill='white' font-size='13' font-weight='700' font-family='system-ui'%3EA%3C/text%3E%3C/svg%3E">
 
+  <!-- Theme boot: stamp html.dark BEFORE any CSS paints so there's no flash.
+       'ds-theme' is the user's explicit toggle choice; absent (or 'auto') it
+       follows the OS. Kept in sync at runtime by App.jsx. -->
+  <script>
+    try {
+      var t = localStorage.getItem('ds-theme');
+      if (t === 'dark' || ((!t || t === 'auto') &&
+          window.matchMedia('(prefers-color-scheme: dark)').matches)) {
+        document.documentElement.classList.add('dark');
+      }
+    } catch (e) { /* storage blocked — follow the OS via nothing at all */ }
+  </script>
+
   <style>
     /* Pre-hydration loading overlay (self-contained — no framework CSS yet) */
     #loading-overlay {
@@ -28,10 +41,10 @@
     }
     #loading-overlay .brand { font-weight: 800; font-size: 18px; letter-spacing: -0.02em; color: #0f172a; }
     @keyframes ds-spin { to { transform: rotate(360deg); } }
-    @media (prefers-color-scheme: dark) {
-      #loading-overlay { background: #0f172a; }
-      #loading-overlay .brand { color: #f1f5f9; }
-    }
+    /* Keyed off html.dark (set by the theme boot script above), not the OS
+       media query, so a saved light/dark choice applies to the overlay too. */
+    html.dark #loading-overlay { background: #0f172a; }
+    html.dark #loading-overlay .brand { color: #f1f5f9; }
   </style>
 </head>
 <body>
