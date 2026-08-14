@@ -4758,8 +4758,8 @@ def main():
     parser.add_argument('--no-dfw-violations', action='store_true',
                         help='Skip scraping DFW inspection detail pages for violation text (faster)')
     parser.add_argument('--since-date', default=None,
-                        help='Override start date (YYYY-MM-DD) for scraped portal sources '
-                             '(houston/dc) — useful for chunked, restart-safe backfills')
+                        help='Override start date (YYYY-MM-DD) for ALL sources — useful '
+                             'for backfilling a gap after missed refreshes')
     parser.add_argument('--until-date', default=None,
                         help='Override end date (YYYY-MM-DD) for scraped portal sources')
     parser.add_argument('--output-d1-sql', default=None,
@@ -4796,7 +4796,12 @@ def main():
     elif args.mode == 'full':
         since_date = '2024-01-01T00:00:00'  # 2024+ for API cities; Dallas handles own range
         record_limit = None
-    
+
+    if args.since_date:
+        # Global override: a backfill after missed refreshes needs EVERY
+        # source to cover the gap, not just the mode's default window.
+        since_date = f"{str(args.since_date)[:10]}T00:00:00"
+
     all_inspections = []
 
     # Fetch the Socrata-backed cities concurrently (each is a distinct API host)
@@ -4926,6 +4931,8 @@ def main():
                 rich_since = (datetime.now() - timedelta(days=8)).strftime('%Y-%m-%d')
             elif args.mode == 'full':
                 rich_since = '2026-01-01'
+            if args.since_date:
+                rich_since = args.since_date
             rich_data = fetch_richardson(since_date=rich_since, until_date=args.until_date,
                                          limit=record_limit,
                                          fetch_violations=not args.no_dfw_violations)
@@ -4943,6 +4950,8 @@ def main():
             arl_since = None
             if args.mode == 'weekly':
                 arl_since = (datetime.now() - timedelta(days=8)).strftime('%Y-%m-%d')
+            if args.since_date:
+                arl_since = args.since_date
             arl_data = fetch_arlington(since_date=arl_since, limit=record_limit)
             all_inspections.extend(arl_data)
             log.info(f"Arlington: {len(arl_data)} records")
@@ -4990,6 +4999,8 @@ def main():
                 dfw_since = '2026-01-01'
             elif args.mode == 'weekly':
                 dfw_since = (datetime.now() - timedelta(days=8)).strftime('%Y-%m-%d')
+            if args.since_date:
+                dfw_since = args.since_date
 
             if 'dfw' in args.cities:
                 jurisdictions = DFW_JURISDICTIONS
