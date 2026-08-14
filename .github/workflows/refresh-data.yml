@@ -37,11 +37,17 @@ jobs:
             --output /tmp/dinescores_data.json \
             --output-data-js public/data.js \
             --merge-existing-data-js public/data.js \
-            --output-d1-sql /tmp/dinescores_weekly.sql
+            --output-d1-sql /tmp/dinescores_weekly.sql \
+            --deadline-minutes 60
         # --merge-existing-data-js is essential: weekly mode only pulls the
         # last 8 days, and merging preserves the accumulated dataset instead
         # of overwriting it. DFW fetches are failure-tolerant — if the portal
         # blocks the runner, existing DFW records are kept via the merge.
+        # --deadline-minutes keeps the fetch phase inside the job timeout:
+        # sources that miss the budget are skipped (their existing records
+        # survive via the merge) instead of the whole run timing out and
+        # shipping nothing — which is what happened when the MHD portal
+        # started 403-blocking runner IPs (Jul-Aug 2026).
 
       - name: Show data summary
         run: |
