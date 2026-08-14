@@ -30,6 +30,18 @@ import requests
 logging.basicConfig(level=logging.INFO, format='%(asctime)s %(levelname)s %(message)s')
 log = logging.getLogger('dinescores')
 
+# Overall fetch deadline (epoch seconds), set from --deadline-minutes. Once
+# passed, remaining fetch groups are skipped and retry loops stop sleeping,
+# so the run always reaches the output/merge phase. A run killed by the CI
+# job timeout ships nothing at all — the merge-based outputs mean shipping
+# the sources that did finish is strictly better (skipped sources keep
+# their existing records).
+_FETCH_DEADLINE = None
+
+
+def _past_deadline():
+    return _FETCH_DEADLINE is not None and time.time() > _FETCH_DEADLINE
+
 # ─── VIOLATION CLASSIFIER ────────────────────────────────────────────────────
 
 # Ordered dict: classify_violation() returns the FIRST category whose pattern
@@ -1309,6 +1321,10 @@ def _tyler_request(session, method, url, **kwargs):
         try:
             r = session.request(method, url, timeout=90, **kwargs)
             if r.status_code in (429, 500, 502, 503, 504):
+                if _past_deadline():
+                    log.warning(f"  Tyler {r.status_code} on {url[:60]} — "
+                                f"fetch deadline reached, not retrying")
+                    return None
                 wait = 20 * (attempt + 1)
                 log.warning(f"  Tyler {r.status_code} on {url[:60]} — retry in {wait}s "
                             f"({attempt + 1}/{TYLER_RETRIES})")
@@ -1317,6 +1333,10 @@ def _tyler_request(session, method, url, **kwargs):
             r.raise_for_status()
             return r
         except requests.RequestException as e:
+            if _past_deadline():
+                log.warning(f"  Tyler error {str(e)[:80]} — "
+                            f"fetch deadline reached, not retrying")
+                return None
             wait = 20 * (attempt + 1)
             log.warning(f"  Tyler error {str(e)[:80]} — retry in {wait}s "
                         f"({attempt + 1}/{TYLER_RETRIES})")
@@ -1448,6 +1468,10 @@ def fetch_houston(since_date=None, until_date=None, limit=None, fetch_violations
     raw = []
     while stack:
         ws, we = stack.pop()
+        if _past_deadline():
+            log.warning(f"  Houston: fetch deadline reached — stopping search "
+                        f"with {len(raw)} rows")
+            break
         rows = _houston_search_window(session, ws, we)
         if len(rows) >= HOUSTON_MAXROWS and ws < we:
             mid = ws + (we - ws) / 2
@@ -1499,6 +1523,13 @@ def fetch_houston(since_date=None, until_date=None, limit=None, fetch_violations
             '_hou_ids': (f_id, i_id, date_str),
         })
 
+    if fetch_violations and results and _past_deadline():
+        # Search-only records default to risk 100 with no violations — they
+        # must not ship undetailed. Drop the run; the merge keeps existing
+        # Houston data and a future run re-attempts it.
+        log.warning(f"Houston: fetch deadline reached before the detail phase — "
+                    f"dropping {len(results)} undetailed inspections")
+        return []
     if fetch_violations and results:
         log.info(f"Houston: fetching violation details for {len(results)} inspections "
                  f"({TYLER_DETAIL_WORKERS} workers)...")
@@ -1649,6 +1680,10 @@ def fetch_dc(since_date=None, until_date=None, limit=None, fetch_violations=True
     raw = []
     seen = set()
     for ws, we in months:
+        if _past_deadline():
+            log.warning(f"  DC: fetch deadline reached — stopping search "
+                        f"with {len(raw)} inspections")
+            break
         data = {
             'a': 'Inspections', 'inputEstabName': '', 'inputPermitType': '',
             'inputInspType': '', 'inputWard': '', 'inputQuad': '',
@@ -1737,6 +1772,12 @@ def fetch_dc(since_date=None, until_date=None, limit=None, fetch_violations=True
             '_dc_report': item['report_path'],
         })
 
+    if fetch_violations and results and _past_deadline():
+        # Same rule as Houston: search-only records look clean and must not
+        # ship undetailed — drop the run, keep existing data via the merge.
+        log.warning(f"DC: fetch deadline reached before the report phase — "
+                    f"dropping {len(results)} unparsed inspections")
+        return []
     if fetch_violations and results:
         log.info(f"DC: fetching {len(results)} inspection reports "
                  f"({TYLER_DETAIL_WORKERS} workers)...")
@@ -3322,7 +3363,23 @@ MHD_PAGE_SIZE = 25     # server-side hard cap; larger 'count' values are ignored
 MHD_QUERY_CAP = 225    # search API silently truncates a query around 225 records
 MHD_DELAY = 0.8        # seconds between search API calls
 MHD_RETRY_DELAY = 30   # seconds on 403/429 before retry
-MHD_MAX_RETRIES = 5
+MHD_MAX_RETRIES = 3
+
+# The portal WAF sometimes hard-blocks an IP for a whole run — GitHub
+# Actions runners especially, where the block has been observed to persist
+# for weeks. Once one request has exhausted its 403/429 retries, every
+# further MHD call would burn the same retry sleeps and fail the same way
+# (~15 jurisdictions × minutes of sleep = a timed-out CI job), so the first
+# exhaustion trips this breaker and the portal's remaining fetches are
+# skipped immediately. Skipped jurisdictions yield no records — never
+# "clean" — and the data.js/D1 merges preserve their existing data.
+# Search exhaustion trips it directly; detail pages 403 transiently under
+# rate limiting too, so they must exhaust on several CONSECUTIVE pages
+# (a streak, reset by any success) before it reads as a portal-wide block.
+_MHD_PORTAL_BLOCKED = False
+_MHD_BLOCK_LOCK = threading.Lock()
+_MHD_DETAIL_BLOCK_STREAK = 0
+MHD_DETAIL_BLOCK_TRIP = 3
 MHD_WINDOW_DAYS = 7    # initial search window; bisected when the query cap is hit
 MHD_DETAIL_WORKERS = 3    # concurrent detail-page fetches
 MHD_DETAIL_DELAY = 0.4    # per-worker pause between detail-page fetches
@@ -3372,16 +3429,28 @@ def _mhd_search_page(session, slug, date_range_str, start_offset, retry_count=0)
         },
         'task': 'searchInspections',
     }
+    global _MHD_PORTAL_BLOCKED
+    if _MHD_PORTAL_BLOCKED:
+        return None
     try:
         r = session.post(MHD_BASE_URL, json=payload, timeout=30)
         if r.status_code in (403, 429):
             if retry_count < MHD_MAX_RETRIES:
+                if _past_deadline():
+                    # Time budget ran out, not necessarily a persistent
+                    # block — give up on this request without tripping the
+                    # run-wide breaker (the deadline skips everything anyway).
+                    log.warning(f"  MHD blocked ({r.status_code}) — fetch deadline "
+                                f"reached, not retrying")
+                    return None
                 wait = MHD_RETRY_DELAY * (retry_count + 1)
                 log.warning(f"  MHD blocked ({r.status_code}). Waiting {wait}s before retry "
                             f"{retry_count + 1}/{MHD_MAX_RETRIES}...")
                 time.sleep(wait)
                 return _mhd_search_page(session, slug, date_range_str, start_offset, retry_count + 1)
-            log.error(f"  MHD still blocked after {MHD_MAX_RETRIES} retries")
+            _MHD_PORTAL_BLOCKED = True
+            log.error(f"  MHD blocked ({r.status_code}) after {retry_count} retries — "
+                      f"skipping the portal's remaining fetches this run")
             return None
         r.raise_for_status()
         data = r.json()
@@ -3390,12 +3459,12 @@ def _mhd_search_page(session, slug, date_range_str, start_offset, retry_count=0)
             return []
         return data
     except requests.RequestException as e:
-        if retry_count < MHD_MAX_RETRIES:
+        if retry_count < MHD_MAX_RETRIES and not _past_deadline():
             wait = MHD_RETRY_DELAY * (retry_count + 1)
             log.warning(f"  MHD network error: {e}. Waiting {wait}s before retry...")
             time.sleep(wait)
             return _mhd_search_page(session, slug, date_range_str, start_offset, retry_count + 1)
-        log.error(f"  MHD failed after {MHD_MAX_RETRIES} retries: {e}")
+        log.error(f"  MHD failed after {retry_count} retries: {e}")
         return None
 
 
@@ -3497,16 +3566,31 @@ def _mhd_fetch_inspection_detail(session, slug, inspection_id, retry_count=0):
 
     Returns a list of violation description strings, or empty list on failure.
     """
+    global _MHD_PORTAL_BLOCKED, _MHD_DETAIL_BLOCK_STREAK
+    if _MHD_PORTAL_BLOCKED:
+        return None  # blocked — must not read as "no violations"
     url = f'{MHD_BASE_URL}{slug}/inspection/'
     try:
         r = session.get(url, params={'inspectionID': inspection_id}, timeout=30)
         if r.status_code in (403, 429):
             if retry_count < 2:
+                if _past_deadline():
+                    return None  # out of budget, not evidence of a block
                 time.sleep(MHD_RETRY_DELAY)
                 return _mhd_fetch_inspection_detail(session, slug, inspection_id, retry_count + 1)
+            with _MHD_BLOCK_LOCK:
+                _MHD_DETAIL_BLOCK_STREAK += 1
+                if (_MHD_DETAIL_BLOCK_STREAK >= MHD_DETAIL_BLOCK_TRIP
+                        and not _MHD_PORTAL_BLOCKED):
+                    _MHD_PORTAL_BLOCKED = True
+                    log.error(f"  MHD blocked {_MHD_DETAIL_BLOCK_STREAK} consecutive "
+                              f"detail pages through retries — skipping the "
+                              f"portal's remaining fetches this run")
             return None  # blocked — must not read as "no violations"
         if r.status_code != 200:
             return None
+        with _MHD_BLOCK_LOCK:
+            _MHD_DETAIL_BLOCK_STREAK = 0
         r.encoding = 'utf-8'  # pages omit charset; default latin-1 mangles § etc.
         return _mhd_parse_detail_html(r.text)
     except Exception as e:
@@ -3532,7 +3616,9 @@ def _mhd_fetch_details_bulk(slug, records, trust_official_score=True):
 
     def fetch_one(rec):
         texts = _mhd_fetch_inspection_detail(get_session(), slug, rec['source_id'])
-        time.sleep(MHD_DETAIL_DELAY)
+        if not _MHD_PORTAL_BLOCKED:
+            # no pacing needed for the breaker's instant no-op returns
+            time.sleep(MHD_DETAIL_DELAY)
         return rec, texts
 
     def apply_texts(rec, texts):
@@ -3574,7 +3660,14 @@ def _mhd_fetch_details_bulk(slug, records, trust_official_score=True):
     if failed:
         log.warning(f"  {slug}: retrying {len(failed)} failed detail fetches")
         retry_session = _mhd_session()
-        for rec in failed:
+        for idx, rec in enumerate(failed):
+            if _MHD_PORTAL_BLOCKED or _past_deadline():
+                # Every remaining retry would no-op (breaker) or overrun the
+                # budget — abandon them; the records get dropped, not shipped.
+                still_failed.extend(failed[idx:])
+                log.warning(f"  {slug}: abandoning {len(failed) - idx} remaining detail "
+                            f"retries ({'portal blocked' if _MHD_PORTAL_BLOCKED else 'fetch deadline reached'})")
+                break
             texts = _mhd_fetch_inspection_detail(retry_session, slug, rec['source_id'])
             time.sleep(MHD_DETAIL_DELAY)
             if texts is None:
@@ -3612,6 +3705,13 @@ def fetch_dfw(jurisdictions=None, since_date=None, limit_per_jurisdiction=None,
 
     for slug, config in jurisdictions.items():
         display_name = config['display_name']
+        if _MHD_PORTAL_BLOCKED:
+            log.warning(f"{display_name}: skipped — MHD portal is blocking this run; "
+                        f"existing records are preserved by the merge")
+            continue
+        if _past_deadline():
+            log.warning(f"{display_name}: skipped — pipeline fetch deadline reached")
+            continue
         log.info(f"--- Fetching {display_name} ({slug}) via API ---")
         try:
             results = _fetch_mhd_jurisdiction_api(
@@ -3670,6 +3770,11 @@ def _fetch_mhd_jurisdiction_api(session, slug, config, since_date=None, limit=No
     for win_idx, (win_start, win_end) in enumerate(windows):
         if limit and len(all_records) >= limit:
             break
+        if _past_deadline():
+            log.warning(f"  {display_name}: fetch deadline reached — stopping "
+                        f"before window {win_idx + 1}/{len(windows)}")
+            stopped_early = True
+            break
 
         raw_records = _mhd_fetch_window(session, slug, win_start, win_end)
         if raw_records is None:
@@ -3700,6 +3805,13 @@ def _fetch_mhd_jurisdiction_api(session, slug, config, since_date=None, limit=No
         all_records = all_records[:limit]
 
     # Scrape violation details from each inspection's public detail page
+    if fetch_violations and all_records and _past_deadline():
+        # Searched-but-undetailed records would ship looking violation-free.
+        # Drop the run's records instead; the merge keeps existing data and
+        # a future run re-attempts them.
+        log.warning(f"{display_name}: fetch deadline reached before the detail "
+                    f"phase — dropping {len(all_records)} undetailed inspections")
+        return []
     if fetch_violations and all_records:
         inspections_with_id = [r for r in all_records if r.get('source_id')]
         log.info(f"{display_name}: fetching violation details for "
@@ -3900,7 +4012,7 @@ def _richardson_parse_report(html):
     return violations
 
 
-def fetch_richardson(since_date=None, limit=None, fetch_violations=True):
+def fetch_richardson(since_date=None, until_date=None, limit=None, fetch_violations=True):
     """
     Fetch Richardson, TX inspections from the city's HealthTrak system
     (Lotus Domino app on discovery.cor.gov — a different host from the
@@ -3927,6 +4039,10 @@ def fetch_richardson(since_date=None, limit=None, fetch_violations=True):
 
     results = []
     for year, month in months:
+        if _past_deadline():
+            log.warning(f"Richardson: fetch deadline reached — stopping at "
+                        f"{year}-{month:02d} with {len(results)} inspections")
+            break
         rows = _richardson_month_rows(session, year, month)
         log.info(f"  Richardson {year}-{month:02d}: {len(rows)} inspections")
         for name, address, date_str, score, detail_path in rows:
@@ -4642,20 +4758,30 @@ def main():
     parser.add_argument('--no-dfw-violations', action='store_true',
                         help='Skip scraping DFW inspection detail pages for violation text (faster)')
     parser.add_argument('--since-date', default=None,
-                        help='Override start date (YYYY-MM-DD) for scraped portal sources '
-                             '(houston/dc) — useful for chunked, restart-safe backfills')
+                        help='Override start date (YYYY-MM-DD) for ALL sources — useful '
+                             'for backfilling a gap after missed refreshes')
     parser.add_argument('--until-date', default=None,
                         help='Override end date (YYYY-MM-DD) for scraped portal sources')
     parser.add_argument('--output-d1-sql', default=None,
                         help='Write idempotent Cloudflare D1 SQL (schema + upserts) for this '
                              'run\'s data. Used by CI to refresh the D1 database weekly.')
+    parser.add_argument('--deadline-minutes', type=float, default=None,
+                        help='Soft time budget for the fetch phase. Once exceeded, remaining '
+                             'fetch groups are skipped (their existing records survive via the '
+                             'merge) so outputs are always written. Used by CI to stay inside '
+                             'the job timeout.')
     parser.add_argument('--debug', action='store_true',
                         help='Enable debug logging for network interception diagnostics')
     args = parser.parse_args()
 
     if args.debug:
         logging.getLogger().setLevel(logging.DEBUG)
-    
+
+    if args.deadline_minutes is not None:
+        global _FETCH_DEADLINE
+        _FETCH_DEADLINE = time.time() + args.deadline_minutes * 60
+        log.info(f"Fetch deadline: {args.deadline_minutes:g} minutes")
+
     log.info(f"DineScores Pipeline starting | mode={args.mode} cities={args.cities}")
 
     # Determine date filter
@@ -4670,7 +4796,12 @@ def main():
     elif args.mode == 'full':
         since_date = '2024-01-01T00:00:00'  # 2024+ for API cities; Dallas handles own range
         record_limit = None
-    
+
+    if args.since_date:
+        # Global override: a backfill after missed refreshes needs EVERY
+        # source to cover the gap, not just the mode's default window.
+        since_date = f"{str(args.since_date)[:10]}T00:00:00"
+
     all_inspections = []
 
     # Fetch the Socrata-backed cities concurrently (each is a distinct API host)
@@ -4770,6 +4901,9 @@ def main():
     # Houston and DC use the Tyler healthinspections.us portals (scraped)
     for slug, fetcher in (('houston', fetch_houston), ('dc', fetch_dc)):
         if slug in args.cities:
+            if _past_deadline():
+                log.warning(f"{slug}: skipped — pipeline fetch deadline reached")
+                continue
             try:
                 scrape_since = None
                 if args.mode == 'weekly':
@@ -4788,14 +4922,19 @@ def main():
                 log.error(f"{slug} fetch failed: {e}")
 
     # Richardson uses its own HealthTrak source (not the MHD portal)
-    if 'richardson' in args.cities or 'dfw' in args.cities:
+    if ('richardson' in args.cities or 'dfw' in args.cities) and _past_deadline():
+        log.warning("Richardson: skipped — pipeline fetch deadline reached")
+    elif 'richardson' in args.cities or 'dfw' in args.cities:
         try:
             rich_since = None
             if args.mode == 'weekly':
                 rich_since = (datetime.now() - timedelta(days=8)).strftime('%Y-%m-%d')
             elif args.mode == 'full':
                 rich_since = '2026-01-01'
-            rich_data = fetch_richardson(since_date=rich_since, limit=record_limit,
+            if args.since_date:
+                rich_since = args.since_date
+            rich_data = fetch_richardson(since_date=rich_since, until_date=args.until_date,
+                                         limit=record_limit,
                                          fetch_violations=not args.no_dfw_violations)
             geocode_missing_coords(rich_data)
             all_inspections.extend(rich_data)
@@ -4804,11 +4943,15 @@ def main():
             log.error(f"Richardson fetch failed: {e}")
 
     # Arlington uses its own ArcGIS source (not the MHD portal)
-    if 'arlington' in args.cities or 'dfw' in args.cities:
+    if ('arlington' in args.cities or 'dfw' in args.cities) and _past_deadline():
+        log.warning("Arlington: skipped — pipeline fetch deadline reached")
+    elif 'arlington' in args.cities or 'dfw' in args.cities:
         try:
             arl_since = None
             if args.mode == 'weekly':
                 arl_since = (datetime.now() - timedelta(days=8)).strftime('%Y-%m-%d')
+            if args.since_date:
+                arl_since = args.since_date
             arl_data = fetch_arlington(since_date=arl_since, limit=record_limit)
             all_inspections.extend(arl_data)
             log.info(f"Arlington: {len(arl_data)} records")
@@ -4856,6 +4999,8 @@ def main():
                 dfw_since = '2026-01-01'
             elif args.mode == 'weekly':
                 dfw_since = (datetime.now() - timedelta(days=8)).strftime('%Y-%m-%d')
+            if args.since_date:
+                dfw_since = args.since_date
 
             if 'dfw' in args.cities:
                 jurisdictions = DFW_JURISDICTIONS

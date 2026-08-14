@@ -56,6 +56,12 @@ middleware.
   sources, merges data.js, applies incremental SQL to D1, commits. Source
   portals sometimes block GitHub runners; fetchers are failure-tolerant and
   skip rather than ship partial data (the merge preserves existing records).
+  Two guards keep a blocked portal from timing out the whole job (which
+  ships nothing): a run-wide MHD circuit breaker (`_MHD_PORTAL_BLOCKED` —
+  first exhausted 403 retry skips the portal's remaining jurisdictions) and
+  `--deadline-minutes` (past the budget, remaining fetch groups are skipped
+  and outputs still get written). MHD blocks GitHub runner IPs persistently;
+  MHD metros refresh only from non-blocked IPs (e.g. a local run).
 - `setup-database.yml` — manual (workflow_dispatch). Bulk-loads
   `data/d1_seed.sql.gz` into D1 and writes `wrangler.toml`. Idempotent.
   Re-run only after committing a regenerated/repaired seed.
