@@ -3381,8 +3381,12 @@ _MHD_BLOCK_LOCK = threading.Lock()
 _MHD_DETAIL_BLOCK_STREAK = 0
 MHD_DETAIL_BLOCK_TRIP = 3
 MHD_WINDOW_DAYS = 7    # initial search window; bisected when the query cap is hit
-MHD_DETAIL_WORKERS = 3    # concurrent detail-page fetches
-MHD_DETAIL_DELAY = 0.4    # per-worker pause between detail-page fetches
+# Detail-page pace, env-overridable: the portal rate-bans IPs that hammer
+# detail pages (searches survive while details start 403ing). When a run
+# trips the block, retry later with MHD_DETAIL_WORKERS=1 and a larger
+# MHD_DETAIL_DELAY to stay under the radar.
+MHD_DETAIL_WORKERS = int(os.environ.get('MHD_DETAIL_WORKERS', '3'))
+MHD_DETAIL_DELAY = float(os.environ.get('MHD_DETAIL_DELAY', '0.4'))
 
 
 def _mhd_session():
