@@ -3387,6 +3387,12 @@ MHD_WINDOW_DAYS = 7    # initial search window; bisected when the query cap is h
 # MHD_DETAIL_DELAY to stay under the radar.
 MHD_DETAIL_WORKERS = int(os.environ.get('MHD_DETAIL_WORKERS', '3'))
 MHD_DETAIL_DELAY = float(os.environ.get('MHD_DETAIL_DELAY', '0.4'))
+# (restaurant_id, 'YYYY-MM-DD') pairs already stored with verified violation
+# details. Detail-page requests are the scarce resource — the portal bans
+# after a modest number per run — so a backfill resumed across several runs
+# must not spend them re-fetching inspections it already has. Loaded from
+# --skip-known-inspections; the merge keeps the skipped records' existing data.
+SKIP_KNOWN_INSPECTIONS = set()
 
 
 def _mhd_session():
@@ -3807,6 +3813,17 @@ def _fetch_mhd_jurisdiction_api(session, slug, config, since_date=None, limit=No
 
     if limit:
         all_records = all_records[:limit]
+
+    if SKIP_KNOWN_INSPECTIONS and all_records:
+        before = len(all_records)
+        all_records = [
+            r for r in all_records
+            if (make_restaurant_id(r['name'], r['address'], r['city']),
+                str(r['inspection_date'])[:10]) not in SKIP_KNOWN_INSPECTIONS
+        ]
+        if before - len(all_records):
+            log.info(f"{display_name}: {before - len(all_records)}/{before} inspections "
+                     f"already stored with details — not re-fetching their detail pages")
 
     # Scrape violation details from each inspection's public detail page
     if fetch_violations and all_records and _past_deadline():
@@ -4774,12 +4791,26 @@ def main():
                              'fetch groups are skipped (their existing records survive via the '
                              'merge) so outputs are always written. Used by CI to stay inside '
                              'the job timeout.')
+    parser.add_argument('--skip-known-inspections', default=None,
+                        help='File of TAB-separated "restaurant_id<TAB>YYYY-MM-DD" pairs '
+                             'already stored with verified violation details. MHD fetchers '
+                             'drop these before the detail phase so a multi-run backfill '
+                             'spends the portal\'s per-run request budget only on new '
+                             'inspections (the merge preserves the skipped records).')
     parser.add_argument('--debug', action='store_true',
                         help='Enable debug logging for network interception diagnostics')
     args = parser.parse_args()
 
     if args.debug:
         logging.getLogger().setLevel(logging.DEBUG)
+
+    if args.skip_known_inspections:
+        with open(args.skip_known_inspections) as f:
+            for line in f:
+                parts = line.rstrip('\n').split('\t')
+                if len(parts) == 2 and parts[0] and parts[1]:
+                    SKIP_KNOWN_INSPECTIONS.add((parts[0], parts[1][:10]))
+        log.info(f"Loaded {len(SKIP_KNOWN_INSPECTIONS)} known inspections to skip")
 
     if args.deadline_minutes is not None:
         global _FETCH_DEADLINE
