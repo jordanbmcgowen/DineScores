@@ -57,8 +57,9 @@ export default function App() {
   const inFlightRef = useRef(new Set());
   const loadedAreasRef = useRef(new Set()); // cities/metros fully loaded
 
-  // Open the map on the user's own location (mobile-first): ask for a GPS
-  // fix once on load, and center there when it's near covered data.
+  // Open the map on the user's own location (mobile-first): watch the GPS
+  // from load, center there when the fix is near covered data, and keep the
+  // map's you-are-here dot on the latest position.
   const [userPos, setUserPos] = useState(null);
   const [flyTo, setFlyTo] = useState(null);
   // Set when a fix came from the map's own GPS button — that control moves
@@ -103,14 +104,30 @@ export default function App() {
     return () => clearTimeout(timer);
   }, [searchTerm]);
 
+  // Every accepted fix re-sorts the nearest-first list and moves the map
+  // dot, so take a new one only after ~25m of real movement — raw GPS
+  // jitter would otherwise churn the whole result list every second.
+  const lastPosRef = useRef(null);
+  const applyUserPos = useCallback(pos => {
+    const last = lastPosRef.current;
+    if (last) {
+      const dLat = pos.lat - last.lat;
+      const dLng = (pos.lng - last.lng) * Math.cos((pos.lat * Math.PI) / 180);
+      if (Math.hypot(dLat, dLng) * 111320 < 25) return; // degrees → meters
+    }
+    lastPosRef.current = pos;
+    setUserPos(pos);
+  }, []);
+
   useEffect(() => {
     if (!navigator.geolocation) return;
-    navigator.geolocation.getCurrentPosition(
-      pos => setUserPos({ lat: pos.coords.latitude, lng: pos.coords.longitude }),
+    const watchId = navigator.geolocation.watchPosition(
+      pos => applyUserPos({ lat: pos.coords.latitude, lng: pos.coords.longitude }),
       () => {}, // denied/unavailable — keep the default framing
       { timeout: 8000, maximumAge: 300000 },
     );
-  }, []);
+    return () => navigator.geolocation.clearWatch(watchId);
+  }, [applyUserPos]);
 
   // Once we know where the user is, "nearest first" is the most useful
   // default ordering — but never override a sort they chose explicitly.
@@ -119,12 +136,12 @@ export default function App() {
   }, [userPos]);
 
   // The map's GPS button got a fix: the GeolocateControl flies the camera
-  // there itself, so just record the position (it powers "Nearest first"
-  // sorting and the distance shown on preview cards).
+  // there itself, so just record the position (it powers the you-are-here
+  // dot, "Nearest first" sorting, and the distance on preview cards).
   const handleGeolocate = useCallback(pos => {
     gpsFromControlRef.current = true;
-    setUserPos(pos);
-  }, []);
+    applyUserPos(pos);
+  }, [applyUserPos]);
 
   // Center on the user only when we actually cover their area (~within
   // 100km of any loaded restaurant) — recentring onto an empty map would
@@ -545,6 +562,7 @@ export default function App() {
           selectedId={preview?.i || selectedRestaurant?.i || null}
           dark={dark}
           onGeolocate={handleGeolocate}
+          userPos={userPos}
         />
       </div>
 
