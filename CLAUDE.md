@@ -82,6 +82,15 @@ middleware.
 - **Never record a blocked detail fetch as clean.** MHD portals
   intermittently 403; a fetch failure must yield "drop the inspection", not
   "no violations". Fetchers retry failures once, then drop the record.
+- **MHD history backfills need score calibration.** Search-only backfills
+  (no detail pages) are safe ONLY where the portal's `score` field is a
+  real 0-100 score (Dallas, Plano, Frisco, Fort Worth, Portland-metro OR,
+  Clark WA, Yolo — verified ≤4pt bias vs detail-computed scores). The
+  `100−2×demerit` interim mapping runs 9-27 points HARSH for the CO
+  counties and Utah County, and Tarrant's pre-2026 `score` mixes scales
+  (a <50 demerit-like cluster) — backfilling those without the detail
+  pass paints false F's. Detail pages rate-ban ~250 fetches/run (searches
+  tolerate ~10k/day at `MHD_DELAY=3`).
 - **data.js compact field names**: `n`ame, `a`ddress, `c`ity, `s`tate,
   `z`ip, `lt`/`ln` coords, `d`ate, `os` official score, `rs` risk score,
   `ws` weighted, `vg` grade, `inf` infraction chips, `vs` violation
