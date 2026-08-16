@@ -82,6 +82,47 @@ html.dark .maplibregl-ctrl-group {
   @apply dark:!text-slate-400;
 }
 
+/* The you-are-here dot (custom marker in RestaurantMap): blue core, white
+   ring, and a blue halo rippling outward — the standard live-GPS look.
+   MapLibre positions the marker element itself via `transform`, so ONLY the
+   ::after pseudo-element may animate transform. Markers sit outside
+   .maplibregl-ctrl-group, so the dark-mode invert above never touches this. */
+.user-location-dot {
+  width: 16px;
+  height: 16px;
+  border-radius: 9999px;
+  background: #3b82f6;
+  border: 2.5px solid #fff;
+  box-shadow: 0 0 0 1px rgb(0 0 0 / 0.08), 0 1px 4px rgb(0 0 0 / 0.35);
+  pointer-events: none; /* never intercept taps on markers underneath */
+  z-index: 2; /* above the donut cluster markers added after it */
+}
+.user-location-dot::after {
+  content: '';
+  position: absolute;
+  inset: -2.5px; /* start the ripple at the white ring's outer edge */
+  border-radius: 9999px;
+  background: rgb(59 130 246 / 0.35);
+  animation: user-location-pulse 2.2s cubic-bezier(0.2, 0.6, 0.4, 1) infinite;
+}
+@keyframes user-location-pulse {
+  0% {
+    transform: scale(1);
+    opacity: 1;
+  }
+  70%,
+  100% {
+    transform: scale(3.2);
+    opacity: 0;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .user-location-dot::after {
+    animation: none;
+    opacity: 0;
+  }
+}
+
 /* ── Mobile bottom sheet ───────────────────────────────────────────────── */
 
 @media (max-width: 767px) {

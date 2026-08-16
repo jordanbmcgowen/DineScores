@@ -3361,7 +3361,7 @@ def fetch_vegas(since_date=None, limit=None, fetch_violations=True):
 MHD_BASE_URL = 'https://inspections.myhealthdepartment.com/'
 MHD_PAGE_SIZE = 25     # server-side hard cap; larger 'count' values are ignored
 MHD_QUERY_CAP = 225    # search API silently truncates a query around 225 records
-MHD_DELAY = 0.8        # seconds between search API calls
+MHD_DELAY = float(os.environ.get('MHD_DELAY', '0.8'))  # seconds between search API calls
 MHD_RETRY_DELAY = 30   # seconds on 403/429 before retry
 MHD_MAX_RETRIES = 3
 
@@ -3689,7 +3689,7 @@ def _mhd_fetch_details_bulk(slug, records, trust_official_score=True):
 
 
 def fetch_dfw(jurisdictions=None, since_date=None, limit_per_jurisdiction=None,
-              fetch_violations=True):
+              fetch_violations=True, until_date=None):
     """
     Fetch inspection data for DFW jurisdictions using direct API calls to the
     MyHealthDepartment portal. No browser required — uses the same JSON POST
@@ -3726,7 +3726,7 @@ def fetch_dfw(jurisdictions=None, since_date=None, limit_per_jurisdiction=None,
         try:
             results = _fetch_mhd_jurisdiction_api(
                 session, slug, config, since_date, limit_per_jurisdiction,
-                fetch_violations)
+                fetch_violations, until_date=until_date)
             all_results.extend(results)
             log.info(f"{display_name}: {len(results)} records")
         except Exception as e:
@@ -3741,7 +3741,7 @@ def fetch_dfw(jurisdictions=None, since_date=None, limit_per_jurisdiction=None,
 
 
 def _fetch_mhd_jurisdiction_api(session, slug, config, since_date=None, limit=None,
-                                 fetch_violations=True):
+                                 fetch_violations=True, until_date=None):
     """
     Fetch all inspections for one MHD jurisdiction using daily date windows
     and the searchInspections API. Optionally fetches violation details.
@@ -3760,6 +3760,13 @@ def _fetch_mhd_jurisdiction_api(session, slug, config, since_date=None, limit=No
     else:
         range_start = datetime(datetime.now().year, 1, 1)
     range_end = datetime.now()
+    # Bound the scrape for staged historical backfills (--until-date), the
+    # same contract as the Houston/DC/Richardson scrapers.
+    if until_date:
+        try:
+            range_end = min(range_end, datetime.strptime(str(until_date)[:10], '%Y-%m-%d'))
+        except Exception:
+            log.warning(f"{display_name}: Could not parse until_date '{until_date}', ignoring")
 
     # Build list of multi-day windows (bisected automatically if a window
     # hits the portal's query cap)
@@ -5016,6 +5023,7 @@ def main():
             mhd_data = fetch_dfw(
                 jurisdictions={s: MHD_METRO_JURISDICTIONS[s] for s in mhd_metro_slugs},
                 since_date=mhd_since,
+                until_date=args.until_date,
                 limit_per_jurisdiction=record_limit,
                 fetch_violations=not args.no_dfw_violations)
             geocode_missing_coords(mhd_data)
@@ -5045,6 +5053,7 @@ def main():
             dfw_data = fetch_dfw(
                 jurisdictions=jurisdictions,
                 since_date=dfw_since,
+                until_date=args.until_date,
                 limit_per_jurisdiction=record_limit,
                 fetch_violations=not args.no_dfw_violations)
 

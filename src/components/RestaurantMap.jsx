@@ -234,11 +234,14 @@ function createDonutChart(props, dark, minR) {
  * zooms, so the parent can lazy-load whatever is now in view.
  * `onGeolocate({ lat, lng })` fires when the GPS control gets a fix (the
  * control moves the camera itself; the parent just learns the position).
+ * `userPos` ({ lat, lng }) places the pulsing you-are-here dot — a custom
+ * marker, so it shows for the automatic on-load fix too (the stock
+ * GeolocateControl dot only appears once its button is pressed).
  * `dark` switches the basemap flavor, label colors, and donut centers live.
  */
 export default function RestaurantMap({
   restaurants, onMarkerClick, onBackgroundClick, onStackClick, onViewportChange,
-  fitSignal, narrowSignal, flyTo, selectedId, dark = false, onGeolocate,
+  fitSignal, narrowSignal, flyTo, selectedId, dark = false, onGeolocate, userPos,
 }) {
   const mapContainer = useRef(null);
   const mapRef = useRef(null);
@@ -256,6 +259,7 @@ export default function RestaurantMap({
   const darkRef = useRef(dark); // read live by donut redraws (closures below)
   darkRef.current = dark;
   const gpsCenteredRef = useRef(false);
+  const userMarkerRef = useRef(null);
   const didInitialFitRef = useRef(false);
   const narrowInitRef = useRef(true);
   restaurantsRef.current = restaurants;
@@ -277,10 +281,12 @@ export default function RestaurantMap({
     map.addControl(new maplibregl.NavigationControl({ showCompass: false }), 'bottom-right');
     const geolocate = new maplibregl.GeolocateControl({
       positionOptions: { enableHighAccuracy: true },
-      // Follow mode: the button flies to the fix AND keeps a live blue dot
-      // on the user until they pan away — the expected phone-maps behavior.
+      // Follow mode: the button flies to the fix and keeps following until
+      // the user pans away. Its built-in dot stays OFF — the always-on
+      // userPos marker (below) is the single you-are-here dot, fed by both
+      // the on-load watch and this control, so the two never stack.
       trackUserLocation: true,
-      showUserLocation: true,
+      showUserLocation: false,
     });
     map.addControl(geolocate, 'bottom-right');
     geolocate.on('geolocate', pos => {
@@ -661,6 +667,27 @@ export default function RestaurantMap({
     }
     map.triggerRepaint();
   }, [dark, mapLoaded]);
+
+  // You-are-here dot: one custom marker kept on the latest fix (App merges
+  // the on-load watch and the GPS button into userPos). Styling and the
+  // pulse animation live in index.css; pointer-events:none there keeps the
+  // dot from stealing taps on restaurant markers underneath it.
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !mapLoaded || !userPos) return;
+    if (userMarkerRef.current) {
+      userMarkerRef.current.setLngLat([userPos.lng, userPos.lat]);
+      return;
+    }
+    const el = document.createElement('div');
+    el.className = 'user-location-dot';
+    userMarkerRef.current = new maplibregl.Marker({ element: el })
+      .setLngLat([userPos.lng, userPos.lat])
+      .addTo(map);
+    // addTo() stamps a generic "Map marker" aria-label — replace it
+    el.setAttribute('aria-label', 'Your current location');
+    el.title = 'Your current location';
+  }, [userPos, mapLoaded]);
 
   // GPS effect: center on the user once per flyTo key. If it lands before
   // the initial nationwide fit, it takes precedence over that fit.
