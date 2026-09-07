@@ -16,7 +16,14 @@
    "latest": "2026-09-03"
   },
   "DFW": {
-   "latest": "2026-08-20"
+   "last_run": {
+    "at": "2026-09-07",
+    "detail": "",
+    "latest": "2026-09-05",
+    "records": 1769,
+    "status": "ok"
+   },
+   "latest": "2026-09-05"
   },
   "Delaware": {
    "latest": "2026-09-08"
@@ -125,7 +132,7 @@
   },
   "Dallas Health Dept": {
    "group": "DFW",
-   "latest": "2026-08-20"
+   "latest": "2026-09-05"
   },
   "DataSF": {
    "group": "SF",
@@ -153,11 +160,11 @@
   },
   "Fort Worth Health Dept": {
    "group": "DFW",
-   "latest": "2026-08-14"
+   "latest": "2026-09-05"
   },
   "Frisco Health Dept": {
    "group": "DFW",
-   "latest": "2026-08-14"
+   "latest": "2026-09-05"
   },
   "Houston Health Dept": {
    "group": "houston",
@@ -201,7 +208,7 @@
   },
   "Plano Health Dept": {
    "group": "DFW",
-   "latest": "2026-08-14"
+   "latest": "2026-09-05"
   },
   "Richardson Health Dept": {
    "group": "Richardson",
@@ -221,7 +228,7 @@
   },
   "Tarrant County Health Dept": {
    "group": "DFW",
-   "latest": "2026-08-14"
+   "latest": "2026-09-04"
   },
   "Utah County Health Dept": {
    "group": "MHD metros",
