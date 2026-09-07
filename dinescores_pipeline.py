@@ -1241,6 +1241,33 @@ def fetch_boston(since_date=None, limit=None):
 
 # ─── SEATTLE / KING COUNTY DATA COLLECTOR ────────────────────────────────────
 
+# business_id -> address as stored for the restaurant before the county
+# republished its feed. The new dataset formats addresses differently
+# ("17171 Bothell Way Ne, A207" vs the old "17171 Bothell Way Ne Ste A207"),
+# and make_restaurant_id() hashes name+address+city, so without this map
+# every re-inspected restaurant would resurface as a coordinate-less
+# duplicate next to its old record. Built once by matching the two feeds on
+# name, city and house number; businesses absent from it are genuinely new.
+KC_ADDRESS_MAP_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                                   'data', 'king_county_address_map.json')
+_KC_ADDRESS_MAP = None
+
+
+def _kc_address_map():
+    global _KC_ADDRESS_MAP
+    if _KC_ADDRESS_MAP is None:
+        try:
+            with open(KC_ADDRESS_MAP_PATH) as f:
+                _KC_ADDRESS_MAP = json.load(f)
+            log.info(f"  Seattle: {len(_KC_ADDRESS_MAP)} King County businesses mapped to "
+                     f"their stored addresses")
+        except FileNotFoundError:
+            log.warning(f"  Seattle: {KC_ADDRESS_MAP_PATH} missing — restaurant ids for "
+                        f"re-inspected businesses will NOT match existing records")
+            _KC_ADDRESS_MAP = {}
+    return _KC_ADDRESS_MAP
+
+
 def fetch_seattle(since_date=None, limit=None):
     """
     Fetch King County (Seattle, Bellevue, Kirkland, ...) food inspections
@@ -1268,6 +1295,7 @@ def fetch_seattle(since_date=None, limit=None):
 
     rows = _socrata_fetch_pages(base_url, params, (limit or 0) * 20 or None)
     log.info(f"Seattle: {len(rows)} raw rows, aggregating by inspection...")
+    address_map = _kc_address_map()
 
     inspections = {}
     for row in rows:
@@ -1277,7 +1305,10 @@ def fetch_seattle(since_date=None, limit=None):
             continue
         insp = inspections.setdefault(serial, {
             'name': row.get('name') or row.get('inspection_business_name') or '',
-            'address': (row.get('address') or '').strip(),
+            # Stored address for a known business keeps its restaurant id
+            # stable across the county's address reformatting.
+            'address': (address_map.get(str(row.get('business_id') or ''))
+                        or (row.get('address') or '').strip()),
             'city': (row.get('city') or 'Seattle').strip().title(),
             'zip': (row.get('zip_code') or '').strip(),
             'latitude': row.get('latitude'),
