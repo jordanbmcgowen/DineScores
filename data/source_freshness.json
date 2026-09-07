@@ -26,6 +26,13 @@
    "latest": "2026-09-05"
   },
   "Delaware": {
+   "last_run": {
+    "at": "2026-09-07",
+    "detail": "",
+    "latest": "2026-09-08",
+    "records": 28,
+    "status": "ok"
+   },
    "latest": "2026-09-08"
   },
   "Detroit": {
@@ -41,13 +48,27 @@
    "latest": "2026-06-30"
   },
   "Las Vegas": {
+   "last_run": {
+    "at": "2026-09-07",
+    "detail": "local catch-up cycle (runner IPs blocked/failing)",
+    "latest": "2026-09-06",
+    "records": 982,
+    "status": "ok"
+   },
    "latest": "2026-09-06"
   },
   "Louisville": {
    "latest": "2026-08-29"
   },
   "MHD metros": {
-   "latest": "2026-08-15"
+   "last_run": {
+    "at": "2026-09-07",
+    "detail": "",
+    "latest": "2026-09-05",
+    "records": 1966,
+    "status": "ok"
+   },
+   "latest": "2026-09-05"
   },
   "Minneapolis": {
    "latest": "2026-09-02"
@@ -96,7 +117,7 @@
  "sources": {
   "Adams County Health Dept": {
    "group": "MHD metros",
-   "latest": "2026-08-14"
+   "latest": "2026-09-04"
   },
   "Arlington Open Data": {
    "group": "Arlington",
@@ -120,11 +141,11 @@
   },
   "Clackamas County Health Dept": {
    "group": "MHD metros",
-   "latest": "2026-07-31"
+   "latest": "2026-08-24"
   },
   "Clark County WA Health Dept": {
    "group": "MHD metros",
-   "latest": "2026-08-13"
+   "latest": "2026-09-04"
   },
   "DC Health": {
    "group": "dc",
@@ -148,7 +169,7 @@
   },
   "El Paso County CO Health Dept": {
    "group": "MHD metros",
-   "latest": "2026-08-15"
+   "latest": "2026-09-05"
   },
   "Fairfax County Open Data": {
    "group": "Fairfax County",
@@ -180,7 +201,7 @@
   },
   "Larimer County Health Dept": {
    "group": "MHD metros",
-   "latest": "2026-08-15"
+   "latest": "2026-09-04"
   },
   "Louisville Metro Open Data": {
    "group": "Louisville",
@@ -196,7 +217,7 @@
   },
   "Multnomah County Health Dept": {
    "group": "MHD metros",
-   "latest": "2026-07-31"
+   "latest": "2026-08-24"
   },
   "NYC Open Data": {
    "group": "NYC",
@@ -232,7 +253,7 @@
   },
   "Utah County Health Dept": {
    "group": "MHD metros",
-   "latest": "2026-08-15"
+   "latest": "2026-09-05"
   },
   "Wake County Open Data": {
    "group": "Wake County",
@@ -240,15 +261,15 @@
   },
   "Washington County OR Health Dept": {
    "group": "MHD metros",
-   "latest": "2026-08-01"
+   "latest": "2026-08-24"
   },
   "Weld County Health Dept": {
    "group": "MHD metros",
-   "latest": "2026-08-14"
+   "latest": "2026-09-04"
   },
   "Yolo County Health Dept": {
    "group": "MHD metros",
-   "latest": "2026-08-13"
+   "latest": "2026-09-04"
   }
  },
  "updated": "2026-09-07"
