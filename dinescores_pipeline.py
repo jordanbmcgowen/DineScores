@@ -224,6 +224,22 @@ MHD_METRO_SLUG_GROUPS = {
 
 CHROME_UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36'
 
+# The MyHealthDepartment portal answers a flat 403 to every GitHub-hosted
+# runner type (Linux, macOS and Windows egress ranges alike — probed
+# 2026-09-07), and the Southern Nevada Health District API has failed from
+# runners too, so the weekly refresh can only reach those metros through an
+# unblocked egress. Set PORTAL_PROXY_URL (http://user:pass@host:port — a
+# residential/ISP proxy, locally or as the repo secret of the same name) and
+# the MHD and SNHD requests go through it; empty means direct.
+PORTAL_PROXY_URL = os.environ.get('PORTAL_PROXY_URL', '').strip()
+
+
+def _portal_proxies():
+    """requests `proxies` mapping for the IP-sensitive portals (None = direct)."""
+    if not PORTAL_PROXY_URL:
+        return None
+    return {'http': PORTAL_PROXY_URL, 'https': PORTAL_PROXY_URL}
+
 
 def sane_inspection_date(date_str):
     """
@@ -248,14 +264,38 @@ def _socrata_headers():
     return {'X-App-Token': token} if token else {}
 
 
+SOCRATA_RETRIES = 3
+SOCRATA_RETRY_STATUSES = (429, 500, 502, 503, 504)
+
+
 def _socrata_fetch_pages(base_url, params, limit):
-    """Paginate through a Socrata endpoint, returning all rows up to limit."""
+    """Paginate through a Socrata endpoint, returning all rows up to limit.
+
+    Transient failures (read timeouts, connection resets, 429/5xx, a
+    non-JSON error page) are retried with backoff: the state portals stall
+    for a minute now and then, and a single failed page used to abandon
+    the whole source for the week. Auth/4xx failures raise immediately.
+    """
     headers = _socrata_headers()
+    dataset = base_url.split('/')[-1].split('.')[0]
     all_rows = []
     while True:
-        r = requests.get(base_url, params=params, headers=headers, timeout=60)
-        r.raise_for_status()
-        batch = r.json()
+        batch = None
+        for attempt in range(1, SOCRATA_RETRIES + 1):
+            try:
+                r = requests.get(base_url, params=params, headers=headers, timeout=90)
+                r.raise_for_status()
+                batch = r.json()
+                break
+            except (requests.RequestException, ValueError) as e:
+                status = getattr(getattr(e, 'response', None), 'status_code', None)
+                transient = (status is None or status in SOCRATA_RETRY_STATUSES)
+                if not transient or attempt == SOCRATA_RETRIES or _past_deadline():
+                    raise
+                wait = 10 * attempt
+                log.warning(f"  {dataset}: {e} — retrying in {wait}s "
+                            f"({attempt}/{SOCRATA_RETRIES - 1})")
+                time.sleep(wait)
         if not batch:
             break
         all_rows.extend(batch)
@@ -1201,15 +1241,17 @@ def fetch_boston(since_date=None, limit=None):
 def fetch_seattle(since_date=None, limit=None):
     """
     Fetch King County (Seattle, Bellevue, Kirkland, ...) food inspections
-    (data.kingcounty.gov f29f-zza5). One row per violation — aggregated by
+    (data.kingcounty.gov r878-4sxa). One row per violation — aggregated by
     inspection_serial_num. inspection_score is violation POINTS (0 = clean,
     higher = worse); risk_score = 100 - points. RED violations are food
     safety (priority), BLUE are maintenance (core).
-    NOTE: the county's feed last updated 2025-11; the weekly refresh will
-    pick new data up automatically if publication resumes.
+    NOTE: the county republished the feed under a new dataset id in 2026
+    (the old f29f-zza5 now answers 403 "must be logged in"; its last row
+    was 2025-11-26). The new dataset carries the same columns minus
+    coordinates, so new restaurants are geocoded downstream.
     """
     log.info(f"Fetching Seattle/King County data (since={since_date}, limit={limit})")
-    base_url = 'https://data.kingcounty.gov/resource/f29f-zza5.json'
+    base_url = 'https://data.kingcounty.gov/resource/r878-4sxa.json'
     where = []
     if since_date:
         where.append(f"inspection_date > '{since_date}'")
@@ -1287,7 +1329,7 @@ def fetch_seattle(since_date=None, limit=None):
             'inspection_type': insp['inspection_type'],
             'results': insp['result'],
             'source': 'King County Open Data',
-            'source_url': 'https://data.kingcounty.gov/resource/f29f-zza5.json',
+            'source_url': 'https://data.kingcounty.gov/resource/r878-4sxa.json',
             'source_id': f"kc_{insp['serial']}",
             'metro': '',
         })
@@ -2259,6 +2301,48 @@ LA_VIOLATIONS_ITEM = '5eaea9f89b7549ee841da7617d3a9cba'
 LA_INVENTORY_ITEM = '4f31c9a99e444a40a3806e3bbe7b5fdd'
 LA_SOURCE_PAGE = ('https://data.lacounty.gov/datasets/'
                   'lacounty::environmental-health-restaurant-and-market-inspections')
+LA_HUB_SEARCH_URL = 'https://www.arcgis.com/sharing/rest/search'
+LA_HUB_OWNER = 'CMarquez@ph.lacounty.gov_lacounty'
+LA_HUB_TITLE_RE = re.compile(
+    r'^Environmental Health Restaurant and Market\s+(Inspections|Violations|Inventory)\b')
+
+
+def _la_hub_items():
+    """Resolve the current LA County CSV hub items.
+
+    The county publishes each fiscal year's extract as a NEW hub item
+    ("... Inspections 07/01/2023 to 06/30/2026"), so a hardcoded id silently
+    freezes at the last day of the file it points to. Search the hub for
+    the item with the latest end date per file (ties broken by modified
+    time) and fall back to the known ids if the search fails.
+    """
+    items = {'inspections': LA_INSPECTIONS_ITEM, 'violations': LA_VIOLATIONS_ITEM,
+             'inventory': LA_INVENTORY_ITEM}
+    try:
+        r = requests.get(LA_HUB_SEARCH_URL, params={
+            'q': f'owner:{LA_HUB_OWNER} type:CSV '
+                 f'title:"Environmental Health Restaurant and Market"',
+            'f': 'json', 'num': 50}, timeout=60)
+        r.raise_for_status()
+        best = {}
+        for it in r.json().get('results', []):
+            title = it.get('title') or ''
+            m = LA_HUB_TITLE_RE.match(title)
+            if not m or it.get('type') != 'CSV':
+                continue
+            kind = m.group(1).lower()
+            dates = re.findall(r'(\d{2})/(\d{2})/(\d{4})', title)
+            end_date = f'{dates[-1][2]}-{dates[-1][0]}-{dates[-1][1]}' if dates else ''
+            key = (end_date, it.get('modified') or 0)
+            if kind not in best or key > best[kind][0]:
+                best[kind] = (key, it['id'], title)
+        for kind, (_, item_id, title) in best.items():
+            if item_id != items[kind]:
+                log.info(f"  LA: newer hub item for {kind}: {item_id} ({title})")
+            items[kind] = item_id
+    except Exception as e:
+        log.warning(f"  LA: hub item discovery failed ({e}) — using the known item ids")
+    return items
 
 
 def _la_csv_rows(item_id):
@@ -2294,9 +2378,10 @@ def fetch_la(since_date=None, limit=None):
     """
     log.info(f"Fetching LA County data (since={since_date}, limit={limit})")
     since = str(since_date)[:10] if since_date else None
+    items = _la_hub_items()
 
     coords = {}
-    for row in _la_csv_rows(LA_INVENTORY_ITEM):
+    for row in _la_csv_rows(items['inventory']):
         fid = row.get('FACILITY ID')
         try:
             lat = float(row.get('FACILITY LATITUDE') or 0)
@@ -2308,7 +2393,7 @@ def fetch_la(since_date=None, limit=None):
     log.info(f"  LA: {len(coords)} facilities with coordinates in inventory")
 
     inspections = []
-    for row in _la_csv_rows(LA_INSPECTIONS_ITEM):
+    for row in _la_csv_rows(items['inspections']):
         insp_date = sane_inspection_date(_la_date(row.get('ACTIVITY DATE', '')))
         if not insp_date or (since and insp_date < since):
             continue
@@ -2333,7 +2418,7 @@ def fetch_la(since_date=None, limit=None):
 
     wanted = {serial for serial, _, _, _ in inspections}
     by_serial = defaultdict(list)
-    for row in _la_csv_rows(LA_VIOLATIONS_ITEM):
+    for row in _la_csv_rows(items['violations']):
         serial = row.get('SERIAL NUMBER')
         if serial in wanted:
             by_serial[serial].append(row)
@@ -3194,17 +3279,42 @@ SNHD_PAGE = 100          # server caps per_page at 100
 SNHD_DETAIL_WORKERS = 4
 
 
+_SNHD_FAILURES_LOGGED = 0
+
+
 def _snhd_get(url, params=None, retries=3):
+    global _SNHD_FAILURES_LOGGED
+    last_err = None
     for attempt in range(retries):
         try:
             r = requests.get(url, params=params,
-                             headers={'User-Agent': CHROME_UA}, timeout=60)
+                             headers={'User-Agent': CHROME_UA}, timeout=60,
+                             proxies=_portal_proxies())
             r.raise_for_status()
             return r.json()
-        except (requests.RequestException, ValueError):
+        except (requests.RequestException, ValueError) as e:
+            last_err = e
             if attempt == retries - 1:
-                return None
-            time.sleep(2 * (attempt + 1))
+                break
+            # Back off harder than a couple of seconds: the district's site
+            # throttles bursts, and a 429 carries the wait it wants.
+            wait = 5 * (3 ** attempt)
+            resp = getattr(e, 'response', None)
+            if resp is not None and resp.status_code == 429:
+                try:
+                    wait = max(wait, min(int(resp.headers.get('Retry-After', 0)), 120))
+                except ValueError:
+                    pass
+            time.sleep(wait)
+    # Say WHY: a 403 from an IP the district's site blocks looks nothing
+    # like a timeout, and "list fetch failed" alone hid that for weeks.
+    # Only the first few failures are logged so a banned detail phase
+    # doesn't emit thousands of lines.
+    if _SNHD_FAILURES_LOGGED < 5:
+        _SNHD_FAILURES_LOGGED += 1
+        log.warning(f"  SNHD request failed after {retries} attempts "
+                    f"({url.replace(SNHD_API, '<api>')}): {last_err}")
+    return None
 
 
 def _snhd_violations(resolved, demerits_by_sev=True):
@@ -3380,6 +3490,16 @@ _MHD_PORTAL_BLOCKED = False
 _MHD_BLOCK_LOCK = threading.Lock()
 _MHD_DETAIL_BLOCK_STREAK = 0
 MHD_DETAIL_BLOCK_TRIP = 3
+# A detail-page ban is temporary: during the Aug 2026 backfills the portal
+# lifted it ~15 minutes after the requests stopped, and each window allowed
+# a few hundred pages. So instead of abandoning the jurisdiction (and every
+# one after it) the bulk fetcher waits the ban out and resumes — at most
+# MHD_BAN_COOLDOWNS times per run, and only while the fetch deadline leaves
+# room for the wait. Searches keep working during a detail ban.
+MHD_BAN_COOLDOWN = float(os.environ.get('MHD_BAN_COOLDOWN', '900'))   # seconds
+MHD_BAN_COOLDOWNS = int(os.environ.get('MHD_BAN_COOLDOWNS', '3'))     # per run
+_MHD_DETAIL_BANNED = False   # detail pages 403ing right now (searches still fine)
+_MHD_COOLDOWNS_USED = 0
 MHD_WINDOW_DAYS = 7    # initial search window; bisected when the query cap is hit
 # Detail-page pace, env-overridable: the portal rate-bans IPs that hammer
 # detail pages (searches survive while details start 403ing). When a run
@@ -3405,6 +3525,8 @@ def _mhd_session():
         'Origin': 'https://inspections.myhealthdepartment.com',
         'Referer': 'https://inspections.myhealthdepartment.com/',
     })
+    if PORTAL_PROXY_URL:
+        s.proxies.update(_portal_proxies())
     return s
 
 
@@ -3576,8 +3698,8 @@ def _mhd_fetch_inspection_detail(session, slug, inspection_id, retry_count=0):
 
     Returns a list of violation description strings, or empty list on failure.
     """
-    global _MHD_PORTAL_BLOCKED, _MHD_DETAIL_BLOCK_STREAK
-    if _MHD_PORTAL_BLOCKED:
+    global _MHD_DETAIL_BLOCK_STREAK, _MHD_DETAIL_BANNED
+    if _MHD_PORTAL_BLOCKED or _MHD_DETAIL_BANNED:
         return None  # blocked — must not read as "no violations"
     url = f'{MHD_BASE_URL}{slug}/inspection/'
     try:
@@ -3591,11 +3713,13 @@ def _mhd_fetch_inspection_detail(session, slug, inspection_id, retry_count=0):
             with _MHD_BLOCK_LOCK:
                 _MHD_DETAIL_BLOCK_STREAK += 1
                 if (_MHD_DETAIL_BLOCK_STREAK >= MHD_DETAIL_BLOCK_TRIP
-                        and not _MHD_PORTAL_BLOCKED):
-                    _MHD_PORTAL_BLOCKED = True
-                    log.error(f"  MHD blocked {_MHD_DETAIL_BLOCK_STREAK} consecutive "
-                              f"detail pages through retries — skipping the "
-                              f"portal's remaining fetches this run")
+                        and not _MHD_DETAIL_BANNED):
+                    # Detail-only ban: the bulk fetcher decides whether to
+                    # wait it out or give up on the portal for this run.
+                    _MHD_DETAIL_BANNED = True
+                    log.warning(f"  MHD blocked {_MHD_DETAIL_BLOCK_STREAK} consecutive "
+                                f"detail pages through retries — detail fetches "
+                                f"paused")
             return None  # blocked — must not read as "no violations"
         if r.status_code != 200:
             return None
@@ -3616,7 +3740,16 @@ def _mhd_fetch_details_bulk(slug, records, trust_official_score=True):
     trust_official_score: True for 0-100 jurisdictions whose official score
     already IS a risk score; False for demerit jurisdictions, where the risk
     score is recomputed from the scraped violations instead.
+
+    The portal bans detail pages after a few hundred per window. When the
+    ban trips mid-jurisdiction the remaining inspections are retried after
+    a cooldown (see MHD_BAN_COOLDOWN) rather than dropped, as long as the
+    per-run cooldown budget and the fetch deadline allow it.
+
+    Returns (fetched_count, records_still_without_details).
     """
+    global _MHD_PORTAL_BLOCKED, _MHD_DETAIL_BANNED, _MHD_DETAIL_BLOCK_STREAK
+    global _MHD_COOLDOWNS_USED
     local = threading.local()
 
     def get_session():
@@ -3626,7 +3759,7 @@ def _mhd_fetch_details_bulk(slug, records, trust_official_score=True):
 
     def fetch_one(rec):
         texts = _mhd_fetch_inspection_detail(get_session(), slug, rec['source_id'])
-        if not _MHD_PORTAL_BLOCKED:
+        if not (_MHD_PORTAL_BLOCKED or _MHD_DETAIL_BANNED):
             # no pacing needed for the breaker's instant no-op returns
             time.sleep(MHD_DETAIL_DELAY)
         return rec, texts
@@ -3644,47 +3777,74 @@ def _mhd_fetch_details_bulk(slug, records, trust_official_score=True):
         if not trust_official_score or rec.get('original_score') is None:
             rec['risk_score'] = computed_score
 
-    fetched = 0
-    done = 0
-    failed = []
-    with ThreadPoolExecutor(max_workers=MHD_DETAIL_WORKERS) as pool:
-        futures = [pool.submit(fetch_one, rec) for rec in records]
-        for future in as_completed(futures):
-            rec, texts = future.result()
-            done += 1
-            if texts is None:
-                # Blocked/failed fetch — queue for retry; never record the
-                # inspection as violation-free on the strength of a 403.
-                failed.append(rec)
-            else:
-                # An EMPTY list is a successfully-read clean inspection —
-                # apply it so no-score jurisdictions get risk 100, not the
-                # neutral placeholder.
-                apply_texts(rec, texts)
-                fetched += 1
-            if done % 100 == 0:
-                log.info(f"  Details: {done}/{len(records)} inspections fetched "
-                         f"({fetched} with violations)")
+    def can_wait_out_ban():
+        if _MHD_COOLDOWNS_USED >= MHD_BAN_COOLDOWNS:
+            return False
+        if (_FETCH_DEADLINE is not None
+                and time.time() + MHD_BAN_COOLDOWN + 120 > _FETCH_DEADLINE):
+            return False
+        return True
 
+    fetched = 0
+    pending = list(records)
     still_failed = []
-    if failed:
+    plain_retries = 0
+    while pending:
+        failed = []
+        done = 0
+        with ThreadPoolExecutor(max_workers=MHD_DETAIL_WORKERS) as pool:
+            futures = [pool.submit(fetch_one, rec) for rec in pending]
+            for future in as_completed(futures):
+                rec, texts = future.result()
+                done += 1
+                if texts is None:
+                    # Blocked/failed fetch — queue for retry; never record the
+                    # inspection as violation-free on the strength of a 403.
+                    failed.append(rec)
+                else:
+                    # An EMPTY list is a successfully-read clean inspection —
+                    # apply it so no-score jurisdictions get risk 100, not the
+                    # neutral placeholder.
+                    apply_texts(rec, texts)
+                    fetched += 1
+                if done % 100 == 0:
+                    log.info(f"  Details: {done}/{len(pending)} inspections this pass "
+                             f"({fetched}/{len(records)} with details)")
+        if not failed:
+            break
+        if _MHD_PORTAL_BLOCKED:
+            still_failed = failed
+            break
+        if _MHD_DETAIL_BANNED:
+            if can_wait_out_ban():
+                _MHD_COOLDOWNS_USED += 1
+                log.warning(f"  {slug}: detail pages banned after {fetched} fetched — "
+                            f"waiting {MHD_BAN_COOLDOWN / 60:.0f} min for the ban to "
+                            f"lift (cooldown {_MHD_COOLDOWNS_USED}/{MHD_BAN_COOLDOWNS}); "
+                            f"{len(failed)} inspections still to detail")
+                time.sleep(MHD_BAN_COOLDOWN)
+                with _MHD_BLOCK_LOCK:
+                    _MHD_DETAIL_BANNED = False
+                    _MHD_DETAIL_BLOCK_STREAK = 0
+                pending = failed
+                continue
+            # The ban outlives this run's budget: every later jurisdiction's
+            # detail phase would ban instantly too, so trip the run-wide
+            # breaker and drop the undetailed records (never ship as clean).
+            _MHD_PORTAL_BLOCKED = True
+            log.error(f"  {slug}: detail pages banned with no cooldown budget left "
+                      f"({_MHD_COOLDOWNS_USED}/{MHD_BAN_COOLDOWNS} used, deadline "
+                      f"{'set' if _FETCH_DEADLINE else 'none'}) — skipping the "
+                      f"portal's remaining fetches this run")
+            still_failed = failed
+            break
+        # Failures without a ban (timeouts, odd pages): one more pass.
+        if plain_retries >= 1 or _past_deadline():
+            still_failed = failed
+            break
+        plain_retries += 1
         log.warning(f"  {slug}: retrying {len(failed)} failed detail fetches")
-        retry_session = _mhd_session()
-        for idx, rec in enumerate(failed):
-            if _MHD_PORTAL_BLOCKED or _past_deadline():
-                # Every remaining retry would no-op (breaker) or overrun the
-                # budget — abandon them; the records get dropped, not shipped.
-                still_failed.extend(failed[idx:])
-                log.warning(f"  {slug}: abandoning {len(failed) - idx} remaining detail "
-                            f"retries ({'portal blocked' if _MHD_PORTAL_BLOCKED else 'fetch deadline reached'})")
-                break
-            texts = _mhd_fetch_inspection_detail(retry_session, slug, rec['source_id'])
-            time.sleep(MHD_DETAIL_DELAY)
-            if texts is None:
-                still_failed.append(rec)
-            else:
-                apply_texts(rec, texts)
-                fetched += 1
+        pending = failed
     return fetched, still_failed
 
 
@@ -4769,6 +4929,126 @@ def write_d1_sql(all_inspections, output_path, include_schema=True):
 
 # ─── MAIN ─────────────────────────────────────────────────────────────────────
 
+# ─── SOURCE FRESHNESS (self-healing refresh windows) ─────────────────────────
+# --freshness-file keeps a small JSON sidecar (data/source_freshness.json in
+# CI) recording, per fetch group and per record source, the latest inspection
+# date ever shipped plus each group's last-run outcome. Weekly runs look back
+# from that recorded date (bounded) instead of a flat 8 days, so a week lost
+# to a blocked portal, a timeout, or a source that publishes in batches is
+# refetched the next time the source answers instead of becoming a permanent
+# gap. The file is also what the CI job summary reads to flag quiet sources.
+
+FRESHNESS_LOOKBACK_API_DAYS = 45      # open-data APIs/CSVs: cheap to re-read
+FRESHNESS_LOOKBACK_PORTAL_DAYS = 21   # scraped portals: every day costs detail pages
+FRESHNESS_OVERLAP_DAYS = 1            # re-read the latest known day (late edits)
+
+_FRESHNESS = None    # {'sources': {...}, 'groups': {...}} once --freshness-file is given
+_RUN_GROUPS = {}     # this run's per-group outcomes
+
+
+def _load_freshness(path):
+    global _FRESHNESS
+    data = {}
+    try:
+        with open(path) as f:
+            data = json.load(f)
+    except FileNotFoundError:
+        log.info(f"Freshness file {path} not found — will be created")
+    except Exception as e:
+        log.warning(f"Could not read freshness file {path}: {e} — starting fresh")
+    _FRESHNESS = {'sources': dict(data.get('sources') or {}),
+                  'groups': dict(data.get('groups') or {})}
+    log.info(f"Freshness file: {path} ({len(_FRESHNESS['sources'])} sources, "
+             f"{len(_FRESHNESS['groups'])} fetch groups)")
+
+
+def _group_latest(group, source_labels=None):
+    """Latest inspection date recorded for a fetch group ('' if unknown).
+    With source_labels (the MHD groups), the EARLIEST of those sources'
+    latest dates, so a lagging county isn't masked by a current one."""
+    if not _FRESHNESS:
+        return ''
+    if source_labels:
+        dates = [(_FRESHNESS['sources'].get(s) or {}).get('latest', '')
+                 for s in source_labels]
+        return min(dates) if dates and all(dates) else ''
+    return (_FRESHNESS['groups'].get(group) or {}).get('latest', '')
+
+
+def _lookback_since(group, default_start, cap_days, source_labels=None):
+    """Window start (datetime) for a weekly fetch group: the earlier of the
+    mode's default window and the day before the group's last recorded
+    inspection, but never more than cap_days back."""
+    latest = _group_latest(group, source_labels)
+    if not latest:
+        return default_start
+    try:
+        latest_day = datetime.strptime(latest[:10], '%Y-%m-%d')
+    except ValueError:
+        return default_start
+    candidate = latest_day - timedelta(days=FRESHNESS_OVERLAP_DAYS)
+    floor = datetime.now() - timedelta(days=cap_days)
+    since = max(min(default_start, candidate), floor)
+    if since < default_start:
+        log.info(f"{group}: last recorded inspection {latest} — looking back to "
+                 f"{since:%Y-%m-%d} instead of {default_start:%Y-%m-%d}")
+    return since
+
+
+def _record_group(group, records, status=None, detail=''):
+    """Remember a fetch group's outcome this run and advance the recorded
+    latest dates (per group and per record source). Only records that will
+    actually ship count, so a dropped/undetailed batch is refetched later."""
+    latest = max((str(r.get('inspection_date') or '')[:10] for r in records), default='')
+    if status is None:
+        status = 'ok' if records else 'empty'
+    outcome = {'status': status, 'records': len(records), 'latest': latest,
+               'detail': (detail or '')[:300],
+               'at': datetime.now().strftime('%Y-%m-%d')}
+    _RUN_GROUPS[group] = outcome
+    if _FRESHNESS is None:
+        return
+    g = _FRESHNESS['groups'].setdefault(group, {})
+    g['last_run'] = outcome
+    if latest > (g.get('latest') or ''):
+        g['latest'] = latest
+    by_source = defaultdict(str)
+    for r in records:
+        d = str(r.get('inspection_date') or '')[:10]
+        s = r.get('source') or ''
+        if s and d > by_source[s]:
+            by_source[s] = d
+    for s, d in by_source.items():
+        e = _FRESHNESS['sources'].setdefault(s, {})
+        if d > (e.get('latest') or ''):
+            e['latest'] = d
+        e['group'] = group
+
+
+def _write_freshness(path):
+    if _FRESHNESS is None:
+        return
+    out = {
+        'updated': datetime.now().strftime('%Y-%m-%d'),
+        'groups': dict(sorted(_FRESHNESS['groups'].items())),
+        'sources': dict(sorted(_FRESHNESS['sources'].items())),
+    }
+    with open(path, 'w') as f:
+        json.dump(out, f, indent=1, sort_keys=True)
+        f.write('\n')
+    log.info(f"Freshness file written: {path}")
+
+
+def _log_run_outcomes():
+    if not _RUN_GROUPS:
+        return
+    log.info("Fetch outcomes this run:")
+    for group, o in sorted(_RUN_GROUPS.items()):
+        note = f" — {o['detail']}" if o.get('detail') else ''
+        log.info(f"  {group:18} {o['status']:8} {o['records']:6} records  "
+                 f"latest {o['latest'] or '-'}{note}")
+
+
 def main():
     parser = argparse.ArgumentParser(description='DineScores Data Pipeline')
     parser.add_argument('--mode', choices=['full', 'weekly', 'test'], default='test',
@@ -4804,6 +5084,12 @@ def main():
                              'drop these before the detail phase so a multi-run backfill '
                              'spends the portal\'s per-run request budget only on new '
                              'inspections (the merge preserves the skipped records).')
+    parser.add_argument('--freshness-file', default=None,
+                        help='JSON sidecar tracking each source\'s latest shipped inspection '
+                             'date and last-run outcome. In weekly mode each source looks '
+                             'back from its recorded date (bounded) instead of a flat 8 '
+                             'days, so a failed or lagging week refetches itself. Updated '
+                             'in place at the end of the run.')
     parser.add_argument('--debug', action='store_true',
                         help='Enable debug logging for network interception diagnostics')
     args = parser.parse_args()
@@ -4823,6 +5109,11 @@ def main():
         global _FETCH_DEADLINE
         _FETCH_DEADLINE = time.time() + args.deadline_minutes * 60
         log.info(f"Fetch deadline: {args.deadline_minutes:g} minutes")
+
+    if args.freshness_file:
+        _load_freshness(args.freshness_file)
+    if PORTAL_PROXY_URL:
+        log.info("PORTAL_PROXY_URL set — MHD and SNHD requests will use the proxy")
 
     log.info(f"DineScores Pipeline starting | mode={args.mode} cities={args.cities}")
 
@@ -4844,89 +5135,108 @@ def main():
         # source to cover the gap, not just the mode's default window.
         since_date = f"{str(args.since_date)[:10]}T00:00:00"
 
+    def weekly_since(group, cap_days, fmt='%Y-%m-%d', source_labels=None, days=8):
+        """Window start for a weekly fetch group, formatted with fmt: the
+        mode's default (days back), widened by the freshness lookback when a
+        --freshness-file is loaded; --since-date overrides both."""
+        if args.since_date:
+            return datetime.strptime(str(args.since_date)[:10], '%Y-%m-%d').strftime(fmt)
+        default_start = datetime.now() - timedelta(days=days)
+        return _lookback_since(group, default_start, cap_days, source_labels).strftime(fmt)
+
+    def api_since(group):
+        # Open-data sources: the mode default (None in test mode), widened
+        # per group in weekly mode.
+        if args.mode == 'weekly':
+            return weekly_since(group, FRESHNESS_LOOKBACK_API_DAYS, '%Y-%m-%dT00:00:00')
+        return since_date
+
     all_inspections = []
 
     # Fetch the Socrata-backed cities concurrently (each is a distinct API host)
     socrata_jobs = {}
     if 'chicago' in args.cities:
         socrata_jobs['Chicago'] = lambda: fetch_chicago(
-            since_date=since_date, limit=record_limit or 100000)
+            since_date=api_since('Chicago'), limit=record_limit or 100000)
     if 'nyc' in args.cities:
         socrata_jobs['NYC'] = lambda: fetch_nyc(
-            since_date=since_date, limit=(record_limit or 1) * 20 if record_limit else None)
+            since_date=api_since('NYC'), limit=(record_limit or 1) * 20 if record_limit else None)
     if 'sf' in args.cities:
         socrata_jobs['SF'] = lambda: fetch_sf(
-            since_date=since_date, limit=record_limit or 30000)
+            since_date=api_since('SF'), limit=record_limit or 30000)
     if 'austin' in args.cities:
         def _austin():
-            data = fetch_austin(since_date=since_date, limit=record_limit or 100000)
+            data = fetch_austin(since_date=api_since('Austin'), limit=record_limit or 100000)
             geocode_missing_coords(data)
             return data
         socrata_jobs['Austin'] = _austin
     if 'boston' in args.cities:
         def _boston():
-            data = fetch_boston(since_date=since_date, limit=record_limit)
+            data = fetch_boston(since_date=api_since('Boston'), limit=record_limit)
             geocode_missing_coords(data)
             return data
         socrata_jobs['Boston'] = _boston
     if 'seattle' in args.cities:
-        socrata_jobs['Seattle'] = lambda: fetch_seattle(
-            since_date=since_date, limit=record_limit)
+        def _seattle():
+            data = fetch_seattle(since_date=api_since('Seattle'), limit=record_limit)
+            geocode_missing_coords(data)
+            return data
+        socrata_jobs['Seattle'] = _seattle
     if 'florida' in args.cities or 'miami' in args.cities:
         def _florida():
-            data = fetch_florida(since_date=(str(since_date)[:10] if since_date else None),
+            data = fetch_florida(since_date=(str(api_since('Florida'))[:10] if since_date else None),
                                  limit=record_limit)
             geocode_missing_coords(data)
             return data
         socrata_jobs['Florida'] = _florida
     if 'nys' in args.cities or 'newyorkstate' in args.cities:
         def _nys():
-            data = fetch_nys(since_date=since_date, limit=record_limit)
+            data = fetch_nys(since_date=api_since('NY State'), limit=record_limit)
             geocode_missing_coords(data)
             return data
         socrata_jobs['NY State'] = _nys
     if 'wake' in args.cities or 'raleigh' in args.cities:
         socrata_jobs['Wake County'] = lambda: fetch_wake(
-            since_date=since_date, limit=record_limit)
+            since_date=api_since('Wake County'), limit=record_limit)
     if 'la' in args.cities or 'losangeles' in args.cities:
         def _la():
-            data = fetch_la(since_date=since_date, limit=record_limit)
+            data = fetch_la(since_date=api_since('LA County'), limit=record_limit)
             geocode_missing_coords(data)
             return data
         socrata_jobs['LA County'] = _la
     if 'louisville' in args.cities:
         def _louisville():
-            data = fetch_louisville(since_date=since_date, limit=record_limit)
+            data = fetch_louisville(since_date=api_since('Louisville'), limit=record_limit)
             geocode_missing_coords(data)
             return data
         socrata_jobs['Louisville'] = _louisville
     if 'minneapolis' in args.cities:
         socrata_jobs['Minneapolis'] = lambda: fetch_minneapolis(
-            since_date=since_date, limit=record_limit)
+            since_date=api_since('Minneapolis'), limit=record_limit)
     if 'cincinnati' in args.cities:
         socrata_jobs['Cincinnati'] = lambda: fetch_cincinnati(
-            since_date=since_date, limit=record_limit)
+            since_date=api_since('Cincinnati'), limit=record_limit)
     if 'delaware' in args.cities:
         socrata_jobs['Delaware'] = lambda: fetch_delaware(
-            since_date=since_date, limit=record_limit)
+            since_date=api_since('Delaware'), limit=record_limit)
     if 'montgomery' in args.cities or 'moco' in args.cities:
         socrata_jobs['Montgomery County'] = lambda: fetch_montgomery(
-            since_date=since_date, limit=record_limit)
+            since_date=api_since('Montgomery County'), limit=record_limit)
     if 'sc' in args.cities or 'southcarolina' in args.cities:
         socrata_jobs['South Carolina'] = lambda: fetch_sc(
-            since_date=since_date, limit=record_limit)
+            since_date=api_since('South Carolina'), limit=record_limit)
     if 'fairfax' in args.cities:
         socrata_jobs['Fairfax County'] = lambda: fetch_fairfax(
-            since_date=since_date, limit=record_limit)
+            since_date=api_since('Fairfax County'), limit=record_limit)
     if 'detroit' in args.cities:
         socrata_jobs['Detroit'] = lambda: fetch_detroit(
-            since_date=since_date, limit=record_limit)
+            since_date=api_since('Detroit'), limit=record_limit)
     if 'sacramento' in args.cities:
         socrata_jobs['Sacramento'] = lambda: fetch_sacramento(
-            since_date=since_date, limit=record_limit)
+            since_date=api_since('Sacramento'), limit=record_limit)
     if 'vegas' in args.cities or 'lasvegas' in args.cities:
         socrata_jobs['Las Vegas'] = lambda: fetch_vegas(
-            since_date=since_date, limit=record_limit)
+            since_date=api_since('Las Vegas'), limit=record_limit)
 
     if socrata_jobs:
         with ThreadPoolExecutor(max_workers=len(socrata_jobs)) as pool:
@@ -4937,19 +5247,22 @@ def main():
                     data = future.result()
                     all_inspections.extend(data)
                     log.info(f"{city}: {len(data)} records")
+                    _record_group(city, data)
                 except Exception as e:
                     log.error(f"{city} fetch failed: {e}")
+                    _record_group(city, [], 'error', str(e))
 
     # Houston and DC use the Tyler healthinspections.us portals (scraped)
     for slug, fetcher in (('houston', fetch_houston), ('dc', fetch_dc)):
         if slug in args.cities:
             if _past_deadline():
                 log.warning(f"{slug}: skipped — pipeline fetch deadline reached")
+                _record_group(slug, [], 'skipped', 'fetch deadline reached')
                 continue
             try:
                 scrape_since = None
                 if args.mode == 'weekly':
-                    scrape_since = (datetime.now() - timedelta(days=8)).strftime('%Y-%m-%d')
+                    scrape_since = weekly_since(slug, FRESHNESS_LOOKBACK_PORTAL_DAYS)
                 elif args.mode == 'full':
                     scrape_since = '2026-01-01'
                 if args.since_date:
@@ -4960,17 +5273,20 @@ def main():
                 geocode_missing_coords(data)
                 all_inspections.extend(data)
                 log.info(f"{slug}: {len(data)} records")
+                _record_group(slug, data)
             except Exception as e:
                 log.error(f"{slug} fetch failed: {e}")
+                _record_group(slug, [], 'error', str(e))
 
     # Richardson uses its own HealthTrak source (not the MHD portal)
     if ('richardson' in args.cities or 'dfw' in args.cities) and _past_deadline():
         log.warning("Richardson: skipped — pipeline fetch deadline reached")
+        _record_group('Richardson', [], 'skipped', 'fetch deadline reached')
     elif 'richardson' in args.cities or 'dfw' in args.cities:
         try:
             rich_since = None
             if args.mode == 'weekly':
-                rich_since = (datetime.now() - timedelta(days=8)).strftime('%Y-%m-%d')
+                rich_since = weekly_since('Richardson', FRESHNESS_LOOKBACK_PORTAL_DAYS)
             elif args.mode == 'full':
                 rich_since = '2026-01-01'
             if args.since_date:
@@ -4981,24 +5297,29 @@ def main():
             geocode_missing_coords(rich_data)
             all_inspections.extend(rich_data)
             log.info(f"Richardson: {len(rich_data)} records")
+            _record_group('Richardson', rich_data)
         except Exception as e:
             log.error(f"Richardson fetch failed: {e}")
+            _record_group('Richardson', [], 'error', str(e))
 
     # Arlington uses its own ArcGIS source (not the MHD portal)
     if ('arlington' in args.cities or 'dfw' in args.cities) and _past_deadline():
         log.warning("Arlington: skipped — pipeline fetch deadline reached")
+        _record_group('Arlington', [], 'skipped', 'fetch deadline reached')
     elif 'arlington' in args.cities or 'dfw' in args.cities:
         try:
             arl_since = None
             if args.mode == 'weekly':
-                arl_since = (datetime.now() - timedelta(days=8)).strftime('%Y-%m-%d')
+                arl_since = weekly_since('Arlington', FRESHNESS_LOOKBACK_API_DAYS)
             if args.since_date:
                 arl_since = args.since_date
             arl_data = fetch_arlington(since_date=arl_since, limit=record_limit)
             all_inspections.extend(arl_data)
             log.info(f"Arlington: {len(arl_data)} records")
+            _record_group('Arlington', arl_data)
         except Exception as e:
             log.error(f"Arlington fetch failed: {e}")
+            _record_group('Arlington', [], 'error', str(e))
 
     # Non-DFW MyHealthDepartment metros (Orange County, Portland, CO Front
     # Range, Utah County, Yolo) — same portal machinery as DFW below.
@@ -5017,7 +5338,10 @@ def main():
                 # These portals publish with up to ~2 weeks of lag (Oregon
                 # especially) — look further back than the 8-day default so
                 # late-published inspections aren't permanently missed.
-                mhd_since = (datetime.now() - timedelta(days=21)).strftime('%Y-%m-%d')
+                mhd_since = weekly_since(
+                    'MHD metros', FRESHNESS_LOOKBACK_PORTAL_DAYS, days=21,
+                    source_labels=[f"{MHD_METRO_JURISDICTIONS[s]['display_name']} Health Dept"
+                                   for s in mhd_metro_slugs])
             if args.since_date:
                 mhd_since = args.since_date
             mhd_data = fetch_dfw(
@@ -5029,8 +5353,12 @@ def main():
             geocode_missing_coords(mhd_data)
             all_inspections.extend(mhd_data)
             log.info(f"MHD metros: {len(mhd_data)} records")
+            _record_group('MHD metros', mhd_data,
+                          'blocked' if _MHD_PORTAL_BLOCKED else None,
+                          'MHD portal blocked this run' if _MHD_PORTAL_BLOCKED else '')
         except Exception as e:
             log.error(f"MHD metros fetch failed: {e}")
+            _record_group('MHD metros', [], 'error', str(e))
 
     # DFW metroplex — supports 'dfw' (all MHD cities), 'dallas' (single), or any slug
     dfw_slugs_requested = [c for c in args.cities if c in DFW_JURISDICTIONS]
@@ -5040,15 +5368,17 @@ def main():
             dfw_since = None
             if args.mode == 'full':
                 dfw_since = '2026-01-01'
-            elif args.mode == 'weekly':
-                dfw_since = (datetime.now() - timedelta(days=8)).strftime('%Y-%m-%d')
-            if args.since_date:
-                dfw_since = args.since_date
-
             if 'dfw' in args.cities:
                 jurisdictions = DFW_JURISDICTIONS
             else:
                 jurisdictions = {s: DFW_JURISDICTIONS[s] for s in dfw_slugs_requested}
+            if args.mode == 'weekly':
+                dfw_since = weekly_since(
+                    'DFW', FRESHNESS_LOOKBACK_PORTAL_DAYS,
+                    source_labels=[f"{c['display_name']} Health Dept"
+                                   for c in jurisdictions.values()])
+            if args.since_date:
+                dfw_since = args.since_date
 
             dfw_data = fetch_dfw(
                 jurisdictions=jurisdictions,
@@ -5062,8 +5392,12 @@ def main():
 
             all_inspections.extend(dfw_data)
             log.info(f"DFW: {len(dfw_data)} records")
+            _record_group('DFW', dfw_data,
+                          'blocked' if _MHD_PORTAL_BLOCKED else None,
+                          'MHD portal blocked this run' if _MHD_PORTAL_BLOCKED else '')
         except Exception as e:
             log.error(f"DFW fetch failed: {e}")
+            _record_group('DFW', [], 'error', str(e))
 
     # Drop coordinates that are obviously wrong before any output is written
     drop_implausible_coords(all_inspections)
@@ -5096,6 +5430,10 @@ def main():
     # Optionally write D1 SQL (schema + upserts) for the Cloudflare database
     if args.output_d1_sql:
         write_d1_sql(all_inspections, args.output_d1_sql)
+
+    _log_run_outcomes()
+    if args.freshness_file:
+        _write_freshness(args.freshness_file)
 
     log.info("Pipeline complete!")
 

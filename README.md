@@ -47,7 +47,7 @@ and violation summaries for Chicago, NYC, San Francisco, and DFW metro.
 - **Frontend**: React (JSX) + Tailwind CSS (build-time) + MapLibre GL JS
 - **Build**: Vite → outputs to `public/`
 - **Hosting**: Cloudflare Pages (auto-deploys from `main`)
-- **CI**: GitHub Actions weekly refresh (Chicago, NYC, SF, Austin, Boston, Seattle, Houston, DC, Miami/Tampa/Orlando + DFW metro)
+- **CI**: GitHub Actions weekly refresh of every source (see *Weekly refresh health* below — the DFW/Portland/Colorado/Utah portals block GitHub runner IPs and need `PORTAL_PROXY_URL`)
 
 ---
 
@@ -92,12 +92,15 @@ python dinescores_pipeline.py --mode full --cities chicago nyc sf dallas plano \
   --output-data-js public/data.js \
   --merge-existing-data-js public/data.js
 
-# Weekly refresh (last 8 days; ALWAYS pass --merge-existing-data-js so the
-# partial pull merges into the accumulated dataset instead of replacing it)
+# Weekly refresh (last 8 days per source, widened automatically from the
+# source's last recorded inspection via --freshness-file; ALWAYS pass
+# --merge-existing-data-js so the partial pull merges into the accumulated
+# dataset instead of replacing it)
 python dinescores_pipeline.py --mode weekly --cities chicago nyc sf dallas plano \
   --output-data-js public/data.js \
   --merge-existing-data-js public/data.js \
-  --output-d1-sql /tmp/weekly.sql
+  --output-d1-sql /tmp/weekly.sql \
+  --freshness-file data/source_freshness.json
 
 # Test run (25 records per city)
 python dinescores_pipeline.py --mode test
@@ -110,8 +113,8 @@ python dinescores_pipeline.py --mode test
 | Chicago / NYC / SF | Socrata open-data APIs, paginated. Set `SOCRATA_APP_TOKEN` env var for higher rate limits (optional). Fetched concurrently. |
 | Austin (Travis County) | Socrata (`datahub.austintexas.gov`). Scores only (no violation text published); Census-geocoded. |
 | Boston | CKAN datastore SQL API (`data.boston.gov`), updated daily. One row per violation; `*`/`**`/`***` levels map to severity. |
-| Seattle (King County) | Socrata (`data.kingcounty.gov`), ~30 King County cities. Violation POINTS (lower = better) converted to 100-scale; RED = priority, BLUE = core. County feed last updated 2025-11; weekly refresh auto-resumes if publication restarts. |
-| Dallas / Plano / Frisco (DFW) | MyHealthDepartment portal JSON search API in 7-day windows (auto-bisected when the ~225-record query cap is hit), then each inspection's public detail page is scraped for violation observations — they are rendered server-side in the HTML (or inline JS for Frisco), so no browser is needed. Frisco scores are demerit-based (lower = better) and are converted. |
+| Seattle (King County) | Socrata (`data.kingcounty.gov` dataset `r878-4sxa`; the county republished under this id in 2026 and the old `f29f-zza5` now requires a login), ~30 King County cities. Violation POINTS (lower = better) converted to 100-scale; RED = priority, BLUE = core. The new dataset publishes no coordinates, so new restaurants are Census-geocoded. |
+| Dallas / Plano / Frisco (DFW) | MyHealthDepartment portal JSON search API in 7-day windows (auto-bisected when the ~225-record query cap is hit), then each inspection's public detail page is scraped for violation observations — they are rendered server-side in the HTML (or inline JS for Frisco), so no browser is needed. Frisco scores are demerit-based (lower = better) and are converted. The portal blocks GitHub runner IPs and rate-bans detail pages — see *Weekly refresh health*. |
 | Houston | Tyler `healthinspections.us` portal: session-based date-window searches (bisected at the 500-row cap); each inspection's detail page carries full ordinance text per violation in its tooltip markup. |
 | Washington DC | Tyler portal (different template): monthly window searches; report pages publish OFFICIAL Priority/Priority Foundation/Core counts + observation text. DC-located records only (mobile-vendor commissary addresses in VA/MD are skipped). |
 | Florida (statewide) | Florida DBPR CSV extracts for all seven districts — Miami, Tampa, Orlando, Jacksonville, Fort Lauderdale, St. Petersburg, and every other FL metro — with official High Priority/Intermediate/Basic counts. Extracts roll over each July 1 with the state fiscal year, so history accumulates weekly from FY start. |
@@ -119,6 +122,35 @@ python dinescores_pipeline.py --mode test
 | Raleigh (Wake County) | County ArcGIS open-data service, updated daily: restaurants layer (with coordinates), inspections layer carrying the OFFICIAL North Carolina 0-100 sanitation score, and a violations layer with item text + point deductions (severity anchored to points assessed). |
 | Las Vegas (SNHD) | Southern Nevada Health District live JSON API (~18k permits across Clark County): official grade + demerits + coordinates per permit, violation descriptions with demerit values, and prior-inspection history. Demerit bands map exactly onto `risk = 100 - demerits` (A: 0-10, B: 11-20, C: 21-40). Permits with unreadable details are skipped, never recorded as clean. |
 | Geocoding | Census Bureau batch geocoder (thousands of addresses per request), Nominatim fallback for stragglers. |
+
+### Weekly refresh health
+
+The Sunday workflow is failure-tolerant: a source that errors, blocks the
+runner, or misses the time budget is skipped and keeps its existing records,
+so the job stays green even when half the sources shipped nothing. Two
+things keep those gaps visible and self-healing:
+
+- `data/source_freshness.json` (maintained by `--freshness-file`) records each
+  source's newest shipped inspection and last-run outcome. Weekly runs look
+  back from that date (up to 45 days for open-data APIs, 21 for scraped
+  portals) instead of a flat 8 days, so a lost week is refetched the next
+  time the source answers.
+- The workflow's **Report source outcomes** step renders that file into the
+  run summary and raises a warning annotation for any source that failed this
+  run or whose newest inspection is older than 21 days.
+
+Known constraints:
+
+| Source | Constraint |
+|--------|------------|
+| MyHealthDepartment portal (Dallas, Plano, Frisco, Fort Worth, Tarrant County, Portland metro, Colorado Front Range, Utah County, Yolo) | Returns 403 to every GitHub-hosted runner type (Linux, macOS and Windows, probed 2026-09-07). Refreshing these metros needs an unblocked egress: set the `PORTAL_PROXY_URL` repo secret (`http://user:pass@host:port`, a residential/ISP proxy) or run the pipeline locally. Detail pages are also rate-banned after a few hundred per ~15 minutes; the fetcher waits the ban out (`MHD_BAN_COOLDOWN` seconds, `MHD_BAN_COOLDOWNS` per run) within the fetch deadline instead of dropping the metro. |
+| Las Vegas (SNHD) | The list endpoint has failed from runners on some Sundays; failures now log their HTTP status, and `PORTAL_PROXY_URL` applies here too. |
+| Austin | The source dataset stopped updating on 2026-05-22. |
+| LA County | Publishes fiscal-year CSV extracts as new hub items; the fetcher looks up the newest file on the county's ArcGIS hub each run. |
+| Detroit, Fairfax County | Publish in batches with several weeks of lag; the freshness lookback picks the batches up when they land. |
+
+Run **Probe data sources** (Actions tab) to see which portals answer from
+each runner type, and through the proxy once it is configured.
 
 Data hygiene: placeholder dates (NYC `1900-01-01` = not yet inspected) and
 future-dated typos in source data are dropped; Chicago severity is bounded by
@@ -191,4 +223,6 @@ The pipeline computes these fields for each restaurant:
 | `vite.config.js` | Vite build config (outputs to public/) |
 | `.github/workflows/refresh-data.yml` | Weekly automated refresh |
 | `.github/workflows/setup-database.yml` | One-time D1 bulk load |
+| `.github/workflows/probe-sources.yml` | Manual check of which portals answer from GitHub runners |
 | `public/data.js` | Auto-generated embedded dataset |
+| `data/source_freshness.json` | Per-source newest inspection + last refresh outcome (drives the lookback window and the run summary) |

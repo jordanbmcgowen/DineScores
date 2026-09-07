@@ -1,0 +1,241 @@
+{
+ "groups": {
+  "Arlington": {
+   "latest": "2026-09-04"
+  },
+  "Austin": {
+   "latest": "2026-05-22"
+  },
+  "Boston": {
+   "latest": "2026-09-02"
+  },
+  "Chicago": {
+   "latest": "2026-09-03"
+  },
+  "Cincinnati": {
+   "latest": "2026-09-03"
+  },
+  "DFW": {
+   "latest": "2026-08-14"
+  },
+  "Delaware": {
+   "latest": "2026-09-08"
+  },
+  "Detroit": {
+   "latest": "2026-07-28"
+  },
+  "Fairfax County": {
+   "latest": "2026-08-03"
+  },
+  "Florida": {
+   "latest": "2026-09-05"
+  },
+  "LA County": {
+   "latest": "2026-06-30"
+  },
+  "Las Vegas": {
+   "latest": "2026-08-13"
+  },
+  "Louisville": {
+   "latest": "2026-08-29"
+  },
+  "MHD metros": {
+   "latest": "2026-08-15"
+  },
+  "Minneapolis": {
+   "latest": "2026-09-02"
+  },
+  "Montgomery County": {
+   "latest": "2026-09-04"
+  },
+  "NY State": {
+   "latest": "2026-08-28"
+  },
+  "NYC": {
+   "latest": "2026-09-02"
+  },
+  "Richardson": {
+   "latest": "2026-09-03"
+  },
+  "SF": {
+   "latest": "2026-09-04"
+  },
+  "Sacramento": {
+   "latest": "2026-09-04"
+  },
+  "Seattle": {
+   "latest": "2025-11-26"
+  },
+  "South Carolina": {
+   "latest": "2026-09-02"
+  },
+  "Wake County": {
+   "latest": "2026-09-03"
+  },
+  "dc": {
+   "latest": "2026-09-03"
+  },
+  "houston": {
+   "latest": "2026-09-04"
+  }
+ },
+ "sources": {
+  "Adams County Health Dept": {
+   "group": "MHD metros",
+   "latest": "2026-08-14"
+  },
+  "Arlington Open Data": {
+   "group": "Arlington",
+   "latest": "2026-09-04"
+  },
+  "Austin Open Data": {
+   "group": "Austin",
+   "latest": "2026-05-22"
+  },
+  "Boston Open Data": {
+   "group": "Boston",
+   "latest": "2026-09-02"
+  },
+  "Chicago Open Data": {
+   "group": "Chicago",
+   "latest": "2026-09-03"
+  },
+  "Cincinnati Open Data": {
+   "group": "Cincinnati",
+   "latest": "2026-09-03"
+  },
+  "Clackamas County Health Dept": {
+   "group": "MHD metros",
+   "latest": "2026-07-31"
+  },
+  "Clark County WA Health Dept": {
+   "group": "MHD metros",
+   "latest": "2026-08-13"
+  },
+  "DC Health": {
+   "group": "dc",
+   "latest": "2026-09-03"
+  },
+  "Dallas Health Dept": {
+   "group": "DFW",
+   "latest": "2026-08-14"
+  },
+  "DataSF": {
+   "group": "SF",
+   "latest": "2026-09-04"
+  },
+  "Delaware Open Data": {
+   "group": "Delaware",
+   "latest": "2026-09-08"
+  },
+  "Detroit Open Data": {
+   "group": "Detroit",
+   "latest": "2026-07-28"
+  },
+  "El Paso County CO Health Dept": {
+   "group": "MHD metros",
+   "latest": "2026-08-15"
+  },
+  "Fairfax County Open Data": {
+   "group": "Fairfax County",
+   "latest": "2026-08-03"
+  },
+  "Florida DBPR": {
+   "group": "Florida",
+   "latest": "2026-09-05"
+  },
+  "Fort Worth Health Dept": {
+   "group": "DFW",
+   "latest": "2026-08-14"
+  },
+  "Frisco Health Dept": {
+   "group": "DFW",
+   "latest": "2026-08-14"
+  },
+  "Houston Health Dept": {
+   "group": "houston",
+   "latest": "2026-09-04"
+  },
+  "King County Open Data": {
+   "group": "Seattle",
+   "latest": "2025-11-26"
+  },
+  "LA County Open Data": {
+   "group": "LA County",
+   "latest": "2026-06-30"
+  },
+  "Larimer County Health Dept": {
+   "group": "MHD metros",
+   "latest": "2026-08-15"
+  },
+  "Louisville Metro Open Data": {
+   "group": "Louisville",
+   "latest": "2026-08-29"
+  },
+  "Minneapolis Open Data": {
+   "group": "Minneapolis",
+   "latest": "2026-09-02"
+  },
+  "Montgomery County Open Data": {
+   "group": "Montgomery County",
+   "latest": "2026-09-04"
+  },
+  "Multnomah County Health Dept": {
+   "group": "MHD metros",
+   "latest": "2026-07-31"
+  },
+  "NYC Open Data": {
+   "group": "NYC",
+   "latest": "2026-09-02"
+  },
+  "NYS Department of Health": {
+   "group": "NY State",
+   "latest": "2026-08-28"
+  },
+  "Plano Health Dept": {
+   "group": "DFW",
+   "latest": "2026-08-14"
+  },
+  "Richardson Health Dept": {
+   "group": "Richardson",
+   "latest": "2026-09-03"
+  },
+  "SC DPH Food Grades": {
+   "group": "South Carolina",
+   "latest": "2026-09-02"
+  },
+  "Sacramento County Open Data": {
+   "group": "Sacramento",
+   "latest": "2026-09-04"
+  },
+  "Southern Nevada Health District": {
+   "group": "Las Vegas",
+   "latest": "2026-08-13"
+  },
+  "Tarrant County Health Dept": {
+   "group": "DFW",
+   "latest": "2026-08-14"
+  },
+  "Utah County Health Dept": {
+   "group": "MHD metros",
+   "latest": "2026-08-15"
+  },
+  "Wake County Open Data": {
+   "group": "Wake County",
+   "latest": "2026-09-03"
+  },
+  "Washington County OR Health Dept": {
+   "group": "MHD metros",
+   "latest": "2026-08-01"
+  },
+  "Weld County Health Dept": {
+   "group": "MHD metros",
+   "latest": "2026-08-14"
+  },
+  "Yolo County Health Dept": {
+   "group": "MHD metros",
+   "latest": "2026-08-13"
+  }
+ },
+ "updated": "2026-09-07"
+}

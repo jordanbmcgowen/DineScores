@@ -9,7 +9,7 @@ on:
 jobs:
   refresh-data:
     runs-on: ubuntu-latest
-    timeout-minutes: 90
+    timeout-minutes: 170
     permissions:
       contents: write  # Needed to commit data.js back to the repo
 
@@ -30,6 +30,15 @@ jobs:
         env:
           # Optional: raises Socrata rate limits if the secret is configured
           SOCRATA_APP_TOKEN: ${{ secrets.SOCRATA_APP_TOKEN }}
+          # Optional: egress for the portals that block GitHub runner IPs.
+          # The MyHealthDepartment portal (Dallas, Plano, Frisco, Fort Worth,
+          # Tarrant, Portland metro, CO Front Range, Utah County, Yolo) returns
+          # 403 to every GitHub-hosted runner type, and the Las Vegas API has
+          # failed from runners too. Set the PORTAL_PROXY_URL repo secret
+          # (http://user:pass@host:port, a residential/ISP proxy) to route
+          # just those requests through an unblocked address. Unset = those
+          # metros are skipped and keep their existing records.
+          PORTAL_PROXY_URL: ${{ secrets.PORTAL_PROXY_URL }}
         run: |
           python3 dinescores_pipeline.py \
             --mode weekly \
@@ -38,16 +47,22 @@ jobs:
             --output-data-js public/data.js \
             --merge-existing-data-js public/data.js \
             --output-d1-sql /tmp/dinescores_weekly.sql \
-            --deadline-minutes 60
+            --freshness-file data/source_freshness.json \
+            --deadline-minutes 120
         # --merge-existing-data-js is essential: weekly mode only pulls the
-        # last 8 days, and merging preserves the accumulated dataset instead
-        # of overwriting it. DFW fetches are failure-tolerant — if the portal
-        # blocks the runner, existing DFW records are kept via the merge.
+        # recent window, and merging preserves the accumulated dataset instead
+        # of overwriting it. Fetches are failure-tolerant — if a portal blocks
+        # the runner, its existing records are kept via the merge.
+        # --freshness-file records each source's newest shipped inspection and
+        # last-run outcome; weekly runs look back from that date (bounded) so a
+        # week lost to a timeout, a block, or a source that publishes in
+        # batches refetches itself the next time the source answers. The same
+        # file feeds the "Report source outcomes" step below.
         # --deadline-minutes keeps the fetch phase inside the job timeout:
         # sources that miss the budget are skipped (their existing records
         # survive via the merge) instead of the whole run timing out and
-        # shipping nothing — which is what happened when the MHD portal
-        # started 403-blocking runner IPs (Jul-Aug 2026).
+        # shipping nothing. The budget also covers the MHD detail-page ban
+        # cooldowns (up to 3 x 15 min) when those portals are reachable.
 
       - name: Show data summary
         run: |
@@ -63,6 +78,56 @@ jobs:
           for city, count in sorted(cities.items()):
               print(f'  {city}: {count}')
           "
+
+      - name: Report source outcomes
+        # A green job used to hide sources that answered nothing for weeks.
+        # This renders each fetch group's outcome into the run summary and
+        # raises a warning annotation for any that failed this run or whose
+        # newest inspection is older than three weeks.
+        run: |
+          python3 - <<'EOF'
+          import json, os
+          from datetime import date, datetime
+
+          STALE_DAYS = 21
+          today = date.today()
+          try:
+              data = json.load(open('data/source_freshness.json'))
+          except FileNotFoundError:
+              print('data/source_freshness.json not written — pipeline step did not reach its output phase')
+              raise SystemExit(0)
+          rows, warnings = [], []
+          for group, g in sorted(data.get('groups', {}).items()):
+              run = g.get('last_run') or {}
+              ran_today = run.get('at') == today.isoformat()
+              latest = g.get('latest') or ''
+              age = (today - datetime.strptime(latest, '%Y-%m-%d').date()).days if latest else None
+              status = run.get('status', '-') if ran_today else f"not run (last: {run.get('status', '-')} {run.get('at', '')})"
+              flag = ''
+              if ran_today and run.get('status') in ('error', 'blocked', 'skipped'):
+                  flag = 'FAILED'
+                  warnings.append(f"{group}: {run['status']} - {run.get('detail') or 'no records shipped'}")
+              elif age is not None and age > STALE_DAYS:
+                  flag = 'STALE'
+                  warnings.append(f"{group}: newest inspection is {age} days old ({latest})")
+              rows.append(f"| {group} | {status} | {run.get('records', '-') if ran_today else '-'} | "
+                          f"{latest or '-'} | {'-' if age is None else age} | {flag} |")
+          lines = ['## Weekly refresh: source outcomes', '',
+                   '| Source group | This run | Records | Newest inspection | Age (days) | Flag |',
+                   '|---|---|---|---|---|---|'] + rows
+          if warnings:
+              lines += ['', '### Needs attention', ''] + [f'- {w}' for w in warnings]
+          else:
+              lines += ['', 'Every source answered and is current.']
+          text = '\n'.join(lines) + '\n'
+          print(text)
+          summary_path = os.environ.get('GITHUB_STEP_SUMMARY')
+          if summary_path:
+              with open(summary_path, 'a') as f:
+                  f.write(text)
+          for w in warnings:
+              print(f'::warning title=Refresh source needs attention::{w}')
+          EOF
 
       - name: Update D1 database
         env:
@@ -86,7 +151,7 @@ jobs:
         run: |
           git config --global user.name "DineScores Bot"
           git config --global user.email "bot@dinescores.com"
-          git add public/data.js
+          git add public/data.js data/source_freshness.json
           if git diff --staged --quiet; then
             echo "No changes to data.js — already up to date"
           else

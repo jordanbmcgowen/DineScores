@@ -3,12 +3,16 @@ name: Probe data sources
 # Diagnostic only — nothing is written. Reports which inspection portals
 # answer from each GitHub-hosted runner type, because some portals block
 # runner IP ranges (the weekly refresh then logs 403s and ships nothing for
-# those metros). Run it from the Actions tab when a source goes quiet.
+# those metros while the job stays green). Run it from the Actions tab when
+# the refresh summary flags a source, or after configuring PORTAL_PROXY_URL
+# to confirm the proxy reaches the MyHealthDepartment portal.
+#
+# Probed 2026-09-07: MHD returned 403 from ubuntu, macOS AND windows runners
+# (search and detail pages alike); the SNHD, Socrata and Tyler endpoints
+# answered from all three.
 
 on:
   workflow_dispatch:
-  push:
-    branches: [claude/refresh-not-working-v514l0]
 
 jobs:
   probe:
@@ -18,6 +22,8 @@ jobs:
         os: [ubuntu-latest, macos-latest, windows-latest]
     runs-on: ${{ matrix.os }}
     timeout-minutes: 10
+    env:
+      PORTAL_PROXY_URL: ${{ secrets.PORTAL_PROXY_URL }}
     steps:
       - name: Probe portals
         shell: bash
@@ -26,20 +32,32 @@ jobs:
           echo "runner egress IP: $(curl -s --max-time 20 https://api.ipify.org || echo unknown)"
           WEEK_AGO=$(python3 -c "import datetime; print((datetime.date.today()-datetime.timedelta(days=7)).isoformat())")
           TODAY=$(python3 -c "import datetime; print(datetime.date.today().isoformat())")
+          MHD_SEARCH="{\"data\":{\"path\":\"dallas\",\"programName\":\"\",\"filters\":{\"date\":\"$WEEK_AGO to $TODAY\",\"purpose\":\"\"},\"start\":0,\"count\":25,\"searchStr\":\"\",\"lat\":0,\"lng\":0,\"sort\":{}},\"task\":\"searchInspections\"}"
           probe() {  # label, url, extra curl args...
             local label="$1"; shift
             local code
             code=$(curl -s -o probe_body.txt -w '%{http_code}' --max-time 60 -A "$UA" "$@" || echo "curl-error")
             echo "$label: HTTP $code | $(head -c 100 probe_body.txt | tr '\n\r' '  ')"
           }
-          probe "MHD search (Dallas)" https://inspections.myhealthdepartment.com/ \
-            -H 'Content-Type: application/json' -H 'Accept: application/json, text/plain, */*' \
-            -H 'Origin: https://inspections.myhealthdepartment.com' \
-            -H 'Referer: https://inspections.myhealthdepartment.com/' \
-            --data "{\"data\":{\"path\":\"dallas\",\"programName\":\"\",\"filters\":{\"date\":\"$WEEK_AGO to $TODAY\",\"purpose\":\"\"},\"start\":0,\"count\":25,\"searchStr\":\"\",\"lat\":0,\"lng\":0,\"sort\":{}},\"task\":\"searchInspections\"}"
+          mhd_search() {  # extra curl args (e.g. a proxy)
+            probe "MHD search (Dallas)$1" https://inspections.myhealthdepartment.com/ \
+              -H 'Content-Type: application/json' -H 'Accept: application/json, text/plain, */*' \
+              -H 'Origin: https://inspections.myhealthdepartment.com' \
+              -H 'Referer: https://inspections.myhealthdepartment.com/' \
+              --data "$MHD_SEARCH" "${@:2}"
+          }
+          mhd_search ""
           probe "MHD detail page (Dallas)" 'https://inspections.myhealthdepartment.com/dallas/inspection/?inspectionID=D7B6D725-9E94-48F9-B16D-2FF67040CCA2'
           probe "SNHD list (Las Vegas)" 'https://www.southernnevadahealthdistrict.org/wp-json/snhd-eh-restaurants/v1/restaurants?per_page=1&page=1'
           probe "King County (r878-4sxa)" 'https://data.kingcounty.gov/resource/r878-4sxa.json?$limit=1'
           probe "Austin Socrata" 'https://datahub.austintexas.gov/resource/ecmv-9xxi.json?$limit=1'
           probe "NY State Socrata" 'https://health.data.ny.gov/resource/cnih-y5dw.json?$limit=1'
           probe "Houston Tyler portal" 'https://houston-tx.healthinspections.us/'
+          if [ -n "$PORTAL_PROXY_URL" ]; then
+            echo "PORTAL_PROXY_URL is configured — repeating the blocked-portal probes through it"
+            mhd_search " via proxy" -x "$PORTAL_PROXY_URL"
+            probe "MHD detail page (Dallas) via proxy" -x "$PORTAL_PROXY_URL" 'https://inspections.myhealthdepartment.com/dallas/inspection/?inspectionID=D7B6D725-9E94-48F9-B16D-2FF67040CCA2'
+            probe "SNHD list (Las Vegas) via proxy" -x "$PORTAL_PROXY_URL" 'https://www.southernnevadahealthdistrict.org/wp-json/snhd-eh-restaurants/v1/restaurants?per_page=1&page=1'
+          else
+            echo "PORTAL_PROXY_URL not configured — skipping proxy probes"
+          fi
