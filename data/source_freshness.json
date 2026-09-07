@@ -64,7 +64,14 @@
    "latest": "2026-09-04"
   },
   "Seattle": {
-   "latest": "2025-11-26"
+   "last_run": {
+    "at": "2026-09-07",
+    "detail": "",
+    "latest": "2026-09-01",
+    "records": 12264,
+    "status": "ok"
+   },
+   "latest": "2026-09-01"
   },
   "South Carolina": {
    "latest": "2026-09-02"
@@ -158,7 +165,7 @@
   },
   "King County Open Data": {
    "group": "Seattle",
-   "latest": "2025-11-26"
+   "latest": "2026-09-01"
   },
   "LA County Open Data": {
    "group": "LA County",
