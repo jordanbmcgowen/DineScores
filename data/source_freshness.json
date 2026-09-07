@@ -16,7 +16,7 @@
    "latest": "2026-09-03"
   },
   "DFW": {
-   "latest": "2026-08-14"
+   "latest": "2026-08-20"
   },
   "Delaware": {
    "latest": "2026-09-08"
@@ -34,7 +34,7 @@
    "latest": "2026-06-30"
   },
   "Las Vegas": {
-   "latest": "2026-08-13"
+   "latest": "2026-09-06"
   },
   "Louisville": {
    "latest": "2026-08-29"
@@ -118,7 +118,7 @@
   },
   "Dallas Health Dept": {
    "group": "DFW",
-   "latest": "2026-08-14"
+   "latest": "2026-08-20"
   },
   "DataSF": {
    "group": "SF",
@@ -210,7 +210,7 @@
   },
   "Southern Nevada Health District": {
    "group": "Las Vegas",
-   "latest": "2026-08-13"
+   "latest": "2026-09-06"
   },
   "Tarrant County Health Dept": {
    "group": "DFW",
