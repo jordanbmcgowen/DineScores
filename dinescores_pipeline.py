@@ -253,7 +253,10 @@ def sane_inspection_date(date_str):
         d = datetime.strptime(s, '%Y-%m-%d')
     except ValueError:
         return None
-    if d.year < 2000 or d > datetime.now() + timedelta(days=2):
+    # One day of slack covers a local-time run reading a UTC-dated source;
+    # anything further out is a typo (Delaware publishes rows months ahead,
+    # and a "next week" inspection was shipping as a restaurant's latest).
+    if d.year < 2000 or d > datetime.now() + timedelta(days=1):
         return None
     return s
 
