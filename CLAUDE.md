@@ -106,6 +106,14 @@ middleware.
   out (`MHD_BAN_COOLDOWN`=900s, `MHD_BAN_COOLDOWNS`=3 per run, only inside
   the fetch deadline) and only then trips `_MHD_PORTAL_BLOCKED`. Don't turn
   a detail ban into a run-wide skip again.
+- **King County ids depend on `data/king_county_address_map.json`.** The
+  county's republished feed formats addresses differently from the retired
+  one, and ids hash name+address+city; the map (new `business_id` → stored
+  address) is what keeps re-inspected restaurants on their existing ids and
+  coordinates. `fetch_seattle` warns loudly if it's missing. Unmapped
+  businesses are new since Nov 2025 and get fresh ids; if the county
+  reformats again, rebuild the map by matching on name+city+house number
+  against D1 before shipping a refresh.
 - **Only shipped records advance freshness.** `_record_group` computes a
   group's latest date from the records it returns, so dropped/undetailed
   batches get refetched by the lookback. Keep it that way for any new
