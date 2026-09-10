@@ -4,9 +4,11 @@
  * counts EVERY restaurant, including coordless rows and cities too small
  * for the index.
  */
-import { jsonResponse, dbUnavailable } from './_utils.js';
+import { jsonResponse, dbUnavailable, edgeCached } from './_utils.js';
 
-export async function onRequestGet({ env }) {
+export const onRequestGet = context => edgeCached(context, handleGet);
+
+async function handleGet({ env }) {
   if (!env.DB) return dbUnavailable();
 
   const [{ results: totals }, { results: cities }] = await Promise.all([

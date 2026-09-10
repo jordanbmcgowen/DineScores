@@ -4789,6 +4789,8 @@ CREATE INDEX IF NOT EXISTS idx_inspections_restaurant
 """
 
 D1_BATCH_ROWS = 40       # max rows per multi-row INSERT
+D1_RECOUNT_IDS = 500     # restaurant ids per inspection_count recount statement
+                         # (~10KB of literals, far under the 100KB cap)
 D1_BATCH_BYTES = 80_000  # max statement size; D1 rejects statements over 100KB
                          # with SQLITE_TOOBIG, and rows with long violation text
                          # can blow past that in far fewer than 40 rows
@@ -4830,8 +4832,9 @@ def _sql_json(value):
 def write_d1_sql(all_inspections, output_path, include_schema=True):
     """
     Write idempotent D1 SQL for this run's inspections: inspection rows first
-    (INSERT OR IGNORE), then restaurant upserts where the newest inspection
-    wins and inspection_count is recomputed from the inspections table.
+    (upserts), then restaurant upserts where the newest inspection wins, and
+    finally inspection_count recomputed from the inspections table for the
+    restaurants in this file only.
     """
     restaurants = defaultdict(list)
     for insp in all_inspections:
@@ -4842,6 +4845,7 @@ def write_d1_sql(all_inspections, output_path, include_schema=True):
     now_iso = datetime.now(timezone.utc).isoformat()
     insp_rows = []
     rest_rows = []
+    rest_ids = []
     seen_insp_ids = set()
 
     for rest_id, inspections in restaurants.items():
@@ -4886,6 +4890,7 @@ def write_d1_sql(all_inspections, output_path, include_schema=True):
 
         lat = latest.get('latitude')
         lng = latest.get('longitude')
+        rest_ids.append(rest_id)
         rest_rows.append('(' + ','.join([
             _sql_quote(rest_id),
             _sql_quote(latest.get('name', '')),
@@ -4951,11 +4956,16 @@ def write_d1_sql(all_inspections, output_path, include_schema=True):
                     "updated_at) VALUES\n"
                     + ',\n'.join(batch) + rest_upsert_tail + '\n')
         # Recompute inspection_count from the accumulated inspections table so
-        # weekly partial runs don't clobber the true history depth.
-        f.write("UPDATE restaurants SET inspection_count = "
-                "(SELECT COUNT(*) FROM inspections "
-                "WHERE inspections.restaurant_id = restaurants.id) "
-                "WHERE id IN (SELECT DISTINCT restaurant_id FROM inspections);\n")
+        # weekly partial runs don't clobber the true history depth. Scoped to
+        # this file's restaurants: the old unscoped form rewrote every
+        # restaurant in the database (280k+ rows, 2.5M rows read) on each
+        # weekly run, which alone exceeded the D1 free plan's daily write cap.
+        for start in range(0, len(rest_ids), D1_RECOUNT_IDS):
+            ids = ','.join(_sql_quote(r) for r in rest_ids[start:start + D1_RECOUNT_IDS])
+            f.write("UPDATE restaurants SET inspection_count = "
+                    "(SELECT COUNT(*) FROM inspections "
+                    "WHERE inspections.restaurant_id = restaurants.id) "
+                    f"WHERE id IN ({ids});\n")
 
     log.info(f"Written D1 SQL: {len(rest_rows)} restaurants, {len(insp_rows)} "
              f"inspections to {output_path}")

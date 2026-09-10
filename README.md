@@ -183,7 +183,8 @@ of cities.
 After setup, the weekly refresh workflow updates D1 automatically (it skips
 the D1 step silently if the secrets are absent).
 
-**API endpoints:**
+**API endpoints** (GET responses are cached at Cloudflare's edge for an
+hour; check `X-Edge-Cache: HIT|MISS` on a response):
 
 | Endpoint | Purpose |
 |----------|---------|

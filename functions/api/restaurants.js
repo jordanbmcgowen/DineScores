@@ -21,12 +21,15 @@
  */
 import {
   jsonResponse, dbUnavailable, toCompactRecord, toLiteRecord, LITE_COLUMNS,
+  edgeCached,
 } from './_utils.js';
 
 const MAX_LIMIT_FULL = 5000;
 const MAX_LIMIT_LITE = 30000;
 
-export async function onRequestGet({ request, env }) {
+export const onRequestGet = context => edgeCached(context, handleGet);
+
+async function handleGet({ request, env }) {
   if (!env.DB) return dbUnavailable();
 
   const url = new URL(request.url);

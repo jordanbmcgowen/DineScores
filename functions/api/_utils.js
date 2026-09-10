@@ -7,11 +7,53 @@ export function jsonResponse(data, { status = 200, maxAge = 3600 } = {}) {
     status,
     headers: {
       'Content-Type': 'application/json; charset=utf-8',
-      // Data refreshes weekly; let the CDN cache API responses for an hour.
+      // Data refreshes weekly; browsers and the edge cache (see edgeCached)
+      // may keep API responses for an hour.
       'Cache-Control': `public, max-age=${maxAge}`,
       'Access-Control-Allow-Origin': '*',
     },
   });
+}
+
+/**
+ * Serve a GET from Cloudflare's edge cache when possible; otherwise run the
+ * handler and store its response for repeat requests.
+ *
+ * Pages Functions responses are NOT cached by the CDN on their own: the
+ * Cache-Control header only reaches browsers and the edge reports DYNAMIC.
+ * So every visitor's whole-database sync (ten 30k-row pages) and cities
+ * index (a scan of every restaurant) went to D1, roughly 560k rows read per
+ * visit, which is what exhausted the free plan's daily read quota. The Cache
+ * API keeps the response in the datacenter that served it for the max-age
+ * jsonResponse already sets (an hour; data changes weekly).
+ *
+ * Only successful responses with a positive max-age are stored, so a 503
+ * while D1 is down or a 400 for a bad query never gets pinned for an hour.
+ * Responses carry X-Edge-Cache: HIT or MISS for checking from the outside.
+ */
+export async function edgeCached(context, handler) {
+  const { request } = context;
+  if (request.method !== 'GET' || typeof caches === 'undefined') {
+    return handler(context);
+  }
+  const cache = caches.default;
+  const key = new Request(new URL(request.url).toString(), { method: 'GET' });
+  const hit = await cache.match(key);
+  if (hit) {
+    const served = new Response(hit.body, hit);
+    served.headers.set('X-Edge-Cache', 'HIT');
+    return served;
+  }
+  let response = await handler(context);
+  const cacheControl = response.headers.get('Cache-Control') || '';
+  if (response.ok && /max-age=[1-9]/.test(cacheControl)) {
+    response = new Response(response.body, response);
+    response.headers.set('X-Edge-Cache', 'MISS');
+    const stored = cache.put(key, response.clone());
+    if (typeof context.waitUntil === 'function') context.waitUntil(stored);
+    else await stored;
+  }
+  return response;
 }
 
 export function dbUnavailable() {

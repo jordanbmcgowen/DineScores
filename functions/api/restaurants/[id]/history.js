@@ -2,9 +2,11 @@
  * GET /api/restaurants/:id/history — full inspection history for one
  * restaurant, newest first. Shaped like the modal's history rows.
  */
-import { jsonResponse, dbUnavailable, parseJson } from '../../_utils.js';
+import { jsonResponse, dbUnavailable, parseJson, edgeCached } from '../../_utils.js';
 
-export async function onRequestGet({ params, env }) {
+export const onRequestGet = context => edgeCached(context, handleGet);
+
+async function handleGet({ params, env }) {
   if (!env.DB) return dbUnavailable();
 
   const id = params.id;
