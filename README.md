@@ -53,6 +53,24 @@ and violation summaries for Chicago, NYC, San Francisco, and DFW metro.
 
 ## Quick Start
 
+### 0. Basemap API key (CARTO)
+
+The map's background tiles come from CARTO, which has required an API key
+since August 2026; without one the tiles load with an "API KEY REQUIRED"
+watermark. Request a free key (5M tiles/month, no account needed) at
+https://carto.com/basemaps/apikey, then:
+
+- **Production (Cloudflare Pages):** Workers & Pages → `dinescores` →
+  Settings → Variables and Secrets → Add → name `VITE_CARTO_API_KEY`, value
+  = the key, environment Production (add Preview too if you want preview
+  deploys unwatermarked) → Save. The key is read at build time, so trigger a
+  build afterwards (merge/push to `main`, or Deployments → Retry deployment).
+- **Local dev:** put `VITE_CARTO_API_KEY=...` in `.env.local` (gitignored).
+
+The key ends up in the browser bundle, as any tile key does; CARTO ties it
+to the domain given when it was requested. Keep the CARTO/OpenStreetMap
+attribution on the map: it is the condition of the free tier.
+
 ### 1. Install Dependencies
 
 ```bash

@@ -2,13 +2,29 @@ import React, { useEffect, useRef, useState } from 'react';
 import maplibregl from 'maplibre-gl';
 import { gradeMeta } from './GradeBadge.jsx';
 
+// CARTO has enforced API keys on its basemap tiles since Aug 2026: without
+// one the tiles still load but carry an "API KEY REQUIRED" watermark. The
+// key is read from VITE_CARTO_API_KEY at build time (a Cloudflare Pages
+// environment variable in production, .env.local for `npm run dev`) and
+// baked into the bundle. That's expected for a browser tile key: it is
+// visible in every tile request anyway, and the free tier (5M tiles/month)
+// is bound to the domain given when the key was requested. Keep the
+// CARTO + OpenStreetMap attribution; it is the price of the free tier.
+const CARTO_API_KEY = (import.meta.env.VITE_CARTO_API_KEY || '').trim();
+if (!CARTO_API_KEY) {
+  console.warn('VITE_CARTO_API_KEY is not set: CARTO basemap tiles will show the '
+    + '"API KEY REQUIRED" watermark. Set it in the Cloudflare Pages build '
+    + 'environment (or .env.local for dev) and rebuild.');
+}
+
 // Both basemap flavors live in the style permanently and the theme toggle
 // just flips layer visibility — map.setStyle() would tear down every custom
 // source/layer/marker, and hidden raster layers cost nothing (tiles are only
 // requested for visible layers).
 function basemapStyle(dark) {
-  const tiles = flavor => ['a', 'b', 'c'].map(
-    sub => `https://${sub}.basemaps.cartocdn.com/${flavor}/{z}/{x}/{y}@2x.png`);
+  const keyQuery = CARTO_API_KEY ? `?key=${encodeURIComponent(CARTO_API_KEY)}` : '';
+  const tiles = flavor => ['a', 'b', 'c', 'd'].map(
+    sub => `https://${sub}.basemaps.cartocdn.com/rastertiles/${flavor}/{z}/{x}/{y}@2x.png${keyQuery}`);
   const source = flavor => ({
     type: 'raster',
     tiles: tiles(flavor),
