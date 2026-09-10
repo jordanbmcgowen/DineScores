@@ -49,7 +49,9 @@ export async function edgeCached(context, handler) {
   if (response.ok && /max-age=[1-9]/.test(cacheControl)) {
     response = new Response(response.body, response);
     response.headers.set('X-Edge-Cache', 'MISS');
-    context.waitUntil(cache.put(key, response.clone()));
+    const stored = cache.put(key, response.clone());
+    if (typeof context.waitUntil === 'function') context.waitUntil(stored);
+    else await stored;
   }
   return response;
 }
