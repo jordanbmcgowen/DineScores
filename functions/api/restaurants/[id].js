@@ -2,9 +2,11 @@
  * GET /api/restaurants/:id — one restaurant's full compact record, including
  * the violation summaries omitted from lite bulk transfers.
  */
-import { jsonResponse, dbUnavailable, toCompactRecord } from '../_utils.js';
+import { jsonResponse, dbUnavailable, toCompactRecord, edgeCached } from '../_utils.js';
 
-export async function onRequestGet({ params, env }) {
+export const onRequestGet = context => edgeCached(context, handleGet);
+
+async function handleGet({ params, env }) {
   if (!env.DB) return dbUnavailable();
 
   const id = params.id;
