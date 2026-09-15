@@ -112,13 +112,13 @@
   },
   "Las Vegas": {
    "last_run": {
-    "at": "2026-09-13",
-    "detail": "SNHD list fetch failed",
-    "latest": "",
-    "records": 0,
-    "status": "error"
+    "at": "2026-09-15",
+    "detail": "",
+    "latest": "2026-09-14",
+    "records": 291,
+    "status": "ok"
    },
-   "latest": "2026-09-06"
+   "latest": "2026-09-14"
   },
   "Louisville": {
    "last_run": {
@@ -392,7 +392,7 @@
   },
   "Southern Nevada Health District": {
    "group": "Las Vegas",
-   "latest": "2026-09-06"
+   "latest": "2026-09-14"
   },
   "Tarrant County Health Dept": {
    "group": "DFW",
