@@ -39,6 +39,13 @@ jobs:
           # just those requests through an unblocked address. Unset = those
           # metros are skipped and keep their existing records.
           PORTAL_PROXY_URL: ${{ secrets.PORTAL_PROXY_URL }}
+          # Or route those same requests through the relay Worker in
+          # workers/portal-relay (a Worker cannot serve HTTP CONNECT, so it is
+          # a URL-rewriting relay rather than a proxy). Deploy it, set its
+          # RELAY_TOKEN, then set these two secrets. Unverified against the
+          # portal's TLS fingerprint check — see that directory's README.
+          PORTAL_RELAY_URL: ${{ secrets.PORTAL_RELAY_URL }}
+          PORTAL_RELAY_TOKEN: ${{ secrets.PORTAL_RELAY_TOKEN }}
         run: |
           python3 dinescores_pipeline.py \
             --mode weekly \

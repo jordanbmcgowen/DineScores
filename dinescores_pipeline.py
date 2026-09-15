@@ -24,6 +24,7 @@ import threading
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timedelta, timezone
 from collections import defaultdict
+from urllib.parse import urlencode, quote
 
 import requests
 
@@ -235,12 +236,66 @@ CHROME_UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML
 # the MHD and SNHD requests go through it; empty means direct.
 PORTAL_PROXY_URL = os.environ.get('PORTAL_PROXY_URL', '').strip()
 
+# Alternative to the proxy above: a fetch relay (see workers/portal-relay).
+# A Worker cannot serve HTTP CONNECT, so it is not a `proxies` entry — the
+# target URL rides in a query parameter and the Worker fetches it. Set
+# PORTAL_RELAY_URL (the deployed Worker) and PORTAL_RELAY_TOKEN (the shared
+# secret it checks).
+#
+# Mind what the portal actually blocks on (measured 2026-09-15, one host,
+# same minute): the egress IP AND the client's TLS fingerprint, independently.
+# From an IP where Python `requests` and `curl` both get 200, Node's undici
+# gets 403 regardless of headers. A relay therefore only helps if its own
+# client is accepted, which for a Cloudflare Worker is unverified. Running
+# this pipeline's Python from any non-GitHub host is the proven path.
+PORTAL_RELAY_URL = os.environ.get('PORTAL_RELAY_URL', '').strip()
+PORTAL_RELAY_TOKEN = os.environ.get('PORTAL_RELAY_TOKEN', '').strip()
+
 
 def _portal_proxies():
     """requests `proxies` mapping for the IP-sensitive portals (None = direct)."""
     if not PORTAL_PROXY_URL:
         return None
     return {'http': PORTAL_PROXY_URL, 'https': PORTAL_PROXY_URL}
+
+
+def _relay(url, params=None):
+    """Rewrite a portal request to go through the relay Worker.
+
+    Returns (url, params, extra_headers); without a relay configured the
+    inputs come back untouched. Query params are folded into the target
+    before encoding, since anything left in `params` would land on the
+    Worker's own URL instead of the portal's.
+    """
+    if not PORTAL_RELAY_URL or url.startswith(PORTAL_RELAY_URL):
+        return url, params, {}
+    if params:
+        url = f"{url}{'&' if '?' in url else '?'}{urlencode(params, doseq=True)}"
+    sep = '&' if '?' in PORTAL_RELAY_URL else '?'
+    relayed = f"{PORTAL_RELAY_URL}{sep}url={quote(url, safe='')}"
+    headers = {'X-Relay-Token': PORTAL_RELAY_TOKEN} if PORTAL_RELAY_TOKEN else {}
+    return relayed, None, headers
+
+
+class _PortalSession(requests.Session):
+    """Session that routes portal requests through the relay Worker.
+
+    The portals' own status codes pass through untouched, so the 403/429
+    retry ladders and the detail-ban cooldowns keep working as written.
+    """
+
+    def request(self, method, url, **kw):
+        url, kw['params'], extra = _relay(url, kw.get('params'))
+        if extra:
+            kw['headers'] = {**(kw.get('headers') or {}), **extra}
+        return super().request(method, url, **kw)
+
+
+def _wants_portal_sources(cities):
+    """True if any requested city sits behind an IP-sensitive portal."""
+    portal_slugs = (set(DFW_JURISDICTIONS) | set(MHD_METRO_SLUG_GROUPS)
+                    | {'dfw', 'vegas'})
+    return bool(portal_slugs & set(cities or ()))
 
 
 def sane_inspection_date(date_str):
@@ -3348,8 +3403,9 @@ def _snhd_get(url, params=None, retries=3):
     last_err = None
     for attempt in range(retries):
         try:
-            r = requests.get(url, params=params,
-                             headers={'User-Agent': CHROME_UA}, timeout=60,
+            r_url, r_params, r_extra = _relay(url, params)
+            r = requests.get(r_url, params=r_params,
+                             headers={'User-Agent': CHROME_UA, **r_extra}, timeout=60,
                              proxies=_portal_proxies())
             r.raise_for_status()
             return r.json()
@@ -3578,7 +3634,7 @@ SKIP_KNOWN_INSPECTIONS = set()
 
 def _mhd_session():
     """Create a requests session with browser-like headers for MHD portal."""
-    s = requests.Session()
+    s = _PortalSession()
     s.headers.update({
         'User-Agent': CHROME_UA,
         'Content-Type': 'application/json',
@@ -5214,6 +5270,13 @@ def main():
         _load_freshness(args.freshness_file)
     if PORTAL_PROXY_URL:
         log.info("PORTAL_PROXY_URL set — MHD and SNHD requests will use the proxy")
+    if PORTAL_RELAY_URL:
+        log.info("PORTAL_RELAY_URL set — MHD and SNHD requests will go through "
+                 f"the relay Worker{'' if PORTAL_RELAY_TOKEN else ' (no token set)'}")
+    elif not PORTAL_PROXY_URL and _wants_portal_sources(args.cities):
+        log.warning("Neither PORTAL_RELAY_URL nor PORTAL_PROXY_URL is set: the "
+                    "MyHealthDepartment portal 403s GitHub-hosted runners, so "
+                    "those metros will be skipped if this is a CI run")
 
     log.info(f"DineScores Pipeline starting | mode={args.mode} cities={args.cities}")
 

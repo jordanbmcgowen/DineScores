@@ -102,11 +102,23 @@ middleware.
     only), otherwise from a local run. Every scheduled run is blocked this
     way and still reports success — 2026-09-06 and 2026-09-13 both shipped
     0 DFW records — so DFW only ever advances from a manual catch-up.
-    The block is scoped to GitHub's ranges, not to datacenter IPs in
-    general: an ordinary Google Cloud host reached the portal fine on
-    2026-09-15 (full search + detail pages, no 403). So the egress does not
-    have to be a residential/ISP proxy — any unblocked hop works, including
-    a Cloudflare Worker on the account that already serves the site.
+    The 403 has TWO independent causes, and a fix has to clear both
+    (measured 2026-09-15 from one Google Cloud host, same minute):
+      1. **Egress IP.** GitHub's ranges are blocked; ordinary datacenter
+         IPs are not. Python `requests` — the client the pipeline uses —
+         got a clean 200 with full search and detail pages from that host
+         and 403 from every runner.
+      2. **Client TLS fingerprint.** From that same working IP, `curl`
+         (200, HTTP/2) and Python `requests` (200) pass, while Node's
+         `fetch`/undici gets 403 no matter the headers or accept-encoding.
+         OpenSSL-based clients are accepted; undici is not.
+    So "route it through an unblocked hop" is not sufficient by itself: the
+    hop has to speak with an accepted fingerprint too. A host running the
+    pipeline's own Python is proven on both counts (a self-hosted runner, or
+    any small VM on a cron). `workers/portal-relay` is the cheap option but
+    NOT verified — Cloudflare's fetch is not an OpenSSL client, and undici
+    is already rejected, so test it with the curl in its README before
+    trusting the weekly job to it.
 - `probe-sources.yml` — manual. Curls each portal from ubuntu/macOS/windows
   runners (and through `PORTAL_PROXY_URL` if set) and prints the HTTP status.
 - `setup-database.yml` — manual (workflow_dispatch). Bulk-loads
