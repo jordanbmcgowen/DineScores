@@ -109,7 +109,10 @@ jobs:
                   warnings.append(f"{group}: {run['status']} - {run.get('detail') or 'no records shipped'}")
               elif age is not None and age > STALE_DAYS:
                   flag = 'STALE'
-                  warnings.append(f"{group}: newest inspection is {age} days old ({latest})")
+                  # A source can be stale because we could not read it or
+                  # because it published nothing; the fetcher's note says which.
+                  note = f" - {run['detail']}" if ran_today and run.get('detail') else ''
+                  warnings.append(f"{group}: newest inspection is {age} days old ({latest}){note}")
               rows.append(f"| {group} | {status} | {run.get('records', '-') if ran_today else '-'} | "
                           f"{latest or '-'} | {'-' if age is None else age} | {flag} |")
           lines = ['## Weekly refresh: source outcomes', '',

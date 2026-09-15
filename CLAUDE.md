@@ -80,6 +80,17 @@ middleware.
     into the run summary with warning annotations for groups that failed or
     whose newest inspection is >21 days old. Look there first when "the
     refresh isn't working".
+  - **A stale source is not always a broken one.** A fetcher can leave a
+    one-line reason in `_GROUP_NOTES` (`_note_source_lag` for the common
+    "the source itself is behind" case); `_record_group` picks it up and
+    the report prints it next to the STALE/FAILED flag. Two sources that
+    look broken every week and are not, both re-verified 2026-09-15:
+    **LA County** publishes per fiscal year and closed its FY23-26 extract
+    at 2026-06-30 — the successor file does not exist yet on the hub (only
+    the Inventory item has rolled to 07/01/2026), and `_la_hub_items` will
+    pick the new one up by title as soon as it appears. **Austin** simply
+    runs weeks behind: its Socrata dataset's own newest row was 2026-08-20,
+    and the refresh had already fetched every one of them.
   - **Self-healing windows**: weekly mode starts each group's window at its
     recorded latest inspection (bounded: 45 days for API/CSV sources, 21 for
     scraped portals; `_lookback_since`) instead of a flat 8 days, so a lost

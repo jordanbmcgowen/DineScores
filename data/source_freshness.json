@@ -12,10 +12,10 @@
   },
   "Austin": {
    "last_run": {
-    "at": "2026-09-13",
-    "detail": "",
+    "at": "2026-09-15",
+    "detail": "source's own newest row is 2026-08-20 (26d old); nothing newer published",
     "latest": "2026-08-20",
-    "records": 532,
+    "records": 54,
     "status": "ok"
    },
    "latest": "2026-08-20"
@@ -102,8 +102,8 @@
   },
   "LA County": {
    "last_run": {
-    "at": "2026-09-13",
-    "detail": "",
+    "at": "2026-09-15",
+    "detail": "county extract ends 2026-06-30; no newer fiscal-year file published yet",
     "latest": "",
     "records": 0,
     "status": "empty"

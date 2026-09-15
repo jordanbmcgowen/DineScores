@@ -1066,6 +1066,18 @@ def fetch_austin(since_date=None, limit=100000):
     rows = _socrata_fetch_pages(base_url, params, limit)
     log.info(f"Austin: {len(rows)} inspection rows")
 
+    # Austin's publishing runs weeks behind the inspections themselves, which
+    # looks identical to a broken fetch in the weekly report. One aggregate
+    # call settles which it is (verified 2026-09-15: the dataset's own newest
+    # row was 2026-08-20, 26 days old, with every one of them already fetched).
+    try:
+        agg = requests.get(base_url, params={'$select': 'max(inspection_date) as mx'},
+                           timeout=30)
+        agg.raise_for_status()
+        _note_source_lag('Austin', (agg.json() or [{}])[0].get('mx'))
+    except (requests.RequestException, ValueError, IndexError, KeyError) as e:
+        log.debug(f"Austin: source-max probe failed ({e})")
+
     # Address field embeds the city as a suffix: "1625 E 6th St Austin"
     city_suffixes = sorted(AUSTIN_AREA_CITIES, key=len, reverse=True)
 
@@ -2429,8 +2441,11 @@ def fetch_la(since_date=None, limit=None):
     log.info(f"  LA: {len(coords)} facilities with coordinates in inventory")
 
     inspections = []
+    source_max = ''
     for row in _la_csv_rows(items['inspections']):
         insp_date = sane_inspection_date(_la_date(row.get('ACTIVITY DATE', '')))
+        if insp_date and insp_date > source_max:
+            source_max = insp_date
         if not insp_date or (since and insp_date < since):
             continue
         # INACTIVE programs are closed businesses (or prior ownership of a
@@ -2450,6 +2465,16 @@ def fetch_la(since_date=None, limit=None):
             break
     log.info(f"  LA: {len(inspections)} scored inspections since {since or 'start'}")
     if not inspections:
+        # The county closes each fiscal year's extract and publishes the next
+        # one as a new hub item, so a window past the current file's last day
+        # legitimately returns nothing. Say which it is: _la_hub_items already
+        # picks up the successor automatically once it appears.
+        if source_max:
+            log.warning(f"  LA: the county's extract itself ends {source_max} — "
+                        f"nothing published for the requested window")
+            _GROUP_NOTES['LA County'] = (
+                f"county extract ends {source_max}; no newer fiscal-year file "
+                f"published yet")
         return []
 
     wanted = {serial for serial, _, _, _ in inspections}
@@ -5041,10 +5066,39 @@ def _lookback_since(group, default_start, cap_days, source_labels=None):
     return since
 
 
+# One-line explanations fetchers can leave for the freshness report, keyed by
+# fetch group and consumed by the caller that records the outcome. A source
+# that answers with zero rows is otherwise indistinguishable from one that is
+# broken, which cost 77 days of "LA County is stale" before anyone checked
+# that the county simply had not published past its fiscal year end.
+_GROUP_NOTES = {}
+
+# A source whose own newest row is older than this gets a note explaining the
+# lag, so the weekly report's STALE flag reads as "the source has not
+# published" rather than "the fetch is broken". Matches the report's own
+# staleness threshold in refresh-data.yml.
+SOURCE_LAG_NOTE_DAYS = 21
+
+
+def _note_source_lag(group, source_max):
+    """Record that a source's own newest row is behind our staleness window."""
+    if not source_max:
+        return
+    try:
+        age = (datetime.now() - datetime.strptime(str(source_max)[:10], '%Y-%m-%d')).days
+    except ValueError:
+        return
+    if age > SOURCE_LAG_NOTE_DAYS:
+        _GROUP_NOTES[group] = (f"source's own newest row is {str(source_max)[:10]} "
+                               f"({age}d old); nothing newer published")
+
+
 def _record_group(group, records, status=None, detail=''):
     """Remember a fetch group's outcome this run and advance the recorded
     latest dates (per group and per record source). Only records that will
     actually ship count, so a dropped/undetailed batch is refetched later."""
+    if not detail:
+        detail = _GROUP_NOTES.pop(group, '')
     latest = max((str(r.get('inspection_date') or '')[:10] for r in records), default='')
     if status is None:
         status = 'ok' if records else 'empty'
