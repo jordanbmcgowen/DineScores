@@ -120,7 +120,8 @@ middleware.
     is already rejected, so test it with the curl in its README before
     trusting the weekly job to it.
 - `probe-sources.yml` — manual. Curls each portal from ubuntu/macOS/windows
-  runners (and through `PORTAL_PROXY_URL` if set) and prints the HTTP status.
+  runners and prints the HTTP status, repeating the blocked-portal probes
+  through `PORTAL_PROXY_URL` and `PORTAL_RELAY_URL` when those are set.
 - `setup-database.yml` — manual (workflow_dispatch). Bulk-loads
   `data/d1_seed.sql.gz` into D1 and writes `wrangler.toml`. Idempotent.
   Re-run only after committing a regenerated/repaired seed.
