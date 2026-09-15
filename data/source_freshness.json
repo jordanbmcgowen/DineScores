@@ -135,7 +135,7 @@
     "at": "2026-09-15",
     "detail": "",
     "latest": "2026-09-14",
-    "records": 540,
+    "records": 828,
     "status": "ok"
    },
    "latest": "2026-09-14"
@@ -264,7 +264,7 @@
  "sources": {
   "Adams County Health Dept": {
    "group": "MHD metros",
-   "latest": "2026-09-04"
+   "latest": "2026-09-14"
   },
   "Arlington Open Data": {
    "group": "Arlington",
@@ -316,7 +316,7 @@
   },
   "El Paso County CO Health Dept": {
    "group": "MHD metros",
-   "latest": "2026-09-05"
+   "latest": "2026-09-14"
   },
   "Fairfax County Open Data": {
    "group": "Fairfax County",
@@ -348,7 +348,7 @@
   },
   "Larimer County Health Dept": {
    "group": "MHD metros",
-   "latest": "2026-09-04"
+   "latest": "2026-09-14"
   },
   "Louisville Metro Open Data": {
    "group": "Louisville",
@@ -400,7 +400,7 @@
   },
   "Utah County Health Dept": {
    "group": "MHD metros",
-   "latest": "2026-09-05"
+   "latest": "2026-09-14"
   },
   "Wake County Open Data": {
    "group": "Wake County",
@@ -412,11 +412,11 @@
   },
   "Weld County Health Dept": {
    "group": "MHD metros",
-   "latest": "2026-09-04"
+   "latest": "2026-09-11"
   },
   "Yolo County Health Dept": {
    "group": "MHD metros",
-   "latest": "2026-09-04"
+   "latest": "2026-09-11"
   }
  },
  "updated": "2026-09-15"
