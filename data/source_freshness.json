@@ -132,13 +132,13 @@
   },
   "MHD metros": {
    "last_run": {
-    "at": "2026-09-13",
-    "detail": "MHD portal blocked this run",
-    "latest": "",
-    "records": 0,
-    "status": "blocked"
+    "at": "2026-09-15",
+    "detail": "",
+    "latest": "2026-09-14",
+    "records": 540,
+    "status": "ok"
    },
-   "latest": "2026-09-05"
+   "latest": "2026-09-14"
   },
   "Minneapolis": {
    "last_run": {
@@ -288,11 +288,11 @@
   },
   "Clackamas County Health Dept": {
    "group": "MHD metros",
-   "latest": "2026-08-24"
+   "latest": "2026-08-31"
   },
   "Clark County WA Health Dept": {
    "group": "MHD metros",
-   "latest": "2026-09-04"
+   "latest": "2026-09-14"
   },
   "DC Health": {
    "group": "dc",
@@ -364,7 +364,7 @@
   },
   "Multnomah County Health Dept": {
    "group": "MHD metros",
-   "latest": "2026-08-24"
+   "latest": "2026-09-01"
   },
   "NYC Open Data": {
    "group": "NYC",
@@ -408,7 +408,7 @@
   },
   "Washington County OR Health Dept": {
    "group": "MHD metros",
-   "latest": "2026-08-24"
+   "latest": "2026-09-01"
   },
   "Weld County Health Dept": {
    "group": "MHD metros",
