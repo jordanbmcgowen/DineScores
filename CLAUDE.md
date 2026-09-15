@@ -80,6 +80,17 @@ middleware.
     into the run summary with warning annotations for groups that failed or
     whose newest inspection is >21 days old. Look there first when "the
     refresh isn't working".
+  - **A stale source is not always a broken one.** A fetcher can leave a
+    one-line reason in `_GROUP_NOTES` (`_note_source_lag` for the common
+    "the source itself is behind" case); `_record_group` picks it up and
+    the report prints it next to the STALE/FAILED flag. Two sources that
+    look broken every week and are not, both re-verified 2026-09-15:
+    **LA County** publishes per fiscal year and closed its FY23-26 extract
+    at 2026-06-30 — the successor file does not exist yet on the hub (only
+    the Inventory item has rolled to 07/01/2026), and `_la_hub_items` will
+    pick the new one up by title as soon as it appears. **Austin** simply
+    runs weeks behind: its Socrata dataset's own newest row was 2026-08-20,
+    and the refresh had already fetched every one of them.
   - **Self-healing windows**: weekly mode starts each group's window at its
     recorded latest inspection (bounded: 45 days for API/CSV sources, 21 for
     scraped portals; `_lookback_since`) instead of a flat 8 days, so a lost
@@ -87,8 +98,27 @@ middleware.
   - **MHD blocks every GitHub-hosted runner type** (ubuntu, macOS, windows
     all get 403 — probed 2026-09-07 with `probe-sources.yml`). The MHD metros
     (DFW, Portland, CO Front Range, Utah County, Yolo) refresh from CI only
-    with the `PORTAL_PROXY_URL` secret (residential/ISP proxy; applied to MHD
-    and SNHD requests only), otherwise from a local run.
+    with the `PORTAL_PROXY_URL` secret (applied to MHD and SNHD requests
+    only), otherwise from a local run. Every scheduled run is blocked this
+    way and still reports success — 2026-09-06 and 2026-09-13 both shipped
+    0 DFW records — so DFW only ever advances from a manual catch-up.
+    The 403 has TWO independent causes, and a fix has to clear both
+    (measured 2026-09-15 from one Google Cloud host, same minute):
+      1. **Egress IP.** GitHub's ranges are blocked; ordinary datacenter
+         IPs are not. Python `requests` — the client the pipeline uses —
+         got a clean 200 with full search and detail pages from that host
+         and 403 from every runner.
+      2. **Client TLS fingerprint.** From that same working IP, `curl`
+         (200, HTTP/2) and Python `requests` (200) pass, while Node's
+         `fetch`/undici gets 403 no matter the headers or accept-encoding.
+         OpenSSL-based clients are accepted; undici is not.
+    So "route it through an unblocked hop" is not sufficient by itself: the
+    hop has to speak with an accepted fingerprint too. A host running the
+    pipeline's own Python is proven on both counts (a self-hosted runner, or
+    any small VM on a cron). `workers/portal-relay` is the cheap option but
+    NOT verified — Cloudflare's fetch is not an OpenSSL client, and undici
+    is already rejected, so test it with the curl in its README before
+    trusting the weekly job to it.
 - `probe-sources.yml` — manual. Curls each portal from ubuntu/macOS/windows
   runners (and through `PORTAL_PROXY_URL` if set) and prints the HTTP status.
 - `setup-database.yml` — manual (workflow_dispatch). Bulk-loads

@@ -24,6 +24,7 @@ import threading
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timedelta, timezone
 from collections import defaultdict
+from urllib.parse import urlencode, quote
 
 import requests
 
@@ -142,8 +143,10 @@ SEVERITY_MAP = {
 # URL pattern: https://inspections.myhealthdepartment.com/{slug}
 
 DFW_JURISDICTIONS = {
-    # Confirmed working on myhealthdepartment.com (re-verified 2026-07-05,
-    # including from cloud/CI IPs — the portal no longer blocks them).
+    # Confirmed working on myhealthdepartment.com (re-verified 2026-09-15).
+    # Reachable from ordinary cloud/datacenter egress, but NOT from GitHub
+    # Actions: the portal 403s every GitHub-hosted runner range, so the weekly
+    # CI refresh skips these unless PORTAL_PROXY_URL is set (see below).
     # score_scale: '100' = 0-100 where higher is better (Dallas, Plano);
     #              'demerit' = demerit points where LOWER is better (Frisco).
     'dallas':       {'display_name': 'Dallas',        'default_city': 'Dallas',        'state': 'TX'},
@@ -233,12 +236,66 @@ CHROME_UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML
 # the MHD and SNHD requests go through it; empty means direct.
 PORTAL_PROXY_URL = os.environ.get('PORTAL_PROXY_URL', '').strip()
 
+# Alternative to the proxy above: a fetch relay (see workers/portal-relay).
+# A Worker cannot serve HTTP CONNECT, so it is not a `proxies` entry — the
+# target URL rides in a query parameter and the Worker fetches it. Set
+# PORTAL_RELAY_URL (the deployed Worker) and PORTAL_RELAY_TOKEN (the shared
+# secret it checks).
+#
+# Mind what the portal actually blocks on (measured 2026-09-15, one host,
+# same minute): the egress IP AND the client's TLS fingerprint, independently.
+# From an IP where Python `requests` and `curl` both get 200, Node's undici
+# gets 403 regardless of headers. A relay therefore only helps if its own
+# client is accepted, which for a Cloudflare Worker is unverified. Running
+# this pipeline's Python from any non-GitHub host is the proven path.
+PORTAL_RELAY_URL = os.environ.get('PORTAL_RELAY_URL', '').strip()
+PORTAL_RELAY_TOKEN = os.environ.get('PORTAL_RELAY_TOKEN', '').strip()
+
 
 def _portal_proxies():
     """requests `proxies` mapping for the IP-sensitive portals (None = direct)."""
     if not PORTAL_PROXY_URL:
         return None
     return {'http': PORTAL_PROXY_URL, 'https': PORTAL_PROXY_URL}
+
+
+def _relay(url, params=None):
+    """Rewrite a portal request to go through the relay Worker.
+
+    Returns (url, params, extra_headers); without a relay configured the
+    inputs come back untouched. Query params are folded into the target
+    before encoding, since anything left in `params` would land on the
+    Worker's own URL instead of the portal's.
+    """
+    if not PORTAL_RELAY_URL or url.startswith(PORTAL_RELAY_URL):
+        return url, params, {}
+    if params:
+        url = f"{url}{'&' if '?' in url else '?'}{urlencode(params, doseq=True)}"
+    sep = '&' if '?' in PORTAL_RELAY_URL else '?'
+    relayed = f"{PORTAL_RELAY_URL}{sep}url={quote(url, safe='')}"
+    headers = {'X-Relay-Token': PORTAL_RELAY_TOKEN} if PORTAL_RELAY_TOKEN else {}
+    return relayed, None, headers
+
+
+class _PortalSession(requests.Session):
+    """Session that routes portal requests through the relay Worker.
+
+    The portals' own status codes pass through untouched, so the 403/429
+    retry ladders and the detail-ban cooldowns keep working as written.
+    """
+
+    def request(self, method, url, **kw):
+        url, kw['params'], extra = _relay(url, kw.get('params'))
+        if extra:
+            kw['headers'] = {**(kw.get('headers') or {}), **extra}
+        return super().request(method, url, **kw)
+
+
+def _wants_portal_sources(cities):
+    """True if any requested city sits behind an IP-sensitive portal."""
+    portal_slugs = (set(DFW_JURISDICTIONS) | set(MHD_METRO_SLUG_GROUPS)
+                    | {'dfw', 'vegas'})
+    return bool(portal_slugs & set(cities or ()))
 
 
 def sane_inspection_date(date_str):
@@ -1063,6 +1120,18 @@ def fetch_austin(since_date=None, limit=100000):
 
     rows = _socrata_fetch_pages(base_url, params, limit)
     log.info(f"Austin: {len(rows)} inspection rows")
+
+    # Austin's publishing runs weeks behind the inspections themselves, which
+    # looks identical to a broken fetch in the weekly report. One aggregate
+    # call settles which it is (verified 2026-09-15: the dataset's own newest
+    # row was 2026-08-20, 26 days old, with every one of them already fetched).
+    try:
+        agg = requests.get(base_url, params={'$select': 'max(inspection_date) as mx'},
+                           timeout=30)
+        agg.raise_for_status()
+        _note_source_lag('Austin', (agg.json() or [{}])[0].get('mx'))
+    except (requests.RequestException, ValueError, IndexError, KeyError) as e:
+        log.debug(f"Austin: source-max probe failed ({e})")
 
     # Address field embeds the city as a suffix: "1625 E 6th St Austin"
     city_suffixes = sorted(AUSTIN_AREA_CITIES, key=len, reverse=True)
@@ -2427,8 +2496,11 @@ def fetch_la(since_date=None, limit=None):
     log.info(f"  LA: {len(coords)} facilities with coordinates in inventory")
 
     inspections = []
+    source_max = ''
     for row in _la_csv_rows(items['inspections']):
         insp_date = sane_inspection_date(_la_date(row.get('ACTIVITY DATE', '')))
+        if insp_date and insp_date > source_max:
+            source_max = insp_date
         if not insp_date or (since and insp_date < since):
             continue
         # INACTIVE programs are closed businesses (or prior ownership of a
@@ -2448,6 +2520,16 @@ def fetch_la(since_date=None, limit=None):
             break
     log.info(f"  LA: {len(inspections)} scored inspections since {since or 'start'}")
     if not inspections:
+        # The county closes each fiscal year's extract and publishes the next
+        # one as a new hub item, so a window past the current file's last day
+        # legitimately returns nothing. Say which it is: _la_hub_items already
+        # picks up the successor automatically once it appears.
+        if source_max:
+            log.warning(f"  LA: the county's extract itself ends {source_max} — "
+                        f"nothing published for the requested window")
+            _GROUP_NOTES['LA County'] = (
+                f"county extract ends {source_max}; no newer fiscal-year file "
+                f"published yet")
         return []
 
     wanted = {serial for serial, _, _, _ in inspections}
@@ -3321,8 +3403,9 @@ def _snhd_get(url, params=None, retries=3):
     last_err = None
     for attempt in range(retries):
         try:
-            r = requests.get(url, params=params,
-                             headers={'User-Agent': CHROME_UA}, timeout=60,
+            r_url, r_params, r_extra = _relay(url, params)
+            r = requests.get(r_url, params=r_params,
+                             headers={'User-Agent': CHROME_UA, **r_extra}, timeout=60,
                              proxies=_portal_proxies())
             r.raise_for_status()
             return r.json()
@@ -3551,7 +3634,7 @@ SKIP_KNOWN_INSPECTIONS = set()
 
 def _mhd_session():
     """Create a requests session with browser-like headers for MHD portal."""
-    s = requests.Session()
+    s = _PortalSession()
     s.headers.update({
         'User-Agent': CHROME_UA,
         'Content-Type': 'application/json',
@@ -5039,10 +5122,39 @@ def _lookback_since(group, default_start, cap_days, source_labels=None):
     return since
 
 
+# One-line explanations fetchers can leave for the freshness report, keyed by
+# fetch group and consumed by the caller that records the outcome. A source
+# that answers with zero rows is otherwise indistinguishable from one that is
+# broken, which cost 77 days of "LA County is stale" before anyone checked
+# that the county simply had not published past its fiscal year end.
+_GROUP_NOTES = {}
+
+# A source whose own newest row is older than this gets a note explaining the
+# lag, so the weekly report's STALE flag reads as "the source has not
+# published" rather than "the fetch is broken". Matches the report's own
+# staleness threshold in refresh-data.yml.
+SOURCE_LAG_NOTE_DAYS = 21
+
+
+def _note_source_lag(group, source_max):
+    """Record that a source's own newest row is behind our staleness window."""
+    if not source_max:
+        return
+    try:
+        age = (datetime.now() - datetime.strptime(str(source_max)[:10], '%Y-%m-%d')).days
+    except ValueError:
+        return
+    if age > SOURCE_LAG_NOTE_DAYS:
+        _GROUP_NOTES[group] = (f"source's own newest row is {str(source_max)[:10]} "
+                               f"({age}d old); nothing newer published")
+
+
 def _record_group(group, records, status=None, detail=''):
     """Remember a fetch group's outcome this run and advance the recorded
     latest dates (per group and per record source). Only records that will
     actually ship count, so a dropped/undetailed batch is refetched later."""
+    if not detail:
+        detail = _GROUP_NOTES.pop(group, '')
     latest = max((str(r.get('inspection_date') or '')[:10] for r in records), default='')
     if status is None:
         status = 'ok' if records else 'empty'
@@ -5158,6 +5270,13 @@ def main():
         _load_freshness(args.freshness_file)
     if PORTAL_PROXY_URL:
         log.info("PORTAL_PROXY_URL set — MHD and SNHD requests will use the proxy")
+    if PORTAL_RELAY_URL:
+        log.info("PORTAL_RELAY_URL set — MHD and SNHD requests will go through "
+                 f"the relay Worker{'' if PORTAL_RELAY_TOKEN else ' (no token set)'}")
+    elif not PORTAL_PROXY_URL and _wants_portal_sources(args.cities):
+        log.warning("Neither PORTAL_RELAY_URL nor PORTAL_PROXY_URL is set: the "
+                    "MyHealthDepartment portal 403s GitHub-hosted runners, so "
+                    "those metros will be skipped if this is a CI run")
 
     log.info(f"DineScores Pipeline starting | mode={args.mode} cities={args.cities}")
 
