@@ -142,8 +142,10 @@ SEVERITY_MAP = {
 # URL pattern: https://inspections.myhealthdepartment.com/{slug}
 
 DFW_JURISDICTIONS = {
-    # Confirmed working on myhealthdepartment.com (re-verified 2026-07-05,
-    # including from cloud/CI IPs — the portal no longer blocks them).
+    # Confirmed working on myhealthdepartment.com (re-verified 2026-09-15).
+    # Reachable from ordinary cloud/datacenter egress, but NOT from GitHub
+    # Actions: the portal 403s every GitHub-hosted runner range, so the weekly
+    # CI refresh skips these unless PORTAL_PROXY_URL is set (see below).
     # score_scale: '100' = 0-100 where higher is better (Dallas, Plano);
     #              'demerit' = demerit points where LOWER is better (Frisco).
     'dallas':       {'display_name': 'Dallas',        'default_city': 'Dallas',        'state': 'TX'},

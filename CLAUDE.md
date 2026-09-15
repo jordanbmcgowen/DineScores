@@ -87,8 +87,15 @@ middleware.
   - **MHD blocks every GitHub-hosted runner type** (ubuntu, macOS, windows
     all get 403 — probed 2026-09-07 with `probe-sources.yml`). The MHD metros
     (DFW, Portland, CO Front Range, Utah County, Yolo) refresh from CI only
-    with the `PORTAL_PROXY_URL` secret (residential/ISP proxy; applied to MHD
-    and SNHD requests only), otherwise from a local run.
+    with the `PORTAL_PROXY_URL` secret (applied to MHD and SNHD requests
+    only), otherwise from a local run. Every scheduled run is blocked this
+    way and still reports success — 2026-09-06 and 2026-09-13 both shipped
+    0 DFW records — so DFW only ever advances from a manual catch-up.
+    The block is scoped to GitHub's ranges, not to datacenter IPs in
+    general: an ordinary Google Cloud host reached the portal fine on
+    2026-09-15 (full search + detail pages, no 403). So the egress does not
+    have to be a residential/ISP proxy — any unblocked hop works, including
+    a Cloudflare Worker on the account that already serves the site.
 - `probe-sources.yml` — manual. Curls each portal from ubuntu/macOS/windows
   runners (and through `PORTAL_PROXY_URL` if set) and prints the HTTP status.
 - `setup-database.yml` — manual (workflow_dispatch). Bulk-loads
