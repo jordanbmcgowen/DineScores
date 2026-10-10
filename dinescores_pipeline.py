@@ -2354,9 +2354,10 @@ def fetch_san_antonio(since_date=None, until_date=None, limit=None, fetch_violat
                 local.s = _sa_session()
             return local.s
 
-        def _sa_hold(fac):
+        def _sa_hold(fac, counted=True):
             days = [iso for iso in fac['inspections'] if since_iso <= iso <= until_iso]
-            _hold_freshness('San Antonio Metro Health', min(days) if days else fac['newest_hit'])
+            _hold_freshness('San Antonio Metro Health', min(days) if days else fac['newest_hit'],
+                            counted)
 
         def work(fac):
             if _past_deadline():
@@ -2398,7 +2399,7 @@ def fetch_san_antonio(since_date=None, until_date=None, limit=None, fetch_violat
                             f"false-clean inspections")
                 elif blocks == 'deadline':
                     counts['deadline'] += 1
-                    _sa_hold(fac)
+                    _sa_hold(fac, counted=False)
                 else:
                     consecutive_failures = 0
                     apply_blocks(fac, blocks)
@@ -2424,8 +2425,9 @@ def fetch_san_antonio(since_date=None, until_date=None, limit=None, fetch_violat
             # refetch it next run.
             log.warning(f"San Antonio: dropping {len(failed)} facilities with "
                         f"unreadable estab pages")
+            retried = not _past_deadline()
             for fac in failed:
-                _sa_hold(fac)
+                _sa_hold(fac, counted=retried)
         if counts['deadline']:
             log.warning(f"San Antonio: fetch deadline reached — {counts['deadline']} "
                         f"facilities left undetailed (dropped)")
@@ -5033,7 +5035,7 @@ def fetch_omaha(since_date=None, limit=None):
             else:
                 failures[report] += 1
                 if report in ('download', 'deadline'):
-                    _hold_freshness(OMAHA_SOURCE, cand[0])
+                    _hold_freshness(OMAHA_SOURCE, cand[0], counted=(report == 'download'))
             if done % 200 == 0:
                 log.info(f"  Omaha PDFs: {done}/{len(candidates)}")
     log.info(f"  Omaha: {len(reports)} PDFs read in {time.time() - started:.0f}s")
@@ -5215,6 +5217,10 @@ _SNHD_RATE_LIMITED_UNTIL = 0.0
 # A 400/404/410 is that one permit's problem: not retried, not counted.
 SNHD_MAX_TOTAL_PAUSE = float(os.environ.get('SNHD_MAX_TOTAL_PAUSE', '900'))   # seconds
 SNHD_BREAKER_TRIP = 3
+# A run that leaves permits unread re-reads from this many days before the
+# oldest of them (see fetch_vegas): covers a permit's earlier inspection a
+# couple of weeks before its current one without pinning the window.
+SNHD_HOLD_MARGIN_DAYS = 14
 _SNHD_BLOCKED = False
 _SNHD_PAUSED_TOTAL = 0.0
 _SNHD_EXHAUSTED_STREAK = 0
@@ -5251,7 +5257,11 @@ def _snhd_wait_if_limited():
         time.sleep(min(remaining, 5))
 
 
-def _snhd_get(url, params=None, retries=4):
+def _snhd_get(url, params=None, retries=4, info=None):
+    """GET an SNHD API url; the parsed JSON, or None on failure. With
+    `info` (a dict), info['permanent'] says whether the failure was the
+    request's own (400/404/410: that permit will never read) rather than
+    the district's."""
     global _SNHD_FAILURES_LOGGED, _SNHD_LAST_ERROR, _SNHD_BLOCKED, _SNHD_EXHAUSTED_STREAK
     global _SNHD_PAUSED_TOTAL
     if _SNHD_BLOCKED:
@@ -5280,6 +5290,8 @@ def _snhd_get(url, params=None, retries=4):
             status = resp.status_code if resp is not None else None
             if status in (400, 404, 410):
                 permanent = True
+                if info is not None:
+                    info['permanent'] = True
                 break
             if attempt == retries - 1:
                 break
@@ -5430,30 +5442,37 @@ def fetch_vegas(since_date=None, limit=None, fetch_violations=True):
 
         def work(pn):
             if _past_deadline() or _SNHD_BLOCKED:
-                return pn, None
-            d = _snhd_get(f'{SNHD_API}/{pn}')
+                return pn, None, 'cut'
+            info = {}
+            d = _snhd_get(f'{SNHD_API}/{pn}', info=info)
             time.sleep(SNHD_DETAIL_DELAY)
-            return pn, d
+            if d is not None:
+                return pn, d, ''
+            if info.get('permanent'):
+                return pn, None, 'permanent'
+            # A breaker trip or the deadline during this request is the
+            # run's problem, not the permit's.
+            return pn, None, 'cut' if (_SNHD_BLOCKED or _past_deadline()) else 'failed'
 
+        unread = {'failed': [], 'cut': []}
+        permanent = 0
         done = 0
         with ThreadPoolExecutor(max_workers=SNHD_DETAIL_WORKERS) as pool:
             for future in as_completed([pool.submit(work, pn) for pn in todo]):
-                pn, d = future.result()
+                pn, d, why = future.result()
                 done += 1
                 if done % 1000 == 0:
                     log.info(f"  SNHD details: {done}/{len(todo)}")
                 if d is None:
                     # Unreadable permit: skip rather than record without
-                    # violation context (same policy as the Tyler portals),
-                    # and hold Las Vegas's freshness so the next run's
-                    # lookback reads the permit's inspection day again.
+                    # violation context (same policy as the Tyler portals).
+                    # A 400/404/410 is that permit's own and never reads;
+                    # anything else holds the freshness (below).
                     skipped += 1
-                    # Held at the window start, not the permit's current
-                    # date: its earlier in-window inspections (a downgrade
-                    # before a re-inspection) were not read either.
-                    _hold_freshness('Southern Nevada Health District',
-                                    sd or sane_inspection_date(
-                                        str(permits[pn].get('date_current') or '')[:10]))
+                    if why == 'permanent':
+                        permanent += 1
+                    else:
+                        unread[why].append(pn)
                     continue
                 row = permits[pn]
                 cur_date = sane_inspection_date(str(d.get('date_current') or row.get('date_current') or '')[:10])
@@ -5480,8 +5499,30 @@ def fetch_vegas(since_date=None, limit=None, fetch_violations=True):
                 results.append(build(row, cur_date, row.get('current_grade'),
                                      row.get('current_demerits'),
                                      row.get('inspection_type'), []))
+    # Hold Las Vegas so the next run re-reads the unread permits. Not at each
+    # permit's own current date: its earlier in-window inspections (a
+    # downgrade before a re-inspection) were not read either. Not at the
+    # window start as such either: the lookback reaches back two days past
+    # a hold, so the window would slide back two days every run and the
+    # give-up count would never see the same date twice. The next window
+    # starts exactly at the later of this window's start and SNHD_HOLD_MARGIN
+    # days before the oldest unread permit (oldest-first order: a cut run
+    # still moves the window forward by what it read).
+    for why, pns in unread.items():
+        if not pns:
+            continue
+        oldest = min(sane_inspection_date(str(permits[pn].get('date_current') or '')[:10]) or '9999'
+                     for pn in pns)
+        if oldest == '9999':
+            continue
+        start = (datetime.strptime(oldest, '%Y-%m-%d')
+                 - timedelta(days=SNHD_HOLD_MARGIN_DAYS)).strftime('%Y-%m-%d')
+        if sd and sd > start:
+            start = sd
+        _hold_window_start('Southern Nevada Health District', start, counted=(why == 'failed'))
     if skipped:
-        log.warning(f"  SNHD: skipped {skipped} permits with unreadable details")
+        log.warning(f"  SNHD: skipped {skipped} permits with unreadable details"
+                    + (f" ({permanent} answered 400/404/410 and are not retried)" if permanent else ''))
         if _SNHD_BLOCKED:
             _set_group_status('Las Vegas', 'blocked',
                               f'SNHD throttled the detail phase; {skipped} permits not read')
@@ -6188,7 +6229,8 @@ def _fetch_mhd_jurisdiction_api(session, slug, config, since_date=None, limit=No
                 # The deadline may have cut this window's term/purpose queries
                 # short: hold the source at it so the day is read again.
                 _MHD_DEADLINE_CUT.add(display_name)
-                _hold_freshness(f"{display_name} Health Dept", win_start.strftime('%Y-%m-%d'))
+                _hold_freshness(f"{display_name} Health Dept", win_start.strftime('%Y-%m-%d'),
+                                counted=False)
         else:
             raw_records = _mhd_fetch_window(session, path, win_start, win_end)
         if raw_records is None:
@@ -6259,7 +6301,7 @@ def _fetch_mhd_jurisdiction_api(session, slug, config, since_date=None, limit=No
         log.warning(f"{display_name}: fetch deadline reached before the detail "
                     f"phase — dropping {len(all_records)} undetailed inspections")
         _hold_freshness(all_records[0].get('source'),
-                        min(str(r['inspection_date'])[:10] for r in all_records))
+                        min(str(r['inspection_date'])[:10] for r in all_records), counted=False)
         _MHD_DEADLINE_CUT.add(display_name)
         return []
     if fetch_violations and all_records:
@@ -6281,8 +6323,11 @@ def _fetch_mhd_jurisdiction_api(session, slug, config, since_date=None, limit=No
             # next weekly refresh) re-attempts it.
             log.warning(f"{display_name}: dropping {len(unreadable)} inspections "
                         f"with unreadable detail pages")
+            # A block or the deadline left them unread: hold without
+            # counting. Otherwise they were tried twice and failed.
+            counted = not (_MHD_PORTAL_BLOCKED or _past_deadline())
             for r in unreadable:
-                _hold_freshness(r.get('source'), str(r['inspection_date'])[:10])
+                _hold_freshness(r.get('source'), str(r['inspection_date'])[:10], counted)
             if _past_deadline():
                 _MHD_DEADLINE_CUT.add(display_name)
             drop = {id(r) for r in unreadable}
@@ -6462,6 +6507,11 @@ OC_SIDECAR_PATH = (os.environ.get('OC_SIDECAR_PATH', '').strip()
                    or os.path.join(os.path.dirname(os.path.abspath(__file__)),
                                    'data', 'orange_county_inspections.jsonl'))
 OC_SIDECAR_KEEP_DAYS = 10      # by inspection_date, relative to the newest held
+# ...but never before the newest OC inspection the last COMMITTED weekly run
+# shipped into data.js (its recorded latest), up to this bound: a weekly run
+# whose D1 update failed holds data.js back, and the days it held must still
+# be in the sidecar for next week's run to ship.
+OC_SIDECAR_MAX_DAYS = 35
 # Printable-PDF pace: a small pool, paced, and the phase stops at the first
 # 403/429 that survives a retry (the records still ship, see above). The cap
 # bounds a run that finds a long backlog of retries.
@@ -6909,12 +6959,16 @@ def _oc_write_sidecar(path, recs):
 def _oc_prune(recs):
     """Drop inspections older than OC_SIDECAR_KEEP_DAYS before the newest held
     (relative to the data, not the clock, so a quiet portal never empties the
-    sidecar). Returns the number dropped."""
+    sidecar), keeping everything after the last shipped weekly (see
+    OC_SIDECAR_MAX_DAYS). Returns the number dropped."""
     if not recs:
         return 0
     newest = max(str(r['inspection_date'])[:10] for r in recs.values())
-    cutoff = (datetime.strptime(newest, '%Y-%m-%d')
-              - timedelta(days=OC_SIDECAR_KEEP_DAYS)).strftime('%Y-%m-%d')
+    newest_day = datetime.strptime(newest, '%Y-%m-%d')
+    cutoff = (newest_day - timedelta(days=OC_SIDECAR_KEEP_DAYS)).strftime('%Y-%m-%d')
+    shipped = _group_latest('Orange County')
+    if shipped and shipped < cutoff:
+        cutoff = max(shipped, (newest_day - timedelta(days=OC_SIDECAR_MAX_DAYS)).strftime('%Y-%m-%d'))
     old = [sid for sid, r in recs.items() if str(r['inspection_date'])[:10] < cutoff]
     for sid in old:
         del recs[sid]
@@ -7184,14 +7238,18 @@ def fetch_orange_county(since_date=None, limit=None, fetch_violations=True,
                             detail=f"{empty} of {len(read)} printables read with no violations — "
                                    f"has the county changed the violations layout?")
                 log.error(f"Orange County: {poll['detail']}")
-            elif skipped and (_OC_PDF_BLOCKED or _past_deadline()):
-                why = 'printable endpoint blocked' if _OC_PDF_BLOCKED else 'fetch deadline reached'
-                poll.update(status='blocked' if _OC_PDF_BLOCKED else 'skipped',
-                            detail=f"{why}; {skipped} inspections wait for their printable")
+            elif skipped and (_OC_PDF_BLOCKED or _MHD_PORTAL_BLOCKED or _past_deadline()):
+                blocked = _OC_PDF_BLOCKED or _MHD_PORTAL_BLOCKED
+                why = ('printable endpoint blocked' if _OC_PDF_BLOCKED else
+                       'MHD portal blocked' if _MHD_PORTAL_BLOCKED else 'fetch deadline reached')
+                poll.update(status='blocked' if blocked else 'skipped',
+                            detail='; '.join(x for x in (
+                                poll.get('detail'),
+                                f"{why}; {skipped} inspections wait for their printable") if x))
                 log.warning(f"Orange County: {poll['detail']}")
     elif fetch_violations and new_records:
         log.warning(f"Orange County: PDF phase skipped (poll {poll['status']}); "
-                    f"{len(new_records)} new inspections ship with results only for now")
+                    f"{len(new_records)} new inspections wait in the sidecar for their printable")
 
     missing = [r for r in sidecar.values() if not r.get('latitude') or not r.get('longitude')]
     poll['geocode_missing'] = len(missing)
@@ -8217,14 +8275,19 @@ def _note_source_lag(group, source_max):
 # lookback reads that day again. Without it, shipping the later days of the
 # same run advanced the latest beyond the drop and lost it for good.
 _MHD_DEADLINE_CUT = set()        # MHD display names whose fetch the deadline cut this run
-_FRESHNESS_HOLDS = {}            # source label -> set of dropped inspection dates
+# source label -> {dropped date: counted}. `counted` is False when the drop
+# was not a failure of that record (the deadline, a breaker or a block cut
+# the phase short), True when the record was tried and could not be read.
+_FRESHNESS_HOLDS = {}
 _FRESHNESS_HOLD_LOCK = threading.Lock()
-# A date that is still dropped after this many consecutive runs is treated
-# as permanently unreadable and no longer holds the window (the count lives
-# in the freshness file, per source, as 'hold': {'date', 'runs'}), so one bad
-# record cannot pin a source's window open and growing week after week. Any
-# other dropped date of the same run still holds. No age limit: a catch-up
-# run's drops from two months back are held like last week's.
+# A date whose records were TRIED and failed this many runs in a row is
+# treated as permanently unreadable: it is given up (remembered per source
+# in the freshness file as 'given_up', so a later re-read that fails again
+# cannot restart its count) and no longer holds the window. The count is
+# per date ('hold': {'date', 'failures': {date: runs}}), so two bad records
+# a day apart cannot take turns holding the window open. Drops the deadline
+# or a breaker caused hold without counting: a backlog that drains over
+# several runs is never given up. No age limit.
 FRESHNESS_HOLD_GIVE_UP_RUNS = 3
 
 # A fetcher that shipped only PART of its window (a breaker tripped, the
@@ -8233,14 +8296,31 @@ FRESHNESS_HOLD_GIVE_UP_RUNS = 3
 _GROUP_STATUS = {}               # group -> (status, detail)
 
 
-def _hold_freshness(source, inspection_date):
+def _hold_freshness(source, inspection_date, counted=True):
     """Keep `source`'s recorded latest at or before the day before
-    `inspection_date` this run (see _FRESHNESS_HOLDS)."""
+    `inspection_date` this run (see _FRESHNESS_HOLDS). counted=False for a
+    drop the deadline, a breaker or a block caused: it holds, but never
+    counts toward giving the date up."""
     d = str(inspection_date or '')[:10]
     if not source or len(d) != 10:
         return
     with _FRESHNESS_HOLD_LOCK:
-        _FRESHNESS_HOLDS.setdefault(source, set()).add(d)
+        drops = _FRESHNESS_HOLDS.setdefault(source, {})
+        drops[d] = drops.get(d, True) and bool(counted)
+
+
+def _hold_window_start(source, start, counted=True):
+    """Hold `source` so the next run's lookback starts exactly at `start`
+    (not two days before it, which is what holding at `start` itself gives:
+    the cap is the day before, and the lookback re-reads one more day). For
+    fetchers that must re-read a whole window rather than one day; the hold
+    date then repeats run after run, so the give-up count works."""
+    try:
+        day = datetime.strptime(str(start)[:10], '%Y-%m-%d')
+    except ValueError:
+        return
+    _hold_freshness(source, (day + timedelta(days=1 + FRESHNESS_OVERLAP_DAYS)).strftime('%Y-%m-%d'),
+                    counted)
 
 
 def _set_group_status(group, status, detail=''):
@@ -8280,30 +8360,44 @@ def _record_group(group, records, status=None, detail=''):
     # Freshness holds for this group's sources: the day before the earliest
     # transient drop caps what this run may record (and pulls an already
     # recorded latest back), so the next lookback re-reads the drop. A date
-    # dropped FRESHNESS_HOLD_GIVE_UP_RUNS runs in a row is given up on; the
-    # next-earliest drop of the run holds instead.
+    # whose records were tried and failed FRESHNESS_HOLD_GIVE_UP_RUNS runs in
+    # a row is given up for good; the next-earliest drop holds instead.
     caps = {}
     with _FRESHNESS_HOLD_LOCK:
         mine = [s for s in _FRESHNESS_HOLDS
                 if s in by_source or (_FRESHNESS['sources'].get(s) or {}).get('group') == group]
-        dropped = {s: sorted(_FRESHNESS_HOLDS.pop(s)) for s in mine}
-    for s, dates in dropped.items():
+        dropped = {s: _FRESHNESS_HOLDS.pop(s) for s in mine}
+    keep_from = (datetime.now() - timedelta(days=FRESHNESS_LOOKBACK_API_DAYS)).strftime('%Y-%m-%d')
+    for s, drops in dropped.items():
         e = _FRESHNESS['sources'].setdefault(s, {'group': group})
         prev = e.get('hold') or {}
-        new_hold = None
-        for d in dates:
-            runs = (prev.get('runs') or 0) + 1 if prev.get('date') == d else 1
+        prev_fail = dict(prev.get('failures') or {})
+        if not prev_fail and prev.get('date') and prev.get('runs'):
+            prev_fail = {prev['date']: prev['runs']}      # the older single-date form
+        given_up = set(e.get('given_up') or [])
+        failures, live = {}, []
+        for d in sorted(drops):
+            if d in given_up:
+                continue
+            runs = prev_fail.get(d, 0) + (1 if drops[d] else 0)
             if runs >= FRESHNESS_HOLD_GIVE_UP_RUNS:
+                given_up.add(d)
                 log.warning(f"{group}: {s} has failed to read an inspection from {d} "
                             f"{runs} runs in a row — giving up on it")
                 continue
-            new_hold = {'date': d, 'runs': runs}
-            caps[s] = (datetime.strptime(d, '%Y-%m-%d') - timedelta(days=1)).strftime('%Y-%m-%d')
-            break
-        if new_hold:
-            e['hold'] = new_hold
+            if runs:
+                failures[d] = runs
+            live.append(d)
+        if live:
+            e['hold'] = {'date': live[0], 'failures': failures}
+            caps[s] = (datetime.strptime(live[0], '%Y-%m-%d') - timedelta(days=1)).strftime('%Y-%m-%d')
         else:
             e.pop('hold', None)
+        given_up = sorted(d for d in given_up if d >= keep_from)
+        if given_up:
+            e['given_up'] = given_up[-100:]
+        else:
+            e.pop('given_up', None)
     for s, cap in caps.items():
         if by_source.get(s, '') > cap:
             by_source[s] = cap

@@ -263,9 +263,13 @@ jobs:
           #
           # data.js and the freshness file ship only together with D1: when
           # the D1 update failed they are left out, freshness does not
-          # advance, and next week's run refetches the same window into both.
-          # The sidecar and the Jev cache are committed either way (the daily
-          # poll re-upserts the sidecar into D1; the cache is only a cache).
+          # advance, and next week's run refetches the same window into both
+          # (committing data.js alone would not do: next week's MHD fetch
+          # drops inspections data.js already holds, so D1 would never get
+          # them). The sidecar and the Jev cache are committed either way:
+          # the daily poll re-upserts the sidecar into D1, and the sidecar
+          # keeps every inspection after Orange County's recorded latest, so
+          # next week's run still ships the held-back days into data.js.
           # The fail step reads its own copy of the freshness file.
           cp data/source_freshness.json /tmp/weekly_freshness.json
           git add data/jev_judgments data/orange_county_inspections.jsonl

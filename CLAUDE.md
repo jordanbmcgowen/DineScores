@@ -160,9 +160,14 @@ middleware.
       block, 5xx, timeouts), `_SNHD_BLOCKED` fails every further SNHD
       request at once, so Las Vegas can never eat the whole fetch deadline.
       A success resets both counters; a 400/404/410 is that one permit's
-      problem and is neither retried nor counted. Permits run oldest-first,
-      the ones not read hold its freshness at the window start, and the
-      group is reported 'blocked'.
+      problem and is neither retried, counted nor held. Permits run
+      oldest-first; the ones not read hold Las Vegas with
+      `_hold_window_start`, so the next window starts exactly at the later
+      of this one's start and `SNHD_HOLD_MARGIN_DAYS` (14) before the oldest
+      unread permit. Holding at the start itself slid the window back two
+      days a run (the lookback reaches a day past the cap), so the give-up
+      count never saw the same date twice. A breaker trip reports the group
+      'blocked'.
 - `poll-orange-county.yml` — cron, 05:00 UTC Monday-Saturday. Orange
   County's MHD jurisdiction ignores every date filter and returns only its
   newest 225 inspections (~1.7 days; measured 2026-10-10, see
@@ -177,7 +182,12 @@ middleware.
   dirty tracked file stops its `git pull --rebase`, and only the weekly
   commits freshness). The weekly commits the sidecar and the Jev cache even
   when its D1 update fails, but then leaves data.js and the freshness file
-  out, so next week refetches that window into both. It runs Jev like the weekly, so the daily upsert does not flip
+  out, so next week refetches that window into both. Committing data.js
+  alone would not work: next week's MHD fetch drops inspections data.js
+  already holds (`--skip-known-inspections`), so D1 would never get them.
+  The sidecar is pruned to 10 days before its newest inspection but never
+  before Orange County's recorded latest (`OC_SIDECAR_MAX_DAYS`=35 bounds
+  it), so the days a failed weekly held back are still there next week. It runs Jev like the weekly, so the daily upsert does not flip
   D1's grades back to the regex. OC publishes no score: Pass/Reinspection/
   Closed map to 90/75/50, and violations come from the inspection's
   printable PDF (stdlib parser, county MAJ/MIN/OUT tags set the severity).
@@ -275,10 +285,16 @@ Riverside/San Bernardino DEH, Spokane, Tacoma.
   `_hold_freshness(source, date)`: the source's latest is then capped at
   the day before the earliest drop (and pulled back if already past it),
   or the later days would carry the latest beyond the drop and lose it
-  for good. The hold remembers how many runs in a row dropped that date;
-  after `FRESHNESS_HOLD_GIVE_UP_RUNS` (3) it is given up on and the next
-  drop holds instead, so one permanently unreadable record cannot pin a
-  window open, however old it is. Omaha's two known per-record PDF crashes
+  for good. Each dropped date keeps its own count of runs in a row in
+  which its records were TRIED and failed (`'hold': {'date', 'failures'}`
+  in the freshness file); at `FRESHNESS_HOLD_GIVE_UP_RUNS` (3) the date is
+  given up and remembered (`'given_up'`), so a re-read that fails again
+  cannot restart its count, and two bad records a day apart cannot take
+  turns holding the window open. Drops the deadline, a breaker or a block
+  caused pass `counted=False`: they hold but never count, so a backlog that
+  drains over several runs is never given up. No age limit. A fetcher that
+  re-reads a whole window rather than one day holds with
+  `_hold_window_start`, which keeps the hold date the same run to run. Omaha's two known per-record PDF crashes
   (`OMAHA_PERMANENT_500S`, matched on the 500's body) are not held; any
   other 500 is. An MHD jurisdiction the deadline cut is reported
   'skipped' (`_MHD_DEADLINE_CUT`). Fetchers that ship part of their window

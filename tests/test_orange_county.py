@@ -58,7 +58,8 @@ class OrangeCountyCase(unittest.TestCase):
         self.tmp = tempfile.TemporaryDirectory()
         self.sidecar = os.path.join(self.tmp.name, 'oc.jsonl')
         self._saved = (dp.MHD_DELAY, dp.OC_PDF_DELAY, dp._MHD_PORTAL_BLOCKED,
-                       dp._OC_PDF_BLOCKED, dp._FETCH_DEADLINE)
+                       dp._OC_PDF_BLOCKED, dp._FETCH_DEADLINE, dp._FRESHNESS)
+        dp._FRESHNESS = None
         self._log_level = dp.log.level
         dp.log.setLevel(logging.WARNING)       # the fetcher narrates every run
         dp.MHD_DELAY = 0
@@ -69,7 +70,7 @@ class OrangeCountyCase(unittest.TestCase):
 
     def tearDown(self):
         (dp.MHD_DELAY, dp.OC_PDF_DELAY, dp._MHD_PORTAL_BLOCKED,
-         dp._OC_PDF_BLOCKED, dp._FETCH_DEADLINE) = self._saved
+         dp._OC_PDF_BLOCKED, dp._FETCH_DEADLINE, dp._FRESHNESS) = self._saved
         dp.log.setLevel(self._log_level)
         self.tmp.cleanup()
 
@@ -220,6 +221,48 @@ class PollTests(OrangeCountyCase):
         status, detail = dp._oc_group_outcome()
         self.assertEqual(status, 'blocked')
         self.assertIn('wait for their printable', detail)
+
+    def test_a_search_block_partway_through_the_poll_is_reported_not_green(self):
+        portal = _Portal()
+        search = portal.search
+
+        def blocks_on_page_two(session, slug, date_range_str, start_offset, retry_count=0):
+            if start_offset >= dp.MHD_PAGE_SIZE:
+                dp._MHD_PORTAL_BLOCKED = True
+                return None
+            return search(session, slug, date_range_str, start_offset, retry_count)
+        portal.search = blocks_on_page_two
+        out, _, fetched = self.run_fetch(portal=portal, pdfs=_all_pdfs())
+        self.assertEqual(out, [])
+        self.assertEqual(fetched, [])                 # nothing tried, so no tries counted
+        status, detail = dp._oc_group_outcome()
+        self.assertEqual(status, 'blocked')
+        self.assertIn('MHD portal blocked', detail)
+        self.assertTrue(all((r.get('_pdf_tries') or 0) == 0 for r in self.sidecar_rows().values()))
+
+    def test_prune_keeps_what_the_last_shipped_weekly_has_not_shipped(self):
+        newest = '2026-10-08'
+        day = dp.datetime.strptime(newest, '%Y-%m-%d')
+
+        def recs(*ages):
+            return {f'R{a}': {'inspection_date': (day - dp.timedelta(days=a)).strftime('%Y-%m-%d')}
+                    for a in (0,) + ages}
+        # Normal: ten days.
+        r = recs(9, 11)
+        dp._oc_prune(r)
+        self.assertEqual(sorted(r), ['R0', 'R9'])
+        # A weekly whose D1 update failed did not commit data.js: the last
+        # shipped OC inspection is 17 days back, so everything after it stays.
+        dp._FRESHNESS = {'groups': {'Orange County': {'latest': (day - dp.timedelta(days=17)).strftime('%Y-%m-%d')}},
+                         'sources': {}}
+        r = recs(9, 11, 16, 17, 18)
+        dp._oc_prune(r)
+        self.assertEqual(sorted(r), ['R0', 'R11', 'R16', 'R17', 'R9'])
+        # ...bounded, so weeks of failed updates cannot grow it forever.
+        dp._FRESHNESS['groups']['Orange County']['latest'] = (day - dp.timedelta(days=90)).strftime('%Y-%m-%d')
+        r = recs(30, 35, 36)
+        dp._oc_prune(r)
+        self.assertEqual(sorted(r), ['R0', 'R30', 'R35'])
 
     def test_printables_that_all_read_clean_are_a_layout_alarm(self):
         clean = dp._oc_parse_printable(_pdf('pass'))
