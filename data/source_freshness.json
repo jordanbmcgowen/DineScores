@@ -135,7 +135,7 @@
     "at": "2026-10-10",
     "detail": "",
     "latest": "2026-10-09",
-    "records": 2101,
+    "records": 871,
     "status": "ok"
    },
    "latest": "2026-10-09"
@@ -180,6 +180,26 @@
    },
    "latest": "2026-10-01"
   },
+  "Omaha": {
+   "last_run": {
+    "at": "2026-10-10",
+    "detail": "",
+    "latest": "2026-10-06",
+    "records": 3249,
+    "status": "ok"
+   },
+   "latest": "2026-10-06"
+  },
+  "Orange County": {
+   "last_run": {
+    "at": "2026-10-10",
+    "detail": "",
+    "latest": "2026-10-08",
+    "records": 225,
+    "status": "ok"
+   },
+   "latest": "2026-10-08"
+  },
   "Richardson": {
    "last_run": {
     "at": "2026-10-04",
@@ -209,6 +229,16 @@
     "status": "ok"
    },
    "latest": "2026-10-03"
+  },
+  "San Diego County": {
+   "last_run": {
+    "at": "2026-10-10",
+    "detail": "",
+    "latest": "2026-10-08",
+    "records": 50000,
+    "status": "ok"
+   },
+   "latest": "2026-10-08"
   },
   "Santa Clara County": {
    "last_run": {
@@ -269,6 +299,16 @@
     "status": "ok"
    },
    "latest": "2026-10-01"
+  },
+  "sanantonio": {
+   "last_run": {
+    "at": "2026-10-10",
+    "detail": "",
+    "latest": "2026-10-08",
+    "records": 613,
+    "status": "ok"
+   },
+   "latest": "2026-10-08"
   }
  },
  "sources": {
@@ -324,6 +364,10 @@
    "group": "Detroit",
    "latest": "2026-09-17"
   },
+  "Douglas County Health Dept": {
+   "group": "Omaha",
+   "latest": "2026-10-06"
+  },
   "El Paso County CO Health Dept": {
    "group": "MHD metros",
    "latest": "2026-10-09"
@@ -342,6 +386,10 @@
   },
   "Frisco Health Dept": {
    "group": "DFW",
+   "latest": "2026-10-09"
+  },
+  "Gwinnett County Health Dept": {
+   "group": "MHD metros",
    "latest": "2026-10-09"
   },
   "Houston Health Dept": {
@@ -384,6 +432,10 @@
    "group": "NY State",
    "latest": "2026-09-25"
   },
+  "Orange County Health Care Agency": {
+   "group": "Orange County",
+   "latest": "2026-10-08"
+  },
   "Plano Health Dept": {
    "group": "DFW",
    "latest": "2026-10-09"
@@ -399,6 +451,14 @@
   "Sacramento County Open Data": {
    "group": "Sacramento",
    "latest": "2026-10-03"
+  },
+  "San Antonio Metro Health": {
+   "group": "sanantonio",
+   "latest": "2026-10-08"
+  },
+  "San Diego County DEH": {
+   "group": "San Diego County",
+   "latest": "2026-10-08"
   },
   "Santa Clara County Open Data": {
    "group": "Santa Clara County",
