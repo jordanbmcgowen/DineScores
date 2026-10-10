@@ -32,8 +32,14 @@ const GITHUB_ISSUER = 'https://token.actions.githubusercontent.com';
 const GITHUB_JWKS_URL = `${GITHUB_ISSUER}/.well-known/jwks`;
 const AUDIENCE = 'dinescores-portal-relay';
 // The repository whose workflows may use the relay. Forks mint tokens with
-// their own `repository` claim, so this is what keeps the hop private.
+// their own `repository` claim, so this is what keeps the hop private. The
+// numeric ids are checked as well: names can be re-registered after an
+// account rename or deletion, ids cannot (GitHub's own guidance for OIDC
+// subject checks). Override both with RELAY_ALLOWED_REPO and
+// RELAY_ALLOWED_REPO_ID if the repository ever moves.
 const DEFAULT_ALLOWED_REPO = 'jordanbmcgowen/DineScores';
+const DEFAULT_ALLOWED_REPO_ID = '1163315559';
+const DEFAULT_ALLOWED_OWNER_ID = '244274424';
 
 // Hop-by-hop and Cloudflare-added headers that must not be replayed upstream.
 const STRIP_REQUEST_HEADERS = [
@@ -71,7 +77,7 @@ function b64urlDecode(s) {
  * published keys, issuer, audience, validity window, and the repository
  * claim. Returns the payload or throws.
  */
-async function verifyGithubToken(token, allowedRepo) {
+async function verifyGithubToken(token, allowedRepo, allowedRepoId, allowedOwnerId) {
   const parts = token.split('.');
   if (parts.length !== 3) throw new Error('malformed token');
   const header = JSON.parse(new TextDecoder().decode(b64urlDecode(parts[0])));
@@ -103,6 +109,13 @@ async function verifyGithubToken(token, allowedRepo) {
   if ((payload.repository || '').toLowerCase() !== allowedRepo.toLowerCase()) {
     throw new Error('wrong repository');
   }
+  // GitHub sends these claims as strings; compare as strings.
+  if (String(payload.repository_id ?? '') !== String(allowedRepoId)) {
+    throw new Error('wrong repository id');
+  }
+  if (allowedOwnerId && String(payload.repository_owner_id ?? '') !== String(allowedOwnerId)) {
+    throw new Error('wrong repository owner id');
+  }
   return payload;
 }
 
@@ -111,7 +124,13 @@ async function authorize(request, env) {
   if (!presented) return 'missing X-Relay-Token';
   if (env.RELAY_TOKEN && presented === env.RELAY_TOKEN) return null;
   try {
-    await verifyGithubToken(presented, env.RELAY_ALLOWED_REPO || DEFAULT_ALLOWED_REPO);
+    // An overridden repository name needs its own id (and drops the default
+    // owner pin), so a rename can never silently pair a new name with an old id.
+    const repo = env.RELAY_ALLOWED_REPO || DEFAULT_ALLOWED_REPO;
+    const repoId = env.RELAY_ALLOWED_REPO_ID || (env.RELAY_ALLOWED_REPO ? '' : DEFAULT_ALLOWED_REPO_ID);
+    const ownerId = env.RELAY_ALLOWED_REPO ? '' : DEFAULT_ALLOWED_OWNER_ID;
+    if (!repoId) return 'relay misconfigured: RELAY_ALLOWED_REPO needs RELAY_ALLOWED_REPO_ID';
+    await verifyGithubToken(presented, repo, repoId, ownerId);
     return null;
   } catch (e) {
     return `token rejected: ${e.message}`;
@@ -137,18 +156,42 @@ export async function onRequest({ request, env }) {
   for (const h of STRIP_REQUEST_HEADERS) headers.delete(h);
 
   const hasBody = !['GET', 'HEAD'].includes(request.method);
+  const body = hasBody ? await request.arrayBuffer() : undefined;
+  // Redirects are followed by hand, and only while they stay on the
+  // allowlisted hosts over https: 'follow' would let an allowed host's
+  // redirect carry the relay to any address on the internet.
   let upstream;
-  try {
-    upstream = await fetch(target.toString(), {
-      method: request.method,
-      headers,
-      body: hasBody ? await request.arrayBuffer() : undefined,
-      redirect: 'follow',
-    });
-  } catch (e) {
-    // 502 rather than a thrown error: the caller treats it as a failed
-    // fetch and retries, which is the correct handling either way.
-    return deny(502, `upstream fetch failed: ${e}`);
+  let url = target;
+  let method = request.method;
+  for (let hop = 0; ; hop++) {
+    try {
+      upstream = await fetch(url.toString(), {
+        method,
+        headers,
+        body: method === request.method ? body : undefined,
+        redirect: 'manual',
+      });
+    } catch (e) {
+      // 502 rather than a thrown error: the caller treats it as a failed
+      // fetch and retries, which is the correct handling either way.
+      return deny(502, `upstream fetch failed: ${e}`);
+    }
+    if (![301, 302, 303, 307, 308].includes(upstream.status)) break;
+    const location = upstream.headers.get('location');
+    if (!location || hop >= 3) return deny(502, 'upstream redirect not followed');
+    let next;
+    try {
+      next = new URL(location, url);
+    } catch {
+      return deny(502, 'upstream redirect malformed');
+    }
+    if (next.protocol !== 'https:' || !ALLOWED_HOSTS.has(next.hostname)) {
+      return deny(502, `upstream redirect to a host that is not allowed: ${next.hostname}`);
+    }
+    if (upstream.status === 303 || ((upstream.status === 301 || upstream.status === 302) && method === 'POST')) {
+      method = 'GET';
+    }
+    url = next;
   }
 
   // Pass the portal's status through untouched. Cookies are dropped so one

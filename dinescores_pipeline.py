@@ -2354,6 +2354,10 @@ def fetch_san_antonio(since_date=None, until_date=None, limit=None, fetch_violat
                 local.s = _sa_session()
             return local.s
 
+        def _sa_hold(fac):
+            days = [iso for iso in fac['inspections'] if since_iso <= iso <= until_iso]
+            _hold_freshness('San Antonio Metro Health', min(days) if days else fac['newest_hit'])
+
         def work(fac):
             if _past_deadline():
                 return fac, 'deadline'
@@ -2394,6 +2398,7 @@ def fetch_san_antonio(since_date=None, until_date=None, limit=None, fetch_violat
                             f"false-clean inspections")
                 elif blocks == 'deadline':
                     counts['deadline'] += 1
+                    _sa_hold(fac)
                 else:
                     consecutive_failures = 0
                     apply_blocks(fac, blocks)
@@ -2415,12 +2420,17 @@ def fetch_san_antonio(since_date=None, until_date=None, limit=None, fetch_violat
             failed = still_failed
         if failed:
             # A facility whose page could not be read ships nothing — never
-            # a clean inspection; the lookback refetches it next run.
+            # a clean inspection; the freshness hold makes the lookback
+            # refetch it next run.
             log.warning(f"San Antonio: dropping {len(failed)} facilities with "
                         f"unreadable estab pages")
+            for fac in failed:
+                _sa_hold(fac)
         if counts['deadline']:
             log.warning(f"San Antonio: fetch deadline reached — {counts['deadline']} "
                         f"facilities left undetailed (dropped)")
+            _set_group_status('sanantonio', 'skipped',
+                              f"fetch deadline reached; {counts['deadline']} facilities not read")
         log.info(f"San Antonio: {counts['ok']}/{len(order)} estab pages parsed; "
                  f"{len(results)} inspections in window ({counts['page_only']} found only "
                  f"on the facility page, {counts['noscore']} without a score, "
@@ -4873,18 +4883,26 @@ def _oma_item_severities(out_items, totals):
     return sev
 
 
-def _oma_fetch_pdf(url, session=None):
-    """Download one inspection PDF: bytes, or None after one retry."""
+def _oma_fetch_pdf(url, session=None, info=None):
+    """Download one inspection PDF: bytes, or None after one retry. `info`
+    (a dict) receives the last HTTP status ('status'; None after a network
+    error), so the caller can tell the county's deterministic HTTP 500s
+    (its PDF endpoint crashes on some establishments — a slash in the name,
+    a missing record) from failures worth retrying next run."""
     client = session or requests
     for attempt in (1, 2):
         try:
             r = client.get(url, headers={'User-Agent': CHROME_UA},
                            timeout=OMAHA_DETAIL_TIMEOUT)
+            if info is not None:
+                info['status'] = r.status_code
             if r.status_code == 200 and r.content[:5] == b'%PDF-':
                 return r.content
             log.debug(f"  Omaha PDF {url}: HTTP {r.status_code}, "
                       f"{len(r.content)} bytes (attempt {attempt})")
         except requests.RequestException as e:
+            if info is not None:
+                info['status'] = None
             log.debug(f"  Omaha PDF {url}: {e} (attempt {attempt})")
         if attempt == 1:
             time.sleep(2)
@@ -4975,10 +4993,13 @@ def fetch_omaha(since_date=None, limit=None):
     def work(cand):
         if _past_deadline():
             return cand, 'deadline'
-        pdf = _oma_fetch_pdf(cand[3], get_session())
+        info = {}
+        pdf = _oma_fetch_pdf(cand[3], get_session(), info)
         time.sleep(OMAHA_DETAIL_DELAY)
         if pdf is None:
-            return cand, 'download'
+            # HTTP 500 is the county's PDF endpoint crashing on that record,
+            # every time; anything else (timeouts, 502-504, 429) is transient.
+            return cand, 'server' if info.get('status') == 500 else 'download'
         try:
             return cand, _oma_parse_report(pdf)
         except Exception as e:  # noqa: BLE001 - a bad PDF drops one inspection
@@ -4989,19 +5010,30 @@ def fetch_omaha(since_date=None, limit=None):
     failures = defaultdict(int)
     done = 0
     started = time.time()
+    # Oldest first, so a deadline cut drops the newest tail; transient
+    # drops hold Omaha's freshness so the next run's lookback re-reads them.
     with ThreadPoolExecutor(max_workers=OMAHA_DETAIL_WORKERS) as pool:
-        for future in as_completed([pool.submit(work, c) for c in candidates]):
+        ordered = sorted(candidates, key=lambda t: (t[0], t[1]))
+        for future in as_completed([pool.submit(work, c) for c in ordered]):
             cand, report = future.result()
             done += 1
             if isinstance(report, dict):
                 reports[cand[1]] = report
             else:
                 failures[report] += 1
+                if report in ('download', 'deadline'):
+                    _hold_freshness(OMAHA_SOURCE, cand[0])
             if done % 200 == 0:
                 log.info(f"  Omaha PDFs: {done}/{len(candidates)}")
     log.info(f"  Omaha: {len(reports)} PDFs read in {time.time() - started:.0f}s")
+    if failures.get('deadline'):
+        _set_group_status('Omaha', 'skipped',
+                          f"fetch deadline reached; {failures['deadline']} PDFs not read")
     if failures:
-        # Dropped, not shipped clean: the lookback refetches them next run.
+        # Dropped, not shipped clean: transient drops ('download',
+        # 'deadline') hold the freshness so the lookback refetches them;
+        # 'server' (the county's endpoint 500s on that record every time)
+        # and 'parse' are permanent and retried only while in the window.
         log.warning("  Omaha: dropped " + ', '.join(
             f"{n} ({why})" for why, n in sorted(failures.items())) +
             " inspections whose PDF could not be read")
@@ -5163,6 +5195,16 @@ SNHD_LIST_DELAY = float(os.environ.get('SNHD_LIST_DELAY', '0.4'))
 SNHD_RATE_LIMIT_WAIT = float(os.environ.get('SNHD_RATE_LIMIT_WAIT', '90'))   # seconds
 _SNHD_RATE_LIMIT_LOCK = threading.Lock()
 _SNHD_RATE_LIMITED_UNTIL = 0.0
+# Breaker: a throttle that does not lift is a block. Once the pauses add up
+# to SNHD_MAX_TOTAL_PAUSE, or SNHD_BREAKER_TRIP requests in a row exhaust
+# their retries on 401/429, every further SNHD request fails at once —
+# otherwise a lasting 401 burns the whole fetch deadline in 90-270 s pauses
+# and starves every group after Las Vegas.
+SNHD_MAX_TOTAL_PAUSE = float(os.environ.get('SNHD_MAX_TOTAL_PAUSE', '900'))   # seconds
+SNHD_BREAKER_TRIP = 2
+_SNHD_BLOCKED = False
+_SNHD_PAUSED_TOTAL = 0.0
+_SNHD_EXHAUSTED_STREAK = 0
 
 
 _SNHD_FAILURES_LOGGED = 0
@@ -5172,10 +5214,20 @@ _SNHD_LAST_ERROR = ''
 
 
 def _snhd_pause_all(seconds):
-    """Hold every SNHD worker back for `seconds` (one shared clock)."""
-    global _SNHD_RATE_LIMITED_UNTIL
+    """Hold every SNHD worker back for `seconds` (one shared clock); trips
+    the breaker once the run's pauses add up to SNHD_MAX_TOTAL_PAUSE."""
+    global _SNHD_RATE_LIMITED_UNTIL, _SNHD_PAUSED_TOTAL, _SNHD_BLOCKED
     with _SNHD_RATE_LIMIT_LOCK:
-        _SNHD_RATE_LIMITED_UNTIL = max(_SNHD_RATE_LIMITED_UNTIL, time.time() + seconds)
+        now = time.time()
+        new_until = max(_SNHD_RATE_LIMITED_UNTIL, now + seconds)
+        # Count only the extension, so overlapping pauses from several
+        # workers are not added up several times.
+        _SNHD_PAUSED_TOTAL += max(0.0, new_until - max(_SNHD_RATE_LIMITED_UNTIL, now))
+        _SNHD_RATE_LIMITED_UNTIL = new_until
+        if _SNHD_PAUSED_TOTAL >= SNHD_MAX_TOTAL_PAUSE and not _SNHD_BLOCKED:
+            _SNHD_BLOCKED = True
+            log.error(f"  SNHD: throttled for {_SNHD_PAUSED_TOTAL / 60:.0f} min this run — "
+                      f"treating it as a block; remaining SNHD requests are skipped")
 
 
 def _snhd_wait_if_limited():
@@ -5187,23 +5239,32 @@ def _snhd_wait_if_limited():
 
 
 def _snhd_get(url, params=None, retries=4):
-    global _SNHD_FAILURES_LOGGED, _SNHD_LAST_ERROR
+    global _SNHD_FAILURES_LOGGED, _SNHD_LAST_ERROR, _SNHD_BLOCKED, _SNHD_EXHAUSTED_STREAK
+    if _SNHD_BLOCKED:
+        _SNHD_LAST_ERROR = 'SNHD breaker tripped this run'
+        return None
     last_err = None
+    throttled = False
     for attempt in range(retries):
         _snhd_wait_if_limited()
+        if _SNHD_BLOCKED:
+            break
         try:
             r_url, r_params, r_extra = _relay(url, params)
             r = requests.get(r_url, params=r_params,
                              headers={'User-Agent': CHROME_UA, **r_extra}, timeout=60,
                              proxies=_portal_proxies())
             r.raise_for_status()
-            return r.json()
+            data = r.json()
+            _SNHD_EXHAUSTED_STREAK = 0
+            return data
         except (requests.RequestException, ValueError) as e:
             last_err = e
-            if attempt == retries - 1:
-                break
             resp = getattr(e, 'response', None)
             status = resp.status_code if resp is not None else None
+            throttled = status in (401, 429)
+            if attempt == retries - 1:
+                break
             if status in (401, 429):
                 # The district is throttling this client. Every worker
                 # pauses together (a lone sleeping worker changes nothing
@@ -5227,7 +5288,14 @@ def _snhd_get(url, params=None, retries=4):
     # like a timeout, and "list fetch failed" alone hid that for weeks.
     # Only the first few failures are logged so a banned detail phase
     # doesn't emit thousands of lines.
-    _SNHD_LAST_ERROR = str(last_err)[:120]
+    _SNHD_LAST_ERROR = str(last_err)[:120] if last_err else 'SNHD breaker tripped this run'
+    if throttled:
+        with _SNHD_RATE_LIMIT_LOCK:
+            _SNHD_EXHAUSTED_STREAK += 1
+            if _SNHD_EXHAUSTED_STREAK >= SNHD_BREAKER_TRIP and not _SNHD_BLOCKED:
+                _SNHD_BLOCKED = True
+                log.error(f"  SNHD: {_SNHD_EXHAUSTED_STREAK} requests in a row stayed "
+                          f"throttled through every retry — treating it as a block")
     if _SNHD_FAILURES_LOGGED < 5:
         _SNHD_FAILURES_LOGGED += 1
         log.warning(f"  SNHD request failed after {retries} attempts "
@@ -5338,6 +5406,8 @@ def fetch_vegas(since_date=None, limit=None, fetch_violations=True):
                  f"({SNHD_DETAIL_WORKERS} workers)...")
 
         def work(pn):
+            if _past_deadline() or _SNHD_BLOCKED:
+                return pn, None
             d = _snhd_get(f'{SNHD_API}/{pn}')
             time.sleep(SNHD_DETAIL_DELAY)
             return pn, d
@@ -5351,8 +5421,12 @@ def fetch_vegas(since_date=None, limit=None, fetch_violations=True):
                     log.info(f"  SNHD details: {done}/{len(todo)}")
                 if d is None:
                     # Unreadable permit: skip rather than record without
-                    # violation context (same policy as the Tyler portals).
+                    # violation context (same policy as the Tyler portals),
+                    # and hold Las Vegas's freshness so the next run's
+                    # lookback reads the permit's inspection day again.
                     skipped += 1
+                    _hold_freshness('Southern Nevada Health District',
+                                    sane_inspection_date(str(permits[pn].get('date_current') or '')[:10]))
                     continue
                 row = permits[pn]
                 cur_date = sane_inspection_date(str(d.get('date_current') or row.get('date_current') or '')[:10])
@@ -5381,6 +5455,12 @@ def fetch_vegas(since_date=None, limit=None, fetch_violations=True):
                                      row.get('inspection_type'), []))
     if skipped:
         log.warning(f"  SNHD: skipped {skipped} permits with unreadable details")
+        if _SNHD_BLOCKED:
+            _set_group_status('Las Vegas', 'blocked',
+                              f'SNHD throttled the detail phase; {skipped} permits not read')
+        elif _past_deadline():
+            _set_group_status('Las Vegas', 'skipped',
+                              f'fetch deadline reached; {skipped} permits not read')
     log.info(f"Las Vegas (SNHD): {len(results)} inspections")
     return results
 
@@ -5916,7 +5996,7 @@ def _mhd_fetch_details_bulk(path, records, trust_official_score=True, label=None
 
 
 def fetch_dfw(jurisdictions=None, since_date=None, limit_per_jurisdiction=None,
-              fetch_violations=True, until_date=None):
+              fetch_violations=True, until_date=None, skipped=None):
     """
     Fetch inspection data for DFW jurisdictions using direct API calls to the
     MyHealthDepartment portal. No browser required — uses the same JSON POST
@@ -5931,11 +6011,18 @@ def fetch_dfw(jurisdictions=None, since_date=None, limit_per_jurisdiction=None,
             server-side into the HTML, so a plain GET per inspection suffices
             (~350 pages for a weekly Dallas+Plano refresh).
 
+        skipped: optional list; the display name and reason of every
+            jurisdiction this call did not fetch (portal blocked, fetch
+            deadline, an exception) are appended to it, so the caller can
+            report the group as partial instead of 'ok'/'empty'.
+
     Returns:
         list of inspection record dicts with 'metro': 'DFW'
     """
     if jurisdictions is None:
         jurisdictions = DFW_JURISDICTIONS
+    if skipped is None:
+        skipped = []
 
     session = _mhd_session()
     all_results = []
@@ -5957,9 +6044,11 @@ def fetch_dfw(jurisdictions=None, since_date=None, limit_per_jurisdiction=None,
         if _MHD_PORTAL_BLOCKED:
             log.warning(f"{display_name}: skipped — MHD portal is blocking this run; "
                         f"existing records are preserved by the merge")
+            skipped.append(f"{display_name} (portal blocked)")
             continue
         if _past_deadline():
             log.warning(f"{display_name}: skipped — pipeline fetch deadline reached")
+            skipped.append(f"{display_name} (deadline)")
             continue
         log.info(f"--- Fetching {display_name} ({slug}) via API ---")
         # since_date may be one date for every jurisdiction or a per-slug
@@ -5975,6 +6064,7 @@ def fetch_dfw(jurisdictions=None, since_date=None, limit_per_jurisdiction=None,
             log.error(f"{display_name} fetch failed: {e}")
             import traceback
             log.error(traceback.format_exc())
+            skipped.append(f"{display_name} (error: {str(e)[:60]})")
         time.sleep(3)  # polite pause between jurisdictions
 
     log.info(f"DFW total: {len(all_results)} inspection records across "
@@ -6133,9 +6223,14 @@ def _fetch_mhd_jurisdiction_api(session, slug, config, since_date=None, limit=No
         # a future run re-attempts them.
         log.warning(f"{display_name}: fetch deadline reached before the detail "
                     f"phase — dropping {len(all_records)} undetailed inspections")
+        _hold_freshness(all_records[0].get('source'),
+                        min(str(r['inspection_date'])[:10] for r in all_records))
         return []
     if fetch_violations and all_records:
-        inspections_with_id = [r for r in all_records if r.get('source_id')]
+        # Oldest first: a ban or deadline cut then drops the newest tail,
+        # and the freshness hold re-reads from the first dropped day.
+        inspections_with_id = sorted((r for r in all_records if r.get('source_id')),
+                                     key=lambda r: str(r.get('inspection_date') or ''))
         log.info(f"{display_name}: fetching violation details for "
                  f"{len(inspections_with_id)} inspections "
                  f"({MHD_DETAIL_WORKERS} workers)...")
@@ -6150,6 +6245,8 @@ def _fetch_mhd_jurisdiction_api(session, slug, config, since_date=None, limit=No
             # next weekly refresh) re-attempts it.
             log.warning(f"{display_name}: dropping {len(unreadable)} inspections "
                         f"with unreadable detail pages")
+            _hold_freshness(unreadable[0].get('source'),
+                            min(str(r['inspection_date'])[:10] for r in unreadable))
             drop = {id(r) for r in unreadable}
             all_records = [r for r in all_records if id(r) not in drop]
 
@@ -6330,6 +6427,13 @@ OC_SIDECAR_KEEP_DAYS = 10      # by inspection_date, relative to the newest held
 OC_PDF_WORKERS = int(os.environ.get('OC_PDF_WORKERS', '2'))
 OC_PDF_DELAY = float(os.environ.get('OC_PDF_DELAY', '0.5'))
 OC_PDF_MAX_PER_RUN = int(os.environ.get('OC_PDF_MAX_PER_RUN', '400'))
+# An inspection ships only once its printable has been read; one whose PDF
+# still fails this many days after it was first polled is shipped with the
+# county's official result alone (the daily polls retried it every day).
+OC_PDF_GIVE_UP_DAYS = 5
+# A poll in which most printables fail to parse (at least this many tried)
+# means the county changed the PDF layout: the run is reported as an error.
+OC_PDF_MASS_FAILURE_MIN = 20
 # Orange County publishes only pass / reinspection / closure, so the grade is
 # the county's outcome, not a point score:
 #   PASS                    -> 90 (A)  routine inspection passed
@@ -6862,6 +6966,14 @@ def _oc_fetch_pdfs_bulk(records):
         except Exception as e:      # a malformed PDF must never take the run down
             log.debug(f"  Orange County printable {rec['source_id']} unreadable: {e}")
             parsed = None
+        # A PDF that parses but carries no Result is not an OC printable we
+        # understand (a layout change, an error page rendered as PDF): read
+        # as zero violations it would ship looking clean, so it counts as
+        # failed and is retried by the next poll.
+        if parsed is not None and not parsed.get('result'):
+            log.debug(f"  Orange County printable {rec['source_id']}: no Result found — "
+                      f"unrecognised layout")
+            parsed = None
         return rec, parsed, 'ok' if parsed is not None else 'failed'
 
     ok = failed = skipped = 0
@@ -6909,10 +7021,14 @@ def fetch_orange_county(since_date=None, limit=None, fetch_violations=True,
     result is never inferred from the violation details. Violations come
     from the printable PDF (source_url, the only public place they exist),
     fetched for every inspection new to the sidecar and retried for those
-    whose PDF failed before; a failed or unparseable PDF leaves the
-    inspection with its official result and an empty violation list — it
-    still ships, unlike the other MHD jurisdictions, where an undetailed
-    record is dropped because its score depends on the details.
+    whose PDF failed before. An inspection ships only once its printable
+    has been read (a PDF that parses but carries no Result counts as
+    unread); until then it waits in the sidecar and every poll retries it.
+    One whose printable is still unreadable OC_PDF_GIVE_UP_DAYS after it was
+    first polled ships with the county's official result and no violation
+    list — the result is the county's own outcome, not something inferred
+    from the details. A poll in which most printables fail is reported as
+    an error (a layout change would otherwise hold everything back quietly).
 
     The portal has no coordinates: `geocode` (geocode_missing_coords in
     main()) is applied only to the sidecar's records that still lack them,
@@ -7009,6 +7125,11 @@ def fetch_orange_county(since_date=None, limit=None, fetch_violations=True,
             poll.update(pdf_tried=len(pending), pdf_ok=ok, pdf_failed=failed, pdf_skipped=skipped)
             log.info(f"Orange County: {ok}/{len(pending)} printables read "
                      f"({failed} failed, {skipped} skipped)")
+            if ok + failed >= OC_PDF_MASS_FAILURE_MIN and failed > (ok + failed) / 2:
+                poll.update(status='error',
+                            detail=f"{failed} of {ok + failed} printables unreadable — "
+                                   f"has the county changed the PDF layout?")
+                log.error(f"Orange County: {poll['detail']}")
     elif fetch_violations and new_records:
         log.warning(f"Orange County: PDF phase skipped (poll {poll['status']}); "
                     f"{len(new_records)} new inspections ship with results only for now")
@@ -7026,12 +7147,29 @@ def fetch_orange_county(since_date=None, limit=None, fetch_violations=True,
     poll['sidecar'] = len(sidecar)
 
     since = str(since_date)[:10] if since_date else ''
+    give_up = (datetime.now() - timedelta(days=OC_PDF_GIVE_UP_DAYS)).strftime('%Y-%m-%d')
     out = []
+    held_back = given_up = 0
     for r in sorted(sidecar.values(), key=lambda r: (r['inspection_date'], r['source_id']),
                     reverse=True):
         if since and str(r['inspection_date'])[:10] < since:
             continue
+        if fetch_violations and r.get('_pdf') != 'ok':
+            # Not read yet: the printable is the only place the violations
+            # are, and an inspection shipped without them can grade A over
+            # rodent droppings. It stays in the sidecar for the next poll —
+            # unless the daily polls have failed on it for OC_PDF_GIVE_UP_DAYS,
+            # when it ships with the county's official result alone.
+            if (r.get('_polled') or today) > give_up:
+                held_back += 1
+                continue
+            given_up += 1
         out.append({k: v for k, v in r.items() if not k.startswith('_')})
+    if held_back or given_up:
+        log.info(f"Orange County: {held_back} inspections held back until their printable is "
+                 f"read; {given_up} shipped with the official result only (printable "
+                 f"unreadable for {OC_PDF_GIVE_UP_DAYS}+ days)")
+    poll['held_back'], poll['given_up'] = held_back, given_up
     if limit:
         out = out[:limit]
     _OC_LAST_POLL.update(poll)
@@ -7413,6 +7551,12 @@ EMBED_BUDGET = 55000       # global cap on embedded records: Cloudflare Pages
                            # records ≈ 24 MB. Completeness comes from D1.
 EMBED_CITY_FLOOR = 20      # per-city minimum kept regardless of the global
                            # budget, so every covered town paints instantly
+DATA_JS_MAX_BYTES = 24_000_000  # hard cap on the written file. The record
+                           # budget above bounds it only indirectly (the
+                           # per-city floors grow with every new town), and
+                           # Pages rejects any asset over 25 MiB (26,214,400
+                           # bytes) by failing the deploy with no error on
+                           # the commit; ~2 MB stays free for a week's growth.
 
 
 def _weighted_from_history(history_pairs):
@@ -7626,6 +7770,26 @@ def write_data_js(all_inspections, output_path, top_per_city=1000,
     from datetime import datetime as _dt
     header = f"/* DineScores embedded data — auto-generated {_dt.now().strftime('%Y-%m-%d')} */\n"
     js_content = header + 'window.DATA = ' + json.dumps(final, separators=(',', ':'), default=str) + ';\n'
+
+    if len(js_content) > DATA_JS_MAX_BYTES:
+        # Over the byte cap: drop the oldest records outside the per-city
+        # floors until it fits (D1 still serves them). json.dumps escapes to
+        # ASCII, so characters are bytes.
+        floor = {id(r) for city_recs in by_city.values() for r in city_recs[:EMBED_CITY_FLOOR]}
+        excess = len(js_content) - DATA_JS_MAX_BYTES
+        drop, freed = set(), 0
+        for r in sorted((r for r in final if id(r) not in floor), key=lambda r: r.get('d', '')):
+            if freed >= excess:
+                break
+            drop.add(id(r))
+            freed += len(json.dumps(r, separators=(',', ':'), default=str)) + 1
+        final = [r for r in final if id(r) not in drop]
+        js_content = header + 'window.DATA = ' + json.dumps(final, separators=(',', ':'), default=str) + ';\n'
+        log.warning(f"data.js over {DATA_JS_MAX_BYTES:,} bytes: dropped the {len(drop)} oldest "
+                    f"non-floor records (they live in D1); now {len(js_content):,} bytes")
+        if len(js_content) > DATA_JS_MAX_BYTES:
+            log.error(f"data.js is still {len(js_content):,} bytes with only the per-city floors "
+                      f"left — lower EMBED_CITY_FLOOR before the next deploy")
 
     with open(output_path, 'w') as f:
         f.write(js_content)
@@ -7983,12 +8147,53 @@ def _note_source_lag(group, source_max):
                                f"({age}d old); nothing newer published")
 
 
+# A fetcher that DROPS an inspection it could not read for a transient reason
+# (a detail-page ban, a timeout, a 5xx, the fetch deadline) calls
+# _hold_freshness with that inspection's date. _record_group then keeps the
+# source's recorded latest from moving past the drop, so the next run's
+# lookback reads that day again. Without it, shipping the later days of the
+# same run advanced the latest beyond the drop and lost it for good.
+_FRESHNESS_HOLDS = {}            # source label -> earliest dropped inspection date
+_FRESHNESS_HOLD_LOCK = threading.Lock()
+# A hold older than this is ignored, so one permanently unreadable inspection
+# cannot pin a source's window open (and growing) week after week.
+FRESHNESS_HOLD_MAX_DAYS = 28
+
+# A fetcher that shipped only PART of its window (a breaker tripped, the
+# deadline cut its detail phase) reports the group's real status here, since
+# it ships records and _record_group would otherwise call the run 'ok'.
+_GROUP_STATUS = {}               # group -> (status, detail)
+
+
+def _hold_freshness(source, inspection_date):
+    """Keep `source`'s recorded latest at or before the day before
+    `inspection_date` this run (see _FRESHNESS_HOLDS)."""
+    d = str(inspection_date or '')[:10]
+    if not source or len(d) != 10:
+        return
+    with _FRESHNESS_HOLD_LOCK:
+        cur = _FRESHNESS_HOLDS.get(source)
+        if not cur or d < cur:
+            _FRESHNESS_HOLDS[source] = d
+
+
+def _set_group_status(group, status, detail=''):
+    """Report a partial run for `group` (consumed by _record_group)."""
+    _GROUP_STATUS[group] = (status, detail)
+
+
 def _record_group(group, records, status=None, detail=''):
     """Remember a fetch group's outcome this run and advance the recorded
     latest dates (per group and per record source). Only records that will
-    actually ship count, so a dropped/undetailed batch is refetched later."""
+    actually ship count, so a dropped/undetailed batch is refetched later;
+    a source with a freshness hold (a transient drop this run) is kept at
+    the day before its earliest drop."""
     if not detail:
         detail = _GROUP_NOTES.pop(group, '')
+    reported = _GROUP_STATUS.pop(group, None)
+    if status is None and reported:
+        status = reported[0]
+        detail = '; '.join(x for x in (reported[1], detail) if x)
     latest = max((str(r.get('inspection_date') or '')[:10] for r in records), default='')
     if status is None:
         status = 'ok' if records else 'empty'
@@ -8000,19 +8205,47 @@ def _record_group(group, records, status=None, detail=''):
         return
     g = _FRESHNESS['groups'].setdefault(group, {})
     g['last_run'] = outcome
-    if latest > (g.get('latest') or ''):
-        g['latest'] = latest
     by_source = defaultdict(str)
     for r in records:
         d = str(r.get('inspection_date') or '')[:10]
         s = r.get('source') or ''
         if s and d > by_source[s]:
             by_source[s] = d
+    # Freshness holds for this group's sources: the day before the earliest
+    # transient drop caps what this run may record (and pulls an already
+    # recorded latest back), so the next lookback re-reads the drop.
+    hold_floor = (datetime.now() - timedelta(days=FRESHNESS_HOLD_MAX_DAYS)).strftime('%Y-%m-%d')
+    caps = {}
+    with _FRESHNESS_HOLD_LOCK:
+        for s in list(_FRESHNESS_HOLDS):
+            mine = s in by_source or (_FRESHNESS['sources'].get(s) or {}).get('group') == group
+            if not mine:
+                continue
+            held = _FRESHNESS_HOLDS.pop(s)
+            if held < hold_floor:
+                log.info(f"{group}: {s} dropped an inspection from {held} again — older than "
+                         f"{FRESHNESS_HOLD_MAX_DAYS} days, no longer holding the window for it")
+                continue
+            caps[s] = (datetime.strptime(held, '%Y-%m-%d') - timedelta(days=1)).strftime('%Y-%m-%d')
+    for s, cap in caps.items():
+        if by_source.get(s, '') > cap:
+            by_source[s] = cap
+        log.info(f"{group}: holding {s} at {cap} (an inspection from the next day was "
+                 f"dropped this run and will be re-read)")
+    capped_latest = max(by_source.values(), default='')
+    if capped_latest > (g.get('latest') or ''):
+        g['latest'] = capped_latest
     for s, d in by_source.items():
         e = _FRESHNESS['sources'].setdefault(s, {})
         if d > (e.get('latest') or ''):
             e['latest'] = d
         e['group'] = group
+    for s, cap in caps.items():
+        e = _FRESHNESS['sources'].setdefault(s, {'group': group})
+        if (e.get('latest') or '') > cap:
+            e['latest'] = cap
+        if (g.get('latest') or '') > cap:
+            g['latest'] = cap
 
 
 def _write_freshness(path):
@@ -8390,7 +8623,11 @@ def main():
         try:
             oc_since = None
             if args.mode == 'weekly':
-                oc_since = weekly_since('Orange County', FRESHNESS_LOOKBACK_PORTAL_DAYS)
+                # The whole sidecar (its last OC_SIDECAR_KEEP_DAYS days), not
+                # a lookback window: inspections wait there until their
+                # printable is read, so a later poll can make one shippable
+                # days after it was first seen; re-upserting is idempotent.
+                oc_since = None
             elif args.mode == 'full':
                 oc_since = '2026-01-01'
             if args.since_date:
@@ -8433,6 +8670,10 @@ def main():
         return _group_latest(group, [f"{c['display_name']} Health Dept" for c in juris.values()])
 
     for group, jurisdictions in sorted(mhd_groups, key=_group_key):
+        if _past_deadline():
+            log.warning(f"{group}: skipped — pipeline fetch deadline reached")
+            _record_group(group, [], 'skipped', 'fetch deadline reached')
+            continue
         try:
             mhd_since = None
             if args.mode == 'full':
@@ -8452,18 +8693,30 @@ def main():
                     for slug, config in jurisdictions.items()}
             if args.since_date:
                 mhd_since = args.since_date
+            not_fetched = []
             mhd_data = fetch_dfw(
                 jurisdictions=jurisdictions,
                 since_date=mhd_since,
                 until_date=args.until_date,
                 limit_per_jurisdiction=record_limit,
-                fetch_violations=not args.no_dfw_violations)
+                fetch_violations=not args.no_dfw_violations,
+                skipped=not_fetched)
             geocode_missing_coords(mhd_data)
             all_inspections.extend(mhd_data)
             log.info(f"{group}: {len(mhd_data)} records")
-            _record_group(group, mhd_data,
-                          'blocked' if _MHD_PORTAL_BLOCKED else None,
-                          'MHD portal blocked this run' if _MHD_PORTAL_BLOCKED else '')
+            # A group is only 'ok' when every jurisdiction in it was fetched;
+            # one starved by the deadline or the breaker makes the run red.
+            if _MHD_PORTAL_BLOCKED:
+                status, detail = 'blocked', 'MHD portal blocked this run'
+            elif any('(deadline)' in x for x in not_fetched):
+                status, detail = 'skipped', 'fetch deadline reached'
+            elif not_fetched:
+                status, detail = 'error', 'fetch failed'
+            else:
+                status, detail = None, ''
+            if not_fetched:
+                detail = f"{detail}: not fetched — {', '.join(not_fetched)}"
+            _record_group(group, mhd_data, status, detail)
         except Exception as e:
             log.error(f"{group} fetch failed: {e}")
             _record_group(group, [], 'error', str(e))

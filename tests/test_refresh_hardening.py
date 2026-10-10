@@ -1,6 +1,7 @@
 """Tests for the weekly-refresh hardening in dinescores_pipeline.py: the
 self-healing lookback, the relay credential, SNHD rate-limit handling and
 stalest-first MHD ordering. No network: every HTTP call is mocked."""
+import json
 import os
 import sys
 import unittest
@@ -185,3 +186,161 @@ class MhdOrderTests(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
+
+class FreshnessHoldTests(unittest.TestCase):
+    """A transient drop must keep the source's recorded latest from moving
+    past it, or the next run's lookback never reads that day again."""
+
+    def setUp(self):
+        self._saved = (dp._FRESHNESS, dict(dp._FRESHNESS_HOLDS), dict(dp._GROUP_STATUS))
+        dp._FRESHNESS = {'groups': {'Omaha': {'latest': '2026-09-20'}},
+                         'sources': {'Douglas County Health Dept': {'latest': '2026-09-20',
+                                                                   'group': 'Omaha'}}}
+        dp._FRESHNESS_HOLDS.clear()
+        dp._GROUP_STATUS.clear()
+
+    def tearDown(self):
+        dp._FRESHNESS = self._saved[0]
+        dp._FRESHNESS_HOLDS.clear(); dp._FRESHNESS_HOLDS.update(self._saved[1])
+        dp._GROUP_STATUS.clear(); dp._GROUP_STATUS.update(self._saved[2])
+
+    def _rec(self, d, source='Douglas County Health Dept'):
+        return {'inspection_date': d, 'source': source}
+
+    def _recent(self, days_ago):
+        return (datetime.now() - timedelta(days=days_ago)).strftime('%Y-%m-%d')
+
+    def test_a_drop_caps_the_recorded_latest_at_the_day_before_it(self):
+        shipped = [self._rec(self._recent(2)), self._rec(self._recent(9))]
+        dp._hold_freshness('Douglas County Health Dept', self._recent(6))
+        dp._record_group('Omaha', shipped)
+        cap = self._recent(7)
+        self.assertEqual(dp._FRESHNESS['sources']['Douglas County Health Dept']['latest'], cap)
+        self.assertEqual(dp._FRESHNESS['groups']['Omaha']['latest'], cap)
+        self.assertEqual(dp._FRESHNESS_HOLDS, {})          # consumed
+        # The run's own report still says what shipped.
+        self.assertEqual(dp._RUN_GROUPS['Omaha']['latest'], self._recent(2))
+
+    def test_a_hold_pulls_back_an_already_recorded_latest(self):
+        dp._FRESHNESS['sources']['Douglas County Health Dept']['latest'] = self._recent(1)
+        dp._FRESHNESS['groups']['Omaha']['latest'] = self._recent(1)
+        dp._hold_freshness('Douglas County Health Dept', self._recent(4))
+        dp._record_group('Omaha', [])
+        self.assertEqual(dp._FRESHNESS['groups']['Omaha']['latest'], self._recent(5))
+
+    def test_the_earliest_drop_wins_and_old_holds_are_ignored(self):
+        dp._hold_freshness('Douglas County Health Dept', self._recent(3))
+        dp._hold_freshness('Douglas County Health Dept', self._recent(5))
+        dp._hold_freshness('Douglas County Health Dept', self._recent(4))
+        self.assertEqual(dp._FRESHNESS_HOLDS['Douglas County Health Dept'], self._recent(5))
+        dp._FRESHNESS_HOLDS['Douglas County Health Dept'] = self._recent(dp.FRESHNESS_HOLD_MAX_DAYS + 5)
+        dp._record_group('Omaha', [self._rec(self._recent(1))])
+        self.assertEqual(dp._FRESHNESS['groups']['Omaha']['latest'], self._recent(1))
+
+    def test_a_hold_on_another_groups_source_is_left_alone(self):
+        dp._hold_freshness('Some Other Source', self._recent(3))
+        dp._record_group('Omaha', [self._rec(self._recent(1))])
+        self.assertIn('Some Other Source', dp._FRESHNESS_HOLDS)
+
+    def test_a_reported_partial_run_is_not_ok(self):
+        dp._set_group_status('Omaha', 'skipped', 'fetch deadline reached; 12 PDFs not read')
+        dp._record_group('Omaha', [self._rec(self._recent(1))])
+        run = dp._RUN_GROUPS['Omaha']
+        self.assertEqual(run['status'], 'skipped')
+        self.assertIn('12 PDFs not read', run['detail'])
+
+
+class MhdSkippedJurisdictionTests(unittest.TestCase):
+    def test_deadline_starved_jurisdictions_are_reported(self):
+        saved = (dp._FETCH_DEADLINE, dp._MHD_PORTAL_BLOCKED)
+        try:
+            dp._FETCH_DEADLINE = 1.0          # long past
+            dp._MHD_PORTAL_BLOCKED = False
+            skipped = []
+            with mock.patch.object(dp.time, 'sleep'):
+                out = dp.fetch_dfw({'dallas': dp.DFW_JURISDICTIONS['dallas'],
+                                    'plano': dp.DFW_JURISDICTIONS['plano']}, skipped=skipped)
+        finally:
+            dp._FETCH_DEADLINE, dp._MHD_PORTAL_BLOCKED = saved
+        self.assertEqual(out, [])
+        self.assertEqual(sorted(skipped), ['Dallas (deadline)', 'Plano (deadline)'])
+
+
+class SnhdBreakerTests(unittest.TestCase):
+    def setUp(self):
+        self._saved = (dp._SNHD_BLOCKED, dp._SNHD_PAUSED_TOTAL, dp._SNHD_EXHAUSTED_STREAK,
+                       dp._SNHD_RATE_LIMITED_UNTIL)
+        dp._SNHD_BLOCKED = False
+        dp._SNHD_PAUSED_TOTAL = 0.0
+        dp._SNHD_EXHAUSTED_STREAK = 0
+        dp._SNHD_RATE_LIMITED_UNTIL = 0.0
+
+    def tearDown(self):
+        (dp._SNHD_BLOCKED, dp._SNHD_PAUSED_TOTAL, dp._SNHD_EXHAUSTED_STREAK,
+         dp._SNHD_RATE_LIMITED_UNTIL) = self._saved
+
+    def _resp401(self):
+        r = mock.Mock()
+        r.status_code = 401
+        r.headers = {}
+        err = dp.requests.HTTPError('401 Unauthorized')
+        err.response = r
+        r.raise_for_status = mock.Mock(side_effect=err)
+        return r
+
+    def test_a_lasting_401_trips_the_breaker_and_later_requests_fail_fast(self):
+        with mock.patch.object(dp.requests, 'get', return_value=self._resp401()) as get, \
+             mock.patch.object(dp, '_snhd_wait_if_limited'), \
+             mock.patch.object(dp.time, 'sleep'):
+            self.assertIsNone(dp._snhd_get('https://www.southernnevadahealthdistrict.org/x'))
+            self.assertIsNone(dp._snhd_get('https://www.southernnevadahealthdistrict.org/y'))
+            self.assertTrue(dp._SNHD_BLOCKED)
+            calls = get.call_count
+            self.assertIsNone(dp._snhd_get('https://www.southernnevadahealthdistrict.org/z'))
+            self.assertEqual(get.call_count, calls, 'no request once the breaker is open')
+
+    def test_pauses_adding_up_trip_the_breaker(self):
+        with mock.patch.object(dp, 'SNHD_MAX_TOTAL_PAUSE', 300.0):
+            dp._snhd_pause_all(200)
+            dp._snhd_pause_all(150)       # overlaps the first: counts as no extension
+            self.assertAlmostEqual(dp._SNHD_PAUSED_TOTAL, 200, delta=1)
+            self.assertFalse(dp._SNHD_BLOCKED)
+            dp._SNHD_RATE_LIMITED_UNTIL = 0.0     # that pause has run out
+            dp._snhd_pause_all(150)
+        self.assertTrue(dp._SNHD_BLOCKED)
+
+    def test_a_success_resets_the_streak(self):
+        ok = mock.Mock(status_code=200, headers={})
+        ok.raise_for_status = mock.Mock()
+        ok.json = mock.Mock(return_value={'ok': 1})
+        dp._SNHD_EXHAUSTED_STREAK = 1
+        with mock.patch.object(dp.requests, 'get', return_value=ok):
+            self.assertEqual(dp._snhd_get('https://www.southernnevadahealthdistrict.org/x'), {'ok': 1})
+        self.assertEqual(dp._SNHD_EXHAUSTED_STREAK, 0)
+
+
+class DataJsByteCapTests(unittest.TestCase):
+    def test_the_written_file_never_exceeds_the_byte_cap(self):
+        import tempfile
+        recs = []
+        for city in range(30):
+            for k in range(40):
+                recs.append({'name': f'R{city}-{k}', 'address': f'{k} Main St', 'city': f'Town{city}',
+                             'state': 'TX', 'zip': '75001', 'latitude': 32.0, 'longitude': -96.0,
+                             'inspection_date': f'2026-{1 + k % 9:02d}-{1 + k % 27:02d}',
+                             'risk_score': 95, 'violations': [], 'source': 'X', 'source_url': 'u'})
+        with tempfile.TemporaryDirectory() as tmp:
+            out = os.path.join(tmp, 'data.js')
+            with mock.patch.object(dp, 'DATA_JS_MAX_BYTES', 250_000):
+                dp.write_data_js(recs, out)
+            size = os.path.getsize(out)
+            data = json.loads(open(out).read().split('window.DATA = ', 1)[1].rstrip(';\n'))
+        self.assertLessEqual(size, 250_000)
+        self.assertLess(len(data), 1200, 'something was trimmed')
+        # Every town keeps its floor of most recent records.
+        per_city = {}
+        for r in data:
+            per_city[r['c']] = per_city.get(r['c'], 0) + 1
+        self.assertEqual(len(per_city), 30)
+        self.assertTrue(all(n >= min(dp.EMBED_CITY_FLOOR, 40) for n in per_city.values()))

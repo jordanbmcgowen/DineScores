@@ -31,6 +31,12 @@ def _pdf(name):
         return f.read()
 
 
+def _all_pdfs():
+    """A readable printable for every fixture inspection (the PASS one)."""
+    pdf = _pdf('pass')
+    return {r['inspectionID']: pdf for page in _pages() for r in page}
+
+
 class _Portal:
     """Stands in for _mhd_search_page: serves fixture pages by start offset."""
 
@@ -68,6 +74,11 @@ class OrangeCountyCase(unittest.TestCase):
         self.tmp.cleanup()
 
     def run_fetch(self, portal=None, pdfs=None, geocode=None, **kw):
+        # Tests about the poll itself skip the PDF phase (every inspection
+        # ships); tests that pass `pdfs` exercise it, where an inspection
+        # ships only once its printable has been read.
+        if pdfs is None:
+            kw.setdefault('fetch_violations', False)
         portal = portal or _Portal()
         pdfs = pdfs or {}
         fetched = []
@@ -145,8 +156,10 @@ class PollTests(OrangeCountyCase):
 
     def test_pdf_violations_fill_the_record_but_never_its_grade(self):
         out, _, fetched = self.run_fetch(pdfs={REINSPECTION_ID: _pdf('reinspection')})
-        # Every new inspection had its PDF attempted once.
-        self.assertEqual(sorted(fetched), sorted(r['source_id'] for r in out))
+        # Every new inspection had its PDF attempted once ...
+        self.assertEqual(len(fetched), 60)
+        # ... but only the one whose printable was read ships.
+        self.assertEqual([r['source_id'] for r in out], [REINSPECTION_ID])
         by_id = {r['source_id']: r for r in out}
         rec = by_id[REINSPECTION_ID]
         self.assertEqual(rec['total_violations'], 8)
@@ -155,23 +168,46 @@ class PollTests(OrangeCountyCase):
         self.assertEqual(rec['risk_score'], 75)      # the county's outcome, not 100-5-2-6
         self.assertTrue(rec['violations'][0][2].startswith(
             '8. Proper hot and cold holding temperatures (MAJ): The following food items'))
-        # The others had no readable PDF: they still ship, with their official
-        # result and an empty violation list.
-        other = by_id[PASS_ID]
-        self.assertEqual((other['risk_score'], other['results'], other['violations']), (90, 'Pass', []))
+        # The others had no readable PDF: they wait in the sidecar for the
+        # next poll instead of shipping looking clean.
+        self.assertNotIn(PASS_ID, by_id)
         rows = self.sidecar_rows()
         self.assertEqual(rows[REINSPECTION_ID]['_pdf'], 'ok')
         self.assertEqual(rows[PASS_ID]['_pdf'], 'failed')
+        self.assertEqual(dp._OC_LAST_POLL['held_back'], 59)
+        # 59 of 60 printables unreadable is a layout change, not a bad day.
+        self.assertEqual(dp._oc_group_outcome()[0], 'error')
+
+    def test_unreadable_printable_ships_with_its_result_after_the_give_up_days(self):
+        self.run_fetch(pdfs={})
+        later = dp.datetime.now() + dp.timedelta(days=dp.OC_PDF_GIVE_UP_DAYS + 1)
+        with mock.patch.object(dp, 'datetime', wraps=dp.datetime) as fake_dt:
+            fake_dt.now.return_value = later
+            out, _, fetched = self.run_fetch(pdfs={})
+        self.assertEqual(len(fetched), 60)            # retried once more first
+        self.assertEqual(len(out), 60)                # then shipped, results only
+        by_id = {r['source_id']: r for r in out}
+        self.assertEqual((by_id[PASS_ID]['risk_score'], by_id[PASS_ID]['results'],
+                          by_id[PASS_ID]['violations']), (90, 'Pass', []))
+        self.assertEqual(dp._OC_LAST_POLL['given_up'], 60)
+
+    def test_a_pdf_without_a_result_is_unread_not_clean(self):
+        # A valid PDF that is not an OC printable (a layout change would look
+        # like this): it must not be recorded as read with zero violations.
+        foreign = open(os.path.join(os.path.dirname(FIX), 'omaha', 'inspection_3332.pdf'), 'rb').read()
+        out, _, _ = self.run_fetch(pdfs={PASS_ID: foreign, REINSPECTION_ID: _pdf('reinspection')})
+        self.assertEqual(self.sidecar_rows()[PASS_ID]['_pdf'], 'failed')
+        self.assertNotIn(PASS_ID, {r['source_id'] for r in out})
 
     def test_failed_pdf_is_retried_next_poll_and_a_read_one_is_not(self):
-        self.run_fetch()
+        self.run_fetch(pdfs={})
         _, _, fetched = self.run_fetch(pdfs={REINSPECTION_ID: _pdf('reinspection'),
                                              PASS_ID: _pdf('pass')})
         self.assertEqual(len(fetched), 60)           # every failed one retried
         rows = self.sidecar_rows()
         self.assertEqual(rows[REINSPECTION_ID]['total_violations'], 8)
         self.assertEqual(rows[PASS_ID]['total_violations'], 3)
-        _, _, fetched = self.run_fetch()
+        _, _, fetched = self.run_fetch(pdfs={})
         self.assertEqual(len(fetched), 58)           # the two read ones are done
         self.assertNotIn(REINSPECTION_ID, fetched)
 
@@ -211,7 +247,7 @@ class PollTests(OrangeCountyCase):
         old, kept = seeded(15, 'OLD-ONE'), seeded(5, 'KEPT-ONE')
         dp._oc_write_sidecar(self.sidecar, {old['source_id']: old, kept['source_id']: kept})
 
-        out, _, _ = self.run_fetch(pdfs={})
+        out, _, _ = self.run_fetch()
         ids = {r['source_id'] for r in out}
         self.assertNotIn('OLD-ONE', ids)             # older than ten days before the newest
         self.assertIn('KEPT-ONE', ids)
@@ -229,7 +265,7 @@ class PollTests(OrangeCountyCase):
         self.assertEqual(len(out), 61)
 
     def test_failed_poll_still_ships_the_sidecar_and_reports_an_error(self):
-        self.run_fetch()
+        self.run_fetch(pdfs=_all_pdfs())               # yesterday: every printable read
         out, portal, fetched = self.run_fetch(portal=_Portal(fail=True),
                                               pdfs={REINSPECTION_ID: _pdf('reinspection')})
         self.assertEqual(len(portal.calls), 1)

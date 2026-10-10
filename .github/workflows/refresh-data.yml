@@ -23,6 +23,10 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v5
+        with:
+          # The tip of main when the job STARTS (a queued run or a re-run
+          # would otherwise check out a stale SHA and fail to push).
+          ref: main
 
       - name: Set up Python
         uses: actions/setup-python@v6
@@ -246,13 +250,18 @@ jobs:
           git config --global user.email "bot@dinescores.com"
           # The Jev cache travels with the data it graded: the run's new
           # judgments file (append-only; see data/jev_judgments/README.md).
-          git add public/data.js data/source_freshness.json data/jev_judgments
+          # The Orange County sidecar is rewritten by this run's poll too; an
+          # uncommitted sidecar loses the inspections (and unread printables)
+          # the Monday poll can no longer see.
+          git add public/data.js data/source_freshness.json data/jev_judgments \
+                  data/orange_county_inspections.jsonl
           if git diff --staged --quiet; then
             echo "No changes to data.js — already up to date"
           else
             TIMESTAMP=$(date -u '+%Y-%m-%d')
             git commit -m "Auto-refresh: ${TIMESTAMP} weekly inspection data update"
-            git push
+            git pull --rebase origin main
+            git push origin HEAD:main
             echo "Successfully pushed updated data.js"
           fi
 

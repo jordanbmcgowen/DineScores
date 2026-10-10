@@ -120,17 +120,31 @@ middleware.
     - **No secrets.** The job mints a GitHub OIDC token (`id-token: write`,
       audience `dinescores-portal-relay`, re-minted by `_relay_token()`
       before expiry) and the function verifies the signature against
-      GitHub's JWKS plus issuer, audience, expiry and `repository ==
-      jordanbmcgowen/DineScores`. A static `RELAY_TOKEN` Pages variable is
-      accepted as an alternative (`PORTAL_RELAY_TOKEN` on the client side).
-      Only the two portal hostnames can be fetched. The relay deploys with
+      GitHub's JWKS plus issuer, audience, expiry, `repository ==
+      jordanbmcgowen/DineScores` AND the immutable `repository_id`
+      (1163315559) and `repository_owner_id` (244274424) — names can be
+      re-registered after an account rename, ids cannot. If the repository
+      moves, set both `RELAY_ALLOWED_REPO` and `RELAY_ALLOWED_REPO_ID` as
+      Pages variables (a name override without an id is refused). A static
+      `RELAY_TOKEN` Pages variable is accepted as an alternative
+      (`PORTAL_RELAY_TOKEN` on the client side). Only the two portal
+      hostnames can be fetched, and redirects are followed by hand only
+      while they stay on those hosts over https. The relay deploys with
       every Pages build, so a broken relay shows up as a red refresh run,
       not a silent one. `PORTAL_RELAY_URL` defaults to
       `https://dinescores.com/api/relay` in the workflows; the
       `PORTAL_RELAY_URL`/`PORTAL_RELAY_TOKEN`/`PORTAL_PROXY_URL` secrets only
-      override it. `tests/test_refresh_hardening.py` covers the client side;
-      the function was exercised end to end in Node (JWT verification,
-      forged/expired/foreign-repo tokens, host allowlist, header stripping).
+      override it. `tests/test_refresh_hardening.py` covers the client side
+      and `node tests/test_relay.mjs` the function (JWT verification,
+      forged/expired/foreign-repo/re-registered-namespace tokens, host
+      allowlist, redirects, header stripping).
+    - **MHD allows ~250 searches per TCP connection**, then 403s that
+      connection (measured 2026-10-10: 252 searches, 403; cookies cleared,
+      still 403; a new connection, 200 at once). `_mhd_rotate_connection`
+      reconnects every `MHD_SEARCHES_PER_CONNECTION` (150) searches and on
+      the first 403 of a search; only a second 403 goes to the retry ladder
+      and the breaker. Tennessee's bucket mode (30 searches a day per metro)
+      tripped the breaker in five minutes before this.
     - The cooldown budget `MHD_BAN_COOLDOWNS` defaults to 16 (was 3): a
       normal week of every MHD jurisdiction is well over 1,000 detail pages,
       five or more 15-minute ban windows, which the old budget could never
@@ -139,22 +153,39 @@ middleware.
     - SNHD is rate-limited, not IP-blocked: a 401/429 pauses every SNHD
       worker (`_snhd_pause_all`, `SNHD_RATE_LIMIT_WAIT`) instead of
       retrying three seconds later, and the detail phase runs at
-      `SNHD_DETAIL_WORKERS=2` / `SNHD_DETAIL_DELAY=0.5`.
+      `SNHD_DETAIL_WORKERS=2` / `SNHD_DETAIL_DELAY=0.5`. A throttle that
+      does not lift is a block: once the pauses add up to
+      `SNHD_MAX_TOTAL_PAUSE` (15 min) or two requests in a row exhaust their
+      retries, `_SNHD_BLOCKED` fails every further SNHD request at once, so
+      Las Vegas can never eat the whole fetch deadline; the permits not read
+      hold its freshness and the group is reported 'blocked'.
 - `poll-orange-county.yml` — cron, 05:00 UTC Monday-Saturday. Orange
   County's MHD jurisdiction ignores every date filter and returns only its
   newest 225 inspections (~1.7 days; measured 2026-10-10, see
   `fetch_orange_county`), so it is polled daily into the sidecar
   `data/orange_county_inspections.jsonl` (last 10 days) and upserted into
-  D1; the Sunday refresh reads the same sidecar to rebuild data.js. Both
-  workflows share the `data-refresh` concurrency group so they never push
-  at once. OC publishes no score: Pass/Reinspection/Closed map to 90/75/50,
-  and violations come from the inspection's printable PDF (stdlib parser,
-  county MAJ/MIN/OUT tags set the severity).
+  D1; the Sunday refresh ships the whole sidecar to rebuild data.js and
+  commits the sidecar too. Both workflows check out `main`'s tip and share
+  the `data-refresh` concurrency group so they never push at once; the
+  poll commits the sidecar BEFORE its D1 update (an uncommitted day is
+  lost for good, a missed D1 update heals on the next poll) and never
+  commits the freshness file (so its commit cannot conflict with the
+  weekly's). It runs Jev like the weekly, so the daily upsert does not flip
+  D1's grades back to the regex. OC publishes no score: Pass/Reinspection/
+  Closed map to 90/75/50, and violations come from the inspection's
+  printable PDF (stdlib parser, county MAJ/MIN/OUT tags set the severity).
+  An inspection ships only once its printable is read; a PDF that parses
+  without a Result counts as unread (a layout change must not read as
+  zero violations); one still unreadable `OC_PDF_GIVE_UP_DAYS` (5) after
+  it was first polled ships with the county's result alone; a poll where
+  most printables fail is reported as an error.
 - `load-d1-seeds.yml` — on push to `main` touching `data/d1_seed*.sql.gz`
   (and manual with a glob): loads the seeds that push added or changed.
   Committing a seed IS loading it; the four 2026-09-15 catch-up seeds sat
   unloaded for a month because the setup workflow had to be run by hand,
-  leaving D1 nine days behind data.js for DFW.
+  leaving D1 nine days behind data.js for DFW. It fetches the push's base
+  commit, so a rebase-merge or multi-commit push loads every seed it
+  added, and fails loudly if that base cannot be fetched.
 - `probe-sources.yml` — manual. Curls each portal from ubuntu/macOS/windows
   runners, directly and through the relay (with a minted OIDC token) or
   `PORTAL_PROXY_URL`, and prints the HTTP status.
@@ -189,8 +220,11 @@ Riverside/San Bernardino DEH, Spokane, Tacoma.
 
 - **Cloudflare Pages rejects any asset over 25 MiB**, and `public/data.js`
   is the asset that grows. `write_data_js` bounds it (EMBED_BUDGET global
-  cap + EMBED_CITY_FLOOR per-city floor, ~24 MB); a deploy that fails with
-  no error on the commit is usually this. The full dataset lives in D1.
+  cap + EMBED_CITY_FLOOR per-city floor) and then enforces a hard
+  `DATA_JS_MAX_BYTES` (24,000,000) by dropping the oldest records outside
+  the floors — the record budget alone let the file creep to 24.8 MB as
+  new towns added floors. A deploy that fails with no error on the commit
+  is usually this. The full dataset lives in D1.
 - **D1 rejects any SQL statement over 100KB** (`SQLITE_TOOBIG`), and its
   file imports are atomic. `write_d1_sql` caps multi-row INSERTs at 40 rows
   AND 80KB (`_d1_row_batches`) — keep both caps on anything that emits SQL.
@@ -222,10 +256,20 @@ Riverside/San Bernardino DEH, Spokane, Tacoma.
   businesses are new since Nov 2025 and get fresh ids; if the county
   reformats again, rebuild the map by matching on name+city+house number
   against D1 before shipping a refresh.
-- **Only shipped records advance freshness.** `_record_group` computes a
-  group's latest date from the records it returns, so dropped/undetailed
-  batches get refetched by the lookback. Keep it that way for any new
-  fetch group, and register every new group with `_record_group`.
+- **Only shipped records advance freshness, and a drop holds it.**
+  `_record_group` computes a group's latest date from the records it
+  returns, so undetailed batches get refetched by the lookback. A fetcher
+  that drops an inspection for a TRANSIENT reason (detail ban, timeout,
+  5xx, deadline) while shipping later days must call
+  `_hold_freshness(source, date)`: the source's latest is then capped at
+  the day before the earliest drop (and pulled back if already past it),
+  or the later days would carry the latest beyond the drop and lose it
+  for good. Holds older than `FRESHNESS_HOLD_MAX_DAYS` (28) are ignored,
+  so one permanently unreadable record cannot pin a window open; Omaha's
+  deterministic HTTP 500s are therefore not held. Fetchers that ship part
+  of their window report it with `_set_group_status` so the run goes red.
+  MHD details run oldest-first so a ban or deadline cut drops the newest
+  tail. Register every new fetch group with `_record_group`.
 - **MHD history backfills need score calibration.** Search-only backfills
   (no detail pages) are safe ONLY where the portal's `score` field is a
   real 0-100 score (Dallas, Plano, Frisco, Fort Worth, Portland-metro OR,
@@ -288,6 +332,12 @@ impact and the open policy decisions; `scripts/jev_shadow.py` reproduces it.
   and the "Report source outcomes" step renders it; a failed pass or a run
   that fell back on most lines raises a warning annotation.
 - Tests: `python3 -m unittest tests.test_jev_reader` (no network).
+
+## Tests
+
+`python3 -m unittest discover -s tests` (no network: every fetcher test
+uses captured fixtures under `tests/fixtures/`) and `node
+tests/test_relay.mjs` for the relay function. Run both before pushing.
 
 ## Local commands
 

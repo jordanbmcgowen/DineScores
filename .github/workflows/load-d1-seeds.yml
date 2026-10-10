@@ -58,7 +58,16 @@ jobs:
             # merge is one commit, so HEAD~1 covers the normal case; fall back
             # to the push range when it is available.
             BEFORE='${{ github.event.before }}'
-            if [ -n "$BEFORE" ] && ! echo "$BEFORE" | grep -q '^0*$' && git cat-file -e "$BEFORE" 2>/dev/null; then
+            if [ -n "$BEFORE" ] && ! echo "$BEFORE" | grep -q '^0*$'; then
+              # A rebase-merge or a multi-commit push reaches back further
+              # than the 2-commit checkout: fetch the push's base so every
+              # seed the push added is seen, not just the last commit's.
+              git cat-file -e "$BEFORE" 2>/dev/null || \
+                git fetch --no-tags --depth=1 origin "$BEFORE" || true
+              if ! git cat-file -e "$BEFORE" 2>/dev/null; then
+                echo "::error::Cannot fetch the push's base commit $BEFORE; re-run this workflow manually with the seeds glob."
+                exit 1
+              fi
               SEEDS=$(git diff --name-only --diff-filter=AM "$BEFORE" "${{ github.sha }}" -- 'data/d1_seed*.sql.gz')
             else
               SEEDS=$(git diff --name-only --diff-filter=AM HEAD~1 HEAD -- 'data/d1_seed*.sql.gz' 2>/dev/null || true)

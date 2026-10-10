@@ -23,13 +23,18 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 45
     permissions:
-      contents: write  # commits the sidecar and freshness file
+      contents: write  # commits the sidecar (and the run's Jev judgments)
       id-token: write  # mints the GitHub OIDC token that authenticates the job
                        # to the portal relay (functions/api/relay.js)
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v5
+        with:
+          # The tip of main when the job STARTS, not the SHA it was queued
+          # with: this job and the weekly refresh share a concurrency group,
+          # so a queued run starts after the other has pushed.
+          ref: main
 
       - name: Set up Python
         uses: actions/setup-python@v6
@@ -50,6 +55,12 @@ jobs:
           PORTAL_RELAY_URL: ${{ secrets.PORTAL_RELAY_URL || 'https://dinescores.com/api/relay' }}
           PORTAL_RELAY_TOKEN: ${{ secrets.PORTAL_RELAY_TOKEN }}
           PORTAL_PROXY_URL: ${{ secrets.PORTAL_PROXY_URL }}
+          # Same Jev reading as the weekly refresh, so the daily upsert does
+          # not flip D1's hazard F and summary phrases back to the regex's
+          # reading six days a week (see refresh-data.yml for the policy).
+          TYPESAFE_API_KEY: ${{ secrets.TYPESAFE_API_KEY }}
+          JEV_MODE: decide
+          JEV_DECIDE: hazard,summary
         run: |
           python3 dinescores_pipeline.py \
             --mode weekly \
@@ -57,14 +68,41 @@ jobs:
             --output /tmp/oc.json \
             --output-d1-sql /tmp/oc.sql \
             --freshness-file data/source_freshness.json \
-            --deadline-minutes 30
-        # No --output-data-js on purpose (see the header comment). --mode weekly
-        # with the freshness file makes the fetcher return the sidecar's last
-        # week-plus of inspections, so the D1 upsert is idempotent over the
-        # whole window and a PDF or geocode that succeeds on a later day
-        # updates the row then.
+            --deadline-minutes 30 \
+            --jev-deadline-minutes 5
+        # No --output-data-js on purpose (see the header comment). In weekly
+        # mode the fetcher returns the whole sidecar (its last ten days) whose
+        # printables have been read, so the D1 upsert is idempotent over that
+        # window, an inspection whose PDF is read on a later day ships then,
+        # and a missed D1 update heals on the next poll.
+
+      - name: Commit the sidecar
+        # BEFORE the D1 update: the newest-225 answer reaches back less than
+        # two days, so a sidecar that is not committed today is lost for
+        # good, while D1 heals from the committed sidecar on the next poll.
+        # The freshness file is NOT committed here (only the weekly refresh
+        # commits it), so this commit can never conflict with that one.
+        run: |
+          git config --global user.name "DineScores Bot"
+          git config --global user.email "bot@dinescores.com"
+          git add data/orange_county_inspections.jsonl data/jev_judgments
+          if git diff --staged --quiet; then
+            echo "No changes to the Orange County sidecar — already up to date"
+          else
+            TIMESTAMP=$(date -u '+%Y-%m-%d')
+            git commit -m "Orange County daily poll: ${TIMESTAMP}"
+            # Another job (the weekly refresh, a merged PR) may have pushed
+            # since checkout: rebase this one commit onto it before pushing.
+            git pull --rebase origin main
+            git push origin HEAD:main
+            echo "Pushed the Orange County sidecar"
+          fi
 
       - name: Update D1 database
+        id: d1
+        # A D1 failure must not cost the day's poll (committed above) or hide
+        # the poll's own outcome; the last step fails the run if this failed.
+        continue-on-error: true
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
@@ -82,28 +120,14 @@ jobs:
           npx --yes wrangler@4 d1 execute dinescores --remote -y \
             --file /tmp/oc.sql
 
-      - name: Commit the sidecar and freshness file
-        run: |
-          git config --global user.name "DineScores Bot"
-          git config --global user.email "bot@dinescores.com"
-          git add data/orange_county_inspections.jsonl data/source_freshness.json
-          if git diff --staged --quiet; then
-            echo "No changes to the Orange County sidecar — already up to date"
-          else
-            TIMESTAMP=$(date -u '+%Y-%m-%d')
-            git commit -m "Orange County daily poll: ${TIMESTAMP}"
-            # Another job (the weekly refresh, a merged PR) may have pushed
-            # since checkout: rebase this one commit onto it before pushing.
-            git pull --rebase
-            git push
-            echo "Pushed the Orange County sidecar"
-          fi
-
       - name: Fail the run if the Orange County poll did not refresh
-        # Runs LAST, after whatever shipped is in D1 and committed, so a red
-        # run never costs data. "error" is a fetcher exception or a poll that
-        # read nothing (the sidecar's records still shipped), "blocked" the
-        # portal refusing us, "skipped" the fetch deadline.
+        # Runs LAST, after whatever shipped is committed and in D1, so a red
+        # run never costs data. "error" is a fetcher exception, a poll that
+        # read nothing (the sidecar's records still shipped) or most
+        # printables unreadable; "blocked" the portal refusing us; "skipped"
+        # the fetch deadline. A failed D1 update fails the run too.
+        env:
+          D1_OUTCOME: ${{ steps.d1.outcome }}
         run: |
           python3 - <<'EOF'
           import json, sys
@@ -119,10 +143,13 @@ jobs:
                   bad.append(f"{group}: {run['status']} - {run.get('detail') or 'no records shipped'}")
               elif run.get('at') != today:
                   bad.append(f"{group}: no outcome recorded today (pipeline did not reach its output phase)")
+          import os
+          if os.environ.get('D1_OUTCOME') == 'failure':
+              bad.append('D1 update failed (the committed sidecar re-upserts it on the next poll)')
           for b in bad:
               print(f'::error title=Source did not refresh::{b}')
           if bad:
-              print(f'{len(bad)} source group(s) did not refresh this run; data that did ship is already committed.')
+              print(f'{len(bad)} problem(s) this run; the sidecar is already committed.')
               sys.exit(1)
           print('Orange County refreshed.')
           EOF
