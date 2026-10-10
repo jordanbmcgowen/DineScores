@@ -753,6 +753,9 @@ def drop_implausible_coords(records):
 
 _GEOCODE_CACHE = {}
 
+NOMINATIM_MIN_PLACE_RANK = 26   # street level or better; never a town/suburb centroid
+
+
 def geocode_address(address, city, state, nominatim_session=None):
     """Free geocoding via Nominatim (OpenStreetMap). Rate-limited to 1 req/sec."""
     key = f"{address}, {city}, {state}"
@@ -773,10 +776,20 @@ def geocode_address(address, city, state, nominatim_session=None):
         if r.status_code == 200:
             results = r.json()
             if results:
-                lat = float(results[0]['lat'])
-                lon = float(results[0]['lon'])
-                _GEOCODE_CACHE[key] = (lat, lon)
-                return (lat, lon)
+                # Nominatim answers an unknown house number with the street,
+                # or the whole town, as the best match. A town centroid is a
+                # wrong pin (it put Panama City Beach restaurants 20 km away
+                # in Panama City); only street level or better is a location.
+                # place_rank: 30 house/building, 26-27 street, <=25 area.
+                try:
+                    rank = int(results[0].get('place_rank') or 30)
+                except (TypeError, ValueError):
+                    rank = 30
+                if rank >= NOMINATIM_MIN_PLACE_RANK:
+                    lat = float(results[0]['lat'])
+                    lon = float(results[0]['lon'])
+                    _GEOCODE_CACHE[key] = (lat, lon)
+                    return (lat, lon)
     except Exception as e:
         log.warning(f"Geocode failed for {key}: {e}")
     
@@ -4877,12 +4890,16 @@ def fetch_arlington(since_date=None, limit=None):
     return results
 
 
-def geocode_census_batch(records):
+def geocode_census_batch(records, benchmark='Public_AR_Current'):
     """
     Batch-geocode US street addresses with the free Census Bureau geocoder
     (up to 10k addresses per request — thousands of times faster than the
     1 req/sec Nominatim loop). Fills latitude/longitude in place and returns
-    the number geocoded.
+    the number geocoded. `benchmark` picks the address database: the default
+    'Public_AR_Current' misses newer streets in fast-growing areas (it
+    matched 0 of 81 unresolved Florida Emerald Coast addresses in Oct 2026),
+    while 'Public_AR_Census2020' resolves some of those, so the caller runs
+    both.
     """
     import csv, io
 
@@ -4911,7 +4928,7 @@ def geocode_census_batch(records):
                 resp = requests.post(
                     'https://geocoding.geo.census.gov/geocoder/locations/addressbatch',
                     files={'addressFile': ('addresses.csv', rows.getvalue(), 'text/csv')},
-                    data={'benchmark': 'Public_AR_Current'},
+                    data={'benchmark': benchmark},
                     timeout=600)
                 resp.raise_for_status()
                 break
@@ -4948,6 +4965,11 @@ def geocode_missing_coords(records, nominatim_fallback_cap=150):
     geocoded = geocode_census_batch(missing)
 
     still_missing = [r for r in missing if not r.get('latitude') or not r.get('longitude')]
+    if still_missing:
+        # Second Census pass on the older benchmark: it knows addresses the
+        # current one does not (and vice versa), and a batch call is cheap.
+        geocoded += geocode_census_batch(still_missing, benchmark='Public_AR_Census2020')
+        still_missing = [r for r in missing if not r.get('latitude') or not r.get('longitude')]
     fallback = still_missing[:nominatim_fallback_cap]
     skipped = len(still_missing) - len(fallback)
     for r in fallback:
