@@ -129,10 +129,11 @@ middleware.
       override it. `tests/test_refresh_hardening.py` covers the client side;
       the function was exercised end to end in Node (JWT verification,
       forged/expired/foreign-repo tokens, host allowlist, header stripping).
-    - The cooldown budget `MHD_BAN_COOLDOWNS` defaults to 8 (was 3): a
-      normal week of every MHD jurisdiction is ~1,100 detail pages, about
-      five 15-minute ban windows, which the old budget could never finish.
-      The 120-minute fetch deadline is what bounds a CI run.
+    - The cooldown budget `MHD_BAN_COOLDOWNS` defaults to 16 (was 3): a
+      normal week of every MHD jurisdiction is well over 1,000 detail pages,
+      five or more 15-minute ban windows, which the old budget could never
+      finish. The weekly job's 240-minute fetch deadline (330-minute job)
+      is what bounds a CI run; it is a Sunday cron, so the hours are free.
     - SNHD is rate-limited, not IP-blocked: a 401/429 pauses every SNHD
       worker (`_snhd_pause_all`, `SNHD_RATE_LIMIT_WAIT`) instead of
       retrying three seconds later, and the detail phase runs at

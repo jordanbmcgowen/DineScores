@@ -3706,12 +3706,13 @@ MHD_DETAIL_BLOCK_TRIP = 3
 # MHD_BAN_COOLDOWNS times per run, and only while the fetch deadline leaves
 # room for the wait. Searches keep working during a detail ban.
 MHD_BAN_COOLDOWN = float(os.environ.get('MHD_BAN_COOLDOWN', '900'))   # seconds
-MHD_BAN_COOLDOWNS = int(os.environ.get('MHD_BAN_COOLDOWNS', '8'))     # per run
-# (8 x 15 min is more than a 120-minute fetch deadline allows, so in CI the
-# deadline, not this count, is what ends a run; the count matters for local
-# catch-ups with a longer deadline. A week of every MHD jurisdiction is
-# ~1,100 detail pages, about five ban windows — the old budget of 3 could
-# never finish a normal week once the portal was reachable again.)
+MHD_BAN_COOLDOWNS = int(os.environ.get('MHD_BAN_COOLDOWNS', '16'))    # per run
+# (16 x 15 min matches the 240-minute fetch deadline the weekly job runs
+# with, so in CI the deadline, not this count, is what ends a run; the count
+# matters for local catch-ups with a longer deadline. A week of every MHD
+# jurisdiction is well over 1,000 detail pages, five or more ban windows —
+# the old budget of 3 could never finish a normal week once the portal was
+# reachable again.)
 _MHD_DETAIL_BANNED = False   # detail pages 403ing right now (searches still fine)
 _MHD_COOLDOWNS_USED = 0
 MHD_WINDOW_DAYS = 7    # initial search window; bisected when the query cap is hit

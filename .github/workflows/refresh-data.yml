@@ -9,7 +9,7 @@ on:
 jobs:
   refresh-data:
     runs-on: ubuntu-latest
-    timeout-minutes: 170
+    timeout-minutes: 330
     permissions:
       contents: write  # Needed to commit data.js back to the repo
       id-token: write  # Lets the job mint the GitHub OIDC token that
@@ -68,11 +68,11 @@ jobs:
             --merge-existing-data-js public/data.js \
             --output-d1-sql /tmp/dinescores_weekly.sql \
             --freshness-file data/source_freshness.json \
-            --deadline-minutes 120 \
+            --deadline-minutes 240 \
             --jev-deadline-minutes 20
         # --jev-deadline-minutes bounds the Jev reading pass that runs after
-        # the fetch phase (120 + 20 + outputs and the D1 upload stay inside
-        # the 170-minute job). Lines not read by then fall back to the regex;
+        # the fetch phase (240 + 20 + outputs and the D1 upload stay inside
+        # the 330-minute job). Lines not read by then fall back to the regex;
         # the pass can never fail the run or drop a record.
         # --merge-existing-data-js is essential: weekly mode only pulls the
         # recent window, and merging preserves the accumulated dataset instead
@@ -86,8 +86,11 @@ jobs:
         # --deadline-minutes keeps the fetch phase inside the job timeout:
         # sources that miss the budget are skipped (their existing records
         # survive via the merge) instead of the whole run timing out and
-        # shipping nothing. The budget also covers the MHD detail-page ban
-        # cooldowns (up to 3 x 15 min) when those portals are reachable.
+        # shipping nothing. The budget is what bounds the MHD detail-page
+        # ban cooldowns (15 min each; a normal week across every MHD
+        # jurisdiction needs five or more, and a backlog needs more) — this
+        # is a Sunday-morning cron, so a four-hour fetch phase costs nothing
+        # but runner minutes.
 
       - name: Show data summary
         run: |
