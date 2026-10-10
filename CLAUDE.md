@@ -67,7 +67,7 @@ middleware.
 
 ## Workflows (.github/workflows/)
 
-- `refresh-data.yml` — cron, Sundays 09:00 UTC. Pulls the recent window from
+- `refresh-data.yml` — cron, Sundays 09:17 UTC. Pulls the recent window from
   all sources, merges data.js, applies incremental SQL to D1, commits, and
   then FAILS the run if any fetch group was blocked, errored or skipped (the
   last step, after the commit, so a red run never costs data). Fetchers are
@@ -338,7 +338,7 @@ impact and the open policy decisions; `scripts/jev_shadow.py` reproduces it.
 
 - **One pass, after the fetch phase.** `_run_jev_pass` in `main()` calls
   `jev_reader.apply_to_inspections` over every fetched record on its own
-  `--jev-deadline-minutes` budget (20 in CI, inside the 170-minute job), then
+  `--jev-deadline-minutes` budget (20 in CI, inside the 330-minute job), then
   the output paths read the per-record `_jev` result (forces_f, chips,
   summaries). Nothing in the fetchers changed.
 - **Fail open.** Any error, timeout, 429/529 after retries, malformed answer
@@ -349,7 +349,16 @@ impact and the open policy decisions; `scripts/jev_shadow.py` reproduces it.
 - **Policy lives in code.** `F_FORCING_HAZARDS` (vermin, sewage; not flies,
   not `pests_unspecified`), `SCORE_FROM_TIERS_SOURCES` / `SOURCE_TIER_SOURCES`
   / `BOUNDED_TIER_SOURCES` (which sources may be re-scored or re-tiered), the
-  chip and summary-severity maps. A source-stated tier never moves.
+  chip and summary-severity maps. A source-stated tier never moves (Omaha,
+  Santa Clara, San Diego and Orange County included: their counties state it).
+- **An F needs a named vermin and a firm answer.** A `vermin_observed` answer
+  counts only when the line names one (`NAMED_VERMIN_RE`, after removing the
+  negated titles counties print on every pest item); otherwise the regex
+  answers that line. Jev had read crickets, bees, spiders, pill bugs,
+  grasshoppers and a WD-40 can as vermin. An answer that would ADD an F the
+  regex does not give must clear `F_ADDING_HAZARD_FLOOR` (0.7); removing one
+  needs only the 0.6 floor. Measured 2026-10-10: Jev's added F's between 0.6
+  and 0.7 were mostly drains read as sewage, its removed F's mostly right.
 - **Pinned model + versioned questions.** `JEV_MODEL` and
   `QUESTION_SET_VERSION` are part of every cache key; a wording change must
   bump the version (a fingerprint test enforces it). Cache files under

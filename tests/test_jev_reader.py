@@ -425,7 +425,7 @@ class PolicyTests(unittest.TestCase):
                 'summary': {'choice': summ, 'confidence': conf, 'probabilities': {}}}
 
     def test_only_policy_hazards_force_an_f(self):
-        text = 'INSECTS, RODENTS, & ANIMALS NOT PRESENT: Insects were present. Fruit flies in back area'
+        text = 'INSECTS, RODENTS, & ANIMALS NOT PRESENT: Live roaches under the dish machine. Fruit flies in back area'
         self.assertTrue(jr.decide(text, self.judged('vermin_observed'))['forces_f'])
         self.assertTrue(jr.decide(text, self.judged('sewage_observed'))['forces_f'])
         self.assertFalse(jr.decide(text, self.judged('flies_or_gnats_observed'))['forces_f'])
@@ -440,6 +440,81 @@ class PolicyTests(unittest.TestCase):
                                   forcing=jr.F_FORCING_HAZARDS_WITH_FLIES)['forces_f'])
         self.assertEqual(jr.decide(text, self.judged('pests_unspecified'))['chips'], ['pests'])
         self.assertEqual(jr.decide(text, self.judged('pests_unspecified'))['summary_severity'], 'CRITICAL')
+
+    def test_a_vermin_f_needs_a_named_vermin(self):
+        # Jev has read all of these as vermin_observed; none names a vermin, so
+        # today's regex answers them (and the regex gives none of them an F).
+        unnamed = [
+            '38: 6-501.112 Observed dead cricket under 3 compartment sink area',
+            'Floor, walls, ceilings: built,maintained, clean: FOUND SPIDER WEBS ON THE WALLS IN THE SMALL DRY STORAGE ROOM.',
+            'Observed dead pill bugs along floors, observed live spiders as well as cob webs behind and inside unused sinks.',
+            '28: 7-202.11 OBSERVED WD 30 NEAR MEAT SLICER',
+            # the item title names rodents; the observation does not
+            '24. No rodents, insects, birds, or animals (MIN): Observed several dead insects (grasshoppers) throughout '
+            'the floors and inside traps under equipment.',
+        ]
+        for text in unnamed:
+            d = jr.decide(text, self.judged('vermin_observed'))
+            self.assertEqual(d['used']['hazard'], 'unnamed_vermin', text)
+            self.assertEqual(d['forces_f'], dp.has_active_pest_or_sewage(text), text)
+            self.assertFalse(d['forces_f'], text)
+        named = [
+            'No rodents, insects, birds, or animals: Rodent droppings observed in the boiler room in the basement.',
+            '24. No rodents, insects, birds, or animals (MIN): Observed a dead American Cockroach at the sticky trap '
+            'below the cooler. Eliminate the activity of cockroaches from the food facility.',
+            '38: 6-501.111 OBSERVED LIVE RAOACH IN THE KITCHEN',                     # misspelled
+            'The corner junction of walls behind the cookline have gaps that harboring cockoraches.',
+            'Found holes around drain pipes in back area, observed rub markings on pipes in back prep area.',
+            'One live nymph observed crawling on floor in front of the door into the back kitchen.',
+            'Ant observed under coffee machine and around espresso area.',
+            'Inside a bag of opened flour, observed 10+ live weevils crawling on the flour.',
+        ]
+        for text in named:
+            d = jr.decide(text, self.judged('vermin_observed'))
+            self.assertEqual(d['used']['hazard'], 'jev', text)
+            self.assertTrue(d['forces_f'], text)
+        # an unnamed line the regex itself fails keeps the regex F
+        vague = 'No rodents, insects, birds, or animals: Observed Vermin: dead ones on the shelves around the sink.'
+        self.assertEqual(jr.decide(vague, self.judged('vermin_observed'))['forces_f'],
+                         dp.has_active_pest_or_sewage(vague))
+        # the public phrase cannot say roaches when the line names none
+        d = jr.decide(unnamed[0], self.judged('vermin_observed', summ='Live roaches found'))
+        self.assertNotEqual(d['summary'], 'Live roaches found')
+        self.assertEqual(d['used']['summary'], 'hazard_override')
+        # other hazards are not affected by the rule
+        self.assertFalse(jr.decide(unnamed[0], self.judged('conditions_only'))['forces_f'])
+        self.assertTrue(jr.names_vermin('Evidence of mice or live mice present in facility food areas.'))
+        self.assertFalse(jr.names_vermin('INSECTS, RODENTS, & ANIMALS NOT PRESENT'))
+
+    def test_adding_an_f_needs_a_higher_bar_than_removing_one(self):
+        odor = ('22: 114197, 114201 Sewage odor was observed near the 3 compartment ware washing area '
+                'and also from the floor drain by a reach in freezer.')
+        self.assertFalse(dp.has_active_pest_or_sewage(odor))
+        j = self.judged('sewage_observed', cat='water_sewage', conf=0.68)
+        d = jr.decide(odor, j)
+        self.assertFalse(d['forces_f'])
+        self.assertEqual(d['used']['hazard'], 'regex')
+        j70 = self.judged('sewage_observed', cat='water_sewage', conf=jr.F_ADDING_HAZARD_FLOOR)
+        self.assertTrue(jr.decide(odor, j70)['forces_f'])
+        # removing a regex F still only needs the ordinary floor
+        self.assertTrue(dp.has_active_pest_or_sewage(GOLDEN_GAP))
+        d2 = jr.decide(GOLDEN_GAP, self.judged('conditions_only', conf=jr.CONFIDENCE_FLOORS['hazard']))
+        self.assertEqual(d2['used']['hazard'], 'jev')
+        self.assertFalse(d2['forces_f'])
+        # and a confident answer that agrees with the regex F is unaffected
+        self.assertTrue(jr.decide(GOLDEN_ROACH, self.judged('vermin_observed', conf=0.62))['forces_f'])
+
+    def test_numbered_lines_use_their_own_judgment_for_the_summary(self):
+        # Orange County and San Diego number every item; the judgment is cached
+        # under the line as stored, and only the display drops the number.
+        towel = ("7. Adequate handwashing facilities supplied & accessible (MIN): Observed the paper towel "
+                 "dispenser at the men's restroom to be in disrepair. Replace/ repair the dispenser.")
+        j = {jr.normalize_text(towel): self.judged('none', cat='personal_hygiene', summ='Hand sink blocked/dirty')}
+        items = jr.summarize_violations([towel], j)
+        self.assertEqual(items[0]['text'], 'Hand sink blocked/dirty')
+        self.assertTrue(items[0]['verbatim'].startswith('Adequate handwashing'))
+        # with no judgment the regex phrase is unchanged
+        self.assertEqual(jr.summarize_violations([towel], {}), dp.summarize_violations(towel))
 
     def test_points_and_cutoffs_are_untouched(self):
         # Jev output never reaches calc_risk_score: it gets (cat, sev, text) tuples
@@ -724,6 +799,11 @@ class PipelinePassTests(unittest.TestCase):
         self.assertEqual(jr.tier_policy('Wake County Open Data'), 'fixed')
         self.assertEqual(jr.tier_policy('NYC Open Data'), 'bounded')
         self.assertEqual(jr.tier_policy('Houston Health Dept'), 'free')
+        # tiers the county states: never re-tiered, never re-scored
+        for src in ('Douglas County Health Dept', 'Santa Clara County Open Data', 'San Diego County DEH',
+                    'Orange County Health Care Agency'):
+            self.assertEqual(jr.tier_policy(src), 'fixed', src)
+            self.assertEqual(jr.score_policy(src, None), 'official', src)
         self.assertEqual(jr.bounded_tier('core', 'priority'), 'core')
         self.assertEqual(jr.bounded_tier('priority_foundation', 'core'), 'priority_foundation')
         self.assertEqual(jr.bounded_tier('priority', 'priority_foundation'), 'priority_foundation')
