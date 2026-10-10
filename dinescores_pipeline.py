@@ -205,12 +205,14 @@ MHD_METRO_JURISDICTIONS = {
     'yolocountyeh':         {'display_name': 'Yolo County', 'default_city': 'Woodland',
                              'state': 'CA', 'score_scale': 'none', 'metro': ''},
     # NOT included despite live portals: 'tennessee' and 'virginia'
-    # (statewide; TN even has official 0-100 scores) and 'orange-county'
-    # (CA, ~3.2M pop). The search API truncates every query at ~225 records
-    # (verified: offsets past 225 return nothing) and these jurisdictions
-    # exceed that EVERY day — date bisection cannot go below one day, so any
-    # fetch is a silently-partial sample. Revisit if the portal adds deeper
-    # pagination or a bulk export.
+    # (statewide; TN even has official 0-100 scores). The search API
+    # truncates every query at ~225 records (verified: offsets past 225
+    # return nothing) and these jurisdictions exceed that EVERY day — date
+    # bisection cannot go below one day, so any fetch is a silently-partial
+    # sample. Revisit if the portal adds deeper pagination or a bulk export.
+    # 'orange-county' (CA) has the same cap AND ignores the date filter, so it
+    # is not a jurisdiction here at all: fetch_orange_county polls its newest
+    # 225 daily into a sidecar instead (see that section).
 }
 
 # CLI city slugs → MHD_METRO_JURISDICTIONS subsets
@@ -342,7 +344,7 @@ class _PortalSession(requests.Session):
 def _wants_portal_sources(cities):
     """True if any requested city sits behind an IP-sensitive portal."""
     portal_slugs = (set(DFW_JURISDICTIONS) | set(MHD_METRO_SLUG_GROUPS)
-                    | {'dfw', 'vegas'})
+                    | {'dfw', 'vegas', 'orangecounty', 'anaheim'})
     return bool(portal_slugs & set(cities or ()))
 
 
@@ -5456,6 +5458,776 @@ def _parse_mhd_record(rec, slug, display_name, default_city, default_state,
         return None
 
 
+# ─── ORANGE COUNTY, CA (MHD portal, newest-225 daily poll + sidecar) ────────
+# Orange County Health Care Agency publishes on the MyHealthDepartment portal
+# under the 'orange-county' slug, but the jurisdiction behaves unlike every
+# other MHD portal this pipeline scrapes (measured 2026-10-10, ~140 calls):
+#   * The search API IGNORES the date filter. Every searchInspections query
+#     answers the newest inspections (inspectionDate DESC) truncated at the
+#     portal's 225-record cap (start offsets 0..200; start >= 225 answers
+#     {"err": true, "msg": "bad request"}). Any sort, searchStr or lat/lng
+#     turns the query into a whole-database query, still capped. So the only
+#     query that works is the empty one — programName "", filters
+#     {"date": "", "purpose": ""}, searchStr "", sort {}, lat/lng 0 — read
+#     as nine pages of 25: the newest 225 inspections.
+#   * ~100-140 inspections are published per calendar day (~2-day lag), so
+#     the newest 225 cover ~1.7 days. Polled DAILY (poll-orange-county.yml)
+#     that captures essentially every inspection; a weekly poll would miss
+#     ~75%. Each poll merges into a SIDECAR (OC_SIDECAR_PATH, one pipeline
+#     record per line, the last OC_SIDECAR_KEEP_DAYS of inspections) and the
+#     fetcher returns the sidecar's records, so the Sunday weekly run (data.js
+#     + D1) sees the whole week even though no single poll does, and a poll
+#     that fails ships what the sidecar already holds instead of nothing.
+#   * The county publishes NO numeric score (score=0, scoreDisplay="" on every
+#     record) — only an outcome: PASS, REINSPECTION, CLOSED or CLOSED-OWNER
+#     INITIATED. The grade therefore IS the county's outcome, mapped to a
+#     risk_score band (OC_RESULT_RISK); original_score stays None.
+#   * The HTML detail page carries no violation text (jurisdiction config
+#     showObservations=false). Violations exist only in the printable PDF
+#     (print/?task=getPrintable&pKey=<inspectionID>, 0.3-1 MB), which is read
+#     with the standard library: inflate the page content streams, decode the
+#     Tj/TJ operators through the fonts' ToUnicode CMaps (Identity-H, 2-byte
+#     CIDs) and lay the runs out by position. The PDF lists each cited item
+#     as a bold "NN. Title - MAJ|MIN|OUT" header followed by "Inspector
+#     Comments:" (the observation) and "Violation Description:" (the code
+#     text); verified on four printables (0, 2, 3 and 8 items, one spanning a
+#     page break) against pypdf. Unlike the other MHD jurisdictions a failed
+#     or unparseable PDF does NOT drop the inspection: the result is the
+#     county's official outcome, not something inferred from the details, so
+#     the record ships with its result and an empty violation list, and the
+#     next poll retries the PDF while the inspection is in the sidecar.
+
+OC_SLUG = 'orange-county'
+OC_DISPLAY_NAME = 'Orange County'
+OC_SOURCE = 'Orange County Health Care Agency'
+OC_METRO = 'Orange County'
+# The poll's memory, committed by the daily workflow: one pipeline record per
+# line plus the private '_polled' (first seen), '_result' (the portal's raw
+# outcome) and '_pdf' (pending | ok | failed) fields, which never leave the
+# fetcher. OC_SIDECAR_PATH in the environment overrides the location (tests,
+# smoke runs).
+OC_SIDECAR_PATH = (os.environ.get('OC_SIDECAR_PATH', '').strip()
+                   or os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                                   'data', 'orange_county_inspections.jsonl'))
+OC_SIDECAR_KEEP_DAYS = 10      # by inspection_date, relative to the newest held
+# Printable-PDF pace: a small pool, paced, and the phase stops at the first
+# 403/429 that survives a retry (the records still ship, see above). The cap
+# bounds a run that finds a long backlog of retries.
+OC_PDF_WORKERS = int(os.environ.get('OC_PDF_WORKERS', '2'))
+OC_PDF_DELAY = float(os.environ.get('OC_PDF_DELAY', '0.5'))
+OC_PDF_MAX_PER_RUN = int(os.environ.get('OC_PDF_MAX_PER_RUN', '400'))
+# Orange County publishes only pass / reinspection / closure, so the grade is
+# the county's outcome, not a point score:
+#   PASS                    -> 90 (A)  routine inspection passed
+#   REINSPECTION            -> 75 (C)  violations warrant a return visit
+#   CLOSED                  -> 50 (F)  permit suspended, facility closed
+#   CLOSED-OWNER INITIATED  -> 50 (F)  closed at the operator's request
+# Any other outcome (none seen in ~900 records) keeps the neutral 70 with its
+# raw outcome text as the result, and is logged.
+OC_RESULT_RISK = {'PASS': 90, 'REINSPECTION': 75, 'CLOSED': 50,
+                  'CLOSED-OWNER INITIATED': 50}
+OC_RESULT_LABELS = {'PASS': 'Pass', 'REINSPECTION': 'Reinspection required',
+                    'CLOSED': 'Closed', 'CLOSED-OWNER INITIATED': 'Closed (owner initiated)'}
+OC_NEUTRAL_RISK = 70
+# The PDF tags every cited item with the county's own tier: MAJ (major risk
+# factor), MIN (minor risk factor) or OUT (good-retail-practice item out of
+# compliance). The tag sets the stored severity; classify_violation only
+# supplies the category. Jev treats the source's tiers as fixed.
+OC_TAG_SEVERITY = {'MAJ': 'priority', 'MIN': 'priority_foundation', 'OUT': 'core'}
+_OC_PDF_BLOCKED = False      # printable endpoint 403/429'd through a retry this run
+_OC_LAST_POLL = {}           # this run's poll outcome, read by main() for _record_group
+
+
+# --- stdlib PDF text extraction (enough for the portal's printables) ---------
+
+_PDF_OBJ_RE = re.compile(rb'(\d+)\s+0\s+obj\b(.*?)endobj', re.S)
+_PDF_STREAM_RE = re.compile(rb'stream\r?\n(.*?)\r?\nendstream', re.S)
+_PDF_REF_RE = re.compile(rb'(\d+)\s+0\s+R')
+_PDF_NAME_REF_RE = re.compile(rb'/([^\s/\[\]<>()]+)\s+(\d+)\s+0\s+R')
+_PDF_TEXT_OP_RE = re.compile(
+    rb'/(?P<font>[^\s/\[\]<>()]+)\s+(?P<size>-?[\d.]+)\s+Tf'
+    rb'|(?P<tm>(?:-?[\d.]+\s+){6})Tm'
+    rb'|(?P<td>-?[\d.]+\s+-?[\d.]+)\s+T[dD]'
+    rb'|\[(?P<arr>(?:[^\]\\]|\\.)*)\]\s*TJ'
+    rb'|<(?P<hex>[0-9A-Fa-f\s]*)>\s*Tj'
+    rb'|\((?P<lit>(?:[^()\\]|\\.)*)\)\s*Tj')
+_PDF_STRING_RE = re.compile(rb'<([0-9A-Fa-f\s]*)>|\(((?:[^()\\]|\\.)*)\)')
+_PDF_ESCAPES = {b'n': b'\n', b'r': b'\r', b't': b'\t', b'b': b'\b', b'f': b'\f',
+                b'(': b'(', b')': b')', b'\\': b'\\'}
+
+
+def _pdf_objects(data):
+    return {int(m.group(1)): m.group(2) for m in _PDF_OBJ_RE.finditer(data)}
+
+
+def _pdf_stream(body):
+    """Decoded bytes of an object's stream (FlateDecode or raw), or None."""
+    m = _PDF_STREAM_RE.search(body)
+    if not m:
+        return None
+    raw = m.group(1)
+    if b'/FlateDecode' not in body[:m.start()]:
+        return raw
+    try:
+        return zlib.decompress(raw)
+    except zlib.error:
+        try:
+            return zlib.decompressobj().decompress(raw)   # tolerate a truncated stream
+        except zlib.error:
+            return None
+
+
+def _pdf_tounicode(cmap):
+    """CID -> text from a ToUnicode CMap (bfchar and both bfrange forms)."""
+    out = {}
+    if not cmap:
+        return out
+
+    def utf16(h):
+        try:
+            return bytes.fromhex(h.decode()).decode('utf-16-be', 'replace')
+        except ValueError:
+            return ''
+    for blk in re.findall(rb'beginbfchar(.*?)endbfchar', cmap, re.S):
+        for src, dst in re.findall(rb'<([0-9A-Fa-f]+)>\s*<([0-9A-Fa-f]+)>', blk):
+            out[int(src, 16)] = utf16(dst)
+    for blk in re.findall(rb'beginbfrange(.*?)endbfrange', cmap, re.S):
+        for lo, hi, arr in re.findall(rb'<([0-9A-Fa-f]+)>\s*<([0-9A-Fa-f]+)>\s*\[(.*?)\]', blk, re.S):
+            lo = int(lo, 16)
+            for i, d in enumerate(re.findall(rb'<([0-9A-Fa-f]+)>', arr)):
+                out[lo + i] = utf16(d)
+        for lo, hi, dst in re.findall(
+                rb'<([0-9A-Fa-f]+)>\s*<([0-9A-Fa-f]+)>\s*<([0-9A-Fa-f]+)>(?!\s*>)', blk):
+            lo, hi, base = int(lo, 16), int(hi, 16), int(dst, 16)
+            for c in range(lo, min(hi, lo + 65535) + 1):
+                if base + c - lo < 0x110000:
+                    out.setdefault(c, chr(base + c - lo))
+    return out
+
+
+def _pdf_fonts(objs):
+    """Font object number -> (cid->text map, or None for a simple font; bold?)."""
+    fonts = {}
+    for num, body in objs.items():
+        if not re.search(rb'/Type\s*/Font\b', body) or re.search(rb'/Subtype\s*/CIDFontType', body):
+            continue
+        base = re.search(rb'/BaseFont\s*/([^\s/>]+)', body)
+        bold = bool(base and re.search(rb'bold', base.group(1), re.I))
+        cmap = None
+        if re.search(rb'/Subtype\s*/Type0\b', body):
+            cmap = {}
+            tu = re.search(rb'/ToUnicode\s+(\d+)\s+0\s+R', body)
+            if tu and int(tu.group(1)) in objs:
+                cmap = _pdf_tounicode(_pdf_stream(objs[int(tu.group(1))]))
+        fonts[num] = (cmap, bold)
+    return fonts
+
+
+def _pdf_page_order(objs):
+    """Page object numbers in document order (via the Pages tree)."""
+    pages = [n for n, b in objs.items() if re.search(rb'/Type\s*/Page\b', b)]
+    roots = [n for n, b in objs.items()
+             if re.search(rb'/Type\s*/Pages\b', b) and b'/Parent' not in b]
+    ordered = []
+
+    def walk(num, depth=0):
+        body = objs.get(num)
+        if body is None or depth > 32 or num in ordered:
+            return
+        if re.search(rb'/Type\s*/Page\b', body):
+            ordered.append(num)
+            return
+        kids = re.search(rb'/Kids\s*\[(.*?)\]', body, re.S)
+        if kids:
+            for k in _PDF_REF_RE.findall(kids.group(1)):
+                walk(int(k), depth + 1)
+    for r in roots:
+        walk(r)
+    return ordered or sorted(pages)
+
+
+def _pdf_dict(objs, body, key):
+    """The dictionary at /<key> in body, inline or through an indirect ref."""
+    m = re.search(rb'/' + key + rb'\s+(\d+)\s+0\s+R', body)
+    if m:
+        return objs.get(int(m.group(1)), b'')
+    m = re.search(rb'/' + key + rb'\s*<<', body)
+    if not m:
+        return b''
+    i, depth, start = m.end() - 2, 0, m.end() - 2
+    while i < len(body):
+        if body.startswith(b'<<', i):
+            depth += 1
+            i += 2
+        elif body.startswith(b'>>', i):
+            depth -= 1
+            i += 2
+            if depth == 0:
+                return body[start:i]
+        else:
+            i += 1
+    return body[start:]
+
+
+def _pdf_decode_string(raw, is_hex, cmap):
+    """Text of one string operand. Type0 fonts (cmap given) carry 2-byte CIDs
+    mapped through ToUnicode; simple fonts are read as Latin-1."""
+    if is_hex:
+        h = re.sub(rb'\s+', b'', raw).decode('ascii', 'ignore')
+        if cmap is None:
+            try:
+                return bytes.fromhex(h[:len(h) - len(h) % 2]).decode('latin-1')
+            except ValueError:
+                return ''
+        return ''.join(cmap.get(int(h[i:i + 4], 16), '�')
+                       for i in range(0, len(h) - len(h) % 4, 4))
+
+    def unescape(m):
+        e = m.group(1)
+        return _PDF_ESCAPES.get(e) or bytes([int(e, 8) & 0xFF])
+    b = re.sub(rb'\\([nrtbf()\\]|[0-7]{1,3})', unescape, raw)
+    if cmap is None:
+        return b.decode('latin-1')
+    return ''.join(cmap.get(int.from_bytes(b[i:i + 2], 'big'), '�')
+                   for i in range(0, len(b) - len(b) % 2, 2))
+
+
+def _pdf_text_rows(data, y_tolerance=3.0):
+    """Text of each page as rows of runs, top to bottom and left to right:
+    [[(y, x, bold, text), ...] per row] per page. Each BT..ET block yields one
+    run per string operator, positioned by its Tm (plus Td/TD offsets); runs
+    whose baselines agree within y_tolerance form a row. Returns [] for
+    anything that is not a PDF."""
+    if not data or not data.lstrip()[:5].startswith(b'%PDF'):
+        return []
+    objs = _pdf_objects(data)
+    fonts = _pdf_fonts(objs)
+    root_pages = [b for b in objs.values() if re.search(rb'/Type\s*/Pages\b', b)]
+    pages = []
+    for pn in _pdf_page_order(objs):
+        body = objs[pn]
+        res = _pdf_dict(objs, body, b'Resources')
+        if not res and root_pages:
+            res = _pdf_dict(objs, root_pages[0], b'Resources')
+        fmap = {n: int(r) for n, r in _PDF_NAME_REF_RE.findall(_pdf_dict(objs, res, b'Font'))}
+        m = re.search(rb'/Contents\s+(\d+)\s+0\s+R', body)
+        arr = re.search(rb'/Contents\s*\[(.*?)\]', body, re.S)
+        refs = ([int(m.group(1))] if m else
+                [int(x) for x in _PDF_REF_RE.findall(arr.group(1))] if arr else [])
+        content = b'\n'.join(_pdf_stream(objs[r]) or b'' for r in refs if r in objs)
+        runs = []
+        for blk in re.findall(rb'BT(.*?)ET', content, re.S):
+            x = y = 0.0
+            cmap, bold = None, False
+            for op in _PDF_TEXT_OP_RE.finditer(blk):
+                if op.group('font') is not None:
+                    cmap, bold = fonts.get(fmap.get(op.group('font')), (None, False))
+                elif op.group('tm') is not None:
+                    nums = op.group('tm').split()
+                    x, y = float(nums[4]), float(nums[5])
+                elif op.group('td') is not None:
+                    dx, dy = op.group('td').split()
+                    x, y = x + float(dx), y + float(dy)
+                else:
+                    if op.group('arr') is not None:
+                        parts = _PDF_STRING_RE.findall(op.group('arr'))
+                    elif op.group('hex') is not None:
+                        parts = [(op.group('hex'), b'')]
+                    else:
+                        parts = [(b'', op.group('lit'))]
+                    text = ''.join(_pdf_decode_string(h if h else l, bool(h), cmap)
+                                   for h, l in parts if h or l)
+                    if text.strip():
+                        runs.append((y, x, bold, text))
+        runs.sort(key=lambda r: (-r[0], r[1]))
+        rows, cur, cur_y = [], [], None
+        for r in runs:
+            if cur and abs(r[0] - cur_y) > y_tolerance:
+                rows.append(sorted(cur, key=lambda q: q[1]))
+                cur = []
+            if not cur:
+                cur_y = r[0]
+            cur.append(r)
+        if cur:
+            rows.append(sorted(cur, key=lambda q: q[1]))
+        pages.append(rows)
+    return pages
+
+
+# --- the printable's structure ---------------------------------------------
+
+_OC_PDF_PAGE_LABELS = {'establishment name', 'inspection date', 'establishment address',
+                       'permit number', 'complaint establishment name',
+                       'complaint establishment address'}
+_OC_VIOLATION_HEADER_RE = re.compile(r'^(\d{1,3})\.\s+(.+?)\s+-\s+([A-Z][A-Z/]{1,4})$')
+_OC_MARKER_RE = re.compile(r'^[A-Z][A-Z/&]{1,5}$')      # e.g. a standalone bold COS
+
+
+def _oc_parse_printable(pdf_bytes):
+    """Read an Orange County printable inspection report.
+
+    Returns {'result', 'inspection_type', 'inspection_date' (MM/DD/YYYY as
+    printed), 'violations': [{'code', 'title', 'tag', 'observation',
+    'description', 'flags'}], 'general_comments', 'pages'} or None when the
+    bytes are not a readable PDF. Page 1 is the cover (labels with their
+    values printed beneath them); the "Iterative - Violations" section lists
+    each cited item as a bold "NN. Title - TAG" header followed by the
+    inspector's observation ("Inspector Comments:") and the code text
+    ("Violation Description:"), continuing across page breaks (every page
+    repeats a header block of labels + values, which is skipped). A closure
+    reinspection can have no itemized violations at all; its narrative is in
+    "General Inspection Comments"."""
+    pages = _pdf_text_rows(pdf_bytes)
+    if not pages:
+        return None
+    out = {'result': '', 'inspection_type': '', 'inspection_date': '',
+           'violations': [], 'general_comments': '', 'pages': len(pages)}
+    cover = [r for row in pages[0] for r in row]
+
+    def value_under(label):
+        for y, x, bold, text in cover:
+            if bold and text.strip().lower() == label:
+                below = [(y - ly, t.strip()) for ly, lx, b, t in cover
+                         if not b and t.strip() and abs(lx - x) <= 12 and 0 < y - ly <= 40]
+                if below:
+                    return min(below)[1]
+        return ''
+    out['result'] = value_under('result')
+    out['inspection_type'] = value_under('inspection type')
+    out['inspection_date'] = value_under('inspection date')
+
+    section, skip_next, cur, field = None, False, None, 'observation'
+    for page in pages:
+        for row in page:
+            texts = [t.strip() for _, _, _, t in row if t.strip()]
+            if not texts:
+                continue
+            if skip_next:
+                skip_next = False
+                continue
+            bold = all(b for _, _, b, t in row if t.strip())
+            if bold and all(t.lower() in _OC_PDF_PAGE_LABELS for t in texts):
+                skip_next = True        # a page header: labels, then their values
+                continue
+            line = ' '.join(texts)
+            low = line.lower()
+            if bold and low == 'iterative - violations':
+                section = 'violations'
+                continue
+            if bold and low == 'general inspection comments':
+                section, cur = 'comments', None
+                continue
+            if section == 'violations':
+                if bold:
+                    m = _OC_VIOLATION_HEADER_RE.match(line)
+                    if m:
+                        cur = {'code': m.group(1), 'title': ' '.join(m.group(2).split()),
+                               'tag': m.group(3), 'observation': '', 'description': '',
+                               'flags': []}
+                        out['violations'].append(cur)
+                        field = 'observation'
+                    elif cur is not None and _OC_MARKER_RE.match(line):
+                        cur['flags'].append(line)
+                    else:
+                        section, cur = 'other', None     # the next section's title
+                    continue
+                if cur is None:
+                    continue
+                if low.startswith('inspector comments:'):
+                    field = 'observation'
+                    line = line[len('inspector comments:'):].strip()
+                elif low.startswith('violation description:'):
+                    field = 'description'
+                    line = line[len('violation description:'):].strip()
+                if line:
+                    cur[field] = f"{cur[field]} {line}".strip()
+            elif section == 'comments':
+                if bold:
+                    section = 'other'
+                    continue
+                out['general_comments'] = f"{out['general_comments']} {line}".strip()
+    return out
+
+
+def _oc_violation_rows(parsed):
+    """[category, severity, description] rows for a parsed printable. The
+    county's tag fixes the severity; the text is the cited item followed by
+    the inspector's observation (the code text when there is none)."""
+    rows = []
+    for v in (parsed or {}).get('violations') or []:
+        observation = v.get('observation') or v.get('description') or ''
+        text = f"{v['code']}. {v['title']}"
+        if v.get('tag'):
+            text += f" ({v['tag']})"
+        if observation:
+            text += f": {observation}"
+        category, severity, _ = classify_violation(f"{v['title']} {observation}")
+        severity = OC_TAG_SEVERITY.get((v.get('tag') or '').upper(), severity)
+        rows.append([category, severity, text[:500]])
+    return rows
+
+
+# --- records, sidecar, poll ---------------------------------------------------
+
+def _oc_printable_url(inspection_id):
+    return (f'{MHD_BASE_URL}{OC_SLUG}/print/?task=getPrintable&path={OC_SLUG}'
+            f'&pKey={inspection_id}')
+
+
+def _oc_result_fields(result):
+    """(risk_score, results label) for the portal's raw outcome string."""
+    result = ' '.join(str(result or '').upper().split())
+    if result in OC_RESULT_RISK:
+        return OC_RESULT_RISK[result], OC_RESULT_LABELS[result]
+    return OC_NEUTRAL_RISK, result.title()
+
+
+def _oc_build_record(rec):
+    """Pipeline record for one search-API row (None if unusable)."""
+    parsed = _parse_mhd_record(rec, OC_SLUG, OC_DISPLAY_NAME, 'Anaheim', 'CA',
+                               score_scale='none', metro=OC_METRO)
+    insp_id = str(rec.get('inspectionID') or '').strip()
+    if not parsed or not insp_id:
+        return None
+    # A third of the portal's establishment names end in a caret ("Disneyland^",
+    # "Ami Sushi ^"), a data-entry marker with no public meaning; it would
+    # otherwise show on the map and sit inside the restaurant id.
+    parsed['name'] = parsed['name'].replace('^', '')
+    for k in ('name', 'address', 'city'):
+        parsed[k] = ' '.join(str(parsed.get(k) or '').split())
+    if len(parsed['name']) < 2:
+        return None
+    result = ' '.join(str(rec.get('result') or '').upper().split())
+    risk, label = _oc_result_fields(result)
+    parsed.update({
+        'original_score': None,
+        'risk_score': risk,
+        'results': label,
+        'zip': (parsed.get('zip') or '').strip()[:5],
+        'source': OC_SOURCE,
+        'source_url': _oc_printable_url(insp_id),
+        'source_id': insp_id,
+        'metro': OC_METRO,
+        '_result': result,
+    })
+    return parsed
+
+
+def _oc_load_sidecar(path):
+    recs = {}
+    try:
+        with open(path) as f:
+            for n, line in enumerate(f, 1):
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    r = json.loads(line)
+                except ValueError:
+                    log.warning(f"Orange County: sidecar line {n} is not JSON — skipped")
+                    continue
+                sid = str(r.get('source_id') or '')
+                if sid and r.get('inspection_date'):
+                    recs[sid] = r
+    except FileNotFoundError:
+        log.info(f"Orange County: no sidecar at {path} yet — starting empty")
+    return recs
+
+
+def _oc_write_sidecar(path, recs):
+    d = os.path.dirname(path)
+    if d:
+        os.makedirs(d, exist_ok=True)
+    tmp = f'{path}.tmp'
+    with open(tmp, 'w') as f:
+        for r in sorted(recs.values(), key=lambda r: (r['inspection_date'], r['source_id'])):
+            f.write(json.dumps(r, sort_keys=True, separators=(',', ':'), default=str) + '\n')
+    os.replace(tmp, path)
+
+
+def _oc_prune(recs):
+    """Drop inspections older than OC_SIDECAR_KEEP_DAYS before the newest held
+    (relative to the data, not the clock, so a quiet portal never empties the
+    sidecar). Returns the number dropped."""
+    if not recs:
+        return 0
+    newest = max(str(r['inspection_date'])[:10] for r in recs.values())
+    cutoff = (datetime.strptime(newest, '%Y-%m-%d')
+              - timedelta(days=OC_SIDECAR_KEEP_DAYS)).strftime('%Y-%m-%d')
+    old = [sid for sid, r in recs.items() if str(r['inspection_date'])[:10] < cutoff]
+    for sid in old:
+        del recs[sid]
+    return len(old)
+
+
+def _oc_poll_newest(session, max_pages=None):
+    """Read the newest inspections: the empty query, MHD_QUERY_CAP /
+    MHD_PAGE_SIZE pages of MHD_PAGE_SIZE (a short page ends it early).
+    Returns (raw_records, complete, reason) where reason is '' or why the
+    read stopped: 'blocked', 'deadline' or 'error'."""
+    pages = MHD_QUERY_CAP // MHD_PAGE_SIZE
+    if max_pages:
+        pages = max(1, min(pages, max_pages))
+    records = []
+    for i in range(pages):
+        if _MHD_PORTAL_BLOCKED:
+            return records, False, 'blocked'
+        if _past_deadline():
+            return records, False, 'deadline'
+        if i:
+            time.sleep(MHD_DELAY)
+        page = _mhd_search_page(session, OC_SLUG, '', i * MHD_PAGE_SIZE)
+        if page is None:
+            return records, False, 'blocked' if _MHD_PORTAL_BLOCKED else 'error'
+        records.extend(page)
+        if len(page) < MHD_PAGE_SIZE:
+            break
+    return records, True, ''
+
+
+def _oc_fetch_printable(session, inspection_id, retry_count=0):
+    """Bytes of the printable PDF for one inspection, or None. A 403/429 is
+    retried once; a second one stops this run's PDF phase (the records still
+    ship with their official results) without touching the search breaker."""
+    global _OC_PDF_BLOCKED
+    if _MHD_PORTAL_BLOCKED or _OC_PDF_BLOCKED:
+        return None
+    try:
+        r = session.get(f'{MHD_BASE_URL}{OC_SLUG}/print/',
+                        params={'task': 'getPrintable', 'path': OC_SLUG, 'pKey': inspection_id},
+                        timeout=60)
+    except requests.RequestException as e:
+        # Timeouts and resets happen a few times per hundred over a long
+        # phase (18 of 225 on 2026-10-10, all fine on re-fetch): one quick
+        # retry, then leave it for the next poll.
+        if retry_count < 1 and not _past_deadline():
+            time.sleep(2)
+            return _oc_fetch_printable(session, inspection_id, retry_count + 1)
+        log.debug(f"  Orange County printable {inspection_id} failed: {e}")
+        return None
+    if r.status_code in (403, 429):
+        if retry_count < 1 and not _past_deadline():
+            time.sleep(MHD_RETRY_DELAY)
+            return _oc_fetch_printable(session, inspection_id, retry_count + 1)
+        if not _OC_PDF_BLOCKED:
+            _OC_PDF_BLOCKED = True
+            log.warning(f"  Orange County: printable PDFs blocked ({r.status_code}) through a "
+                        f"retry — stopping this run's PDF phase; the inspections ship with "
+                        f"their official results and the PDFs are retried next poll")
+        return None
+    if r.status_code != 200 or not r.content.lstrip()[:5].startswith(b'%PDF'):
+        log.debug(f"  Orange County printable {inspection_id}: HTTP {r.status_code}, "
+                  f"{r.headers.get('content-type')}")
+        return None
+    return r.content
+
+
+def _oc_fetch_pdfs_bulk(records):
+    """Fetch and parse the printable for each record (OC_PDF_WORKERS workers,
+    OC_PDF_DELAY between a worker's fetches), filling the violation fields in
+    place and marking '_pdf' ok|failed. Records skipped (blocked, deadline)
+    keep their previous mark so the next poll retries them.
+    Returns (ok, failed, skipped)."""
+    local = threading.local()
+
+    def get_session():
+        if not hasattr(local, 'session'):
+            local.session = _mhd_session()
+        return local.session
+
+    def one(rec):
+        if _OC_PDF_BLOCKED or _MHD_PORTAL_BLOCKED or _past_deadline():
+            return rec, None, 'skipped'
+        data = _oc_fetch_printable(get_session(), rec['source_id'])
+        if not (_OC_PDF_BLOCKED or _MHD_PORTAL_BLOCKED):
+            time.sleep(OC_PDF_DELAY)
+        if data is None:
+            return rec, None, 'skipped' if _OC_PDF_BLOCKED else 'failed'
+        try:
+            parsed = _oc_parse_printable(data)
+        except Exception as e:      # a malformed PDF must never take the run down
+            log.debug(f"  Orange County printable {rec['source_id']} unreadable: {e}")
+            parsed = None
+        return rec, parsed, 'ok' if parsed is not None else 'failed'
+
+    ok = failed = skipped = 0
+    with ThreadPoolExecutor(max_workers=OC_PDF_WORKERS) as pool:
+        for rec, parsed, status in pool.map(one, records):
+            if status == 'ok':
+                rows = _oc_violation_rows(parsed)
+                _, pv, pfv, cv = calc_risk_score(rows)
+                rec.update(violations=rows, priority_violations=pv,
+                           priority_foundation_violations=pfv, core_violations=cv,
+                           total_violations=len(rows), _pdf='ok')
+                pdf_result = ' '.join((parsed.get('result') or '').upper().split())
+                if pdf_result and rec.get('_result') and pdf_result != rec['_result']:
+                    log.debug(f"  Orange County {rec['source_id']}: PDF result {pdf_result!r} "
+                              f"vs search {rec['_result']!r}")
+                ok += 1
+            elif status == 'failed':
+                rec['_pdf'] = 'failed'
+                failed += 1
+            else:
+                skipped += 1
+    return ok, failed, skipped
+
+
+def _oc_group_outcome():
+    """(status, detail) for _record_group from this run's poll: (None, note)
+    when the poll worked, else the failure the daily job should fail on even
+    though the sidecar's records still shipped."""
+    status = _OC_LAST_POLL.get('status') or 'ok'
+    return (None if status == 'ok' else status), _OC_LAST_POLL.get('detail', '')
+
+
+def fetch_orange_county(since_date=None, limit=None, fetch_violations=True,
+                        sidecar_path=None, geocode=None):
+    """
+    Orange County, CA (Anaheim, Santa Ana, Irvine, Huntington Beach, ...):
+    poll the MyHealthDepartment portal's newest 225 inspections, merge them
+    into the sidecar and return the sidecar's inspections dated on or after
+    since_date (all of them when None). See the section comment for why the
+    poll is shaped this way.
+
+    Each inspection's grade is the county's official outcome (OC_RESULT_RISK:
+    PASS 90, REINSPECTION 75, CLOSED / CLOSED-OWNER INITIATED 50) — the
+    county publishes no numeric score, so original_score is None and the
+    result is never inferred from the violation details. Violations come
+    from the printable PDF (source_url, the only public place they exist),
+    fetched for every inspection new to the sidecar and retried for those
+    whose PDF failed before; a failed or unparseable PDF leaves the
+    inspection with its official result and an empty violation list — it
+    still ships, unlike the other MHD jurisdictions, where an undetailed
+    record is dropped because its score depends on the details.
+
+    The portal has no coordinates: `geocode` (geocode_missing_coords in
+    main()) is applied only to the sidecar's records that still lack them,
+    and the coordinates are stored in the sidecar, so a restaurant is
+    geocoded once, not every day. `limit` (test mode) bounds both the pages
+    polled and the records returned. Honours _past_deadline() and
+    _MHD_PORTAL_BLOCKED; if the poll fails the sidecar's records are still
+    returned (and _oc_group_outcome() tells main() so the run is reported
+    as failed) — a bad day never loses the week.
+    """
+    path = sidecar_path or OC_SIDECAR_PATH
+    today = datetime.now().strftime('%Y-%m-%d')
+    sidecar = _oc_load_sidecar(path)
+    log.info(f"Fetching Orange County (newest-{MHD_QUERY_CAP} poll; sidecar {path}: "
+             f"{len(sidecar)} inspections; since={since_date}, limit={limit})")
+    poll = {'status': 'ok', 'detail': '', 'pages': 0, 'raw': 0, 'new': 0, 'updated': 0,
+            'pdf_tried': 0, 'pdf_ok': 0, 'pdf_failed': 0, 'pdf_skipped': 0,
+            'geocoded': 0, 'geocode_missing': 0, 'pruned': 0, 'sidecar': 0}
+    _OC_LAST_POLL.clear()
+    _OC_LAST_POLL.update(poll)
+
+    new_records = []
+    unknown_results = set()
+    if _MHD_PORTAL_BLOCKED:
+        poll.update(status='blocked', detail=f"MHD portal blocked this run; shipped the "
+                                             f"sidecar's {len(sidecar)} inspections")
+        log.warning("Orange County: poll skipped — MHD portal is blocking this run")
+    elif _past_deadline():
+        poll.update(status='skipped', detail=f"fetch deadline reached before the poll; "
+                                             f"shipped the sidecar's {len(sidecar)} inspections")
+        log.warning("Orange County: poll skipped — pipeline fetch deadline reached")
+    else:
+        session = _mhd_session()
+        max_pages = math.ceil(limit / MHD_PAGE_SIZE) if limit else None
+        raw, complete, reason = _oc_poll_newest(session, max_pages)
+        poll['raw'] = len(raw)
+        poll['pages'] = math.ceil(len(raw) / MHD_PAGE_SIZE)
+        for rec in raw:
+            built = _oc_build_record(rec)
+            if not built:
+                continue
+            if built['_result'] not in OC_RESULT_RISK:
+                unknown_results.add(built['_result'] or '(blank)')
+            existing = sidecar.get(built['source_id'])
+            if existing is None:
+                built['_polled'] = today
+                built['_pdf'] = 'pending'
+                sidecar[built['source_id']] = built
+                new_records.append(built)
+            else:
+                # Refresh what the portal states about the visit; keep what
+                # earlier polls earned (coordinates, violations, first-seen).
+                for k in ('inspection_type', 'purpose', 'results', 'risk_score', '_result'):
+                    existing[k] = built[k]
+                poll['updated'] += 1
+        poll['new'] = len(new_records)
+        if not raw:
+            status = {'blocked': 'blocked', 'deadline': 'skipped'}.get(reason, 'error')
+            poll.update(status=status,
+                        detail=f"poll {reason or 'failed'}: no page read; shipped the "
+                               f"sidecar's {len(sidecar)} inspections")
+            log.error(f"Orange County: {poll['detail']}")
+        elif not complete:
+            poll['detail'] = (f"poll read {poll['pages']} of {MHD_QUERY_CAP // MHD_PAGE_SIZE} "
+                              f"pages ({reason}); {len(new_records)} new inspections")
+            log.warning(f"Orange County: {poll['detail']}")
+        else:
+            log.info(f"Orange County: poll read {len(raw)} inspections in {poll['pages']} pages "
+                     f"— {len(new_records)} new, {poll['updated']} already held")
+    if unknown_results:
+        log.warning(f"Orange County: unmapped outcome(s) {sorted(unknown_results)} — "
+                    f"recorded with the neutral risk {OC_NEUTRAL_RISK}; extend OC_RESULT_RISK")
+
+    # The mapping is policy, not data: re-derive it for every held record so a
+    # change to OC_RESULT_RISK reaches the inspections already in the sidecar.
+    for r in sidecar.values():
+        if r.get('_result'):
+            r['risk_score'], r['results'] = _oc_result_fields(r['_result'])
+    poll['pruned'] = _oc_prune(sidecar)
+
+    if fetch_violations and poll['status'] == 'ok':
+        pending = [r for r in sidecar.values() if r.get('_pdf') in (None, 'pending', 'failed')]
+        # New inspections before retries, newest first within each (two stable sorts).
+        pending.sort(key=lambda r: (r['inspection_date'], r['source_id']), reverse=True)
+        pending.sort(key=lambda r: 0 if r.get('_pdf') == 'pending' else 1)
+        if len(pending) > OC_PDF_MAX_PER_RUN:
+            log.warning(f"Orange County: {len(pending)} printables to fetch — capping at "
+                        f"{OC_PDF_MAX_PER_RUN} this run")
+            pending = pending[:OC_PDF_MAX_PER_RUN]
+        if pending and not _past_deadline():
+            log.info(f"Orange County: fetching {len(pending)} printable PDFs "
+                     f"({OC_PDF_WORKERS} workers)...")
+            ok, failed, skipped = _oc_fetch_pdfs_bulk(pending)
+            poll.update(pdf_tried=len(pending), pdf_ok=ok, pdf_failed=failed, pdf_skipped=skipped)
+            log.info(f"Orange County: {ok}/{len(pending)} printables read "
+                     f"({failed} failed, {skipped} skipped)")
+    elif fetch_violations and new_records:
+        log.warning(f"Orange County: PDF phase skipped (poll {poll['status']}); "
+                    f"{len(new_records)} new inspections ship with results only for now")
+
+    missing = [r for r in sidecar.values() if not r.get('latitude') or not r.get('longitude')]
+    poll['geocode_missing'] = len(missing)
+    if geocode is not None and missing:
+        geocode(missing)
+        drop_implausible_coords(missing)     # never store a wrong pin for ten days
+        poll['geocoded'] = sum(1 for r in missing if r.get('latitude') and r.get('longitude'))
+        log.info(f"Orange County: geocoded {poll['geocoded']}/{len(missing)} inspections "
+                 f"without coordinates")
+
+    _oc_write_sidecar(path, sidecar)
+    poll['sidecar'] = len(sidecar)
+
+    since = str(since_date)[:10] if since_date else ''
+    out = []
+    for r in sorted(sidecar.values(), key=lambda r: (r['inspection_date'], r['source_id']),
+                    reverse=True):
+        if since and str(r['inspection_date'])[:10] < since:
+            continue
+        out.append({k: v for k, v in r.items() if not k.startswith('_')})
+    if limit:
+        out = out[:limit]
+    _OC_LAST_POLL.update(poll)
+    log.info(f"Orange County: {len(out)} inspections since {since or 'the start of the sidecar'} "
+             f"(sidecar {len(sidecar)}, pruned {poll['pruned']}, new {poll['new']}, "
+             f"PDFs {poll['pdf_ok']}/{poll['pdf_tried']}, "
+             f"without coordinates {sum(1 for r in out if not r.get('latitude'))})")
+    return out
+
+
 # ─── RICHARDSON (HealthTrak / Lotus Domino) ──────────────────────────────────
 
 RICHARDSON_BASE = 'https://discovery.cor.gov/public/health/healthtrak.nsf/'
@@ -6792,6 +7564,37 @@ def main():
         except Exception as e:
             log.error(f"Arlington fetch failed: {e}")
             _record_group('Arlington', [], 'error', str(e))
+
+    # Orange County, CA: the newest-225 poll + sidecar (see fetch_orange_county).
+    # The daily poll-orange-county.yml runs this group alone; the Sunday
+    # weekly run reads the same sidecar so data.js and D1 see the whole week.
+    if ('orangecounty' in args.cities or 'anaheim' in args.cities) and _past_deadline():
+        log.warning("Orange County: skipped — pipeline fetch deadline reached")
+        _record_group('Orange County', [], 'skipped', 'fetch deadline reached')
+    elif 'orangecounty' in args.cities or 'anaheim' in args.cities:
+        try:
+            oc_since = None
+            if args.mode == 'weekly':
+                oc_since = weekly_since('Orange County', FRESHNESS_LOOKBACK_PORTAL_DAYS)
+            elif args.mode == 'full':
+                oc_since = '2026-01-01'
+            if args.since_date:
+                oc_since = args.since_date
+            # The portal has no coordinates. The fetcher geocodes only the
+            # sidecar's inspections that still lack them and stores the
+            # result there, so each restaurant is geocoded once, not daily.
+            oc_data = fetch_orange_county(since_date=oc_since, limit=record_limit,
+                                          fetch_violations=not args.no_dfw_violations,
+                                          geocode=geocode_missing_coords)
+            all_inspections.extend(oc_data)
+            log.info(f"Orange County: {len(oc_data)} records")
+            # A failed/blocked/skipped poll still ships the sidecar's records,
+            # but is reported as such so the daily job fails loudly.
+            oc_status, oc_detail = _oc_group_outcome()
+            _record_group('Orange County', oc_data, oc_status, oc_detail)
+        except Exception as e:
+            log.error(f"Orange County fetch failed: {e}")
+            _record_group('Orange County', [], 'error', str(e))
 
     # The two MyHealthDepartment groups — the non-DFW metros (Portland, CO
     # Front Range, Utah County, Yolo) and DFW — share one portal, one ban

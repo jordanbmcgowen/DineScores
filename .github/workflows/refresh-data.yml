@@ -6,6 +6,11 @@ on:
     - cron: '0 9 * * 0'
   workflow_dispatch:  # Allow manual trigger from GitHub Actions UI
 
+# Shared with poll-orange-county.yml so the two jobs never push at once.
+concurrency:
+  group: data-refresh
+  cancel-in-progress: false
+
 jobs:
   refresh-data:
     runs-on: ubuntu-latest
