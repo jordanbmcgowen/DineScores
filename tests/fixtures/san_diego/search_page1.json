@@ -1,0 +1,441 @@
+{
+ "result": [
+  {
+   "business_id": "211915377781",
+   "name": "7-ELEVEN STORE 34177B",
+   "business_type": "Retail Market with Deli",
+   "address": "1007 05TH AVE, SAN DIEGO, CA 92101",
+   "city": "SAN DIEGO",
+   "zip": "92101",
+   "phone": "972-828-0711",
+   "status": "Permit Renewed",
+   "lat": "32.7159517",
+   "long": "-117.1598683",
+   "opened_date": "2017-09-27",
+   "distance": "0.07 miles",
+   "inspections": [
+    {
+     "custom_id": "DEH2017-FFPP-008743",
+     "business_id": "211915377781",
+     "inspection_id": "7835417",
+     "description": "",
+     "type": "Routine",
+     "score": "90",
+     "grade": "A",
+     "completed_date": "2026-10-07",
+     "status": "Complete",
+     "link": "http://www.sandiegocounty.gov/deh/fhd/ffis/insp_type/routine.html",
+     "status_link": "http://www.sandiegocounty.gov/deh/fhd/ffis/insp_result/complete.html",
+     "violations": [
+      {
+       "violation": "Food Handler Training",
+       "major_violation": "N",
+       "status": "Out of Compliance - Minor",
+       "violation_text": "Food Handler Training",
+       "correction_type_link": "http://www.sandiegocounty.gov/deh/fhd/ffis/violations/minor01b.html",
+       "violation_accela": "1b. Food Handler Training\r\n",
+       "link": "http://www.sandiegocounty.gov/deh/fhd/ffis/violations/minor01b.html"
+      },
+      {
+       "violation": "Hot and Cold Water",
+       "major_violation": "N",
+       "status": "Out of Compliance - Minor",
+       "violation_text": "Hot and Cold Water",
+       "correction_type_link": "http://www.sandiegocounty.gov/deh/fhd/ffis/violations/minor21.html",
+       "violation_accela": "21. Hot & cold water available",
+       "link": "http://www.sandiegocounty.gov/deh/fhd/ffis/violations/minor21.html"
+      },
+      {
+       "violation": "Vermin",
+       "major_violation": "Y",
+       "status": "Out of Compliance - Major",
+       "violation_text": "Vermin",
+       "correction_type_link": "http://www.sandiegocounty.gov/deh/fhd/ffis/violations/major23.html",
+       "violation_accela": "23. No rodents, insects, birds or animals",
+       "link": "http://www.sandiegocounty.gov/deh/fhd/ffis/violations/major23.html"
+      },
+      {
+       "violation": "Equipment and Utensil Storage, Use",
+       "major_violation": "N",
+       "status": "Out of Compliance",
+       "violation_text": "Equipment and Utensil Storage, Use",
+       "correction_type_link": "http://www.sandiegocounty.gov/deh/fhd/ffis/violations/grp35.html",
+       "violation_accela": "35. Equipment / Utensils -approved, installed, good repair, capacity",
+       "link": "http://www.sandiegocounty.gov/deh/fhd/ffis/violations/grp35.html"
+      },
+      {
+       "violation": "Premises, Personal/Cleaning Items, Exclusion Measures",
+       "major_violation": "N",
+       "status": "Out of Compliance",
+       "violation_text": "Premises, Personal/Cleaning Items, Exclusion Measures",
+       "correction_type_link": "http://www.sandiegocounty.gov/deh/fhd/ffis/violations/grp44.html",
+       "violation_accela": "44. Premises, personal / cleaning items, vermin-proofing",
+       "link": "http://www.sandiegocounty.gov/deh/fhd/ffis/violations/grp44.html"
+      }
+     ]
+    },
+    {
+     "custom_id": "DEH2017-FFPP-008743",
+     "business_id": "211915377781",
+     "inspection_id": "7903326",
+     "description": "",
+     "type": "Status Verification",
+     "score": "0",
+     "grade": "",
+     "completed_date": "2025-11-20",
+     "status": "Complete",
+     "link": "http://www.sandiegocounty.gov/deh/fhd/ffis/insp_type/status_verification.html",
+     "status_link": "http://www.sandiegocounty.gov/deh/fhd/ffis/insp_result/complete.html",
+     "violations": []
+    },
+    {
+     "custom_id": "DEH2017-FFPP-008743",
+     "business_id": "211915377781",
+     "inspection_id": "7835265",
+     "description": "",
+     "type": "Re-inspection",
+     "score": "0",
+     "grade": "",
+     "completed_date": "2025-08-23",
+     "status": "Complete",
+     "link": "http://www.sandiegocounty.gov/deh/fhd/ffis/insp_type/reinspection.html",
+     "status_link": "http://www.sandiegocounty.gov/deh/fhd/ffis/insp_result/complete.html",
+     "violations": [
+      {
+       "violation": "Vermin",
+       "major_violation": "Y",
+       "status": "Out of Compliance - Major",
+       "violation_text": "Vermin",
+       "correction_type_link": "http://www.sandiegocounty.gov/deh/fhd/ffis/violations/major23.html",
+       "violation_accela": "23. No rodents, insects, birds or animals",
+       "link": "http://www.sandiegocounty.gov/deh/fhd/ffis/violations/major23.html"
+      },
+      {
+       "violation": "Nonfood Contact Surfaces Clean",
+       "major_violation": "N",
+       "status": "Out of Compliance",
+       "violation_text": "Nonfood Contact Surfaces Clean",
+       "correction_type_link": "http://www.sandiegocounty.gov/deh/fhd/ffis/violations/grp33.html",
+       "violation_accela": "33. Nonfood contact surfaces clean",
+       "link": "http://www.sandiegocounty.gov/deh/fhd/ffis/violations/grp33.html"
+      },
+      {
+       "violation": "Floors, Walls, and Ceilings",
+       "major_violation": "N",
+       "status": "Out of Compliance",
+       "violation_text": "Floors, Walls, and Ceilings",
+       "correction_type_link": "http://www.sandiegocounty.gov/deh/fhd/ffis/violations/grp45.html",
+       "violation_accela": "45. Floor, walls and ceilings - built, maintained, clean",
+       "link": "http://www.sandiegocounty.gov/deh/fhd/ffis/violations/grp45.html"
+      }
+     ]
+    },
+    {
+     "custom_id": "DEH2017-FFPP-008743",
+     "business_id": "211915377781",
+     "inspection_id": "7157731",
+     "description": "",
+     "type": "Routine",
+     "score": "90",
+     "grade": "A",
+     "completed_date": "2024-02-06",
+     "status": "Complete",
+     "link": "http://www.sandiegocounty.gov/deh/fhd/ffis/insp_type/routine.html",
+     "status_link": "http://www.sandiegocounty.gov/deh/fhd/ffis/insp_result/complete.html",
+     "violations": [
+      {
+       "violation": "Food Safety Certification",
+       "major_violation": "N",
+       "status": "Out of Compliance - Minor",
+       "violation_text": "Food Safety Certification",
+       "correction_type_link": "http://www.sandiegocounty.gov/deh/fhd/ffis/violations/minor01a.html",
+       "violation_accela": "1a. Food Safety Certification & Exp. Date",
+       "link": "http://www.sandiegocounty.gov/deh/fhd/ffis/violations/minor01a.html"
+      },
+      {
+       "violation": "Food Handler Training",
+       "major_violation": "N",
+       "status": "Out of Compliance - Minor",
+       "violation_text": "Food Handler Training",
+       "correction_type_link": "http://www.sandiegocounty.gov/deh/fhd/ffis/violations/minor01b.html",
+       "violation_accela": "1b. Food Handler Training\r\n",
+       "link": "http://www.sandiegocounty.gov/deh/fhd/ffis/violations/minor01b.html"
+      },
+      {
+       "violation": "Holding Temperatures",
+       "major_violation": "N",
+       "status": "Out of Compliance - Minor",
+       "violation_text": "Holding Temperatures",
+       "correction_type_link": "http://www.sandiegocounty.gov/deh/fhd/ffis/violations/minor07.html",
+       "violation_accela": "7. Proper hot & cold holding temperatures",
+       "link": "http://www.sandiegocounty.gov/deh/fhd/ffis/violations/minor07.html"
+      },
+      {
+       "violation": "Hot and Cold Water",
+       "major_violation": "N",
+       "status": "Out of Compliance - Minor",
+       "violation_text": "Hot and Cold Water",
+       "correction_type_link": "http://www.sandiegocounty.gov/deh/fhd/ffis/violations/minor21.html",
+       "violation_accela": "21. Hot & cold water available",
+       "link": "http://www.sandiegocounty.gov/deh/fhd/ffis/violations/minor21.html"
+      },
+      {
+       "violation": "Equipment and Utensil Storage, Use",
+       "major_violation": "N",
+       "status": "Out of Compliance",
+       "violation_text": "Equipment and Utensil Storage, Use",
+       "correction_type_link": "http://www.sandiegocounty.gov/deh/fhd/ffis/violations/grp35.html",
+       "violation_accela": "35. Equipment / Utensils -approved, installed, good repair, capacity",
+       "link": "http://www.sandiegocounty.gov/deh/fhd/ffis/violations/grp35.html"
+      },
+      {
+       "violation": "Floors, Walls, and Ceilings",
+       "major_violation": "N",
+       "status": "Out of Compliance",
+       "violation_text": "Floors, Walls, and Ceilings",
+       "correction_type_link": "http://www.sandiegocounty.gov/deh/fhd/ffis/violations/grp45.html",
+       "violation_accela": "45. Floor, walls and ceilings - built, maintained, clean",
+       "link": "http://www.sandiegocounty.gov/deh/fhd/ffis/violations/grp45.html"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "business_id": "211982182791",
+   "name": "ISTANBUL DONER KEBAB",
+   "business_type": "Restaurant Food Facility",
+   "address": "950 06TH AVE, SUITE# C, SAN DIEGO, CA 92101-5231",
+   "city": "SAN DIEGO",
+   "zip": "92101-5231",
+   "phone": "619-988-1071",
+   "status": "Permit Renewed",
+   "lat": "32.7154585",
+   "long": "-117.1595387",
+   "opened_date": "2023-12-15",
+   "distance": "0.09 miles",
+   "inspections": [
+    {
+     "custom_id": "DEH2023-FFPP-017402",
+     "business_id": "211982182791",
+     "inspection_id": "8029308",
+     "description": "",
+     "type": "Routine",
+     "score": "91",
+     "grade": "A",
+     "completed_date": "2026-09-24",
+     "status": "Complete",
+     "link": "http://www.sandiegocounty.gov/deh/fhd/ffis/insp_type/routine.html",
+     "status_link": "http://www.sandiegocounty.gov/deh/fhd/ffis/insp_result/complete.html",
+     "violations": [
+      {
+       "violation": "Proper Handwashing Facilities",
+       "major_violation": "N",
+       "status": "Out of Compliance - Minor",
+       "violation_text": "Proper Handwashing Facilities",
+       "correction_type_link": "http://www.sandiegocounty.gov/deh/fhd/ffis/violations/minor06.html",
+       "violation_accela": "6. Adequate handwashing facilities supplied & accessible",
+       "link": "http://www.sandiegocounty.gov/deh/fhd/ffis/violations/minor06.html"
+      },
+      {
+       "violation": "Nonfood Contact Surfaces Clean",
+       "major_violation": "N",
+       "status": "Out of Compliance",
+       "violation_text": "Nonfood Contact Surfaces Clean",
+       "correction_type_link": "http://www.sandiegocounty.gov/deh/fhd/ffis/violations/grp33.html",
+       "violation_accela": "33. Nonfood contact surfaces clean",
+       "link": "http://www.sandiegocounty.gov/deh/fhd/ffis/violations/grp33.html"
+      }
+     ]
+    },
+    {
+     "custom_id": "DEH2023-FFPP-017402",
+     "business_id": "211982182791",
+     "inspection_id": "8028857",
+     "description": "",
+     "type": "Re-inspection",
+     "score": "0",
+     "grade": "",
+     "completed_date": "2026-05-30",
+     "status": "Approved to Reopen",
+     "link": "http://www.sandiegocounty.gov/deh/fhd/ffis/insp_type/reinspection.html",
+     "status_link": "http://www.sandiegocounty.gov/deh/fhd/ffis/insp_result/approved_to_reopen.html",
+     "violations": []
+    },
+    {
+     "custom_id": "DEH2023-FFPP-017402",
+     "business_id": "211982182791",
+     "inspection_id": "8011542",
+     "description": "",
+     "type": "Re-inspection",
+     "score": "0",
+     "grade": "",
+     "completed_date": "2026-05-28",
+     "status": "Ordered Closed",
+     "link": "http://www.sandiegocounty.gov/deh/fhd/ffis/insp_type/reinspection.html",
+     "status_link": "http://www.sandiegocounty.gov/deh/fhd/ffis/insp_result/ordered_closed.html",
+     "violations": [
+      {
+       "violation": "Vermin",
+       "major_violation": "Y",
+       "status": "Out of Compliance - Major",
+       "violation_text": "Vermin",
+       "correction_type_link": "http://www.sandiegocounty.gov/deh/fhd/ffis/violations/major23.html",
+       "violation_accela": "23. No rodents, insects, birds or animals",
+       "link": "http://www.sandiegocounty.gov/deh/fhd/ffis/violations/major23.html"
+      }
+     ]
+    },
+    {
+     "custom_id": "DEH2023-FFPP-017402",
+     "business_id": "211982182791",
+     "inspection_id": "8015237",
+     "description": "",
+     "type": "Re-inspection",
+     "score": "0",
+     "grade": "",
+     "completed_date": "2026-05-27",
+     "status": "No Access",
+     "link": "http://www.sandiegocounty.gov/deh/fhd/ffis/insp_type/reinspection.html",
+     "status_link": "http://www.sandiegocounty.gov/deh/fhd/ffis/insp_result/no_access.html",
+     "violations": []
+    },
+    {
+     "custom_id": "DEH2023-FFPP-017402",
+     "business_id": "211982182791",
+     "inspection_id": "7746759",
+     "description": "",
+     "type": "Routine",
+     "score": "0",
+     "grade": "",
+     "completed_date": "2026-04-28",
+     "status": "Ordered Closed",
+     "link": "http://www.sandiegocounty.gov/deh/fhd/ffis/insp_type/routine.html",
+     "status_link": "http://www.sandiegocounty.gov/deh/fhd/ffis/insp_result/ordered_closed.html",
+     "violations": [
+      {
+       "violation": "Food Handler Training",
+       "major_violation": "N",
+       "status": "Out of Compliance - Minor",
+       "violation_text": "Food Handler Training",
+       "correction_type_link": "http://www.sandiegocounty.gov/deh/fhd/ffis/violations/minor01b.html",
+       "violation_accela": "1b. Food Handler Training\r\n",
+       "link": "http://www.sandiegocounty.gov/deh/fhd/ffis/violations/minor01b.html"
+      },
+      {
+       "violation": "Handwashing",
+       "major_violation": "Y",
+       "status": "Out of Compliance - Major",
+       "violation_text": "Handwashing",
+       "correction_type_link": "http://www.sandiegocounty.gov/deh/fhd/ffis/violations/major05.html",
+       "violation_accela": "5. Hands clean & properly washed; gloves used properly",
+       "link": "http://www.sandiegocounty.gov/deh/fhd/ffis/violations/major05.html"
+      },
+      {
+       "violation": "Proper Handwashing Facilities",
+       "major_violation": "N",
+       "status": "Out of Compliance - Minor",
+       "violation_text": "Proper Handwashing Facilities",
+       "correction_type_link": "http://www.sandiegocounty.gov/deh/fhd/ffis/violations/minor06.html",
+       "violation_accela": "6. Adequate handwashing facilities supplied & accessible",
+       "link": "http://www.sandiegocounty.gov/deh/fhd/ffis/violations/minor06.html"
+      },
+      {
+       "violation": "Holding Temperatures",
+       "major_violation": "Y",
+       "status": "Out of Compliance - Major",
+       "violation_text": "Holding Temperatures",
+       "correction_type_link": "http://www.sandiegocounty.gov/deh/fhd/ffis/violations/major07.html",
+       "violation_accela": "7. Proper hot & cold holding temperatures",
+       "link": "http://www.sandiegocounty.gov/deh/fhd/ffis/violations/major07.html"
+      },
+      {
+       "violation": "Vermin",
+       "major_violation": "Y",
+       "status": "Out of Compliance - Major",
+       "violation_text": "Vermin",
+       "correction_type_link": "http://www.sandiegocounty.gov/deh/fhd/ffis/violations/major23.html",
+       "violation_accela": "23. No rodents, insects, birds or animals",
+       "link": "http://www.sandiegocounty.gov/deh/fhd/ffis/violations/major23.html"
+      },
+      {
+       "violation": "Nonfood Contact Surfaces Clean",
+       "major_violation": "N",
+       "status": "Out of Compliance",
+       "violation_text": "Nonfood Contact Surfaces Clean",
+       "correction_type_link": "http://www.sandiegocounty.gov/deh/fhd/ffis/violations/grp33.html",
+       "violation_accela": "33. Nonfood contact surfaces clean",
+       "link": "http://www.sandiegocounty.gov/deh/fhd/ffis/violations/grp33.html"
+      },
+      {
+       "violation": "Thermometers",
+       "major_violation": "N",
+       "status": "Out of Compliance",
+       "violation_text": "Thermometers",
+       "correction_type_link": "http://www.sandiegocounty.gov/deh/fhd/ffis/violations/grp39.html",
+       "violation_accela": "39. Thermometers -provided, accurate",
+       "link": "http://www.sandiegocounty.gov/deh/fhd/ffis/violations/grp39.html"
+      },
+      {
+       "violation": "Plumbing",
+       "major_violation": "N",
+       "status": "Out of Compliance",
+       "violation_text": "Plumbing",
+       "correction_type_link": "http://www.sandiegocounty.gov/deh/fhd/ffis/violations/grp41.html",
+       "violation_accela": "41. Plumbing -proper backflow devices",
+       "link": "http://www.sandiegocounty.gov/deh/fhd/ffis/violations/grp41.html"
+      }
+     ]
+    },
+    {
+     "custom_id": "DEH2023-FFPP-017402",
+     "business_id": "211982182791",
+     "inspection_id": "7822371",
+     "description": "",
+     "type": "Site Investigation",
+     "score": "0",
+     "grade": "",
+     "completed_date": "2025-08-08",
+     "status": "Complete",
+     "link": "http://www.sandiegocounty.gov/deh/fhd/ffis/insp_type/site_investigation.html",
+     "status_link": "http://www.sandiegocounty.gov/deh/fhd/ffis/insp_result/complete.html",
+     "violations": []
+    }
+   ]
+  },
+  {
+   "business_id": "211933985978",
+   "name": "CARMEL VALLEY LIQUOR AND MARKET",
+   "business_type": "Pre-Packaged Retail Market",
+   "address": "12750 CARMEL COUNTRY RD, SUITE# 100, SAN DIEGO, CA 92130-2159",
+   "city": "SAN DIEGO",
+   "zip": "92130-2159",
+   "phone": "248-931-3333",
+   "status": "Permit Renewed",
+   "lat": "0",
+   "long": "0",
+   "opened_date": "2025-07-09",
+   "distance": "7778.97 miles",
+   "inspections": [
+    {
+     "custom_id": "DEH2025-FFPN-002905",
+     "business_id": "211933985978",
+     "inspection_id": "7838954",
+     "description": "",
+     "type": "Routine",
+     "score": "100",
+     "grade": "",
+     "completed_date": "2026-10-08",
+     "status": "Complete",
+     "link": "http://www.sandiegocounty.gov/deh/fhd/ffis/insp_type/routine.html",
+     "status_link": "http://www.sandiegocounty.gov/deh/fhd/ffis/insp_result/complete.html",
+     "violations": []
+    }
+   ]
+  }
+ ],
+ "soundex": {
+  "soundex": false
+ },
+ "total_count": 3
+}

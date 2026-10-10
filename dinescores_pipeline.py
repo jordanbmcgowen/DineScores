@@ -3189,6 +3189,300 @@ def fetch_detroit(since_date=None, limit=None):
     return results
 
 
+# ─── SAN DIEGO COUNTY, CA (DEH sdfoodinfo.org JSON search) ───────────────────
+# The county Department of Environmental Health's public inspection site is a
+# jQuery front end over one form-encoded search endpoint that answers JSON
+# (served as text/html). A date window returns every facility with at least
+# one inspection of ANY type in the window, and each facility record carries
+# its FULL inspection history (back to 2023-01) with violations inline, so no
+# detail fetch is needed. Server time is dominated by the query, not the page
+# size (a 1-row page of the whole county takes as long as a 1000-row one,
+# about a minute), so always send a window and page at the site's own 1000.
+
+SD_SEARCH_URL = 'https://sdfoodinfo.org/restaurants/search.htm'
+SD_FACILITY_URL = 'https://sdfoodinfo.org/restaurants/restaurant_detail.htm?business_id={}'
+SD_SITE_URL = 'https://www.sdfoodinfo.org/'
+SD_HISTORY_START = '2023-01-01'   # the site holds no inspections before this
+SD_PAGE = 1000                    # verified; a page is ~8 MB and 55-70 s
+SD_TIMEOUT = 300
+SD_RETRIES = 3
+# Results come back sorted by distance from this origin (downtown San Diego,
+# the site's own default). A fixed origin keeps the order, and so the page
+# boundaries, stable from one page to the next (facilities without
+# coordinates sort last, at ~7,800 miles from a 0,0 position).
+SD_SORT_ORIGIN = ('32.715736', '-117.161087')
+SD_HEADERS = {
+    'User-Agent': CHROME_UA,
+    'Accept': 'application/json, text/javascript, */*; q=0.01',
+    'X-Requested-With': 'XMLHttpRequest',
+    'Referer': 'https://sdfoodinfo.org/restaurants/list_restaurants.html',
+}
+SD_INSPECTION_TYPES = ('Routine', 'Re-inspection')
+SD_CLOSURE_STATUSES = ('Ordered Closed', 'Self Closed')
+SD_CLOSURE_RISK_CAP = 55          # a closure grades F whatever the number says
+_SD_ADDR_TAIL_RE = re.compile(r',\s*[^,]+,\s*CA\s+\d{5}(?:-\d{4})?\s*$', re.I)
+
+
+def _sd_search_page(start_date, end_date, page_number, page_count=SD_PAGE):
+    """POST one search page; returns (payload, seconds, bytes).
+
+    Transient failures (timeouts, resets, 429/5xx, a non-JSON error page)
+    are retried with backoff; anything else, or exhausting the retries,
+    raises so the group records an error rather than shipping a partial
+    window with an advanced freshness date."""
+    data = [('name', ''), ('page_number', page_number), ('page_count', page_count),
+            ('lat', SD_SORT_ORIGIN[0]), ('lng', SD_SORT_ORIGIN[1]),
+            ('start_date', start_date), ('end_date', end_date)]
+    last_err = None
+    for attempt in range(1, SD_RETRIES + 1):
+        t0 = time.time()
+        try:
+            r = requests.post(SD_SEARCH_URL, data=data, headers=SD_HEADERS, timeout=SD_TIMEOUT)
+            r.raise_for_status()
+            payload = r.json()   # served as text/html, but it is JSON
+            if not isinstance(payload, dict) or not isinstance(payload.get('result'), list):
+                raise ValueError(f'unexpected response shape: {str(payload)[:120]}')
+            return payload, time.time() - t0, len(r.content)
+        except (requests.RequestException, ValueError) as e:
+            last_err = e
+            status = getattr(getattr(e, 'response', None), 'status_code', None)
+            transient = status is None or status == 429 or status >= 500
+            if not transient or attempt == SD_RETRIES or _past_deadline():
+                break
+            wait = 20 * attempt
+            log.warning(f"  San Diego: page {page_number} failed ({e}) — retrying in "
+                        f"{wait}s ({attempt}/{SD_RETRIES - 1})")
+            time.sleep(wait)
+    raise RuntimeError(f'San Diego search page {page_number} failed: {last_err}')
+
+
+def _sd_title(s):
+    """.title() for an ALL-CAPS source string, keeping possessives ("Joe's")."""
+    s = ' '.join((s or '').split())
+    if s.isupper():
+        s = re.sub(r"'S\b", "'s", s.title())
+    return s
+
+
+def _sd_coord(v):
+    try:
+        f = float(v)
+    except (TypeError, ValueError):
+        return None
+    return f if f and abs(f) <= 180 else None   # "0" means not geocoded
+
+
+def _sd_split_address(address, city='', zip_code=''):
+    """'1007 05TH AVE, SAN DIEGO, CA 92101' (plus the record's own city and
+    zip fields) → ('1007 05TH AVE', 'SAN DIEGO', '92101')."""
+    addr = ' '.join((address or '').split())
+    city = ' '.join((city or '').split())
+    zip_code = (zip_code or '').strip()
+    street = addr
+    tail = f", {city}, CA {zip_code}".lower()
+    if city and zip_code and addr.lower().endswith(tail):
+        street = addr[:-len(tail)]
+    else:
+        m = _SD_ADDR_TAIL_RE.search(addr)
+        if m:
+            street = addr[:m.start()]
+            parts = [p.strip() for p in m.group(0).strip(', ').split(',')]
+            city = city or parts[0]
+            zip_code = zip_code or parts[-1].split()[-1]
+    return street.strip(' ,'), city, zip_code[:5]
+
+
+def _sd_tokens(s):
+    return {w.rstrip('s') for w in re.findall(r'[a-z0-9]+', s.lower())}
+
+
+def _sd_violation(v):
+    """One source violation → [category, severity, description], or None.
+
+    The description is the county's numbered item ("23. No rodents, insects,
+    birds or animals") with the inspector's text appended only when it adds
+    something (the site usually repeats the item's short name there).
+    Severity follows the county's own flag: major → 'priority'; a minor item
+    keeps the classifier's tier but is never 'priority'."""
+    accela = ' '.join((v.get('violation_accela') or '').split()).rstrip(':').strip()
+    name = ' '.join((v.get('violation') or '').split())
+    text = ' '.join((v.get('violation_text') or '').split())
+    head = accela or name
+    desc = head or text
+    if head and text and text.lower() != head.lower():
+        tok = _sd_tokens(text)
+        if tok and len(tok & _sd_tokens(head)) * 2 < len(tok):
+            desc = f'{head}: {text}'
+    if not desc:
+        return None
+    cat, sev, _ = classify_violation(desc)
+    major = ((v.get('major_violation') or '').strip().upper() == 'Y'
+             or 'major' in (v.get('status') or '').lower())
+    if major:
+        sev = 'priority'
+    elif sev == 'priority':
+        sev = 'priority_foundation'
+    return [cat, sev, desc[:500]]
+
+
+def _sd_facility_records(fac, since, seen_ids):
+    """DineScores records for one facility's Routine/Re-inspection history
+    on or after `since` (all of it when None). Returns (records, newest
+    completed_date seen across ALL inspection types)."""
+    street, city, zip5 = _sd_split_address(fac.get('address'), fac.get('city'), fac.get('zip'))
+    name = _sd_title(fac.get('name'))
+    if not name or not street:
+        return [], ''
+    street = _sd_title(street)
+    city = _sd_title(city) if city else 'San Diego'
+    lat, lng = _sd_coord(fac.get('lat')), _sd_coord(fac.get('long'))
+    bid = str(fac.get('business_id') or '').strip()
+    source_url = SD_FACILITY_URL.format(bid) if bid.isdigit() else SD_SITE_URL
+
+    out, newest = [], ''
+    for insp in fac.get('inspections') or []:
+        date = sane_inspection_date(insp.get('completed_date'))
+        if not date:
+            continue
+        newest = max(newest, date)
+        itype = ' '.join((insp.get('type') or '').split())
+        status = ' '.join((insp.get('status') or '').split())
+        if itype not in SD_INSPECTION_TYPES or status == 'No Access':
+            continue
+        if since and date < since:
+            continue
+        iid = str(insp.get('inspection_id') or '').strip() or f'{bid}_{date}_{itype}'
+        if iid in seen_ids:
+            continue
+        seen_ids.add(iid)
+
+        violations = [x for x in (_sd_violation(v) for v in insp.get('violations') or []) if x]
+        try:
+            score = int(float(insp.get('score') or 0))
+        except (TypeError, ValueError):
+            score = 0
+        if score > 0:
+            original_score = score
+            risk_score = max(0, min(100, score))
+            pv = sum(1 for v in violations if v[1] == 'priority')
+            pfv = sum(1 for v in violations if v[1] == 'priority_foundation')
+            cv = len(violations) - pv - pfv
+        else:
+            original_score = None
+            risk_score, pv, pfv, cv = calc_risk_score(violations)
+        if status in SD_CLOSURE_STATUSES:
+            risk_score = min(risk_score, SD_CLOSURE_RISK_CAP)
+
+        grade = (insp.get('grade') or '').strip()
+        results = [f'Grade {grade}'] if grade else []
+        if status and status != 'Complete':
+            results.append(status)
+
+        out.append({
+            'name': name,
+            'address': street,
+            'city': city,
+            'state': 'CA',
+            'zip': zip5,
+            'latitude': lat,
+            'longitude': lng,
+            'inspection_date': date,
+            'original_score': original_score,
+            'risk_score': risk_score,
+            'priority_violations': pv,
+            'priority_foundation_violations': pfv,
+            'core_violations': cv,
+            'total_violations': len(violations),
+            'violations': violations,
+            'inspection_type': itype,
+            'results': '; '.join(results),
+            'source': 'San Diego County DEH',
+            'source_url': source_url,
+            'source_id': f'sd_{iid}',
+            'metro': 'San Diego',
+        })
+    return out, newest
+
+
+def fetch_san_diego(since_date=None, limit=None):
+    """
+    Fetch San Diego County inspections from the county DEH's public site
+    (sdfoodinfo.org): ~17k permitted food facilities across the county's
+    ~40 cities and unincorporated communities (San Diego, Chula Vista,
+    Oceanside, Escondido, El Cajon, Carlsbad, ...), metro chip 'San Diego'.
+
+    One record per Routine or Re-inspection inspection completed on or
+    after since_date (the whole history back to 2023-01 when None). Site
+    Investigation, Status Verification and Environmental visits are skipped
+    (complaint follow-ups, permit checks and plan reviews, never scored),
+    and so are 'No Access' visits (the inspector never got in; a record
+    would read as a clean 100).
+
+    Scoring: a scored inspection (score > 0; the county scores Routine
+    inspections 0-100 and grades them A >= 90 / B 80-89 / C 70-79) ships its
+    official score as both original_score and risk_score. Unscored ones
+    (re-inspections, a few routines) are computed from the violations with
+    calc_risk_score. Severity follows the county's own flag: a major
+    violation (major_violation Y / status '... - Major') is 'priority'; a
+    minor one keeps the classifier's tier but is never 'priority'. An
+    inspection whose status is 'Ordered Closed' or 'Self Closed' has its
+    risk_score capped at 55 so the closure grades F regardless of the
+    number: a closure carries score 0 and typically one or two major items,
+    which would otherwise compute to a 90+.
+
+    The window is sent server-side (start_date/end_date select facilities
+    with an inspection in it) and applied again per inspection, since each
+    facility comes back with its full history.
+    """
+    log.info(f"Fetching San Diego County data (since={since_date}, limit={limit})")
+    since = str(since_date)[:10] if since_date else None
+    start = since or SD_HISTORY_START
+    end = datetime.now().strftime('%Y-%m-%d')
+    page_count = min(SD_PAGE, max(int(limit), 1)) if limit else SD_PAGE
+
+    results, seen, newest = [], set(), ''
+    facilities, page, bad = 0, 1, 0
+    while True:
+        payload, dt, nbytes = _sd_search_page(start, end, page, page_count)
+        rows = payload.get('result') or []
+        try:
+            total = int(payload.get('total_count'))
+        except (TypeError, ValueError):
+            total = None
+        facilities += len(rows)
+        for fac in rows:
+            try:
+                recs, nw = _sd_facility_records(fac, since, seen)
+            except Exception as e:
+                bad += 1
+                if bad <= 5:
+                    log.warning(f"  San Diego: skipping facility "
+                                f"{fac.get('business_id') if isinstance(fac, dict) else fac!r}: {e}")
+                continue
+            results.extend(recs)
+            newest = max(newest, nw)
+        log.info(f"  San Diego: page {page} — {len(rows)} facilities in {dt:.0f}s "
+                 f"({nbytes / 1e6:.1f} MB); {facilities}"
+                 f"{f'/{total}' if total is not None else ''} facilities, "
+                 f"{len(results)} inspections so far")
+        if (not rows or len(rows) < page_count
+                or (total is not None and facilities >= total)
+                or (limit and len(results) >= limit)):
+            break
+        if _past_deadline():
+            raise RuntimeError(f'fetch deadline reached after page {page} '
+                               f'({facilities}/{total} facilities)')
+        page += 1
+    if bad:
+        log.warning(f"  San Diego: {bad} facility records could not be parsed")
+    if limit:
+        results = results[:limit]
+    _note_source_lag('San Diego County', newest)
+    log.info(f"San Diego County: {len(results)} inspections from {facilities} facilities "
+             f"(source newest {newest or 'n/a'})")
+    return results
+
+
 # ─── SACRAMENTO COUNTY, CA (county ArcGIS, MHD-backed) ───────────────────────
 # Layer 0 = facilities with point geometry; layer 1 = inspection/violation
 # history rows. No numeric score — the county publishes categorical results
@@ -5872,6 +6166,9 @@ def main():
     if 'minneapolis' in args.cities:
         socrata_jobs['Minneapolis'] = lambda: fetch_minneapolis(
             since_date=api_since('Minneapolis'), limit=record_limit)
+    if 'sandiego' in args.cities:
+        socrata_jobs['San Diego County'] = lambda: fetch_san_diego(
+            since_date=api_since('San Diego County'), limit=record_limit)
     if 'cincinnati' in args.cities:
         socrata_jobs['Cincinnati'] = lambda: fetch_cincinnati(
             since_date=api_since('Cincinnati'), limit=record_limit)
