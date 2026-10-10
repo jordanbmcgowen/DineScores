@@ -1,0 +1,4 @@
+question,judged_texts,agree,disagree,agree_pct,floor,texts_at_or_above_floor,pct_above_floor
+category,35823,12903,22920,36.02,0.6,31431,87.74
+hazard,35823,35183,640,98.21,0.6,31653,88.36
+summary,35823,19846,15977,55.4,0.6,32848,91.7

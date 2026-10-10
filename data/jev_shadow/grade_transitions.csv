@@ -1,0 +1,319 @@
+source,grade_today,grade_new,restaurants
+Adams County Health Dept,A,A,695
+Adams County Health Dept,A,B,4
+Adams County Health Dept,B,A,3
+Adams County Health Dept,B,B,345
+Adams County Health Dept,B,C,7
+Adams County Health Dept,C,B,3
+Adams County Health Dept,C,C,172
+Adams County Health Dept,C,F,10
+Adams County Health Dept,F,C,5
+Adams County Health Dept,F,F,101
+Arlington Open Data,A,A,1448
+Arlington Open Data,B,B,533
+Arlington Open Data,C,C,111
+Arlington Open Data,F,F,7
+Austin Open Data,A,A,4073
+Austin Open Data,B,B,1594
+Austin Open Data,C,C,513
+Austin Open Data,F,F,12
+Boston Open Data,A,A,5007
+Boston Open Data,B,B,26
+Boston Open Data,B,F,1
+Boston Open Data,C,C,1
+Boston Open Data,F,A,1
+Boston Open Data,F,B,1
+Boston Open Data,F,F,36
+Chicago Open Data,A,A,9128
+Chicago Open Data,A,B,9
+Chicago Open Data,A,F,4
+Chicago Open Data,B,A,16
+Chicago Open Data,B,B,554
+Chicago Open Data,B,C,1
+Chicago Open Data,B,F,1
+Chicago Open Data,C,B,4
+Chicago Open Data,C,C,74
+Chicago Open Data,C,F,1
+Chicago Open Data,F,A,48
+Chicago Open Data,F,B,18
+Chicago Open Data,F,C,6
+Chicago Open Data,F,F,93
+Cincinnati Open Data,A,A,1739
+Cincinnati Open Data,A,B,3
+Cincinnati Open Data,A,F,1
+Cincinnati Open Data,B,A,31
+Cincinnati Open Data,B,B,555
+Cincinnati Open Data,B,C,3
+Cincinnati Open Data,B,F,1
+Cincinnati Open Data,C,B,29
+Cincinnati Open Data,C,C,154
+Cincinnati Open Data,C,F,5
+Cincinnati Open Data,F,B,7
+Cincinnati Open Data,F,C,25
+Cincinnati Open Data,F,F,407
+Clackamas County Health Dept,A,A,1465
+Clackamas County Health Dept,A,F,1
+Clackamas County Health Dept,B,B,76
+Clackamas County Health Dept,B,F,1
+Clackamas County Health Dept,C,C,10
+Clackamas County Health Dept,F,F,77
+Clark County WA Health Dept,A,A,1213
+Clark County WA Health Dept,A,B,6
+Clark County WA Health Dept,B,A,23
+Clark County WA Health Dept,B,B,179
+Clark County WA Health Dept,C,B,7
+Clark County WA Health Dept,C,C,41
+Clark County WA Health Dept,C,F,2
+Clark County WA Health Dept,F,C,1
+Clark County WA Health Dept,F,F,18
+DC Health,A,A,1944
+DC Health,A,F,1
+DC Health,B,B,139
+DC Health,C,C,27
+DC Health,F,A,1
+DC Health,F,C,1
+DC Health,F,F,50
+Dallas Health Dept,A,A,4684
+Dallas Health Dept,A,F,5
+Dallas Health Dept,B,B,2136
+Dallas Health Dept,B,F,4
+Dallas Health Dept,C,C,184
+Dallas Health Dept,C,F,1
+Dallas Health Dept,F,A,6
+Dallas Health Dept,F,B,17
+Dallas Health Dept,F,C,1
+Dallas Health Dept,F,F,184
+DataSF,A,A,7216
+DataSF,A,B,14
+DataSF,B,A,264
+DataSF,B,B,553
+DataSF,B,C,5
+DataSF,C,B,145
+DataSF,C,C,105
+DataSF,C,F,1
+DataSF,F,A,848
+DataSF,F,B,412
+DataSF,F,C,169
+DataSF,F,F,117
+Delaware Open Data,A,A,2816
+Delaware Open Data,A,B,88
+Delaware Open Data,B,A,104
+Delaware Open Data,B,B,554
+Delaware Open Data,B,C,28
+Delaware Open Data,B,F,4
+Delaware Open Data,C,B,22
+Delaware Open Data,C,C,83
+Delaware Open Data,C,F,18
+Delaware Open Data,F,A,19
+Delaware Open Data,F,B,6
+Delaware Open Data,F,C,10
+Delaware Open Data,F,F,41
+Detroit Open Data,A,A,2444
+Detroit Open Data,B,B,203
+Detroit Open Data,C,C,13
+Detroit Open Data,F,A,9
+Detroit Open Data,F,B,1
+Detroit Open Data,F,F,16
+El Paso County CO Health Dept,A,A,1394
+El Paso County CO Health Dept,A,B,4
+El Paso County CO Health Dept,B,A,29
+El Paso County CO Health Dept,B,B,395
+El Paso County CO Health Dept,B,C,2
+El Paso County CO Health Dept,C,B,25
+El Paso County CO Health Dept,C,C,150
+El Paso County CO Health Dept,F,A,1
+El Paso County CO Health Dept,F,B,2
+El Paso County CO Health Dept,F,C,13
+El Paso County CO Health Dept,F,F,52
+Fairfax County Open Data,A,A,2907
+Fairfax County Open Data,B,B,882
+Fairfax County Open Data,C,C,14
+Fairfax County Open Data,F,F,12
+Florida DBPR,A,A,9911
+Florida DBPR,B,B,3209
+Florida DBPR,C,C,1103
+Florida DBPR,F,F,507
+Fort Worth Health Dept,A,A,1386
+Fort Worth Health Dept,A,B,24
+Fort Worth Health Dept,A,F,1
+Fort Worth Health Dept,B,A,73
+Fort Worth Health Dept,B,B,1350
+Fort Worth Health Dept,B,C,27
+Fort Worth Health Dept,B,F,1
+Fort Worth Health Dept,C,B,85
+Fort Worth Health Dept,C,C,699
+Fort Worth Health Dept,C,F,18
+Fort Worth Health Dept,F,A,7
+Fort Worth Health Dept,F,B,16
+Fort Worth Health Dept,F,C,62
+Fort Worth Health Dept,F,F,581
+Frisco Health Dept,A,A,1109
+Frisco Health Dept,A,B,19
+Frisco Health Dept,B,A,1
+Frisco Health Dept,B,B,130
+Frisco Health Dept,B,C,8
+Frisco Health Dept,B,F,6
+Frisco Health Dept,C,C,36
+Frisco Health Dept,C,F,6
+Frisco Health Dept,F,A,1
+Frisco Health Dept,F,F,56
+Houston Health Dept,A,A,6092
+Houston Health Dept,A,B,29
+Houston Health Dept,B,A,369
+Houston Health Dept,B,B,860
+Houston Health Dept,B,C,17
+Houston Health Dept,B,F,2
+Houston Health Dept,C,A,2
+Houston Health Dept,C,B,215
+Houston Health Dept,C,C,255
+Houston Health Dept,C,F,4
+Houston Health Dept,F,A,51
+Houston Health Dept,F,B,64
+Houston Health Dept,F,C,134
+Houston Health Dept,F,F,327
+King County Open Data,A,A,9761
+King County Open Data,B,B,1198
+King County Open Data,C,C,382
+King County Open Data,F,A,2
+King County Open Data,F,B,4
+King County Open Data,F,C,2
+King County Open Data,F,F,300
+LA County Open Data,A,A,33389
+LA County Open Data,B,B,2056
+LA County Open Data,C,C,138
+LA County Open Data,F,A,4
+LA County Open Data,F,B,3
+LA County Open Data,F,F,19
+Larimer County Health Dept,A,A,771
+Larimer County Health Dept,A,B,9
+Larimer County Health Dept,A,F,1
+Larimer County Health Dept,B,A,36
+Larimer County Health Dept,B,B,429
+Larimer County Health Dept,B,C,7
+Larimer County Health Dept,C,B,16
+Larimer County Health Dept,C,C,169
+Larimer County Health Dept,C,F,5
+Larimer County Health Dept,F,C,4
+Larimer County Health Dept,F,F,62
+Louisville Metro Open Data,A,A,5131
+Louisville Metro Open Data,B,B,4
+Minneapolis Open Data,A,A,2554
+Minneapolis Open Data,B,B,51
+Minneapolis Open Data,C,C,4
+Minneapolis Open Data,F,A,7
+Minneapolis Open Data,F,B,1
+Minneapolis Open Data,F,F,72
+Montgomery County Open Data,A,A,3946
+Montgomery County Open Data,A,B,2
+Montgomery County Open Data,B,B,122
+Montgomery County Open Data,C,C,1
+Montgomery County Open Data,F,A,809
+Montgomery County Open Data,F,B,21
+Montgomery County Open Data,F,F,116
+Multnomah County Health Dept,A,A,5164
+Multnomah County Health Dept,A,F,2
+Multnomah County Health Dept,B,B,355
+Multnomah County Health Dept,B,F,1
+Multnomah County Health Dept,C,C,118
+Multnomah County Health Dept,F,A,9
+Multnomah County Health Dept,F,B,5
+Multnomah County Health Dept,F,C,1
+Multnomah County Health Dept,F,F,234
+NYC Open Data,A,A,15670
+NYC Open Data,A,B,20
+NYC Open Data,B,A,2441
+NYC Open Data,B,B,3825
+NYC Open Data,B,C,3
+NYC Open Data,C,A,1
+NYC Open Data,C,B,572
+NYC Open Data,C,C,327
+NYC Open Data,F,B,10
+NYC Open Data,F,C,141
+NYC Open Data,F,F,4301
+NYS Department of Health,A,A,19937
+NYS Department of Health,B,B,920
+NYS Department of Health,C,C,147
+NYS Department of Health,F,A,2
+NYS Department of Health,F,B,2
+NYS Department of Health,F,F,72
+Plano Health Dept,A,A,2088
+Plano Health Dept,A,F,1
+Plano Health Dept,B,A,1
+Plano Health Dept,B,B,269
+Plano Health Dept,C,C,222
+Plano Health Dept,F,A,2
+Plano Health Dept,F,B,1
+Plano Health Dept,F,C,1
+Plano Health Dept,F,F,20
+Richardson Health Dept,A,A,447
+Richardson Health Dept,B,B,121
+Richardson Health Dept,C,C,15
+Richardson Health Dept,F,A,41
+Richardson Health Dept,F,B,56
+Richardson Health Dept,F,C,14
+Richardson Health Dept,F,F,13
+SC DPH Food Grades,A,A,24183
+SC DPH Food Grades,B,B,735
+SC DPH Food Grades,C,C,35
+Sacramento County Open Data,A,A,5762
+Sacramento County Open Data,B,B,278
+Sacramento County Open Data,C,C,80
+Sacramento County Open Data,F,F,82
+Southern Nevada Health District,A,A,17232
+Southern Nevada Health District,B,B,397
+Southern Nevada Health District,C,C,8
+Southern Nevada Health District,F,F,25
+Tarrant County Health Dept,A,A,2501
+Tarrant County Health Dept,B,B,357
+Tarrant County Health Dept,C,C,89
+Tarrant County Health Dept,F,A,6
+Tarrant County Health Dept,F,F,67
+Utah County Health Dept,A,A,1501
+Utah County Health Dept,A,B,17
+Utah County Health Dept,B,A,17
+Utah County Health Dept,B,B,251
+Utah County Health Dept,B,C,9
+Utah County Health Dept,C,B,11
+Utah County Health Dept,C,C,79
+Utah County Health Dept,C,F,3
+Utah County Health Dept,F,A,3
+Utah County Health Dept,F,B,1
+Utah County Health Dept,F,C,4
+Utah County Health Dept,F,F,72
+Wake County Open Data,A,A,3186
+Wake County Open Data,A,F,1
+Wake County Open Data,B,B,14
+Wake County Open Data,F,A,16
+Wake County Open Data,F,F,28
+Washington County OR Health Dept,A,A,1955
+Washington County OR Health Dept,B,B,331
+Washington County OR Health Dept,B,F,1
+Washington County OR Health Dept,C,C,41
+Washington County OR Health Dept,C,F,1
+Washington County OR Health Dept,F,A,15
+Washington County OR Health Dept,F,B,4
+Washington County OR Health Dept,F,C,1
+Washington County OR Health Dept,F,F,79
+Weld County Health Dept,A,A,579
+Weld County Health Dept,A,B,2
+Weld County Health Dept,B,A,3
+Weld County Health Dept,B,B,318
+Weld County Health Dept,B,C,1
+Weld County Health Dept,C,B,6
+Weld County Health Dept,C,C,99
+Weld County Health Dept,F,A,1
+Weld County Health Dept,F,B,1
+Weld County Health Dept,F,C,1
+Weld County Health Dept,F,F,43
+Yolo County Health Dept,A,A,758
+Yolo County Health Dept,A,B,8
+Yolo County Health Dept,A,F,1
+Yolo County Health Dept,B,A,4
+Yolo County Health Dept,B,B,106
+Yolo County Health Dept,B,C,6
+Yolo County Health Dept,B,F,1
+Yolo County Health Dept,C,B,1
+Yolo County Health Dept,C,C,18
+Yolo County Health Dept,C,F,2
+Yolo County Health Dept,F,C,1
+Yolo County Health Dept,F,F,21

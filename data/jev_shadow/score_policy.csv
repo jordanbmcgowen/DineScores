@@ -1,0 +1,46 @@
+source,policy,restaurants,recompute_matches_stored,recompute_differs
+LA County Open Data,official,35609,25441,9197
+NYC Open Data,computed,27311,26531,1
+SC DPH Food Grades,official,24953,0,0
+NYS Department of Health,official,21080,12119,1339
+Southern Nevada Health District,official,17662,3235,8687
+Florida DBPR,official,14730,0,0
+King County Open Data,official,11649,578,4194
+Chicago Open Data,computed,9957,6059,3
+DataSF,computed,9849,5347,6
+Houston Health Dept,computed,8421,4467,54
+Dallas Health Dept,official,7221,544,4287
+Sacramento County Open Data,official,6202,0,1676
+Austin Open Data,official,6192,0,0
+Multnomah County Health Dept,official,5795,449,1503
+Louisville Metro Open Data,official,5135,0,0
+Boston Open Data,source_tiers,5073,724,0
+Montgomery County Open Data,computed,5017,1219,44
+Fort Worth Health Dept,computed,4330,2780,5
+Fairfax County Open Data,official,3815,0,0
+Delaware Open Data,computed,3793,3375,0
+Wake County Open Data,official,3245,0,3049
+Tarrant County Health Dept,official,3000,197,2069
+Cincinnati Open Data,computed,2960,1888,46
+Minneapolis Open Data,official,2689,110,1992
+Detroit Open Data,source_tiers,2686,1395,0
+Washington County OR Health Dept,official,2427,232,1092
+Plano Health Dept,official,2304,97,1011
+DC Health,official,2163,172,977
+Arlington Open Data,official,2099,0,0
+El Paso County CO Health Dept,computed,2067,1453,0
+Utah County Health Dept,computed,1968,1206,4
+Clackamas County Health Dept,official,1624,167,452
+Larimer County Health Dept,computed,1509,1330,0
+Clark County WA Health Dept,computed,1490,861,1
+Frisco Health Dept,computed,1372,690,6
+Adams County Health Dept,computed,1345,1088,0
+Weld County Health Dept,computed,1054,863,0
+Yolo County Health Dept,computed,927,553,0
+Richardson Health Dept,official,707,146,444
+Plano Health Dept,computed,301,20,0
+Multnomah County Health Dept,computed,94,0,0
+Tarrant County Health Dept,computed,20,0,0
+Clackamas County Health Dept,computed,6,0,0
+Dallas Health Dept,computed,1,0,0
+Washington County OR Health Dept,computed,1,0,0
