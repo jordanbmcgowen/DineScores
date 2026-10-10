@@ -237,13 +237,13 @@ MHD_METRO_JURISDICTIONS = {
     # OR 0-100 scores) and Clark County WA across the river (pass/fail only).
     # Note ~2-week publishing lag — recent empty windows are normal.
     'multco-eh':            {'display_name': 'Multnomah County', 'default_city': 'Portland',
-                             'state': 'OR', 'metro': 'Portland'},
+                             'state': 'OR', 'metro': 'Portland', 'lag_days': 21},
     'or-washington-county': {'display_name': 'Washington County OR', 'default_city': 'Hillsboro',
-                             'state': 'OR', 'metro': 'Portland'},
+                             'state': 'OR', 'metro': 'Portland', 'lag_days': 21},
     'or-clackamas-county':  {'display_name': 'Clackamas County', 'default_city': 'Oregon City',
-                             'state': 'OR', 'metro': 'Portland'},
+                             'state': 'OR', 'metro': 'Portland', 'lag_days': 21},
     'clarkcountywa':        {'display_name': 'Clark County WA', 'default_city': 'Vancouver',
-                             'state': 'WA', 'score_scale': 'none', 'metro': 'Portland'},
+                             'state': 'WA', 'score_scale': 'none', 'metro': 'Portland', 'lag_days': 21},
     # Colorado Front Range (demerit points, lower better)
     'epcph':                {'display_name': 'El Paso County CO', 'default_city': 'Colorado Springs',
                              'state': 'CO', 'score_scale': 'demerit', 'metro': ''},
@@ -1640,8 +1640,20 @@ def _tyler_request(session, method, url, **kwargs):
                                 f"fetch deadline reached, not retrying")
                     return None
                 wait = 20 * (attempt + 1)
-                log.warning(f"  Tyler {r.status_code} on {url[:60]} — retry in {wait}s "
-                            f"({attempt + 1}/{TYLER_RETRIES})")
+                # San Antonio's portal answers a quarter of detail requests
+                # with a 503 carrying "Retry-After: 3" and serves the retry;
+                # honour a short hint on the first attempts instead of the
+                # 20 s ladder, which turned a 5-minute detail phase into 30.
+                try:
+                    hinted = float(r.headers.get('Retry-After', ''))
+                except (TypeError, ValueError):
+                    hinted = None
+                if hinted is not None and 0 < hinted <= 10 and attempt < 2:
+                    wait = hinted + 0.5
+                    log.debug(f"  Tyler {r.status_code} on {url[:60]} — retry in {wait:.1f}s (Retry-After)")
+                else:
+                    log.warning(f"  Tyler {r.status_code} on {url[:60]} — retry in {wait}s "
+                                f"({attempt + 1}/{TYLER_RETRIES})")
                 time.sleep(wait)
                 continue
             r.raise_for_status()
@@ -5916,9 +5928,12 @@ def fetch_dfw(jurisdictions=None, since_date=None, limit_per_jurisdiction=None,
             log.warning(f"{display_name}: skipped — pipeline fetch deadline reached")
             continue
         log.info(f"--- Fetching {display_name} ({slug}) via API ---")
+        # since_date may be one date for every jurisdiction or a per-slug
+        # mapping (the weekly run's per-jurisdiction windows).
+        j_since = since_date.get(slug) if isinstance(since_date, dict) else since_date
         try:
             results = _fetch_mhd_jurisdiction_api(
-                session, slug, config, since_date, limit_per_jurisdiction,
+                session, slug, config, j_since, limit_per_jurisdiction,
                 fetch_violations, until_date=until_date)
             all_results.extend(results)
             log.info(f"{display_name}: {len(results)} records")
@@ -8371,32 +8386,36 @@ def main():
     mhd_metro_slugs = _mhd_metro_keys(args.cities)
     dfw_slugs_requested = [c for c in args.cities if c in DFW_JURISDICTIONS]
 
-    mhd_groups = []   # (recorded latest, group name, jurisdictions, default lag days)
+    mhd_groups = []   # (group name, jurisdictions)
     if mhd_metro_slugs:
-        juris = {s: MHD_METRO_JURISDICTIONS[s] for s in mhd_metro_slugs}
-        # These portals publish with up to ~2 weeks of lag (Oregon
-        # especially) — look further back than the 8-day default so
-        # late-published inspections aren't permanently missed.
-        mhd_groups.append(('MHD metros', juris, 21))
+        mhd_groups.append(('MHD metros', {s: MHD_METRO_JURISDICTIONS[s] for s in mhd_metro_slugs}))
     if 'dfw' in args.cities or dfw_slugs_requested:
         juris = DFW_JURISDICTIONS if 'dfw' in args.cities else {
             s: DFW_JURISDICTIONS[s] for s in dfw_slugs_requested}
-        mhd_groups.append(('DFW', juris, 8))
+        mhd_groups.append(('DFW', juris))
 
     def _group_key(entry):
-        group, juris, _ = entry
+        group, juris = entry
         return _group_latest(group, [f"{c['display_name']} Health Dept" for c in juris.values()])
 
-    for group, jurisdictions, lag_days in sorted(mhd_groups, key=_group_key):
+    for group, jurisdictions in sorted(mhd_groups, key=_group_key):
         try:
             mhd_since = None
             if args.mode == 'full':
                 mhd_since = '2026-01-01'
             elif args.mode == 'weekly':
-                mhd_since = weekly_since(
-                    group, FRESHNESS_LOOKBACK_PORTAL_DAYS, days=lag_days,
-                    source_labels=[f"{c['display_name']} Health Dept"
-                                   for c in jurisdictions.values()])
+                # One window per jurisdiction: its own recorded latest, and
+                # its own re-read lag (config 'lag_days'; the Oregon counties
+                # publish up to two weeks late and carry 21, everyone else
+                # re-reads 8 days). A single group-wide window made every
+                # jurisdiction redo the laggiest one's three weeks of detail
+                # pages each Sunday.
+                mhd_since = {
+                    slug: weekly_since(
+                        group, FRESHNESS_LOOKBACK_PORTAL_DAYS,
+                        days=config.get('lag_days', 8),
+                        source_labels=[f"{config['display_name']} Health Dept"])
+                    for slug, config in jurisdictions.items()}
             if args.since_date:
                 mhd_since = args.since_date
             mhd_data = fetch_dfw(

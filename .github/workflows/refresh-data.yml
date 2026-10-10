@@ -33,6 +33,29 @@ jobs:
         run: |
           pip install requests
 
+      - name: List the inspections already stored with details
+        # The MyHealthDepartment fetchers re-read each jurisdiction's last
+        # 8-21 days every Sunday (late-published inspections), but a detail
+        # page costs ban budget and every inspection already in data.js was
+        # detailed when it shipped (undetailed ones are dropped, never
+        # stored). This hands the pipeline those (restaurant, date) pairs so
+        # the detail phase spends the budget on NEW inspections only.
+        run: |
+          python3 - <<'EOF'
+          import json
+          from datetime import date, timedelta
+          data = json.loads(open('public/data.js').read().split('window.DATA = ', 1)[1].rstrip(';\n'))
+          cutoff = (date.today() - timedelta(days=60)).isoformat()
+          n = 0
+          with open('/tmp/known_inspections.tsv', 'w') as f:
+              for r in data:
+                  for d, _ in (r.get('h') or [[r.get('d'), None]]):
+                      if r.get('i') and d and d >= cutoff:
+                          f.write(f"{r['i']}\t{d}\n")
+                          n += 1
+          print(f'{n} stored inspections from the last 60 days will not be re-detailed')
+          EOF
+
       - name: Run data pipeline (all covered metros)
         env:
           # Optional: raises Socrata rate limits if the secret is configured
@@ -67,12 +90,13 @@ jobs:
         run: |
           python3 dinescores_pipeline.py \
             --mode weekly \
-            --cities chicago nyc sf austin boston seattle florida nys wake vegas la louisville minneapolis cincinnati delaware montgomery detroit sacramento southcarolina fairfax portland coloradosprings larimer weld adams utahcounty yolo santaclara sandiego omaha orangecounty houston dc dallas plano frisco fort-worth-texas tarrant arlington richardson \
+            --cities chicago nyc sf austin boston seattle florida nys wake vegas la louisville minneapolis cincinnati delaware montgomery detroit sacramento southcarolina fairfax portland coloradosprings larimer weld adams utahcounty yolo santaclara sandiego omaha orangecounty gwinnett nashville memphis knoxville chattanooga houston sanantonio dc dallas plano frisco fort-worth-texas tarrant arlington richardson \
             --output /tmp/dinescores_data.json \
             --output-data-js public/data.js \
             --merge-existing-data-js public/data.js \
             --output-d1-sql /tmp/dinescores_weekly.sql \
             --freshness-file data/source_freshness.json \
+            --skip-known-inspections /tmp/known_inspections.tsv \
             --deadline-minutes 240 \
             --jev-deadline-minutes 20
         # --jev-deadline-minutes bounds the Jev reading pass that runs after
