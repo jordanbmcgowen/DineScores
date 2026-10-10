@@ -57,7 +57,7 @@ jobs:
             --output /tmp/oc.json \
             --output-d1-sql /tmp/oc.sql \
             --freshness-file data/source_freshness.json \
-            --deadline-minutes 20
+            --deadline-minutes 30
         # No --output-data-js on purpose (see the header comment). --mode weekly
         # with the freshness file makes the fetcher return the sidecar's last
         # week-plus of inspections, so the D1 upsert is idempotent over the

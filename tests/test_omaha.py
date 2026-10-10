@@ -79,7 +79,7 @@ def run_fetch(features, pdfs, since_date=None, limit=None):
 
 class PdfReaderTests(unittest.TestCase):
     def test_rows_come_out_top_down_and_left_to_right(self):
-        rows = dp._pdf_text_rows(_pdf(2))
+        rows = dp._oma_pdf_text_rows(_pdf(2))
         texts = [' '.join(t for _, t in cells) for _, _, cells in rows]
         self.assertTrue(any(t.startswith('FIRM/ADDR :') and 'Greenland Market' in t for t in texts))
         self.assertIn('TOTAL P: 0 TOTAL PF: 3 TOTAL C: 1', texts)

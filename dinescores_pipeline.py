@@ -4122,7 +4122,7 @@ def _pdf_text_items(stream):
     return items
 
 
-def _pdf_text_rows(pdf_bytes, y_tolerance=1.5):
+def _oma_pdf_text_rows(pdf_bytes, y_tolerance=1.5):
     """Positioned text of a PDF as rows: [(stream_index, y, [(x, text), ...])],
     top-down within each content stream, cells left-to-right. Image streams
     are skipped; Flate streams are inflated with zlib (stdlib only)."""
@@ -4188,7 +4188,7 @@ def _oma_parse_report(pdf_bytes):
     (p, pf, c), the county's rating letter, the purpose line, the
     inspection date (MM/DD/YYYY as printed) and the form items marked OUT as
     [(item_number, title)]. Raises ValueError when the form is not found."""
-    rows = _pdf_text_rows(pdf_bytes)
+    rows = _oma_pdf_text_rows(pdf_bytes)
     totals = None
     totals_idx = None
     for idx, (page, y, cells) in enumerate(rows):
@@ -5552,7 +5552,7 @@ _PDF_TEXT_OP_RE = re.compile(
     rb'|<(?P<hex>[0-9A-Fa-f\s]*)>\s*Tj'
     rb'|\((?P<lit>(?:[^()\\]|\\.)*)\)\s*Tj')
 _PDF_STRING_RE = re.compile(rb'<([0-9A-Fa-f\s]*)>|\(((?:[^()\\]|\\.)*)\)')
-_PDF_ESCAPES = {b'n': b'\n', b'r': b'\r', b't': b'\t', b'b': b'\b', b'f': b'\f',
+_OC_PDF_ESCAPES = {b'n': b'\n', b'r': b'\r', b't': b'\t', b'b': b'\b', b'f': b'\f',
                 b'(': b'(', b')': b')', b'\\': b'\\'}
 
 
@@ -5684,7 +5684,7 @@ def _pdf_decode_string(raw, is_hex, cmap):
 
     def unescape(m):
         e = m.group(1)
-        return _PDF_ESCAPES.get(e) or bytes([int(e, 8) & 0xFF])
+        return _OC_PDF_ESCAPES.get(e) or bytes([int(e, 8) & 0xFF])
     b = re.sub(rb'\\([nrtbf()\\]|[0-7]{1,3})', unescape, raw)
     if cmap is None:
         return b.decode('latin-1')
@@ -5692,7 +5692,7 @@ def _pdf_decode_string(raw, is_hex, cmap):
                    for i in range(0, len(b) - len(b) % 2, 2))
 
 
-def _pdf_text_rows(data, y_tolerance=3.0):
+def _oc_pdf_text_rows(data, y_tolerance=3.0):
     """Text of each page as rows of runs, top to bottom and left to right:
     [[(y, x, bold, text), ...] per row] per page. Each BT..ET block yields one
     run per string operator, positioned by its Tm (plus Td/TD offsets); runs
@@ -5777,7 +5777,7 @@ def _oc_parse_printable(pdf_bytes):
     repeats a header block of labels + values, which is skipped). A closure
     reinspection can have no itemized violations at all; its narrative is in
     "General Inspection Comments"."""
-    pages = _pdf_text_rows(pdf_bytes)
+    pages = _oc_pdf_text_rows(pdf_bytes)
     if not pages:
         return None
     out = {'result': '', 'inspection_type': '', 'inspection_date': '',

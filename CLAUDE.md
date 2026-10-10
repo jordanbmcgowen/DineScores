@@ -7,8 +7,8 @@ DFW, Las Vegas, Raleigh, Miami/Tampa/Orlando, Louisville, Minneapolis,
 Cincinnati, Montgomery County MD, Detroit, Sacramento, Fairfax County,
 Portland OR metro incl. Clark County WA, Colorado Springs/Fort Collins/
 Greeley/Adams County CO, Provo/Orem, Yolo County, San Jose/Santa Clara
-County, San Diego County, Omaha/Douglas County) plus all of Florida, New
-York State, Delaware, and South Carolina.
+County, San Diego County, Omaha/Douglas County, Orange County CA) plus all
+of Florida, New York State, Delaware, and South Carolina.
 
 ## Architecture
 
@@ -139,6 +139,16 @@ middleware.
       worker (`_snhd_pause_all`, `SNHD_RATE_LIMIT_WAIT`) instead of
       retrying three seconds later, and the detail phase runs at
       `SNHD_DETAIL_WORKERS=2` / `SNHD_DETAIL_DELAY=0.5`.
+- `poll-orange-county.yml` — cron, 05:00 UTC Monday-Saturday. Orange
+  County's MHD jurisdiction ignores every date filter and returns only its
+  newest 225 inspections (~1.7 days; measured 2026-10-10, see
+  `fetch_orange_county`), so it is polled daily into the sidecar
+  `data/orange_county_inspections.jsonl` (last 10 days) and upserted into
+  D1; the Sunday refresh reads the same sidecar to rebuild data.js. Both
+  workflows share the `data-refresh` concurrency group so they never push
+  at once. OC publishes no score: Pass/Reinspection/Closed map to 90/75/50,
+  and violations come from the inspection's printable PDF (stdlib parser,
+  county MAJ/MIN/OUT tags set the severity).
 - `load-d1-seeds.yml` — on push to `main` touching `data/d1_seed*.sql.gz`
   (and manual with a glob): loads the seeds that push added or changed.
   Committing a seed IS loading it; the four 2026-09-15 catch-up seeds sat
