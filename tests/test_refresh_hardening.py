@@ -229,14 +229,43 @@ class FreshnessHoldTests(unittest.TestCase):
         dp._record_group('Omaha', [])
         self.assertEqual(dp._FRESHNESS['groups']['Omaha']['latest'], self._recent(5))
 
-    def test_the_earliest_drop_wins_and_old_holds_are_ignored(self):
-        dp._hold_freshness('Douglas County Health Dept', self._recent(3))
-        dp._hold_freshness('Douglas County Health Dept', self._recent(5))
-        dp._hold_freshness('Douglas County Health Dept', self._recent(4))
-        self.assertEqual(dp._FRESHNESS_HOLDS['Douglas County Health Dept'], self._recent(5))
-        dp._FRESHNESS_HOLDS['Douglas County Health Dept'] = self._recent(dp.FRESHNESS_HOLD_MAX_DAYS + 5)
+    def test_the_earliest_drop_wins_with_no_age_limit(self):
+        for days in (3, 5, 4):
+            dp._hold_freshness('Douglas County Health Dept', self._recent(days))
         dp._record_group('Omaha', [self._rec(self._recent(1))])
-        self.assertEqual(dp._FRESHNESS['groups']['Omaha']['latest'], self._recent(1))
+        self.assertEqual(dp._FRESHNESS['groups']['Omaha']['latest'], self._recent(6))
+        # A catch-up run's drop from two months back is held like last week's.
+        dp._hold_freshness('Douglas County Health Dept', self._recent(60))
+        dp._record_group('Omaha', [self._rec(self._recent(1))])
+        self.assertEqual(dp._FRESHNESS['groups']['Omaha']['latest'], self._recent(61))
+
+    def test_a_date_dropped_three_runs_in_a_row_is_given_up_not_a_fresh_drop(self):
+        src = 'Douglas County Health Dept'
+        for run in range(dp.FRESHNESS_HOLD_GIVE_UP_RUNS - 1):
+            dp._hold_freshness(src, self._recent(30))
+            dp._record_group('Omaha', [self._rec(self._recent(1))])
+            self.assertEqual(dp._FRESHNESS['sources'][src]['latest'], self._recent(31))
+            self.assertEqual(dp._FRESHNESS['sources'][src]['hold']['runs'], run + 1)
+        # Third run: the 30-day-old record fails again, and a 5-day-old one
+        # fails for the first time. The old one is given up; the new one holds.
+        dp._hold_freshness(src, self._recent(30))
+        dp._hold_freshness(src, self._recent(5))
+        dp._record_group('Omaha', [self._rec(self._recent(1))])
+        self.assertEqual(dp._FRESHNESS['sources'][src]['latest'], self._recent(6))
+        self.assertEqual(dp._FRESHNESS['sources'][src]['hold'], {'date': self._recent(5), 'runs': 1})
+        # A clean run clears the hold.
+        dp._record_group('Omaha', [self._rec(self._recent(1))])
+        self.assertNotIn('hold', dp._FRESHNESS['sources'][src])
+        self.assertEqual(dp._FRESHNESS['sources'][src]['latest'], self._recent(1))
+
+    def test_one_held_source_does_not_make_a_multi_source_group_look_stale(self):
+        dp._FRESHNESS = {'groups': {}, 'sources': {}}
+        shipped = [self._rec(self._recent(1), f'County {i} Health Dept') for i in range(5)]
+        dp._hold_freshness('County 0 Health Dept', self._recent(24))
+        dp._record_group('MHD metros', shipped)
+        self.assertEqual(dp._FRESHNESS['sources']['County 0 Health Dept']['latest'], self._recent(25))
+        self.assertEqual(dp._FRESHNESS['sources']['County 3 Health Dept']['latest'], self._recent(1))
+        self.assertEqual(dp._FRESHNESS['groups']['MHD metros']['latest'], self._recent(1))
 
     def test_a_hold_on_another_groups_source_is_left_alone(self):
         dp._hold_freshness('Some Other Source', self._recent(3))
@@ -289,12 +318,46 @@ class SnhdBreakerTests(unittest.TestCase):
         r.raise_for_status = mock.Mock(side_effect=err)
         return r
 
+    def _resp(self, status):
+        r = mock.Mock()
+        r.status_code = status
+        r.headers = {}
+        err = dp.requests.HTTPError(f'{status} error')
+        err.response = r
+        r.raise_for_status = mock.Mock(side_effect=err)
+        return r
+
+    def test_a_lasting_403_trips_the_breaker_too(self):
+        with mock.patch.object(dp.requests, 'get', return_value=self._resp(403)), \
+             mock.patch.object(dp, '_snhd_wait_if_limited'), \
+             mock.patch.object(dp.time, 'sleep'):
+            for _ in range(dp.SNHD_BREAKER_TRIP):
+                self.assertIsNone(dp._snhd_get('https://www.southernnevadahealthdistrict.org/x'))
+        self.assertTrue(dp._SNHD_BLOCKED)
+
+    def test_a_missing_permit_is_not_retried_and_does_not_count(self):
+        with mock.patch.object(dp.requests, 'get', return_value=self._resp(404)) as get, \
+             mock.patch.object(dp.time, 'sleep'):
+            for _ in range(5):
+                self.assertIsNone(dp._snhd_get('https://www.southernnevadahealthdistrict.org/gone'))
+        self.assertEqual(get.call_count, 5)          # one attempt each
+        self.assertFalse(dp._SNHD_BLOCKED)
+
+    def test_a_success_ends_the_throttling_episode(self):
+        ok = mock.Mock(status_code=200, headers={})
+        ok.raise_for_status = mock.Mock()
+        ok.json = mock.Mock(return_value={})
+        dp._SNHD_PAUSED_TOTAL = 800.0
+        with mock.patch.object(dp.requests, 'get', return_value=ok):
+            dp._snhd_get('https://www.southernnevadahealthdistrict.org/x')
+        self.assertEqual(dp._SNHD_PAUSED_TOTAL, 0.0)
+
     def test_a_lasting_401_trips_the_breaker_and_later_requests_fail_fast(self):
         with mock.patch.object(dp.requests, 'get', return_value=self._resp401()) as get, \
              mock.patch.object(dp, '_snhd_wait_if_limited'), \
              mock.patch.object(dp.time, 'sleep'):
-            self.assertIsNone(dp._snhd_get('https://www.southernnevadahealthdistrict.org/x'))
-            self.assertIsNone(dp._snhd_get('https://www.southernnevadahealthdistrict.org/y'))
+            for _ in range(dp.SNHD_BREAKER_TRIP):
+                self.assertIsNone(dp._snhd_get('https://www.southernnevadahealthdistrict.org/x'))
             self.assertTrue(dp._SNHD_BLOCKED)
             calls = get.call_count
             self.assertIsNone(dp._snhd_get('https://www.southernnevadahealthdistrict.org/z'))

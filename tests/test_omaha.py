@@ -335,3 +335,36 @@ class FetchOmahaTests(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
+
+class PdfFailureClassTests(unittest.TestCase):
+    """Only the county's known per-record crashes are permanent; anything
+    else (a bare 500 included) is transient and holds Omaha's freshness."""
+
+    def _cand(self):
+        return ('2026-10-03', 4242, {}, 'https://douglas.i2g20.com/x/4242', None, None)
+
+    def _classify(self, status, body):
+        class Resp:
+            def __init__(self):
+                self.status_code = status
+                self.content = body
+        session = mock.Mock()
+        session.get = mock.Mock(return_value=Resp())
+        info = {}
+        with mock.patch.object(dp.time, 'sleep'):
+            pdf = dp._oma_fetch_pdf('https://douglas.i2g20.com/x/4242', session, info)
+        self.assertIsNone(pdf)
+        body_txt = info.get('body') or ''
+        if info.get('status') == 500 and any(sig in body_txt for sig in dp.OMAHA_PERMANENT_500S):
+            return 'server'
+        return 'download'
+
+    def test_known_laravel_crash_is_permanent(self):
+        self.assertEqual(self._classify(500, b'... Attempt to read property "id" on null ...'), 'server')
+        self.assertEqual(self._classify(
+            500, b'The filename and the fallback cannot contain the "/" and "\\" characters.'), 'server')
+
+    def test_a_bare_500_or_a_gateway_error_is_transient(self):
+        self.assertEqual(self._classify(500, b'Server Error'), 'download')
+        self.assertEqual(self._classify(503, b''), 'download')

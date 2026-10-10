@@ -62,12 +62,16 @@ jobs:
           JEV_MODE: decide
           JEV_DECIDE: hazard,summary
         run: |
+          # The poll records its outcome in a COPY of the freshness file: only
+          # the weekly refresh commits data/source_freshness.json, and a
+          # modified tracked file would stop the commit step's rebase.
+          cp data/source_freshness.json /tmp/oc_freshness.json
           python3 dinescores_pipeline.py \
             --mode weekly \
             --cities orangecounty \
             --output /tmp/oc.json \
             --output-d1-sql /tmp/oc.sql \
-            --freshness-file data/source_freshness.json \
+            --freshness-file /tmp/oc_freshness.json \
             --deadline-minutes 30 \
             --jev-deadline-minutes 5
         # No --output-data-js on purpose (see the header comment). In weekly
@@ -93,7 +97,7 @@ jobs:
             git commit -m "Orange County daily poll: ${TIMESTAMP}"
             # Another job (the weekly refresh, a merged PR) may have pushed
             # since checkout: rebase this one commit onto it before pushing.
-            git pull --rebase origin main
+            git pull --rebase --autostash origin main
             git push origin HEAD:main
             echo "Pushed the Orange County sidecar"
           fi
@@ -132,9 +136,14 @@ jobs:
           python3 - <<'EOF'
           import json, sys
           from datetime import date
-          data = json.load(open('data/source_freshness.json'))
+          try:
+              data = json.load(open('/tmp/oc_freshness.json'))
+          except (OSError, ValueError):
+              data = {}
           today = date.today().isoformat()
           bad = []
+          if 'Orange County' not in data.get('groups', {}):
+              bad.append('Orange County: no outcome recorded (pipeline did not reach its output phase)')
           for group, g in sorted(data.get('groups', {}).items()):
               if group != 'Orange County':
                   continue

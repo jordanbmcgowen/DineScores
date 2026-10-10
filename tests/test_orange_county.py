@@ -178,18 +178,56 @@ class PollTests(OrangeCountyCase):
         # 59 of 60 printables unreadable is a layout change, not a bad day.
         self.assertEqual(dp._oc_group_outcome()[0], 'error')
 
-    def test_unreadable_printable_ships_with_its_result_after_the_give_up_days(self):
+    def test_unreadable_printable_ships_with_its_result_after_tries_and_days(self):
+        later = dp.datetime.now() + dp.timedelta(days=dp.OC_PDF_GIVE_UP_DAYS + 1)
+        for _ in range(dp.OC_PDF_GIVE_UP_TRIES - 1):
+            out, _, _ = self.run_fetch(pdfs={})
+            self.assertEqual(out, [])
+        # Old enough but one try short: still held.
+        with mock.patch.object(dp, 'datetime', wraps=dp.datetime) as fake_dt:
+            fake_dt.now.return_value = later
+            rows = self.sidecar_rows()
+            self.assertEqual(rows[PASS_ID]['_pdf_tries'], dp.OC_PDF_GIVE_UP_TRIES - 1)
+            out, _, fetched = self.run_fetch(pdfs={})      # the last try fails too
+        self.assertEqual(len(fetched), 60)
+        self.assertEqual(len(out), 60)                      # now shipped, results only
+        by_id = {r['source_id']: r for r in out}
+        self.assertEqual((by_id[PASS_ID]['risk_score'], by_id[PASS_ID]['results'],
+                          by_id[PASS_ID]['violations']), (90, 'Pass', []))
+        self.assertEqual(dp._OC_LAST_POLL['given_up'], 60)
+        # Every printable failing is also a layout alarm, which outranks the note.
+        self.assertEqual(dp._oc_group_outcome()[0], 'error')
+
+    def test_a_never_tried_printable_never_ships_on_age_alone(self):
+        dp._OC_PDF_BLOCKED = True                   # the endpoint is blocked all week
         self.run_fetch(pdfs={})
         later = dp.datetime.now() + dp.timedelta(days=dp.OC_PDF_GIVE_UP_DAYS + 1)
         with mock.patch.object(dp, 'datetime', wraps=dp.datetime) as fake_dt:
             fake_dt.now.return_value = later
             out, _, fetched = self.run_fetch(pdfs={})
-        self.assertEqual(len(fetched), 60)            # retried once more first
-        self.assertEqual(len(out), 60)                # then shipped, results only
-        by_id = {r['source_id']: r for r in out}
-        self.assertEqual((by_id[PASS_ID]['risk_score'], by_id[PASS_ID]['results'],
-                          by_id[PASS_ID]['violations']), (90, 'Pass', []))
-        self.assertEqual(dp._OC_LAST_POLL['given_up'], 60)
+        self.assertEqual(fetched, [])
+        self.assertEqual(out, [])
+
+    def test_a_blocked_printable_endpoint_is_reported_not_green(self):
+        def fetch_blocked(session, inspection_id, retry_count=0):
+            dp._OC_PDF_BLOCKED = True
+            return None
+        with mock.patch.object(dp, '_mhd_search_page', _Portal().search), \
+                mock.patch.object(dp, '_oc_fetch_printable', fetch_blocked), \
+                mock.patch.object(dp, '_mhd_session', lambda: object()):
+            out = dp.fetch_orange_county(sidecar_path=self.sidecar)
+        self.assertEqual(out, [])
+        status, detail = dp._oc_group_outcome()
+        self.assertEqual(status, 'blocked')
+        self.assertIn('wait for their printable', detail)
+
+    def test_printables_that_all_read_clean_are_a_layout_alarm(self):
+        clean = dp._oc_parse_printable(_pdf('pass'))
+        clean = dict(clean, violations=[])
+        with mock.patch.object(dp, '_oc_parse_printable', lambda data: clean):
+            self.run_fetch(pdfs=_all_pdfs())
+        self.assertEqual(dp._oc_group_outcome()[0], 'error')
+        self.assertIn('violations layout', dp._oc_group_outcome()[1])
 
     def test_a_pdf_without_a_result_is_unread_not_clean(self):
         # A valid PDF that is not an OC printable (a layout change would look

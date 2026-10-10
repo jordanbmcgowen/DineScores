@@ -154,11 +154,15 @@ middleware.
       worker (`_snhd_pause_all`, `SNHD_RATE_LIMIT_WAIT`) instead of
       retrying three seconds later, and the detail phase runs at
       `SNHD_DETAIL_WORKERS=2` / `SNHD_DETAIL_DELAY=0.5`. A throttle that
-      does not lift is a block: once the pauses add up to
-      `SNHD_MAX_TOTAL_PAUSE` (15 min) or two requests in a row exhaust their
-      retries, `_SNHD_BLOCKED` fails every further SNHD request at once, so
-      Las Vegas can never eat the whole fetch deadline; the permits not read
-      hold its freshness and the group is reported 'blocked'.
+      does not lift is a block: once one unbroken throttling episode has
+      paused `SNHD_MAX_TOTAL_PAUSE` (15 min), or `SNHD_BREAKER_TRIP` (3)
+      requests in a row exhaust their retries for ANY reason (401/429, a 403
+      block, 5xx, timeouts), `_SNHD_BLOCKED` fails every further SNHD
+      request at once, so Las Vegas can never eat the whole fetch deadline.
+      A success resets both counters; a 400/404/410 is that one permit's
+      problem and is neither retried nor counted. Permits run oldest-first,
+      the ones not read hold its freshness at the window start, and the
+      group is reported 'blocked'.
 - `poll-orange-county.yml` — cron, 05:00 UTC Monday-Saturday. Orange
   County's MHD jurisdiction ignores every date filter and returns only its
   newest 225 inspections (~1.7 days; measured 2026-10-10, see
@@ -168,17 +172,24 @@ middleware.
   commits the sidecar too. Both workflows check out `main`'s tip and share
   the `data-refresh` concurrency group so they never push at once; the
   poll commits the sidecar BEFORE its D1 update (an uncommitted day is
-  lost for good, a missed D1 update heals on the next poll) and never
-  commits the freshness file (so its commit cannot conflict with the
-  weekly's). It runs Jev like the weekly, so the daily upsert does not flip
+  lost for good, a missed D1 update heals on the next poll) and records its
+  outcome in a /tmp copy of the freshness file, never the tracked one (a
+  dirty tracked file stops its `git pull --rebase`, and only the weekly
+  commits freshness). The weekly commits the sidecar and the Jev cache even
+  when its D1 update fails, but then leaves data.js and the freshness file
+  out, so next week refetches that window into both. It runs Jev like the weekly, so the daily upsert does not flip
   D1's grades back to the regex. OC publishes no score: Pass/Reinspection/
   Closed map to 90/75/50, and violations come from the inspection's
   printable PDF (stdlib parser, county MAJ/MIN/OUT tags set the severity).
   An inspection ships only once its printable is read; a PDF that parses
   without a Result counts as unread (a layout change must not read as
-  zero violations); one still unreadable `OC_PDF_GIVE_UP_DAYS` (5) after
-  it was first polled ships with the county's result alone; a poll where
-  most printables fail is reported as an error.
+  zero violations). One whose printable failed `OC_PDF_GIVE_UP_TRIES` (3)
+  times AND was first polled `OC_PDF_GIVE_UP_DAYS` (5) days ago ships with
+  the county's result alone (age alone is not enough: a week the endpoint
+  was blocked is not a failed read). Reported as an error: more than half
+  the printables unreadable, or over 90% of the read ones showing no
+  violations (both need `OC_PDF_MASS_FAILURE_MIN`=20); a printable phase
+  the block breaker or the deadline cut short is 'blocked'/'skipped'.
 - `load-d1-seeds.yml` — on push to `main` touching `data/d1_seed*.sql.gz`
   (and manual with a glob): loads the seeds that push added or changed.
   Committing a seed IS loading it; the four 2026-09-15 catch-up seeds sat
@@ -264,10 +275,14 @@ Riverside/San Bernardino DEH, Spokane, Tacoma.
   `_hold_freshness(source, date)`: the source's latest is then capped at
   the day before the earliest drop (and pulled back if already past it),
   or the later days would carry the latest beyond the drop and lose it
-  for good. Holds older than `FRESHNESS_HOLD_MAX_DAYS` (28) are ignored,
-  so one permanently unreadable record cannot pin a window open; Omaha's
-  deterministic HTTP 500s are therefore not held. Fetchers that ship part
-  of their window report it with `_set_group_status` so the run goes red.
+  for good. The hold remembers how many runs in a row dropped that date;
+  after `FRESHNESS_HOLD_GIVE_UP_RUNS` (3) it is given up on and the next
+  drop holds instead, so one permanently unreadable record cannot pin a
+  window open, however old it is. Omaha's two known per-record PDF crashes
+  (`OMAHA_PERMANENT_500S`, matched on the 500's body) are not held; any
+  other 500 is. An MHD jurisdiction the deadline cut is reported
+  'skipped' (`_MHD_DEADLINE_CUT`). Fetchers that ship part of their window
+  report it with `_set_group_status` so the run goes red.
   MHD details run oldest-first so a ban or deadline cut drops the newest
   tail. Register every new fetch group with `_record_group`.
 - **MHD history backfills need score calibration.** Search-only backfills

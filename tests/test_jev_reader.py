@@ -804,7 +804,10 @@ class PipelineOutputTests(unittest.TestCase):
         self.assertIn('JEV_MODE: decide', wf)
         self.assertIn('JEV_DECIDE: hazard,summary', wf)
         self.assertIn('--jev-deadline-minutes 20', wf)
-        self.assertIn('git add public/data.js data/source_freshness.json data/jev_judgments', wf)
+        # The Jev cache is committed every run, even when D1 failed and
+        # data.js is held back; data.js ships with the freshness file.
+        self.assertIn('git add data/jev_judgments data/orange_county_inspections.jsonl', wf)
+        self.assertIn('git add public/data.js data/source_freshness.json', wf)
         self.assertIn("data.get('jev')", wf)
 
 

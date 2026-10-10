@@ -227,6 +227,11 @@ jobs:
           EOF
 
       - name: Update D1 database
+        id: d1
+        # A D1 failure must not cost the Orange County sidecar or the Jev
+        # cache (committed below either way) or hide the sources' outcomes;
+        # the last step fails the run if this failed.
+        continue-on-error: true
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
@@ -245,6 +250,8 @@ jobs:
             --file /tmp/dinescores_weekly.sql
 
       - name: Commit updated data.js
+        env:
+          D1_OUTCOME: ${{ steps.d1.outcome }}
         run: |
           git config --global user.name "DineScores Bot"
           git config --global user.email "bot@dinescores.com"
@@ -253,14 +260,27 @@ jobs:
           # The Orange County sidecar is rewritten by this run's poll too; an
           # uncommitted sidecar loses the inspections (and unread printables)
           # the Monday poll can no longer see.
-          git add public/data.js data/source_freshness.json data/jev_judgments \
-                  data/orange_county_inspections.jsonl
+          #
+          # data.js and the freshness file ship only together with D1: when
+          # the D1 update failed they are left out, freshness does not
+          # advance, and next week's run refetches the same window into both.
+          # The sidecar and the Jev cache are committed either way (the daily
+          # poll re-upserts the sidecar into D1; the cache is only a cache).
+          # The fail step reads its own copy of the freshness file.
+          cp data/source_freshness.json /tmp/weekly_freshness.json
+          git add data/jev_judgments data/orange_county_inspections.jsonl
+          if [ "$D1_OUTCOME" != "failure" ]; then
+            git add public/data.js data/source_freshness.json
+          else
+            echo "::warning::D1 update failed: data.js and the freshness file are not committed; next week's run refetches this window."
+            git checkout -- public/data.js data/source_freshness.json
+          fi
           if git diff --staged --quiet; then
             echo "No changes to data.js — already up to date"
           else
             TIMESTAMP=$(date -u '+%Y-%m-%d')
             git commit -m "Auto-refresh: ${TIMESTAMP} weekly inspection data update"
-            git pull --rebase origin main
+            git pull --rebase --autostash origin main
             git push origin HEAD:main
             echo "Successfully pushed updated data.js"
           fi
@@ -274,17 +294,26 @@ jobs:
         # deadline. A source that answered but has published nothing new
         # ("empty", flagged STALE above with the fetcher's note) is not a
         # failure of this job.
+        env:
+          D1_OUTCOME: ${{ steps.d1.outcome }}
         run: |
           python3 - <<'EOF'
-          import json, sys
+          import json, os, sys
           from datetime import date
-          data = json.load(open('data/source_freshness.json'))
+          try:
+              data = json.load(open('/tmp/weekly_freshness.json'))
+          except (OSError, ValueError):
+              data = {}
           today = date.today().isoformat()
           bad = []
+          if not data.get('groups'):
+              bad.append('pipeline: no source outcomes recorded (it did not reach its output phase)')
           for group, g in sorted(data.get('groups', {}).items()):
               run = g.get('last_run') or {}
               if run.get('at') == today and run.get('status') in ('error', 'blocked', 'skipped'):
                   bad.append(f"{group}: {run['status']} - {run.get('detail') or 'no records shipped'}")
+          if os.environ.get('D1_OUTCOME') == 'failure':
+              bad.append('D1 update failed: data.js and freshness were held back, next week refetches this window')
           for b in bad:
               print(f'::error title=Source did not refresh::{b}')
           if bad:
