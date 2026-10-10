@@ -161,13 +161,15 @@ middleware.
       request at once, so Las Vegas can never eat the whole fetch deadline.
       A success resets both counters; a 400/404/410 is that one permit's
       problem and is neither retried, counted nor held. Permits run
-      oldest-first; the ones not read hold Las Vegas with
-      `_hold_window_start`, so the next window starts exactly at the later
-      of this one's start and `SNHD_HOLD_MARGIN_DAYS` (14) before the oldest
-      unread permit. Holding at the start itself slid the window back two
-      days a run (the lookback reaches a day past the cap), so the give-up
-      count never saw the same date twice. A breaker trip reports the group
-      'blocked'.
+      oldest-first; each one not read holds Las Vegas on its own with
+      `_hold_window_start` (key = permit number), so the next window starts
+      exactly at the oldest unread permit's date and a run the breaker cut
+      short still moves forward by what it read. A re-read permit ships its
+      previous inspections back to `SNHD_PREVIOUS_MARGIN_DAYS` (14) before
+      the window, so the earlier inspection a cut run never read comes
+      along. Holding at the window start slid it back two days a run (the
+      lookback reaches a day past the cap), and folding every unread permit
+      into one hold froze a backlog. A breaker trip reports 'blocked'.
 - `poll-orange-county.yml` — cron, 05:00 UTC Monday-Saturday. Orange
   County's MHD jurisdiction ignores every date filter and returns only its
   newest 225 inspections (~1.7 days; measured 2026-10-10, see
@@ -285,12 +287,13 @@ Riverside/San Bernardino DEH, Spokane, Tacoma.
   `_hold_freshness(source, date)`: the source's latest is then capped at
   the day before the earliest drop (and pulled back if already past it),
   or the later days would carry the latest beyond the drop and lose it
-  for good. Each dropped date keeps its own count of runs in a row in
-  which its records were TRIED and failed (`'hold': {'date', 'failures'}`
-  in the freshness file); at `FRESHNESS_HOLD_GIVE_UP_RUNS` (3) the date is
-  given up and remembered (`'given_up'`), so a re-read that fails again
-  cannot restart its count, and two bad records a day apart cannot take
-  turns holding the window open. Drops the deadline, a breaker or a block
+  for good. Each dropped record (`key=` its inspection or permit id) keeps
+  its own count of runs in a row in which it was TRIED and failed
+  (`'hold': {'date', 'failures': {'date|key': runs}}` in the freshness
+  file); at `FRESHNESS_HOLD_GIVE_UP_RUNS` (3) it is given up and remembered
+  (`'given_up'`), so a re-read that fails again cannot restart its count,
+  two bad records a day apart cannot take turns holding the window open,
+  and a bad record cannot take a newer record's first failure with it. Drops the deadline, a breaker or a block
   caused pass `counted=False`: they hold but never count, so a backlog that
   drains over several runs is never given up. No age limit. A fetcher that
   re-reads a whole window rather than one day holds with

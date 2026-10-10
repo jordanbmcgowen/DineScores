@@ -2357,7 +2357,7 @@ def fetch_san_antonio(since_date=None, until_date=None, limit=None, fetch_violat
         def _sa_hold(fac, counted=True):
             days = [iso for iso in fac['inspections'] if since_iso <= iso <= until_iso]
             _hold_freshness('San Antonio Metro Health', min(days) if days else fac['newest_hit'],
-                            counted)
+                            counted, key=fac['license_id'])
 
         def work(fac):
             if _past_deadline():
@@ -5035,7 +5035,8 @@ def fetch_omaha(since_date=None, limit=None):
             else:
                 failures[report] += 1
                 if report in ('download', 'deadline'):
-                    _hold_freshness(OMAHA_SOURCE, cand[0], counted=(report == 'download'))
+                    _hold_freshness(OMAHA_SOURCE, cand[0], counted=(report == 'download'),
+                                    key=cand[1])
             if done % 200 == 0:
                 log.info(f"  Omaha PDFs: {done}/{len(candidates)}")
     log.info(f"  Omaha: {len(reports)} PDFs read in {time.time() - started:.0f}s")
@@ -5217,10 +5218,13 @@ _SNHD_RATE_LIMITED_UNTIL = 0.0
 # A 400/404/410 is that one permit's problem: not retried, not counted.
 SNHD_MAX_TOTAL_PAUSE = float(os.environ.get('SNHD_MAX_TOTAL_PAUSE', '900'))   # seconds
 SNHD_BREAKER_TRIP = 3
-# A run that leaves permits unread re-reads from this many days before the
-# oldest of them (see fetch_vegas): covers a permit's earlier inspection a
-# couple of weeks before its current one without pinning the window.
-SNHD_HOLD_MARGIN_DAYS = 14
+# A permit read this run also ships its previous inspections up to this many
+# days before the window start (see fetch_vegas): a permit left unread last
+# run brings along the earlier inspection that run never read (a downgrade
+# before a re-inspection), while the window itself starts at the oldest
+# unread permit so a cut run always moves forward by what it read.
+# Re-shipping a known date is harmless (both merges key on restaurant+date).
+SNHD_PREVIOUS_MARGIN_DAYS = 14
 _SNHD_BLOCKED = False
 _SNHD_PAUSED_TOTAL = 0.0
 _SNHD_EXHAUSTED_STREAK = 0
@@ -5367,6 +5371,8 @@ def fetch_vegas(since_date=None, limit=None, fetch_violations=True):
     """
     log.info(f"Fetching Las Vegas (SNHD) data (since={since_date}, limit={limit})")
     sd = str(since_date)[:10] if since_date else None
+    prev_floor = ((datetime.strptime(sd, '%Y-%m-%d') - timedelta(days=SNHD_PREVIOUS_MARGIN_DAYS))
+                  .strftime('%Y-%m-%d') if sd else None)
 
     permits, page = {}, 1
     while True:
@@ -5484,7 +5490,7 @@ def fetch_vegas(since_date=None, limit=None, fetch_violations=True):
                         _snhd_violations(d.get('current_violations_resolved'))))
                 for prev in d.get('previous_inspections') or []:
                     p_date = sane_inspection_date(str(prev.get('inspection_date') or '')[:10])
-                    if not p_date or (sd and p_date < sd):
+                    if not p_date or (prev_floor and p_date < prev_floor):
                         continue
                     results.append(build(
                         row, p_date, prev.get('inspection_grade'),
@@ -5499,27 +5505,20 @@ def fetch_vegas(since_date=None, limit=None, fetch_violations=True):
                 results.append(build(row, cur_date, row.get('current_grade'),
                                      row.get('current_demerits'),
                                      row.get('inspection_type'), []))
-    # Hold Las Vegas so the next run re-reads the unread permits. Not at each
-    # permit's own current date: its earlier in-window inspections (a
-    # downgrade before a re-inspection) were not read either. Not at the
-    # window start as such either: the lookback reaches back two days past
-    # a hold, so the window would slide back two days every run and the
-    # give-up count would never see the same date twice. The next window
-    # starts exactly at the later of this window's start and SNHD_HOLD_MARGIN
-    # days before the oldest unread permit (oldest-first order: a cut run
-    # still moves the window forward by what it read).
+    # Hold Las Vegas so the next run re-reads the unread permits: each permit
+    # holds on its own (its failures count on their own), and the next
+    # window starts exactly at the oldest unread permit's current date, so a
+    # run cut short by the breaker or the deadline still moves the window
+    # forward by what it read (permits run oldest-first). The permit's
+    # earlier inspections come back through SNHD_PREVIOUS_MARGIN_DAYS.
+    # _hold_window_start, not a plain hold: the lookback reaches two days
+    # past a plain hold, so the window would slide back every run.
     for why, pns in unread.items():
-        if not pns:
-            continue
-        oldest = min(sane_inspection_date(str(permits[pn].get('date_current') or '')[:10]) or '9999'
-                     for pn in pns)
-        if oldest == '9999':
-            continue
-        start = (datetime.strptime(oldest, '%Y-%m-%d')
-                 - timedelta(days=SNHD_HOLD_MARGIN_DAYS)).strftime('%Y-%m-%d')
-        if sd and sd > start:
-            start = sd
-        _hold_window_start('Southern Nevada Health District', start, counted=(why == 'failed'))
+        for pn in pns:
+            cur = sane_inspection_date(str(permits[pn].get('date_current') or '')[:10])
+            if cur:
+                _hold_window_start('Southern Nevada Health District', cur,
+                                   counted=(why == 'failed'), key=pn)
     if skipped:
         log.warning(f"  SNHD: skipped {skipped} permits with unreadable details"
                     + (f" ({permanent} answered 400/404/410 and are not retried)" if permanent else ''))
@@ -6327,7 +6326,8 @@ def _fetch_mhd_jurisdiction_api(session, slug, config, since_date=None, limit=No
             # counting. Otherwise they were tried twice and failed.
             counted = not (_MHD_PORTAL_BLOCKED or _past_deadline())
             for r in unreadable:
-                _hold_freshness(r.get('source'), str(r['inspection_date'])[:10], counted)
+                _hold_freshness(r.get('source'), str(r['inspection_date'])[:10], counted,
+                                key=r.get('source_id'))
             if _past_deadline():
                 _MHD_DEADLINE_CUT.add(display_name)
             drop = {id(r) for r in unreadable}
@@ -8275,19 +8275,20 @@ def _note_source_lag(group, source_max):
 # lookback reads that day again. Without it, shipping the later days of the
 # same run advanced the latest beyond the drop and lost it for good.
 _MHD_DEADLINE_CUT = set()        # MHD display names whose fetch the deadline cut this run
-# source label -> {dropped date: counted}. `counted` is False when the drop
-# was not a failure of that record (the deadline, a breaker or a block cut
-# the phase short), True when the record was tried and could not be read.
+# source label -> {'date|record key': counted}. `counted` is False when the
+# drop was not a failure of that record (the deadline, a breaker or a block
+# cut the phase short), True when the record was tried and could not be read.
 _FRESHNESS_HOLDS = {}
 _FRESHNESS_HOLD_LOCK = threading.Lock()
-# A date whose records were TRIED and failed this many runs in a row is
-# treated as permanently unreadable: it is given up (remembered per source
-# in the freshness file as 'given_up', so a later re-read that fails again
-# cannot restart its count) and no longer holds the window. The count is
-# per date ('hold': {'date', 'failures': {date: runs}}), so two bad records
-# a day apart cannot take turns holding the window open. Drops the deadline
-# or a breaker caused hold without counting: a backlog that drains over
-# several runs is never given up. No age limit.
+# A record TRIED and failed this many runs in a row is treated as
+# permanently unreadable: it is given up (remembered per source in the
+# freshness file as 'given_up', so a later re-read that fails again cannot
+# restart its count) and no longer holds the window. The count is per record
+# ('hold': {'date', 'failures': {'date|key': runs}}): two bad records a day
+# apart cannot take turns holding the window open, and one bad record
+# cannot drag a newer record's first failure down with it. Drops the
+# deadline or a breaker caused hold without counting: a backlog that drains
+# over several runs is never given up. No age limit.
 FRESHNESS_HOLD_GIVE_UP_RUNS = 3
 
 # A fetcher that shipped only PART of its window (a breaker tripped, the
@@ -8296,20 +8297,22 @@ FRESHNESS_HOLD_GIVE_UP_RUNS = 3
 _GROUP_STATUS = {}               # group -> (status, detail)
 
 
-def _hold_freshness(source, inspection_date, counted=True):
+def _hold_freshness(source, inspection_date, counted=True, key=''):
     """Keep `source`'s recorded latest at or before the day before
-    `inspection_date` this run (see _FRESHNESS_HOLDS). counted=False for a
-    drop the deadline, a breaker or a block caused: it holds, but never
-    counts toward giving the date up."""
+    `inspection_date` this run (see _FRESHNESS_HOLDS). `key` names the
+    dropped record (its inspection or permit id) so its failures are
+    counted on their own; counted=False for a drop the deadline, a breaker
+    or a block caused: it holds, but never counts toward giving it up."""
     d = str(inspection_date or '')[:10]
     if not source or len(d) != 10:
         return
+    k = f'{d}|{key or ""}'
     with _FRESHNESS_HOLD_LOCK:
         drops = _FRESHNESS_HOLDS.setdefault(source, {})
-        drops[d] = drops.get(d, True) and bool(counted)
+        drops[k] = drops.get(k, True) and bool(counted)
 
 
-def _hold_window_start(source, start, counted=True):
+def _hold_window_start(source, start, counted=True, key=''):
     """Hold `source` so the next run's lookback starts exactly at `start`
     (not two days before it, which is what holding at `start` itself gives:
     the cap is the day before, and the lookback re-reads one more day). For
@@ -8320,7 +8323,7 @@ def _hold_window_start(source, start, counted=True):
     except ValueError:
         return
     _hold_freshness(source, (day + timedelta(days=1 + FRESHNESS_OVERLAP_DAYS)).strftime('%Y-%m-%d'),
-                    counted)
+                    counted, key)
 
 
 def _set_group_status(group, status, detail=''):
@@ -8359,9 +8362,9 @@ def _record_group(group, records, status=None, detail=''):
             by_source[s] = d
     # Freshness holds for this group's sources: the day before the earliest
     # transient drop caps what this run may record (and pulls an already
-    # recorded latest back), so the next lookback re-reads the drop. A date
-    # whose records were tried and failed FRESHNESS_HOLD_GIVE_UP_RUNS runs in
-    # a row is given up for good; the next-earliest drop holds instead.
+    # recorded latest back), so the next lookback re-reads the drop. A record
+    # tried and failed FRESHNESS_HOLD_GIVE_UP_RUNS runs in a row is given up
+    # for good; the next-earliest drop holds instead.
     caps = {}
     with _FRESHNESS_HOLD_LOCK:
         mine = [s for s in _FRESHNESS_HOLDS
@@ -8370,32 +8373,30 @@ def _record_group(group, records, status=None, detail=''):
     keep_from = (datetime.now() - timedelta(days=FRESHNESS_LOOKBACK_API_DAYS)).strftime('%Y-%m-%d')
     for s, drops in dropped.items():
         e = _FRESHNESS['sources'].setdefault(s, {'group': group})
-        prev = e.get('hold') or {}
-        prev_fail = dict(prev.get('failures') or {})
-        if not prev_fail and prev.get('date') and prev.get('runs'):
-            prev_fail = {prev['date']: prev['runs']}      # the older single-date form
+        prev_fail = (e.get('hold') or {}).get('failures') or {}
         given_up = set(e.get('given_up') or [])
-        failures, live = {}, []
-        for d in sorted(drops):
-            if d in given_up:
+        failures, live = {}, set()
+        for k in sorted(drops):
+            if k in given_up:
                 continue
-            runs = prev_fail.get(d, 0) + (1 if drops[d] else 0)
+            runs = prev_fail.get(k, 0) + (1 if drops[k] else 0)
             if runs >= FRESHNESS_HOLD_GIVE_UP_RUNS:
-                given_up.add(d)
-                log.warning(f"{group}: {s} has failed to read an inspection from {d} "
-                            f"{runs} runs in a row — giving up on it")
+                given_up.add(k)
+                log.warning(f"{group}: {s} has failed to read a record from {k[:10]} "
+                            f"({k[11:] or 'unnamed'}) {runs} runs in a row — giving up on it")
                 continue
             if runs:
-                failures[d] = runs
-            live.append(d)
+                failures[k] = runs
+            live.add(k[:10])
         if live:
-            e['hold'] = {'date': live[0], 'failures': failures}
-            caps[s] = (datetime.strptime(live[0], '%Y-%m-%d') - timedelta(days=1)).strftime('%Y-%m-%d')
+            first = min(live)
+            e['hold'] = {'date': first, 'failures': failures}
+            caps[s] = (datetime.strptime(first, '%Y-%m-%d') - timedelta(days=1)).strftime('%Y-%m-%d')
         else:
             e.pop('hold', None)
-        given_up = sorted(d for d in given_up if d >= keep_from)
+        given_up = sorted(k for k in given_up if k[:10] >= keep_from)
         if given_up:
-            e['given_up'] = given_up[-100:]
+            e['given_up'] = given_up[-500:]
         else:
             e.pop('given_up', None)
     for s, cap in caps.items():

@@ -246,7 +246,7 @@ class FreshnessHoldTests(unittest.TestCase):
             dp._record_group('Omaha', [self._rec(self._recent(1))])
             self.assertEqual(dp._FRESHNESS['sources'][src]['latest'], self._recent(31))
             self.assertEqual(dp._FRESHNESS['sources'][src]['hold']['failures'],
-                             {self._recent(30): run + 1})
+                             {f'{self._recent(30)}|': run + 1})
         # Third run: the 30-day-old record fails again, and a 5-day-old one
         # fails for the first time. The old one is given up; the new one holds.
         dp._hold_freshness(src, self._recent(30))
@@ -254,8 +254,8 @@ class FreshnessHoldTests(unittest.TestCase):
         dp._record_group('Omaha', [self._rec(self._recent(1))])
         self.assertEqual(dp._FRESHNESS['sources'][src]['latest'], self._recent(6))
         self.assertEqual(dp._FRESHNESS['sources'][src]['hold'],
-                         {'date': self._recent(5), 'failures': {self._recent(5): 1}})
-        self.assertEqual(dp._FRESHNESS['sources'][src]['given_up'], [self._recent(30)])
+                         {'date': self._recent(5), 'failures': {f'{self._recent(5)}|': 1}})
+        self.assertEqual(dp._FRESHNESS['sources'][src]['given_up'], [f'{self._recent(30)}|'])
         # A clean run clears the hold; the given-up date stays given up.
         dp._record_group('Omaha', [self._rec(self._recent(1))])
         self.assertNotIn('hold', dp._FRESHNESS['sources'][src])
@@ -279,7 +279,7 @@ class FreshnessHoldTests(unittest.TestCase):
             dp._record_group('Omaha', [self._rec(self._recent(1))])
         e = dp._FRESHNESS['sources'][src]
         self.assertNotIn('hold', e)
-        self.assertEqual(e['given_up'], [self._recent(30), self._recent(29)])
+        self.assertEqual(e['given_up'], [f'{self._recent(30)}|', f'{self._recent(29)}|'])
         self.assertEqual(e['latest'], self._recent(1))
         # The next window is the normal one, so neither is read again.
         since = dp._lookback_since('Omaha', datetime.now() - timedelta(days=8), 400)
@@ -300,13 +300,21 @@ class FreshnessHoldTests(unittest.TestCase):
         dp._record_group('Omaha', [self._rec(self._recent(1))])
         self.assertEqual(dp._FRESHNESS['sources'][src]['hold']['failures'], {})
 
-    def test_a_hold_in_the_older_single_date_form_keeps_counting(self):
+    def test_records_on_one_date_are_counted_on_their_own(self):
+        # A permanently bad record must not take a newer record's first
+        # failure on the same date down with it.
         src = 'Douglas County Health Dept'
-        dp._FRESHNESS['sources'][src]['hold'] = {'date': self._recent(9), 'runs': 2}
-        dp._hold_freshness(src, self._recent(9))
+        d = self._recent(9)
+        for _ in range(dp.FRESHNESS_HOLD_GIVE_UP_RUNS - 1):
+            dp._hold_freshness(src, d, key='BAD')
+            dp._record_group('Omaha', [self._rec(self._recent(1))])
+        dp._hold_freshness(src, d, key='BAD')
+        dp._hold_freshness(src, d, key='ONCE')
         dp._record_group('Omaha', [self._rec(self._recent(1))])
-        self.assertNotIn('hold', dp._FRESHNESS['sources'][src])
-        self.assertEqual(dp._FRESHNESS['sources'][src]['given_up'], [self._recent(9)])
+        e = dp._FRESHNESS['sources'][src]
+        self.assertEqual(e['given_up'], [f'{d}|BAD'])
+        self.assertEqual(e['hold'], {'date': d, 'failures': {f'{d}|ONCE': 1}})
+        self.assertEqual(e['latest'], self._recent(10))
 
     def test_a_window_start_hold_makes_the_next_window_start_there(self):
         dp._hold_window_start('Douglas County Health Dept', self._recent(20))
@@ -557,3 +565,59 @@ class VegasHoldTests(unittest.TestCase):
         e = dp._FRESHNESS['sources'][self.SRC]
         self.assertEqual(e['hold']['failures'], {})
         self.assertNotIn('given_up', e)
+
+    def test_a_cut_run_always_moves_the_window_forward_by_what_it_read(self):
+        # A backlog of 40 days, one permit a day, and SNHD tolerating only
+        # eight detail requests a run before the breaker trips.
+        dp._FRESHNESS['sources'][self.SRC]['latest'] = self._recent(40)
+        dp._FRESHNESS['groups']['Las Vegas']['latest'] = self._recent(40)
+        rows = [{'permit_number': f'P{a}', 'restaurant_name': f'P{a}', 'address': f'{a} Strip',
+                 'city_name': 'Las Vegas', 'date_current': self._recent(a)} for a in range(39, 0, -1)]
+        budget = {'left': 8}
+
+        def fake_get(url, params=None, retries=4, info=None):
+            if url == dp.SNHD_API:
+                return {'results': rows}
+            if budget['left'] <= 0:
+                dp._SNHD_BLOCKED = True
+                return None
+            budget['left'] -= 1
+            row = next(r for r in rows if r['permit_number'] == url.rsplit('/', 1)[1])
+            return {'date_current': row['date_current'], 'current_grade': 'A',
+                    'current_demerits': 2, 'previous_inspections': []}
+        starts, shipped = [], set()
+        with mock.patch.object(dp, 'SNHD_DETAIL_WORKERS', 1):
+            for _ in range(8):
+                budget['left'] = 8
+                since = dp._lookback_since('Las Vegas', datetime.now() - timedelta(days=8),
+                                           dp.FRESHNESS_LOOKBACK_API_DAYS)
+                with mock.patch.object(dp, '_snhd_get', fake_get):
+                    out = dp.fetch_vegas(since_date=since.strftime('%Y-%m-%dT00:00:00'))
+                dp._record_group('Las Vegas', out)
+                dp._SNHD_BLOCKED = False
+                starts.append(since.strftime('%Y-%m-%d'))
+                shipped |= {r['inspection_date'] for r in out}
+        # Every run starts later than the one before until the backlog is
+        # gone, and every day of it shipped.
+        backlog = [st for st in starts if st < self._recent(8)]
+        self.assertEqual(backlog, sorted(set(backlog)))
+        self.assertEqual(shipped, {self._recent(a) for a in range(39, 0, -1)})
+        self.assertEqual(dp._RUN_GROUPS['Las Vegas']['status'], 'ok')
+
+    def test_a_reread_permit_ships_its_earlier_inspection_from_before_the_window(self):
+        rows = [{'permit_number': 'P', 'restaurant_name': 'P', 'address': '1 Strip',
+                 'city_name': 'Las Vegas', 'date_current': self._recent(3)}]
+
+        def fake_get(url, params=None, retries=4, info=None):
+            if url == dp.SNHD_API:
+                return {'results': rows}
+            return {'date_current': self._recent(3), 'current_grade': 'A', 'current_demerits': 2,
+                    'previous_inspections': [
+                        {'inspection_date': self._recent(12), 'inspection_grade': 'C',
+                         'inspection_demerits': 30},
+                        {'inspection_date': self._recent(40), 'inspection_grade': 'A',
+                         'inspection_demerits': 0}]}
+        with mock.patch.object(dp, '_snhd_get', fake_get):
+            out = dp.fetch_vegas(since_date=self._recent(8))
+        self.assertEqual(sorted(r['inspection_date'] for r in out),
+                         [self._recent(12), self._recent(3)])
