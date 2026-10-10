@@ -1,15 +1,17 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { gradeMeta } from './GradeBadge.jsx';
 import { fetchSearchFromApi } from '../api.js';
+import { placeMatchRank } from '../places.js';
 
 const MAX_LOCAL = 6;
 const MAX_API_EXTRA = 4;
+const MAX_AREAS = 3;
 
 /**
- * Search box with instant suggestions: area matches (city/metro filters),
- * loaded restaurants (instant), then full-database matches from the D1 API
- * (covers restaurants that aren't lazy-loaded yet). Arrow keys + Enter work;
- * plain typing still live-filters the list/map exactly as before.
+ * Search box with instant suggestions: area matches (city/metro/place
+ * filters), loaded restaurants (instant), then full-database matches from
+ * the D1 API (covers restaurants that aren't lazy-loaded yet). Arrow keys +
+ * Enter work; plain typing still live-filters the list/map exactly as before.
  */
 export default function SearchBar({
   value, onChange, count, allData, cityOptions,
@@ -38,12 +40,26 @@ export default function SearchBar({
     return [...starts, ...contains].slice(0, MAX_LOCAL);
   }, [q, allData]);
 
+  // Cities and metros match on a label prefix, as before. Places also match
+  // on their aliases and on any word ("water" → WaterColor, WaterSound;
+  // "30a" → the corridor), ranked so label prefixes come first. A place
+  // that shares its label with a city (Destin) defers to the city.
   const areaItems = useMemo(() => {
     if (q.length < 2) return [];
-    return cityOptions
-      .filter(o => o.city !== 'all' || o.metro)
-      .filter(o => o.label.toLowerCase().startsWith(q))
-      .slice(0, 2);
+    const cityLabels = new Set(
+      cityOptions.filter(o => !o.place && (o.city !== 'all' || o.metro)).map(o => o.label.toLowerCase()));
+    const ranked = [];
+    for (const o of cityOptions) {
+      if (o.place) {
+        if (cityLabels.has(o.label.toLowerCase())) continue;
+        const rank = placeMatchRank(o, q);
+        if (rank >= 0) ranked.push({ o, rank });
+      } else if ((o.city !== 'all' || o.metro) && o.label.toLowerCase().startsWith(q)) {
+        ranked.push({ o, rank: 0 });
+      }
+    }
+    ranked.sort((a, b) => a.rank - b.rank); // stable: ties keep cityOptions order
+    return ranked.slice(0, MAX_AREAS).map(x => x.o);
   }, [q, cityOptions]);
 
   // Full-database matches (debounced); drop ones already shown locally
@@ -62,7 +78,11 @@ export default function SearchBar({
     const localIds = new Set(localItems.map(r => r.i));
     const extra = apiItems.filter(r => r.i && !localIds.has(r.i)).slice(0, MAX_API_EXTRA);
     return [
-      ...areaItems.map(o => ({ kind: 'area', key: `a:${o.label}`, area: o })),
+      ...areaItems.map(o => ({
+        kind: 'area',
+        key: o.place ? `a:p:${o.place}` : o.metro ? `a:m:${o.metro}` : `a:c:${o.city}`,
+        area: o,
+      })),
       ...localItems.map(r => ({ kind: 'restaurant', key: r.i, r })),
       ...extra.map(r => ({ kind: 'restaurant', key: r.i, r })),
     ];
@@ -195,7 +215,7 @@ export default function SearchBar({
                   <span className="flex-1 min-w-0">
                     <span className="block font-bold text-[14px] truncate">{item.area.label}</span>
                     <span className="block text-[12px] text-slate-400">
-                      {item.area.metro ? 'Metro area' : 'City'} — show all restaurants
+                      {item.area.place ? 'Place' : item.area.metro ? 'Metro area' : 'City'} — show all restaurants
                     </span>
                   </span>
                 </>

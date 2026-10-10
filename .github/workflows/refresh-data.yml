@@ -12,6 +12,8 @@ jobs:
     timeout-minutes: 170
     permissions:
       contents: write  # Needed to commit data.js back to the repo
+      id-token: write  # Lets the job mint the GitHub OIDC token that
+                       # authenticates it to the portal relay (functions/api/relay.js)
 
     steps:
       - name: Checkout repository
@@ -30,22 +32,23 @@ jobs:
         env:
           # Optional: raises Socrata rate limits if the secret is configured
           SOCRATA_APP_TOKEN: ${{ secrets.SOCRATA_APP_TOKEN }}
-          # Optional: egress for the portals that block GitHub runner IPs.
-          # The MyHealthDepartment portal (Dallas, Plano, Frisco, Fort Worth,
-          # Tarrant, Portland metro, CO Front Range, Utah County, Yolo) returns
-          # 403 to every GitHub-hosted runner type, and the Las Vegas API has
-          # failed from runners too. Set the PORTAL_PROXY_URL repo secret
-          # (http://user:pass@host:port, a residential/ISP proxy) to route
-          # just those requests through an unblocked address. Unset = those
-          # metros are skipped and keep their existing records.
-          PORTAL_PROXY_URL: ${{ secrets.PORTAL_PROXY_URL }}
-          # Or route those same requests through the relay Worker in
-          # workers/portal-relay (a Worker cannot serve HTTP CONNECT, so it is
-          # a URL-rewriting relay rather than a proxy). Deploy it, set its
-          # RELAY_TOKEN, then set these two secrets. Unverified against the
-          # portal's TLS fingerprint check — see that directory's README.
-          PORTAL_RELAY_URL: ${{ secrets.PORTAL_RELAY_URL }}
+          # Egress for the portals that refuse GitHub's runner ranges. The
+          # MyHealthDepartment portal (Dallas, Plano, Frisco, Fort Worth,
+          # Tarrant, Portland metro, CO Front Range, Utah County, Yolo) answers
+          # 403 to every GitHub-hosted runner type and the Las Vegas (SNHD)
+          # API 401s runners after a few dozen pages, so those requests go
+          # through the site's own relay function (functions/api/relay.js,
+          # deployed with every Pages build). Verified 2026-10-10: Cloudflare's
+          # egress gets 200 from both portals. The job authenticates to the
+          # relay with a GitHub OIDC token it mints itself (id-token: write
+          # above), so NO secret has to exist for this to work. The two
+          # secrets below only override the defaults: a different relay URL,
+          # or a static token (RELAY_TOKEN Pages variable) instead of OIDC.
+          PORTAL_RELAY_URL: ${{ secrets.PORTAL_RELAY_URL || 'https://dinescores.com/api/relay' }}
           PORTAL_RELAY_TOKEN: ${{ secrets.PORTAL_RELAY_TOKEN }}
+          # Alternative to the relay: an HTTP proxy (http://user:pass@host:port)
+          # for the same requests. When set it is used alongside the relay.
+          PORTAL_PROXY_URL: ${{ secrets.PORTAL_PROXY_URL }}
           # Jev violation reader (jev_reader.py). The key is only ever read
           # from this variable; it is scrubbed from logs and exceptions and
           # request bodies are never logged. With the secret unset the reader
@@ -220,3 +223,31 @@ jobs:
             git push
             echo "Successfully pushed updated data.js"
           fi
+
+      - name: Fail the run if any source did not refresh
+        # Runs LAST, after everything that did ship is committed and in D1,
+        # so a red run never costs data. For weeks a blocked portal shipped
+        # zero records while the job stayed green and nobody was told; a
+        # failed run notifies the repository owner. "error" is a fetcher
+        # exception, "blocked" the portal refusing us, "skipped" the fetch
+        # deadline. A source that answered but has published nothing new
+        # ("empty", flagged STALE above with the fetcher's note) is not a
+        # failure of this job.
+        run: |
+          python3 - <<'EOF'
+          import json, sys
+          from datetime import date
+          data = json.load(open('data/source_freshness.json'))
+          today = date.today().isoformat()
+          bad = []
+          for group, g in sorted(data.get('groups', {}).items()):
+              run = g.get('last_run') or {}
+              if run.get('at') == today and run.get('status') in ('error', 'blocked', 'skipped'):
+                  bad.append(f"{group}: {run['status']} - {run.get('detail') or 'no records shipped'}")
+          for b in bad:
+              print(f'::error title=Source did not refresh::{b}')
+          if bad:
+              print(f'{len(bad)} source group(s) did not refresh this run; data that did ship is already committed.')
+              sys.exit(1)
+          print('Every source group refreshed.')
+          EOF

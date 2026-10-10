@@ -1,0 +1,87 @@
+name: Load D1 seeds
+
+# A committed seed used to wait for someone to run the "Setup D1 Database"
+# workflow by hand, and the 2026-09-15 catch-up seeds waited for a month:
+# data.js (served from git) carried DFW through 2026-09-14 while the D1
+# database (the API, the full roster, the history) stayed at 2026-09-05.
+# This loads every seed that a push to main adds or changes, so committing a
+# seed IS loading it. Upserts are idempotent, so reloading is harmless.
+#
+# Manual runs take a glob, for re-loading a specific seed.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'data/d1_seed*.sql.gz'
+  workflow_dispatch:
+    inputs:
+      seeds:
+        description: 'Glob of seed files to load (default: the seeds changed in the latest commit)'
+        required: false
+        default: ''
+
+jobs:
+  load:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+    steps:
+      - name: Check secrets
+        run: |
+          if [ -z "$CLOUDFLARE_API_TOKEN" ] || [ -z "$CLOUDFLARE_ACCOUNT_ID" ]; then
+            echo "::error::Missing CLOUDFLARE_API_TOKEN and/or CLOUDFLARE_ACCOUNT_ID repo secrets."
+            exit 1
+          fi
+
+      - name: Checkout repository
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 2
+
+      - name: Set up Node
+        uses: actions/setup-node@v5
+        with:
+          node-version: '20'
+
+      - name: Pick the seeds to load
+        id: pick
+        run: |
+          set -e
+          GLOB='${{ github.event.inputs.seeds }}'
+          if [ -n "$GLOB" ]; then
+            SEEDS=$(ls $GLOB 2>/dev/null || true)
+          else
+            # Seeds added or changed by the commit(s) in this push. A squash
+            # merge is one commit, so HEAD~1 covers the normal case; fall back
+            # to the push range when it is available.
+            BEFORE='${{ github.event.before }}'
+            if [ -n "$BEFORE" ] && ! echo "$BEFORE" | grep -q '^0*$' && git cat-file -e "$BEFORE" 2>/dev/null; then
+              SEEDS=$(git diff --name-only --diff-filter=AM "$BEFORE" "${{ github.sha }}" -- 'data/d1_seed*.sql.gz')
+            else
+              SEEDS=$(git diff --name-only --diff-filter=AM HEAD~1 HEAD -- 'data/d1_seed*.sql.gz' 2>/dev/null || true)
+            fi
+          fi
+          if [ -z "$SEEDS" ]; then
+            echo "No seed files to load."
+          fi
+          echo "Seeds to load:"; echo "$SEEDS"
+          printf 'seeds<<EOF\n%s\nEOF\n' "$SEEDS" >> "$GITHUB_OUTPUT"
+
+      - name: Load seeds into D1
+        if: steps.pick.outputs.seeds != ''
+        run: |
+          set -e
+          echo "${{ steps.pick.outputs.seeds }}" | while read -r SEED; do
+            [ -z "$SEED" ] && continue
+            echo "::group::Loading $SEED"
+            gunzip -c "$SEED" > /tmp/seed.sql
+            wc -lc /tmp/seed.sql
+            # D1 imports are atomic and reject statements over 100KB; the
+            # pipeline's writer keeps every statement under 80KB.
+            npx --yes wrangler@4 d1 execute dinescores --remote -y --file /tmp/seed.sql
+            echo "::endgroup::"
+          done
+          echo "Loaded: ${{ steps.pick.outputs.seeds }}" >> "$GITHUB_STEP_SUMMARY"

@@ -66,64 +66,88 @@ middleware.
 ## Workflows (.github/workflows/)
 
 - `refresh-data.yml` — cron, Sundays 09:00 UTC. Pulls the recent window from
-  all sources, merges data.js, applies incremental SQL to D1, commits. Source
-  portals sometimes block GitHub runners; fetchers are failure-tolerant and
-  skip rather than ship partial data (the merge preserves existing records).
-  Two guards keep a blocked portal from timing out the whole job (which
-  ships nothing): a run-wide MHD circuit breaker (`_MHD_PORTAL_BLOCKED` —
-  first exhausted 403 retry on a SEARCH skips the portal's remaining
-  jurisdictions) and `--deadline-minutes` (past the budget, remaining fetch
-  groups are skipped and outputs still get written).
-  - **The job going green means nothing about coverage.** The pipeline
-    records every fetch group's outcome in `data/source_freshness.json`
-    (`--freshness-file`), and the "Report source outcomes" step renders it
-    into the run summary with warning annotations for groups that failed or
-    whose newest inspection is >21 days old. Look there first when "the
-    refresh isn't working".
+  all sources, merges data.js, applies incremental SQL to D1, commits, and
+  then FAILS the run if any fetch group was blocked, errored or skipped (the
+  last step, after the commit, so a red run never costs data). Fetchers are
+  failure-tolerant and skip rather than ship partial data (the merge
+  preserves existing records). Two guards keep a blocked portal from timing
+  out the whole job (which ships nothing): a run-wide MHD circuit breaker
+  (`_MHD_PORTAL_BLOCKED` — first exhausted 403 retry on a SEARCH skips the
+  portal's remaining jurisdictions) and `--deadline-minutes` (past the
+  budget, remaining fetch groups are skipped and outputs still get written).
+  - **A green job used to mean nothing about coverage** (2026-09-06 through
+    2026-10-04 every scheduled run shipped 0 records for DFW, Portland, the
+    CO Front Range, Utah County, Yolo and Las Vegas and still passed). The
+    pipeline records every fetch group's outcome in
+    `data/source_freshness.json` (`--freshness-file`); the "Report source
+    outcomes" step renders it into the run summary with warning annotations
+    for groups that failed or whose newest inspection is >21 days old, and
+    the final step turns blocked/error/skipped groups into a failed run so
+    the owner is notified. Look at the summary first when "the refresh
+    isn't working".
   - **A stale source is not always a broken one.** A fetcher can leave a
     one-line reason in `_GROUP_NOTES` (`_note_source_lag` for the common
     "the source itself is behind" case); `_record_group` picks it up and
-    the report prints it next to the STALE/FAILED flag. Two sources that
-    look broken every week and are not, both re-verified 2026-09-15:
-    **LA County** publishes per fiscal year and closed its FY23-26 extract
-    at 2026-06-30 — the successor file does not exist yet on the hub (only
-    the Inventory item has rolled to 07/01/2026), and `_la_hub_items` will
-    pick the new one up by title as soon as it appears. **Austin** simply
-    runs weeks behind: its Socrata dataset's own newest row was 2026-08-20,
-    and the refresh had already fetched every one of them.
-  - **Self-healing windows**: weekly mode starts each group's window at its
-    recorded latest inspection (bounded: 45 days for API/CSV sources, 21 for
-    scraped portals; `_lookback_since`) instead of a flat 8 days, so a lost
-    week refetches itself. `--since-date` still overrides everything.
+    the report prints it next to the STALE/FAILED flag. **LA County**
+    publishes quarterly into the SAME hub items (the title's end date rolls:
+    "... 07/01/2023 to 06/30/2026" became "... 10/01/2023 to 09/30/2026" on
+    2026-10-06), so it looks stale for up to three months and then catches
+    up in one run. **Austin** simply runs weeks behind its own dataset.
+  - **Self-healing windows**: weekly mode starts each group's window the day
+    before its recorded latest SHIPPED inspection (`_lookback_since`)
+    instead of a flat 8 days, so a lost week refetches itself. The caps
+    (400 days for API/CSV sources, 90 for scraped portals) are safety
+    bounds, not the normal window: the old 45/21-day caps silently dropped
+    LA County's July-August 2026 when the quarterly extract appeared, and
+    would have abandoned every MHD week older than three weeks once the
+    portal was reachable again. `--since-date` still overrides everything.
+    Only shipped records advance the recorded latest, so a portal backlog
+    drains oldest-first across runs; `fetch_dfw` orders jurisdictions
+    stalest-first (and `main()` orders the DFW / MHD-metros groups the same
+    way) so a run that hits its deadline never starves the same metro twice.
   - **MHD blocks every GitHub-hosted runner type** (ubuntu, macOS, windows
-    all get 403 — probed 2026-09-07 with `probe-sources.yml`). The MHD metros
-    (DFW, Portland, CO Front Range, Utah County, Yolo) refresh from CI only
-    with the `PORTAL_PROXY_URL` secret (applied to MHD and SNHD requests
-    only), otherwise from a local run. Every scheduled run is blocked this
-    way and still reports success — 2026-09-06 and 2026-09-13 both shipped
-    0 DFW records — so DFW only ever advances from a manual catch-up.
-    The 403 has TWO independent causes, and a fix has to clear both
-    (measured 2026-09-15 from one Google Cloud host, same minute):
-      1. **Egress IP.** GitHub's ranges are blocked; ordinary datacenter
-         IPs are not. Python `requests` — the client the pipeline uses —
-         got a clean 200 with full search and detail pages from that host
-         and 403 from every runner.
-      2. **Client TLS fingerprint.** From that same working IP, `curl`
-         (200, HTTP/2) and Python `requests` (200) pass, while Node's
-         `fetch`/undici gets 403 no matter the headers or accept-encoding.
-         OpenSSL-based clients are accepted; undici is not.
-    So "route it through an unblocked hop" is not sufficient by itself: the
-    hop has to speak with an accepted fingerprint too. A host running the
-    pipeline's own Python is proven on both counts (a self-hosted runner, or
-    any small VM on a cron). `workers/portal-relay` is the cheap option but
-    NOT verified — Cloudflare's fetch is not an OpenSSL client, and undici
-    is already rejected, so test it with the curl in its README before
-    trusting the weekly job to it.
+    all get 403 — probed 2026-09-07 with `probe-sources.yml`) and **SNHD
+    (Las Vegas) answers 401** to a runner after a few dozen list pages. Both
+    now go through the site's own relay, `functions/api/relay.js`
+    (`/api/relay?url=`), which fetches from Cloudflare's network. Verified
+    2026-10-10 from a Pages preview deployment: MHD searches (Dallas, Plano)
+    return real rows, detail pages load, and 70 rapid SNHD list pages all
+    returned 200. The portal's two-factor block (egress IP AND client TLS
+    fingerprint — Node's undici is refused even from an accepted IP,
+    measured 2026-09-15) does not apply to Cloudflare's fetch.
+    - **No secrets.** The job mints a GitHub OIDC token (`id-token: write`,
+      audience `dinescores-portal-relay`, re-minted by `_relay_token()`
+      before expiry) and the function verifies the signature against
+      GitHub's JWKS plus issuer, audience, expiry and `repository ==
+      jordanbmcgowen/DineScores`. A static `RELAY_TOKEN` Pages variable is
+      accepted as an alternative (`PORTAL_RELAY_TOKEN` on the client side).
+      Only the two portal hostnames can be fetched. The relay deploys with
+      every Pages build, so a broken relay shows up as a red refresh run,
+      not a silent one. `PORTAL_RELAY_URL` defaults to
+      `https://dinescores.com/api/relay` in the workflows; the
+      `PORTAL_RELAY_URL`/`PORTAL_RELAY_TOKEN`/`PORTAL_PROXY_URL` secrets only
+      override it. `tests/test_refresh_hardening.py` covers the client side;
+      the function was exercised end to end in Node (JWT verification,
+      forged/expired/foreign-repo tokens, host allowlist, header stripping).
+    - The cooldown budget `MHD_BAN_COOLDOWNS` defaults to 8 (was 3): a
+      normal week of every MHD jurisdiction is ~1,100 detail pages, about
+      five 15-minute ban windows, which the old budget could never finish.
+      The 120-minute fetch deadline is what bounds a CI run.
+    - SNHD is rate-limited, not IP-blocked: a 401/429 pauses every SNHD
+      worker (`_snhd_pause_all`, `SNHD_RATE_LIMIT_WAIT`) instead of
+      retrying three seconds later, and the detail phase runs at
+      `SNHD_DETAIL_WORKERS=2` / `SNHD_DETAIL_DELAY=0.5`.
+- `load-d1-seeds.yml` — on push to `main` touching `data/d1_seed*.sql.gz`
+  (and manual with a glob): loads the seeds that push added or changed.
+  Committing a seed IS loading it; the four 2026-09-15 catch-up seeds sat
+  unloaded for a month because the setup workflow had to be run by hand,
+  leaving D1 nine days behind data.js for DFW.
 - `probe-sources.yml` — manual. Curls each portal from ubuntu/macOS/windows
-  runners (and through `PORTAL_PROXY_URL` if set) and prints the HTTP status.
+  runners, directly and through the relay (with a minted OIDC token) or
+  `PORTAL_PROXY_URL`, and prints the HTTP status.
 - `setup-database.yml` — manual (workflow_dispatch). Bulk-loads
-  `data/d1_seed.sql.gz` into D1 and writes `wrangler.toml`. Idempotent.
-  Re-run only after committing a regenerated/repaired seed.
+  `data/d1_seed*.sql.gz` into D1 and writes `wrangler.toml`. Idempotent.
+  For a single new seed prefer `load-d1-seeds.yml` (automatic on merge).
 
 ## Hard-won invariants (violate at your peril)
 

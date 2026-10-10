@@ -18,7 +18,7 @@ DFW cities:
   --cities dallas fortworth plano
 """
 
-import os, sys, json, re, time, math, hashlib, logging, argparse
+import os, sys, json, re, time, math, hashlib, logging, argparse, base64
 import html as html_lib
 import threading
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -251,6 +251,50 @@ PORTAL_PROXY_URL = os.environ.get('PORTAL_PROXY_URL', '').strip()
 PORTAL_RELAY_URL = os.environ.get('PORTAL_RELAY_URL', '').strip()
 PORTAL_RELAY_TOKEN = os.environ.get('PORTAL_RELAY_TOKEN', '').strip()
 
+# The relay's credential. A static PORTAL_RELAY_TOKEN works anywhere; inside
+# GitHub Actions no secret is needed at all: with `id-token: write` the job can
+# mint a short-lived OIDC token (GitHub signs it; the relay checks the
+# signature and that `repository` is this repo) and the pipeline re-mints it
+# before it expires, so a two-hour run never carries a stale credential.
+RELAY_OIDC_AUDIENCE = 'dinescores-portal-relay'
+_RELAY_OIDC = {'token': '', 'exp': 0.0, 'warned': False}
+_RELAY_OIDC_LOCK = threading.Lock()
+
+
+def _relay_token():
+    """Credential to present to the relay ('' = none available)."""
+    if PORTAL_RELAY_TOKEN:
+        return PORTAL_RELAY_TOKEN
+    req_url = os.environ.get('ACTIONS_ID_TOKEN_REQUEST_URL', '').strip()
+    req_tok = os.environ.get('ACTIONS_ID_TOKEN_REQUEST_TOKEN', '').strip()
+    if not (req_url and req_tok):
+        return ''
+    with _RELAY_OIDC_LOCK:
+        if _RELAY_OIDC['token'] and time.time() < _RELAY_OIDC['exp'] - 90:
+            return _RELAY_OIDC['token']
+        try:
+            r = requests.get(req_url, params={'audience': RELAY_OIDC_AUDIENCE},
+                             headers={'Authorization': f'bearer {req_tok}',
+                                      'Accept': 'application/json; api-version=2.0'},
+                             timeout=30)
+            r.raise_for_status()
+            token = (r.json().get('value') or '').strip()
+            exp = time.time() + 240
+            try:   # read the token's own expiry; GitHub's are short-lived
+                payload = token.split('.')[1]
+                payload += '=' * (-len(payload) % 4)
+                exp = float(json.loads(base64.urlsafe_b64decode(payload)).get('exp') or exp)
+            except Exception:
+                pass
+            _RELAY_OIDC.update(token=token, exp=exp)
+        except Exception as e:
+            if not _RELAY_OIDC['warned']:
+                log.warning(f"Relay: could not mint a GitHub OIDC token ({e}); "
+                            f"portal requests go direct")
+                _RELAY_OIDC['warned'] = True
+            _RELAY_OIDC.update(token='', exp=0.0)
+        return _RELAY_OIDC['token']
+
 
 def _portal_proxies():
     """requests `proxies` mapping for the IP-sensitive portals (None = direct)."""
@@ -269,12 +313,16 @@ def _relay(url, params=None):
     """
     if not PORTAL_RELAY_URL or url.startswith(PORTAL_RELAY_URL):
         return url, params, {}
+    token = _relay_token()
+    if not token:
+        # No credential to present: the relay would refuse, so go direct
+        # (which fails exactly as it does today when the egress is blocked).
+        return url, params, {}
     if params:
         url = f"{url}{'&' if '?' in url else '?'}{urlencode(params, doseq=True)}"
     sep = '&' if '?' in PORTAL_RELAY_URL else '?'
     relayed = f"{PORTAL_RELAY_URL}{sep}url={quote(url, safe='')}"
-    headers = {'X-Relay-Token': PORTAL_RELAY_TOKEN} if PORTAL_RELAY_TOKEN else {}
-    return relayed, None, headers
+    return relayed, None, {'X-Relay-Token': token}
 
 
 class _PortalSession(requests.Session):
@@ -3392,16 +3440,45 @@ def fetch_fairfax(since_date=None, limit=None):
 SNHD_API = ('https://www.southernnevadahealthdistrict.org/wp-json/'
             'snhd-eh-restaurants/v1/restaurants')
 SNHD_PAGE = 100          # server caps per_page at 100
-SNHD_DETAIL_WORKERS = 4
+# The district's site rate-limits by answering 401 Unauthorized once a client
+# has made a few hundred requests in a few minutes (GitHub runners saw it
+# after ~60 list pages; a sandbox saw it a few minutes into a 4-worker
+# detail phase), so the detail phase runs gently and a 401/429 is a signal to
+# back off for a minute or two, not a failure to retry three seconds later.
+SNHD_DETAIL_WORKERS = int(os.environ.get('SNHD_DETAIL_WORKERS', '2'))
+SNHD_DETAIL_DELAY = float(os.environ.get('SNHD_DETAIL_DELAY', '0.5'))
+SNHD_LIST_DELAY = float(os.environ.get('SNHD_LIST_DELAY', '0.4'))
+SNHD_RATE_LIMIT_WAIT = float(os.environ.get('SNHD_RATE_LIMIT_WAIT', '90'))   # seconds
+_SNHD_RATE_LIMIT_LOCK = threading.Lock()
+_SNHD_RATE_LIMITED_UNTIL = 0.0
 
 
 _SNHD_FAILURES_LOGGED = 0
 
 
-def _snhd_get(url, params=None, retries=3):
-    global _SNHD_FAILURES_LOGGED
+_SNHD_LAST_ERROR = ''
+
+
+def _snhd_pause_all(seconds):
+    """Hold every SNHD worker back for `seconds` (one shared clock)."""
+    global _SNHD_RATE_LIMITED_UNTIL
+    with _SNHD_RATE_LIMIT_LOCK:
+        _SNHD_RATE_LIMITED_UNTIL = max(_SNHD_RATE_LIMITED_UNTIL, time.time() + seconds)
+
+
+def _snhd_wait_if_limited():
+    while True:
+        remaining = _SNHD_RATE_LIMITED_UNTIL - time.time()
+        if remaining <= 0 or _past_deadline():
+            return
+        time.sleep(min(remaining, 5))
+
+
+def _snhd_get(url, params=None, retries=4):
+    global _SNHD_FAILURES_LOGGED, _SNHD_LAST_ERROR
     last_err = None
     for attempt in range(retries):
+        _snhd_wait_if_limited()
         try:
             r_url, r_params, r_extra = _relay(url, params)
             r = requests.get(r_url, params=r_params,
@@ -3413,20 +3490,32 @@ def _snhd_get(url, params=None, retries=3):
             last_err = e
             if attempt == retries - 1:
                 break
-            # Back off harder than a couple of seconds: the district's site
-            # throttles bursts, and a 429 carries the wait it wants.
-            wait = 5 * (3 ** attempt)
             resp = getattr(e, 'response', None)
-            if resp is not None and resp.status_code == 429:
+            status = resp.status_code if resp is not None else None
+            if status in (401, 429):
+                # The district is throttling this client. Every worker
+                # pauses together (a lone sleeping worker changes nothing
+                # while three others keep hammering), and a 429's
+                # Retry-After is honoured when it is longer.
+                wait = SNHD_RATE_LIMIT_WAIT * (attempt + 1)
                 try:
-                    wait = max(wait, min(int(resp.headers.get('Retry-After', 0)), 120))
-                except ValueError:
+                    wait = max(wait, min(int((resp.headers or {}).get('Retry-After', 0)), 300))
+                except (TypeError, ValueError):
                     pass
-            time.sleep(wait)
+                if _past_deadline():
+                    break
+                if _SNHD_FAILURES_LOGGED < 5:
+                    log.warning(f"  SNHD rate-limited ({status}); pausing all SNHD "
+                                f"requests {wait:.0f}s (attempt {attempt + 1}/{retries})")
+                _snhd_pause_all(wait)
+                continue
+            # Other failures: back off harder than a couple of seconds.
+            time.sleep(5 * (3 ** attempt))
     # Say WHY: a 403 from an IP the district's site blocks looks nothing
     # like a timeout, and "list fetch failed" alone hid that for weeks.
     # Only the first few failures are logged so a banned detail phase
     # doesn't emit thousands of lines.
+    _SNHD_LAST_ERROR = str(last_err)[:120]
     if _SNHD_FAILURES_LOGGED < 5:
         _SNHD_FAILURES_LOGGED += 1
         log.warning(f"  SNHD request failed after {retries} attempts "
@@ -3471,7 +3560,10 @@ def fetch_vegas(since_date=None, limit=None, fetch_violations=True):
     while True:
         d = _snhd_get(SNHD_API, {'per_page': SNHD_PAGE, 'page': page})
         if d is None:
-            raise RuntimeError('SNHD list fetch failed')
+            # A 401/403 here is the district's site refusing this egress
+            # (GitHub runners get it after a few dozen pages); a timeout is
+            # not. Put the reason in the run report, not just the log.
+            raise RuntimeError(f'SNHD list fetch failed on page {page}: {_SNHD_LAST_ERROR}')
         rows = d.get('results') or []
         for row in rows:
             pn = row.get('permit_number')
@@ -3482,7 +3574,7 @@ def fetch_vegas(since_date=None, limit=None, fetch_violations=True):
         page += 1
         if page % 30 == 0:
             log.info(f"  SNHD list: {len(permits)} permits so far...")
-        time.sleep(0.15)
+        time.sleep(SNHD_LIST_DELAY)
     log.info(f"  SNHD: {len(permits)} permits listed")
 
     # Only permits inspected in the window need (re)fetching.
@@ -3535,7 +3627,7 @@ def fetch_vegas(since_date=None, limit=None, fetch_violations=True):
 
         def work(pn):
             d = _snhd_get(f'{SNHD_API}/{pn}')
-            time.sleep(0.1)
+            time.sleep(SNHD_DETAIL_DELAY)
             return pn, d
 
         done = 0
@@ -3614,7 +3706,12 @@ MHD_DETAIL_BLOCK_TRIP = 3
 # MHD_BAN_COOLDOWNS times per run, and only while the fetch deadline leaves
 # room for the wait. Searches keep working during a detail ban.
 MHD_BAN_COOLDOWN = float(os.environ.get('MHD_BAN_COOLDOWN', '900'))   # seconds
-MHD_BAN_COOLDOWNS = int(os.environ.get('MHD_BAN_COOLDOWNS', '3'))     # per run
+MHD_BAN_COOLDOWNS = int(os.environ.get('MHD_BAN_COOLDOWNS', '8'))     # per run
+# (8 x 15 min is more than a 120-minute fetch deadline allows, so in CI the
+# deadline, not this count, is what ends a run; the count matters for local
+# catch-ups with a longer deadline. A week of every MHD jurisdiction is
+# ~1,100 detail pages, about five ban windows — the old budget of 3 could
+# never finish a normal week once the portal was reachable again.)
 _MHD_DETAIL_BANNED = False   # detail pages 403ing right now (searches still fine)
 _MHD_COOLDOWNS_USED = 0
 MHD_WINDOW_DAYS = 7    # initial search window; bisected when the query cap is hit
@@ -3990,7 +4087,19 @@ def fetch_dfw(jurisdictions=None, since_date=None, limit_per_jurisdiction=None,
     session = _mhd_session()
     all_results = []
 
-    for slug, config in jurisdictions.items():
+    # Stalest jurisdiction first. A run that hits its deadline or the ban
+    # budget always loses the jurisdictions at the END of the list; in a
+    # fixed order the same ones would starve every week, while ordering by
+    # the recorded latest shipped inspection makes each run work on whatever
+    # is furthest behind, so a backlog drains evenly across runs.
+    order = sorted(jurisdictions.items(),
+                   key=lambda kv: _source_latest(kv[1]['display_name']))
+    if len(order) > 1:
+        log.info("MHD order (stalest first): " + ', '.join(
+            f"{c['display_name']} ({_source_latest(c['display_name']) or 'never'})"
+            for _, c in order))
+
+    for slug, config in order:
         display_name = config['display_name']
         if _MHD_PORTAL_BLOCKED:
             log.warning(f"{display_name}: skipped — MHD portal is blocking this run; "
@@ -5085,8 +5194,18 @@ def write_d1_sql(all_inspections, output_path, include_schema=True):
 # refetched the next time the source answers instead of becoming a permanent
 # gap. The file is also what the CI job summary reads to flag quiet sources.
 
-FRESHNESS_LOOKBACK_API_DAYS = 45      # open-data APIs/CSVs: cheap to re-read
-FRESHNESS_LOOKBACK_PORTAL_DAYS = 21   # scraped portals: every day costs detail pages
+# The caps are safety bounds, not the normal window. A group's window starts
+# the day before its last SHIPPED inspection, so a source that was blocked or
+# went quiet for longer than the cap must still be read back to that day or
+# the gap becomes permanent: the 45-day API cap silently dropped LA County's
+# July and August 2026 when the county's quarterly extract finally appeared,
+# and the 21-day portal cap would have abandoned every MHD week older than
+# three weeks the moment the portal became reachable again.
+FRESHNESS_LOOKBACK_API_DAYS = 400     # open-data APIs/CSVs: cheap to re-read
+FRESHNESS_LOOKBACK_PORTAL_DAYS = 90   # scraped portals: each day costs detail pages;
+                                      # the fetch deadline bounds a run, dropped
+                                      # (undetailed) days are refetched next time, and
+                                      # stalest-first ordering drains a backlog evenly
 FRESHNESS_OVERLAP_DAYS = 1            # re-read the latest known day (late edits)
 
 _FRESHNESS = None    # {'sources': {...}, 'groups': {...}} once --freshness-file is given
@@ -5120,6 +5239,13 @@ def _group_latest(group, source_labels=None):
                  for s in source_labels]
         return min(dates) if dates and all(dates) else ''
     return (_FRESHNESS['groups'].get(group) or {}).get('latest', '')
+
+
+def _source_latest(display_name):
+    """Latest shipped inspection recorded for an MHD source ('' if unknown)."""
+    if not _FRESHNESS:
+        return ''
+    return (_FRESHNESS['sources'].get(f'{display_name} Health Dept') or {}).get('latest', '')
 
 
 def _lookback_since(group, default_start, cap_days, source_labels=None):
@@ -5551,83 +5677,63 @@ def main():
             log.error(f"Arlington fetch failed: {e}")
             _record_group('Arlington', [], 'error', str(e))
 
-    # Non-DFW MyHealthDepartment metros (Orange County, Portland, CO Front
-    # Range, Utah County, Yolo) — same portal machinery as DFW below.
+    # The two MyHealthDepartment groups — the non-DFW metros (Portland, CO
+    # Front Range, Utah County, Yolo) and DFW — share one portal, one ban
+    # budget and one fetch deadline, so whichever group runs second is the
+    # one a tight run shortchanges. Build both, then run the group whose
+    # recorded data is older FIRST (inside a group, fetch_dfw orders its
+    # jurisdictions the same way).
     mhd_metro_slugs = []
     for city_slug, portal_slugs in MHD_METRO_SLUG_GROUPS.items():
         if city_slug in args.cities:
             mhd_metro_slugs.extend(portal_slugs)
     mhd_metro_slugs.extend(s for s in args.cities
                            if s in MHD_METRO_JURISDICTIONS and s not in mhd_metro_slugs)
+    dfw_slugs_requested = [c for c in args.cities if c in DFW_JURISDICTIONS]
+
+    mhd_groups = []   # (recorded latest, group name, jurisdictions, default lag days)
     if mhd_metro_slugs:
+        juris = {s: MHD_METRO_JURISDICTIONS[s] for s in mhd_metro_slugs}
+        # These portals publish with up to ~2 weeks of lag (Oregon
+        # especially) — look further back than the 8-day default so
+        # late-published inspections aren't permanently missed.
+        mhd_groups.append(('MHD metros', juris, 21))
+    if 'dfw' in args.cities or dfw_slugs_requested:
+        juris = DFW_JURISDICTIONS if 'dfw' in args.cities else {
+            s: DFW_JURISDICTIONS[s] for s in dfw_slugs_requested}
+        mhd_groups.append(('DFW', juris, 8))
+
+    def _group_key(entry):
+        group, juris, _ = entry
+        return _group_latest(group, [f"{c['display_name']} Health Dept" for c in juris.values()])
+
+    for group, jurisdictions, lag_days in sorted(mhd_groups, key=_group_key):
         try:
             mhd_since = None
             if args.mode == 'full':
                 mhd_since = '2026-01-01'
             elif args.mode == 'weekly':
-                # These portals publish with up to ~2 weeks of lag (Oregon
-                # especially) — look further back than the 8-day default so
-                # late-published inspections aren't permanently missed.
                 mhd_since = weekly_since(
-                    'MHD metros', FRESHNESS_LOOKBACK_PORTAL_DAYS, days=21,
-                    source_labels=[f"{MHD_METRO_JURISDICTIONS[s]['display_name']} Health Dept"
-                                   for s in mhd_metro_slugs])
+                    group, FRESHNESS_LOOKBACK_PORTAL_DAYS, days=lag_days,
+                    source_labels=[f"{c['display_name']} Health Dept"
+                                   for c in jurisdictions.values()])
             if args.since_date:
                 mhd_since = args.since_date
             mhd_data = fetch_dfw(
-                jurisdictions={s: MHD_METRO_JURISDICTIONS[s] for s in mhd_metro_slugs},
+                jurisdictions=jurisdictions,
                 since_date=mhd_since,
                 until_date=args.until_date,
                 limit_per_jurisdiction=record_limit,
                 fetch_violations=not args.no_dfw_violations)
             geocode_missing_coords(mhd_data)
             all_inspections.extend(mhd_data)
-            log.info(f"MHD metros: {len(mhd_data)} records")
-            _record_group('MHD metros', mhd_data,
+            log.info(f"{group}: {len(mhd_data)} records")
+            _record_group(group, mhd_data,
                           'blocked' if _MHD_PORTAL_BLOCKED else None,
                           'MHD portal blocked this run' if _MHD_PORTAL_BLOCKED else '')
         except Exception as e:
-            log.error(f"MHD metros fetch failed: {e}")
-            _record_group('MHD metros', [], 'error', str(e))
-
-    # DFW metroplex — supports 'dfw' (all MHD cities), 'dallas' (single), or any slug
-    dfw_slugs_requested = [c for c in args.cities if c in DFW_JURISDICTIONS]
-    if 'dfw' in args.cities or dfw_slugs_requested:
-        try:
-            # Use consistent ISO YYYY-MM-DD format for dates
-            dfw_since = None
-            if args.mode == 'full':
-                dfw_since = '2026-01-01'
-            if 'dfw' in args.cities:
-                jurisdictions = DFW_JURISDICTIONS
-            else:
-                jurisdictions = {s: DFW_JURISDICTIONS[s] for s in dfw_slugs_requested}
-            if args.mode == 'weekly':
-                dfw_since = weekly_since(
-                    'DFW', FRESHNESS_LOOKBACK_PORTAL_DAYS,
-                    source_labels=[f"{c['display_name']} Health Dept"
-                                   for c in jurisdictions.values()])
-            if args.since_date:
-                dfw_since = args.since_date
-
-            dfw_data = fetch_dfw(
-                jurisdictions=jurisdictions,
-                since_date=dfw_since,
-                until_date=args.until_date,
-                limit_per_jurisdiction=record_limit,
-                fetch_violations=not args.no_dfw_violations)
-
-            # Geocode records missing coordinates
-            geocode_missing_coords(dfw_data)
-
-            all_inspections.extend(dfw_data)
-            log.info(f"DFW: {len(dfw_data)} records")
-            _record_group('DFW', dfw_data,
-                          'blocked' if _MHD_PORTAL_BLOCKED else None,
-                          'MHD portal blocked this run' if _MHD_PORTAL_BLOCKED else '')
-        except Exception as e:
-            log.error(f"DFW fetch failed: {e}")
-            _record_group('DFW', [], 'error', str(e))
+            log.error(f"{group} fetch failed: {e}")
+            _record_group(group, [], 'error', str(e))
 
     # Drop coordinates that are obviously wrong before any output is written
     drop_implausible_coords(all_inspections)

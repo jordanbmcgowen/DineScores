@@ -239,10 +239,13 @@ function createDonutChart(props, dark, minR) {
  * Camera behavior is deliberately split from data:
  *   - the data effect updates markers whenever `restaurants` changes, and never
  *     moves the camera (so viewport-driven data loading can't fight the user);
- *   - the fit effect re-frames the map only when `fitSignal` changes (a city
- *     or metro change — an intentional move to a new area), while
+ *   - the fit effect re-frames the map only when `fitSignal` changes (a city,
+ *     metro or place change — an intentional move to a new area), while
  *     `narrowSignal` (grade/issue/search changes) at most zooms OUT to the
- *     nearest match and otherwise leaves the camera alone;
+ *     nearest match and otherwise leaves the camera alone. When `fitBox`
+ *     ({w,s,e,n}, a place's bounding box) is set, the fit frames THAT box
+ *     rather than the loaded records, so a place frames correctly even when
+ *     none (or only a few) of its records have loaded yet;
  *   - `flyTo` ({lng, lat, zoom, key}) centers the camera once per key — used
  *     to open on the user's own location. When it arrives before the first
  *     fit, it wins over that initial nationwide framing.
@@ -257,11 +260,13 @@ function createDonutChart(props, dark, minR) {
  */
 export default function RestaurantMap({
   restaurants, onMarkerClick, onBackgroundClick, onStackClick, onViewportChange,
-  fitSignal, narrowSignal, flyTo, selectedId, dark = false, onGeolocate, userPos,
+  fitSignal, fitBox = null, narrowSignal, flyTo, selectedId, dark = false, onGeolocate, userPos,
 }) {
   const mapContainer = useRef(null);
   const mapRef = useRef(null);
   const restaurantsRef = useRef(restaurants);
+  const fitBoxRef = useRef(fitBox); // read by the fit effect (same render as fitSignal)
+  fitBoxRef.current = fitBox;
   const onViewportChangeRef = useRef(onViewportChange);
   const onBackgroundClickRef = useRef(onBackgroundClick);
   onBackgroundClickRef.current = onBackgroundClick;
@@ -758,6 +763,22 @@ export default function RestaurantMap({
     const isInitialFit = !didInitialFitRef.current;
     didInitialFitRef.current = true;
     if (isInitialFit && gpsCenteredRef.current) return;
+    const desktop = window.innerWidth >= 768;
+    const padding = desktop
+      ? { top: 150, left: 440, right: 40, bottom: 40 }
+      : { top: 130, left: 30, right: 30, bottom: 130 };
+
+    // A place is a geographic area, not a set of records: frame its box so
+    // the camera lands on it even when its roster is still loading from D1
+    // (or is empty). Small beach towns need a tighter zoom cap than a city.
+    const box = fitBoxRef.current;
+    if (box) {
+      map.fitBounds(new maplibregl.LngLatBounds([box.w, box.s], [box.e, box.n]), {
+        padding, maxZoom: 16, duration: 600,
+      });
+      return;
+    }
+
     const pts = restaurantsRef.current.filter(r => r.lt && r.ln && r.lt !== 0 && r.ln !== 0);
     if (pts.length === 0) return;
 
@@ -769,14 +790,7 @@ export default function RestaurantMap({
     const lo = arr => arr[Math.floor(arr.length * 0.02)];
     const hi = arr => arr[Math.ceil(arr.length * 0.98) - 1];
     const bounds = new maplibregl.LngLatBounds([lo(lngs), lo(lats)], [hi(lngs), hi(lats)]);
-    const desktop = window.innerWidth >= 768;
-    map.fitBounds(bounds, {
-      padding: desktop
-        ? { top: 150, left: 440, right: 40, bottom: 40 }
-        : { top: 130, left: 30, right: 30, bottom: 130 },
-      maxZoom: 13,
-      duration: 600,
-    });
+    map.fitBounds(bounds, { padding, maxZoom: 13, duration: 600 });
   }, [fitSignal, mapLoaded]);
 
   return <div ref={mapContainer} className="w-full h-full" />;

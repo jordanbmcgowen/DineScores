@@ -1,6 +1,7 @@
 import React, { useEffect, useState, useMemo, useCallback, useRef } from 'react';
 import { ensureVettedFields } from './grading.js';
 import { probeApi, fetchBboxFromApi, fetchAreaFromApi, fetchAllFromApi, fetchRestaurantDetail } from './api.js';
+import { PLACES, PLACE_BY_ID, PLACES_ENVELOPE, inBox, placeContains } from './places.js';
 import GradeBadge from './components/GradeBadge.jsx';
 import RestaurantMap from './components/RestaurantMap.jsx';
 import InspectionModal from './components/InspectionModal.jsx';
@@ -40,6 +41,11 @@ export default function App() {
   // Filters
   const [cityFilter, setCityFilter] = useState('all');
   const [metroFilter, setMetroFilter] = useState(null);
+  // A named area that is not a city in the data (Seaside, WaterColor, ...):
+  // a place id from places.js, matched on coordinates. Mutually exclusive
+  // with city/metro, like city is with metro.
+  const [placeFilter, setPlaceFilter] = useState(null);
+  const activePlace = placeFilter ? PLACE_BY_ID[placeFilter] || null : null;
   const [gradeFilter, setGradeFilter] = useState([]);
   const [infractionFilter, setInfractionFilter] = useState([]);
 
@@ -246,6 +252,27 @@ export default function App() {
     });
   }, [cityFilter, metroFilter, mergeRecords, apiReady]);
 
+  // Selecting a place eagerly loads everything inside its bounding box, so
+  // the full D1 roster appears (the embedded per-city cap leaves most of a
+  // small beach town to the API). The box then counts as viewport-covered.
+  useEffect(() => {
+    const place = activePlace;
+    if (!place || !apiAvailableRef.current || fullyLoadedRef.current) return;
+    const key = `p:${place.id}`;
+    if (loadedAreasRef.current.has(key)) return;
+    loadedAreasRef.current.add(key);
+    setLoadingArea(place.label);
+    fetchBboxFromApi(place.bbox).then(({ records, truncated }) => {
+      mergeRecords(records);
+      setLoadingArea(prev => (prev === place.label ? null : prev));
+      if (!truncated) coveredBoxesRef.current.push(place.bbox);
+      if (records.length === 0) loadedAreasRef.current.delete(key); // allow retry
+    }).catch(() => {
+      loadedAreasRef.current.delete(key);
+      setLoadingArea(prev => (prev === place.label ? null : prev));
+    });
+  }, [activePlace, mergeRecords, apiReady]);
+
   // A lite record was opened and its full detail fetched: upgrade it in place.
   const upgradeRecord = useCallback((full) => {
     const rec = ensureVettedFields(full);
@@ -322,13 +349,27 @@ export default function App() {
   const cityOptions = useMemo(() => {
     const cityCounts = new Map();
     const metroCounts = new Map();
+    const placeCounts = new Map();
     for (const r of allData) {
       if (r.m) {
         metroCounts.set(r.m, (metroCounts.get(r.m) || 0) + 1);
       } else if (r.c) {
         cityCounts.set(r.c, (cityCounts.get(r.c) || 0) + 1);
       }
+      // Places are geographic: count by coordinates (envelope pre-check
+      // keeps this to a handful of records per pass).
+      if (r.lt && r.ln && inBox(PLACES_ENVELOPE, r.lt, r.ln)) {
+        for (const p of PLACES) {
+          if (placeContains(p, r.lt, r.ln)) placeCounts.set(p.id, (placeCounts.get(p.id) || 0) + 1);
+        }
+      }
     }
+    // Every place is offered even with zero loaded records — its roster
+    // lives in D1 and loads on selection (or isn't covered yet at all).
+    const places = PLACES.map(p => ({
+      label: p.label, city: 'all', metro: null, place: p.id,
+      aliases: p.aliases, n: placeCounts.get(p.id) || 0,
+    }));
     const entries = [
       ...[...cityCounts].map(([c, n]) => ({ label: c, city: c, metro: null, n })),
       ...[...metroCounts].map(([m, n]) => ({ label: m, city: 'all', metro: m, n })),
@@ -342,8 +383,16 @@ export default function App() {
       .filter(([, n]) => n >= 200)
       .sort((a, b) => b[1] - a[1])
       .map(([c]) => ({ label: c, city: c, metro: null }));
-    return [{ label: 'All Cities', city: 'all', metro: null }, ...entries, ...drill];
+    return [{ label: 'All Cities', city: 'all', metro: null }, ...entries, ...drill, ...places];
   }, [allData]);
+
+  // One call sets the whole area selection consistently: a city, a metro or
+  // a place, never two at once. Used by search suggestions.
+  const selectArea = useCallback((opt) => {
+    setCityFilter(opt.place ? 'all' : (opt.city || 'all'));
+    setMetroFilter(opt.place ? null : (opt.metro || null));
+    setPlaceFilter(opt.place || null);
+  }, []);
 
   // Filtered + sorted data
   const filtered = useMemo(() => {
@@ -356,6 +405,10 @@ export default function App() {
     // Metro filter
     if (metroFilter) {
       data = data.filter(r => r.m === metroFilter);
+    }
+    // Place filter: geographic, so coordless records can't qualify
+    if (activePlace) {
+      data = data.filter(r => r.lt && r.ln && placeContains(activePlace, r.lt, r.ln));
     }
 
     // Grade filter
@@ -411,7 +464,7 @@ export default function App() {
     }
 
     return sorted;
-  }, [allData, cityFilter, metroFilter, gradeFilter, infractionFilter, debouncedSearch, sortBy, userPos]);
+  }, [allData, cityFilter, metroFilter, activePlace, gradeFilter, infractionFilter, debouncedSearch, sortBy, userPos]);
 
   // The list and header count mirror the VISIBLE map exactly, at every zoom
   // (the map reports bounds that exclude the sidebar/header/sheet overlays).
@@ -426,11 +479,15 @@ export default function App() {
       : !!debouncedSearch);
   }, [filtered, mapView, debouncedSearch]);
 
-  // Camera signals: a city/metro change re-frames the map to that area
-  // (fitSignal); grade/issue/search changes only ever zoom OUT to the nearest
-  // match if none is on screen (narrowSignal). Sort and lazy-load merges
-  // never move the camera.
-  const fitSignal = `${cityFilter}|${metroFilter}`;
+  // Camera signals: a city/metro/place change re-frames the map to that area
+  // (fitSignal — a place fits to its own bounding box, so it frames correctly
+  // even before any of its records have loaded); grade/issue/search changes
+  // only ever zoom OUT to the nearest match if none is on screen
+  // (narrowSignal). Sort and lazy-load merges never move the camera.
+  const fitSignal = `${cityFilter}|${metroFilter}|${placeFilter}`;
+  const fitBox = activePlace ? activePlace.bbox : null;
+  // The area currently narrowing the list, for empty states and such
+  const areaLabel = activePlace ? activePlace.label : (metroFilter || (cityFilter !== 'all' ? cityFilter : null));
   const narrowSignal = `${gradeFilter.join('')}|${infractionFilter.join('')}|${debouncedSearch}`;
 
   // Marker tap → light preview over the live map (report is one more tap)
@@ -557,6 +614,7 @@ export default function App() {
           onStackClick={handleStackClick}
           onViewportChange={handleViewportChange}
           fitSignal={fitSignal}
+          fitBox={fitBox}
           narrowSignal={narrowSignal}
           flyTo={flyTo}
           selectedId={preview?.i || selectedRestaurant?.i || null}
@@ -587,7 +645,7 @@ export default function App() {
             allData={allData}
             cityOptions={cityOptions}
             onPickRestaurant={r => focusRestaurant(r)}
-            onPickArea={opt => { setCityFilter(opt.city); setMetroFilter(opt.metro); }}
+            onPickArea={selectArea}
             onSearchingChange={setSearchOpen}
           />
 
@@ -618,6 +676,8 @@ export default function App() {
           setCityFilter={setCityFilter}
           metroFilter={metroFilter}
           setMetroFilter={setMetroFilter}
+          placeFilter={placeFilter}
+          setPlaceFilter={setPlaceFilter}
           gradeFilter={gradeFilter}
           toggleGrade={toggleGrade}
           infractionFilter={infractionFilter}
@@ -671,7 +731,7 @@ export default function App() {
               Showing 100 of {listItems.length.toLocaleString()} — zoom in or search to narrow.
             </p>
           )}
-          {listItems.length === 0 && <EmptyState />}
+          {listItems.length === 0 && <EmptyState areaLabel={areaLabel} />}
         </div>
       </aside>
 
@@ -701,7 +761,7 @@ export default function App() {
             selected={preview?.i === r.i}
           />
         ))}
-        {listItems.length === 0 && <EmptyState />}
+        {listItems.length === 0 && <EmptyState areaLabel={areaLabel} />}
       </BottomSheet>
 
       {/* Mobile-only floating preview (desktop docks it in the sidebar).
@@ -736,13 +796,15 @@ export default function App() {
   );
 }
 
-function EmptyState() {
+function EmptyState({ areaLabel }) {
   return (
     <div className="p-10 text-center text-slate-400">
       <svg className="w-10 h-10 mx-auto mb-3 opacity-60" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
         <circle cx="11" cy="11" r="7"/><path d="M20 20l-3-3"/>
       </svg>
-      <p className="font-semibold text-slate-500 dark:text-slate-400">No restaurants found</p>
+      <p className="font-semibold text-slate-500 dark:text-slate-400">
+        {areaLabel ? `No restaurants found in ${areaLabel}` : 'No restaurants found'}
+      </p>
       <p className="text-xs mt-1">Try adjusting your search or filters</p>
     </div>
   );
