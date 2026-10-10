@@ -52,13 +52,13 @@
   },
   "DFW": {
    "last_run": {
-    "at": "2026-10-04",
-    "detail": "MHD portal blocked this run",
-    "latest": "",
-    "records": 0,
-    "status": "blocked"
+    "at": "2026-10-10",
+    "detail": "",
+    "latest": "2026-10-09",
+    "records": 2466,
+    "status": "ok"
    },
-   "latest": "2026-09-14"
+   "latest": "2026-10-09"
   },
   "Delaware": {
    "last_run": {
@@ -112,13 +112,13 @@
   },
   "Las Vegas": {
    "last_run": {
-    "at": "2026-10-04",
-    "detail": "SNHD list fetch failed",
-    "latest": "",
-    "records": 0,
-    "status": "error"
+    "at": "2026-10-10",
+    "detail": "",
+    "latest": "2026-10-09",
+    "records": 1419,
+    "status": "ok"
    },
-   "latest": "2026-09-14"
+   "latest": "2026-10-09"
   },
   "Louisville": {
    "last_run": {
@@ -132,13 +132,13 @@
   },
   "MHD metros": {
    "last_run": {
-    "at": "2026-10-04",
-    "detail": "MHD portal blocked this run",
-    "latest": "",
-    "records": 0,
-    "status": "blocked"
+    "at": "2026-10-10",
+    "detail": "",
+    "latest": "2026-10-09",
+    "records": 2101,
+    "status": "ok"
    },
-   "latest": "2026-09-14"
+   "latest": "2026-10-09"
   },
   "Minneapolis": {
    "last_run": {
@@ -264,7 +264,7 @@
  "sources": {
   "Adams County Health Dept": {
    "group": "MHD metros",
-   "latest": "2026-09-14"
+   "latest": "2026-10-09"
   },
   "Arlington Open Data": {
    "group": "Arlington",
@@ -288,11 +288,11 @@
   },
   "Clackamas County Health Dept": {
    "group": "MHD metros",
-   "latest": "2026-08-31"
+   "latest": "2026-09-26"
   },
   "Clark County WA Health Dept": {
    "group": "MHD metros",
-   "latest": "2026-09-14"
+   "latest": "2026-10-09"
   },
   "DC Health": {
    "group": "dc",
@@ -300,7 +300,7 @@
   },
   "Dallas Health Dept": {
    "group": "DFW",
-   "latest": "2026-09-14"
+   "latest": "2026-10-09"
   },
   "DataSF": {
    "group": "SF",
@@ -316,7 +316,7 @@
   },
   "El Paso County CO Health Dept": {
    "group": "MHD metros",
-   "latest": "2026-09-14"
+   "latest": "2026-10-09"
   },
   "Fairfax County Open Data": {
    "group": "Fairfax County",
@@ -328,11 +328,11 @@
   },
   "Fort Worth Health Dept": {
    "group": "DFW",
-   "latest": "2026-09-14"
+   "latest": "2026-10-09"
   },
   "Frisco Health Dept": {
    "group": "DFW",
-   "latest": "2026-09-14"
+   "latest": "2026-10-09"
   },
   "Houston Health Dept": {
    "group": "houston",
@@ -348,7 +348,7 @@
   },
   "Larimer County Health Dept": {
    "group": "MHD metros",
-   "latest": "2026-09-14"
+   "latest": "2026-10-09"
   },
   "Louisville Metro Open Data": {
    "group": "Louisville",
@@ -364,7 +364,7 @@
   },
   "Multnomah County Health Dept": {
    "group": "MHD metros",
-   "latest": "2026-09-01"
+   "latest": "2026-09-26"
   },
   "NYC Open Data": {
    "group": "NYC",
@@ -376,7 +376,7 @@
   },
   "Plano Health Dept": {
    "group": "DFW",
-   "latest": "2026-09-14"
+   "latest": "2026-10-09"
   },
   "Richardson Health Dept": {
    "group": "Richardson",
@@ -392,15 +392,15 @@
   },
   "Southern Nevada Health District": {
    "group": "Las Vegas",
-   "latest": "2026-09-14"
+   "latest": "2026-10-09"
   },
   "Tarrant County Health Dept": {
    "group": "DFW",
-   "latest": "2026-09-14"
+   "latest": "2026-10-09"
   },
   "Utah County Health Dept": {
    "group": "MHD metros",
-   "latest": "2026-09-14"
+   "latest": "2026-10-09"
   },
   "Wake County Open Data": {
    "group": "Wake County",
@@ -408,16 +408,16 @@
   },
   "Washington County OR Health Dept": {
    "group": "MHD metros",
-   "latest": "2026-09-01"
+   "latest": "2026-09-26"
   },
   "Weld County Health Dept": {
    "group": "MHD metros",
-   "latest": "2026-09-11"
+   "latest": "2026-10-09"
   },
   "Yolo County Health Dept": {
    "group": "MHD metros",
-   "latest": "2026-09-11"
+   "latest": "2026-10-08"
   }
  },
- "updated": "2026-10-04"
+ "updated": "2026-10-10"
 }
