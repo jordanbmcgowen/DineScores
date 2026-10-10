@@ -18,7 +18,7 @@ DFW cities:
   --cities dallas fortworth plano
 """
 
-import os, sys, json, re, time, math, hashlib, logging, argparse
+import os, sys, json, re, time, math, hashlib, logging, argparse, base64, zlib
 import html as html_lib
 import threading
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -177,18 +177,73 @@ DFW_JURISDICTIONS = {
 #                'none' (portal publishes no score — risk must come from the
 #                scraped violation details; search-only records keep a
 #                neutral placeholder and are refined by the detail pass)
+#   path:        the real portal slug when the table key is a PSEUDO-
+#                jurisdiction — one of several fetch units carved out of a
+#                single portal slug (resolved by _mhd_path; the key itself
+#                is only a CLI/ordering handle). Omit when key == slug.
+#   programs:    programName allowlist, applied on top of _mhd_is_food_record
+#                (which only drops pool/spa/septic rows — hotels, tattoo
+#                studios and child care pass it).
+#   window_days: search window length (default MHD_WINDOW_DAYS).
+#   search_terms + purposes + city_allow: BUCKET MODE (see the Tennessee note
+#                below). For every window, for every term, for every purpose,
+#                the search runs with searchStr=term and filters.purpose=
+#                purpose; rows are unioned by inspectionID and then kept
+#                only when their `city` is in city_allow.
+#
+# Tennessee Department of Health runs ONE statewide portal ('tennessee') that
+# publishes ~440 rows a weekday, far past the ~225-row query cap, so a plain
+# date search can never be complete — and its pagination is unstable too
+# (offsets 50/75 re-serve earlier pages: 175 unique rows of 225; sorted
+# ASC∪DESC skips rows at establishment-name ties). Verified 2026-10-10: a
+# non-empty `searchStr` (case-insensitive substring over name+address+city)
+# switches the query to ONE ROW PER PERMIT — that permit's latest inspection
+# matching the filters inside the window — which is what makes a complete
+# fetch possible, with two consequences the bucket entries encode:
+#   * window_days 1: a multi-day window collapses a permit's earlier
+#     inspections away, so every window is a single day;
+#   * purposes ['Routine', 'Follow-Up'] queried separately: a same-day
+#     Routine+Follow-Up pair otherwise loses the Routine.
+#   (Nashville 2026-10-06: Routine 48 + Follow-Up 22 = 70 = every Nashville
+#   row seen in any probe; a 5-day Gwinnett window, by contrast, returned
+#   exactly the sum of its single days — Gwinnett is a normal jurisdiction.)
+# Each TN metro is a pseudo-jurisdiction (path 'tennessee') whose search
+# terms are its city names. The substring also matches ADDRESSES ('Madison'
+# hits Madisonville and '2400 Madison St' in Clarksville, 'Franklin' hits
+# Johnson City addresses, 'Germantown' hits 'Germantown Pkwy' in Cordova),
+# hence city_allow. Programs: keep 'Food Service Establishment' (code 605)
+# only — Pools, Tattoo, Hotel, Child Care, School, Camp and Correctional
+# share the feed and _mhd_is_food_record lets most of them through. Every
+# food row carries TDH's official 0-100 score; detail pages carry 15-22
+# observations. Do NOT "optimise" this back to one statewide paged query:
+# it silently ships a ~40% sample. Never send a non-empty programName (the
+# server hangs) or lat/lng (empty result); `count` is ignored (pages are 25,
+# the first page can be longer) and offsets >= 225 are rejected.
+
+
+def _mhd_tn_bucket(metro, cities):
+    """MHD_METRO_JURISDICTIONS entry for one Tennessee metro (see the note
+    above): search_terms = city_allow = the metro's city names, spelled the
+    way the portal spells them ('Mt. Juliet', 'La Vergne', 'Soddy Daisy')."""
+    return {'path': 'tennessee', 'display_name': f'Tennessee DOH ({metro})',
+            'default_city': metro, 'state': 'TN', 'score_scale': '100',
+            'metro': metro, 'programs': ['Food Service Establishment'],
+            'purposes': ['Routine', 'Follow-Up'], 'window_days': 1,
+            'search_terms': list(cities), 'city_allow': list(cities)}
+
+
 MHD_METRO_JURISDICTIONS = {
     # Portland, OR metro: Multnomah + Washington + Clackamas counties (official
     # OR 0-100 scores) and Clark County WA across the river (pass/fail only).
     # Note ~2-week publishing lag — recent empty windows are normal.
     'multco-eh':            {'display_name': 'Multnomah County', 'default_city': 'Portland',
-                             'state': 'OR', 'metro': 'Portland'},
+                             'state': 'OR', 'metro': 'Portland', 'lag_days': 21},
     'or-washington-county': {'display_name': 'Washington County OR', 'default_city': 'Hillsboro',
-                             'state': 'OR', 'metro': 'Portland'},
+                             'state': 'OR', 'metro': 'Portland', 'lag_days': 21},
     'or-clackamas-county':  {'display_name': 'Clackamas County', 'default_city': 'Oregon City',
-                             'state': 'OR', 'metro': 'Portland'},
+                             'state': 'OR', 'metro': 'Portland', 'lag_days': 21},
     'clarkcountywa':        {'display_name': 'Clark County WA', 'default_city': 'Vancouver',
-                             'state': 'WA', 'score_scale': 'none', 'metro': 'Portland'},
+                             'state': 'WA', 'score_scale': 'none', 'metro': 'Portland', 'lag_days': 21},
     # Colorado Front Range (demerit points, lower better)
     'epcph':                {'display_name': 'El Paso County CO', 'default_city': 'Colorado Springs',
                              'state': 'CO', 'score_scale': 'demerit', 'metro': ''},
@@ -204,13 +259,38 @@ MHD_METRO_JURISDICTIONS = {
     # Yolo County, CA (Davis/Woodland) — pass/fail only
     'yolocountyeh':         {'display_name': 'Yolo County', 'default_city': 'Woodland',
                              'state': 'CA', 'score_scale': 'none', 'metro': ''},
-    # NOT included despite live portals: 'tennessee' and 'virginia'
-    # (statewide; TN even has official 0-100 scores) and 'orange-county'
-    # (CA, ~3.2M pop). The search API truncates every query at ~225 records
-    # (verified: offsets past 225 return nothing) and these jurisdictions
-    # exceed that EVERY day — date bisection cannot go below one day, so any
-    # fetch is a silently-partial sample. Revisit if the portal adds deeper
-    # pagination or a bulk export.
+    # GNR Health = Gwinnett, Newton & Rockdale counties (the north-east
+    # Atlanta suburbs: Lawrenceville, Duluth, Buford, Norcross, Suwanee,
+    # Snellville, Lilburn, Dacula, Sugar Hill, Loganville, Conyers,
+    # Covington). Official 0-100 scores (scoreDisplay A/B/C/U), ~20-50
+    # inspections a day, never near the cap. Atlanta proper is NOT here:
+    # Fulton, DeKalb and Cobb counties are not on this portal — the 'fulton'
+    # slug is Fulton County, ILLINOIS. Keep programName 'Food' only
+    # ('Tourist' = hotels, 'Pools', 'Body Art' would pass _mhd_is_food_record).
+    'gwinnett':             {'display_name': 'Gwinnett County', 'default_city': 'Lawrenceville',
+                             'state': 'GA', 'score_scale': '100', 'metro': '',
+                             'programs': ['Food']},
+    # Tennessee DOH metros — bucket mode on the statewide 'tennessee' slug
+    # (see the note above the table). Each gets a metro chip because its
+    # records span suburbs.
+    'tennessee:nashville':  _mhd_tn_bucket('Nashville', [
+        'Nashville', 'Antioch', 'Hermitage', 'Madison', 'Goodlettsville',
+        'Old Hickory', 'Brentwood', 'Franklin', 'Hendersonville', 'Murfreesboro',
+        'Smyrna', 'La Vergne', 'Mt. Juliet', 'Lebanon', 'Gallatin']),
+    'tennessee:memphis':    _mhd_tn_bucket('Memphis', [
+        'Memphis', 'Germantown', 'Collierville', 'Bartlett', 'Cordova',
+        'Millington', 'Arlington', 'Lakeland']),
+    'tennessee:knoxville':  _mhd_tn_bucket('Knoxville', [
+        'Knoxville', 'Farragut', 'Powell', 'Maryville', 'Alcoa', 'Oak Ridge']),
+    'tennessee:chattanooga': _mhd_tn_bucket('Chattanooga', [
+        'Chattanooga', 'Hixson', 'East Ridge', 'Ooltewah', 'Red Bank',
+        'Soddy Daisy', 'Signal Mountain']),
+    # NOT included despite a live portal: 'virginia' (statewide) exceeds the
+    # ~225-record query cap every day like Tennessee; the bucket mode above
+    # would be the way in, but its searchStr behaviour is unverified.
+    # 'orange-county' (CA) has the same cap AND ignores the date filter, so it
+    # is not a jurisdiction here at all: fetch_orange_county polls its newest
+    # 225 daily into a sidecar instead (see that section).
 }
 
 # CLI city slugs → MHD_METRO_JURISDICTIONS subsets
@@ -223,6 +303,14 @@ MHD_METRO_SLUG_GROUPS = {
     'adams': ['adcogoveh'],
     'utahcounty': ['utah-utahcounty'],
     'yolo': ['yolocountyeh'],
+    'gwinnett': ['gwinnett'],
+    'nashville': ['tennessee:nashville'],
+    'memphis': ['tennessee:memphis'],
+    'knoxville': ['tennessee:knoxville'],
+    'chattanooga': ['tennessee:chattanooga'],
+    # convenience: all four Tennessee metros
+    'tennessee': ['tennessee:nashville', 'tennessee:memphis',
+                  'tennessee:knoxville', 'tennessee:chattanooga'],
 }
 
 CHROME_UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36'
@@ -251,6 +339,50 @@ PORTAL_PROXY_URL = os.environ.get('PORTAL_PROXY_URL', '').strip()
 PORTAL_RELAY_URL = os.environ.get('PORTAL_RELAY_URL', '').strip()
 PORTAL_RELAY_TOKEN = os.environ.get('PORTAL_RELAY_TOKEN', '').strip()
 
+# The relay's credential. A static PORTAL_RELAY_TOKEN works anywhere; inside
+# GitHub Actions no secret is needed at all: with `id-token: write` the job can
+# mint a short-lived OIDC token (GitHub signs it; the relay checks the
+# signature and that `repository` is this repo) and the pipeline re-mints it
+# before it expires, so a two-hour run never carries a stale credential.
+RELAY_OIDC_AUDIENCE = 'dinescores-portal-relay'
+_RELAY_OIDC = {'token': '', 'exp': 0.0, 'warned': False}
+_RELAY_OIDC_LOCK = threading.Lock()
+
+
+def _relay_token():
+    """Credential to present to the relay ('' = none available)."""
+    if PORTAL_RELAY_TOKEN:
+        return PORTAL_RELAY_TOKEN
+    req_url = os.environ.get('ACTIONS_ID_TOKEN_REQUEST_URL', '').strip()
+    req_tok = os.environ.get('ACTIONS_ID_TOKEN_REQUEST_TOKEN', '').strip()
+    if not (req_url and req_tok):
+        return ''
+    with _RELAY_OIDC_LOCK:
+        if _RELAY_OIDC['token'] and time.time() < _RELAY_OIDC['exp'] - 90:
+            return _RELAY_OIDC['token']
+        try:
+            r = requests.get(req_url, params={'audience': RELAY_OIDC_AUDIENCE},
+                             headers={'Authorization': f'bearer {req_tok}',
+                                      'Accept': 'application/json; api-version=2.0'},
+                             timeout=30)
+            r.raise_for_status()
+            token = (r.json().get('value') or '').strip()
+            exp = time.time() + 240
+            try:   # read the token's own expiry; GitHub's are short-lived
+                payload = token.split('.')[1]
+                payload += '=' * (-len(payload) % 4)
+                exp = float(json.loads(base64.urlsafe_b64decode(payload)).get('exp') or exp)
+            except Exception:
+                pass
+            _RELAY_OIDC.update(token=token, exp=exp)
+        except Exception as e:
+            if not _RELAY_OIDC['warned']:
+                log.warning(f"Relay: could not mint a GitHub OIDC token ({e}); "
+                            f"portal requests go direct")
+                _RELAY_OIDC['warned'] = True
+            _RELAY_OIDC.update(token='', exp=0.0)
+        return _RELAY_OIDC['token']
+
 
 def _portal_proxies():
     """requests `proxies` mapping for the IP-sensitive portals (None = direct)."""
@@ -269,12 +401,16 @@ def _relay(url, params=None):
     """
     if not PORTAL_RELAY_URL or url.startswith(PORTAL_RELAY_URL):
         return url, params, {}
+    token = _relay_token()
+    if not token:
+        # No credential to present: the relay would refuse, so go direct
+        # (which fails exactly as it does today when the egress is blocked).
+        return url, params, {}
     if params:
         url = f"{url}{'&' if '?' in url else '?'}{urlencode(params, doseq=True)}"
     sep = '&' if '?' in PORTAL_RELAY_URL else '?'
     relayed = f"{PORTAL_RELAY_URL}{sep}url={quote(url, safe='')}"
-    headers = {'X-Relay-Token': PORTAL_RELAY_TOKEN} if PORTAL_RELAY_TOKEN else {}
-    return relayed, None, headers
+    return relayed, None, {'X-Relay-Token': token}
 
 
 class _PortalSession(requests.Session):
@@ -294,8 +430,28 @@ class _PortalSession(requests.Session):
 def _wants_portal_sources(cities):
     """True if any requested city sits behind an IP-sensitive portal."""
     portal_slugs = (set(DFW_JURISDICTIONS) | set(MHD_METRO_SLUG_GROUPS)
-                    | {'dfw', 'vegas'})
+                    | set(MHD_METRO_JURISDICTIONS) | {'dfw', 'vegas', 'orangecounty', 'anaheim'})
     return bool(portal_slugs & set(cities or ()))
+
+
+def _mhd_metro_keys(cities):
+    """MHD_METRO_JURISDICTIONS keys a --cities list asks for, in order and
+    without duplicates: through the CLI slugs in MHD_METRO_SLUG_GROUPS and
+    as raw table keys. Keys may be pseudo-jurisdictions ('tennessee:nashville')
+    and one key can be reached through several slugs ('nashville' and
+    'tennessee'), hence the dedupe."""
+    requested = list(cities or ())
+    wanted = set(requested)
+    keys = []
+    for city_slug, table_keys in MHD_METRO_SLUG_GROUPS.items():
+        if city_slug in wanted:
+            for k in table_keys:
+                if k not in keys:
+                    keys.append(k)
+    for k in requested:
+        if k in MHD_METRO_JURISDICTIONS and k not in keys:
+            keys.append(k)
+    return keys
 
 
 def sane_inspection_date(date_str):
@@ -705,6 +861,9 @@ def drop_implausible_coords(records):
 
 _GEOCODE_CACHE = {}
 
+NOMINATIM_MIN_PLACE_RANK = 26   # street level or better; never a town/suburb centroid
+
+
 def geocode_address(address, city, state, nominatim_session=None):
     """Free geocoding via Nominatim (OpenStreetMap). Rate-limited to 1 req/sec."""
     key = f"{address}, {city}, {state}"
@@ -725,10 +884,20 @@ def geocode_address(address, city, state, nominatim_session=None):
         if r.status_code == 200:
             results = r.json()
             if results:
-                lat = float(results[0]['lat'])
-                lon = float(results[0]['lon'])
-                _GEOCODE_CACHE[key] = (lat, lon)
-                return (lat, lon)
+                # Nominatim answers an unknown house number with the street,
+                # or the whole town, as the best match. A town centroid is a
+                # wrong pin (it put Panama City Beach restaurants 20 km away
+                # in Panama City); only street level or better is a location.
+                # place_rank: 30 house/building, 26-27 street, <=25 area.
+                try:
+                    rank = int(results[0].get('place_rank') or 30)
+                except (TypeError, ValueError):
+                    rank = 30
+                if rank >= NOMINATIM_MIN_PLACE_RANK:
+                    lat = float(results[0]['lat'])
+                    lon = float(results[0]['lon'])
+                    _GEOCODE_CACHE[key] = (lat, lon)
+                    return (lat, lon)
     except Exception as e:
         log.warning(f"Geocode failed for {key}: {e}")
     
@@ -1471,8 +1640,20 @@ def _tyler_request(session, method, url, **kwargs):
                                 f"fetch deadline reached, not retrying")
                     return None
                 wait = 20 * (attempt + 1)
-                log.warning(f"  Tyler {r.status_code} on {url[:60]} — retry in {wait}s "
-                            f"({attempt + 1}/{TYLER_RETRIES})")
+                # San Antonio's portal answers a quarter of detail requests
+                # with a 503 carrying "Retry-After: 3" and serves the retry;
+                # honour a short hint on the first attempts instead of the
+                # 20 s ladder, which turned a 5-minute detail phase into 30.
+                try:
+                    hinted = float(r.headers.get('Retry-After', ''))
+                except (TypeError, ValueError):
+                    hinted = None
+                if hinted is not None and 0 < hinted <= 10 and attempt < 2:
+                    wait = hinted + 0.5
+                    log.debug(f"  Tyler {r.status_code} on {url[:60]} — retry in {wait:.1f}s (Retry-After)")
+                else:
+                    log.warning(f"  Tyler {r.status_code} on {url[:60]} — retry in {wait}s "
+                                f"({attempt + 1}/{TYLER_RETRIES})")
                 time.sleep(wait)
                 continue
             r.raise_for_status()
@@ -1750,6 +1931,518 @@ def fetch_houston(since_date=None, until_date=None, limit=None, fetch_violations
     for rec in results:
         rec.pop('_hou_ids', None)
     log.info(f"Houston: {len(results)} inspections")
+    return results
+
+
+# ─── SAN ANTONIO, TX (Tyler healthinspections.us portal, Metro Health) ──────
+
+SA_BASE = 'https://sanantonio-tx.healthinspections.us/san%20antonio/'
+SA_DELAY = 1.2            # between search requests (same pacing as Houston)
+SA_PAGE_SIZE = 10         # facilities per search page (start=1,11,21,...)
+SA_SEARCH_CAP = 100       # the portal never reports more than 100 facilities
+# Fallback partition for a day that hits the cap: the city's 782xx range plus
+# the suburbs Metro Health inspects; zips seen in results join the pool at
+# run time. A facility with no zip cannot be recovered this way.
+SA_ZIPS = [f'782{n:02d}' for n in range(1, 67)] + [
+    '78002', '78006', '78015', '78023', '78039', '78052', '78054', '78069',
+    '78073', '78101', '78108', '78109', '78112', '78124', '78148', '78150',
+    '78152', '78154', '78163',
+]
+
+# One search result: facility name linked to its last inspection, then the
+# street line, the "San Antonio , TX 78216" line and the last-inspection date.
+SA_RESULT_RE = re.compile(
+    r'<a href="estab\.cfm\?licenseID=(\d+)&(?:amp;)?inspectionID=(\d+)"><b>(.*?)</b></a>'
+    r'\s*<div style="margin-bottom:10px;">\s*(.*?)<br\s*/?>\s*(.*?)\s*<div style="color:green;">'
+    r'\s*Last Inspection Date:\s*<a href="[^"]*">(\d{2}/\d{2}/\d{4})</a>', re.S)
+SA_MATCHED_RE = re.compile(r'<b>\s*(\d+)\s+Facilities matched')
+# One "Related Reports" block per inspection on an estab.cfm page.
+SA_REPORT_SPLIT_RE = re.compile(
+    r'<div style="border:1px solid #003399;width:95%;margin-bottom:10px;">')
+SA_REPORT_DATE_RE = re.compile(r'<b>Date:</b>\s*(\d{2}/\d{2}/\d{4})')
+SA_REPORT_SCORE_RE = re.compile(r'<b>Score</b>\s*(\d*)')
+SA_VIOLATION_DIV_RE = re.compile(
+    r'<div style="background-color:#EFEFEF;padding:5px;">(.*?)</div>', re.S)
+
+
+def _sa_session():
+    s = requests.Session()
+    s.headers.update({'User-Agent': CHROME_UA, 'Referer': SA_BASE + 'search.cfm'})
+    return s
+
+
+def _sa_search_url(day, start=1, zc=''):
+    d = day.strftime('%m/%d/%Y')
+    return (f'{SA_BASE}search.cfm?1=1&sd={d}&ed={d}&kw1=&kw2=&kw3='
+            f'&rel1=L.licenseName&rel2=L.licenseName&rel3=L.licenseName'
+            f'&zc={zc}&dtRng=YES&pre=similar&smoking=nosmoking&start={start}')
+
+
+def _sa_clean(fragment):
+    text = re.sub(r'<[^>]+>', ' ', fragment or '')
+    return ' '.join(html_lib.unescape(text).split())
+
+
+def _sa_parse_search(html):
+    """
+    Parse one search page. Returns (matched, rows): matched is the page's
+    "N Facilities matched" count (None when the marker is missing, i.e. the
+    body is not a results page), rows are (license_id, inspection_id, name,
+    street, zip, city_token, date_str) for the facilities on this page.
+    """
+    m = SA_MATCHED_RE.search(html)
+    matched = int(m.group(1)) if m else None
+    rows = []
+    for lic, insp, name, street, cityline, date_str in SA_RESULT_RE.findall(html):
+        cityline = _sa_clean(cityline)
+        cm = re.match(r'^(.*?)\s*,\s*([A-Z]{2})\b\s*(\d{5})?', cityline)
+        city_tok = cm.group(1).strip() if cm else cityline
+        zip_code = (cm.group(3) or '') if cm else ''
+        rows.append((lic, insp, _sa_clean(name), _sa_clean(street), zip_code,
+                     city_tok, date_str))
+    return matched, rows
+
+
+def _sa_search_day(session, day, zc=''):
+    """
+    Page through one day's search (optionally one zip). Returns (matched,
+    rows): the portal's facility count for the query (capped at
+    SA_SEARCH_CAP) and the facilities actually listed. Raises RuntimeError
+    when a page cannot be fetched or is not a results page.
+    """
+    rows, start, matched = [], 1, None
+    while True:
+        url = _sa_search_url(day, start, zc)
+        r = _tyler_request(session, 'GET', url)
+        page_matched = page_rows = None
+        if r is not None:
+            page_matched, page_rows = _sa_parse_search(r.text)
+            if page_matched is None:
+                # A 200 that is not a results page: re-read it once.
+                time.sleep(SA_DELAY)
+                r = _tyler_request(session, 'GET', url)
+                if r is not None:
+                    page_matched, page_rows = _sa_parse_search(r.text)
+        if r is None or page_matched is None:
+            raise RuntimeError(f'San Antonio search failed ({day:%m/%d/%Y} '
+                               f'zc={zc or "-"} start={start})')
+        if matched is None:
+            matched = page_matched
+        rows.extend(page_rows)
+        if not page_rows or len(rows) >= matched or len(rows) >= SA_SEARCH_CAP:
+            break
+        if _past_deadline():
+            break
+        start += SA_PAGE_SIZE
+        time.sleep(SA_DELAY)
+    return matched, rows
+
+
+def _sa_search_day_partitioned(session, day, zip_pool, stats):
+    """
+    All facilities whose LAST inspection fell on `day`. A day that reports
+    the 100-facility cap is re-queried per zip and the per-zip results are
+    unioned; the log says whether the partition recovered the cap.
+    """
+    matched, rows = _sa_search_day(session, day)
+    stats['days'] += 1
+    if matched < SA_SEARCH_CAP:
+        return rows
+    stats['capped_days'] += 1
+    zips = sorted(set(zip_pool) | {r[4] for r in rows if r[4]})
+    log.warning(f"  San Antonio {day:%m/%d}: hit the {SA_SEARCH_CAP}-facility cap — "
+                f"re-querying per zip ({len(zips)} zips)")
+    union = {(r[0], r[1]): r for r in rows}
+    zip_capped = 0
+    for zc in zips:
+        if _past_deadline():
+            log.warning(f"  San Antonio {day:%m/%d}: fetch deadline reached mid-partition")
+            break
+        time.sleep(SA_DELAY)
+        zm, zrows = _sa_search_day(session, day, zc)
+        if zm >= SA_SEARCH_CAP:
+            zip_capped += 1
+            log.warning(f"  San Antonio {day:%m/%d} zip {zc}: itself at the cap")
+        for r in zrows:
+            union.setdefault((r[0], r[1]), r)
+    if len(union) >= SA_SEARCH_CAP and not zip_capped:
+        stats['recovered_days'] += 1
+        log.info(f"  San Antonio {day:%m/%d}: zip partition recovered "
+                 f"{len(union)} facilities (>= cap)")
+    else:
+        log.warning(f"  San Antonio {day:%m/%d}: zip partition yielded {len(union)} "
+                    f"facilities for a >= {SA_SEARCH_CAP} day ({zip_capped} zips capped) "
+                    f"— some may be missing")
+    return list(union.values())
+
+
+def _sa_violation_text(raw_html):
+    """
+    One violation block → one line, the inspector's finding first. The
+    portal has three layouts: "<item> <cite> <rule text> AT INSPECTION:
+    <finding> [C.O.S.: ...]", "<item> Observation: <finding> FDA Code <cite>:
+    <rule>" and a bare "<item> <finding>". The leading form-item number is
+    dropped; the Food Code cite and rule text follow the finding.
+    """
+    t = re.sub(r'<br\s*/?>', '\n', raw_html or '', flags=re.I)
+    t = re.sub(r'<[^>]+>', ' ', t)
+    t = html_lib.unescape(t).strip()
+    if not t:
+        return ''
+    t = re.sub(r'^\d{1,3}\s+', '', t)
+    m = re.search(r'AT INSPECTION\s*:', t)
+    if m:
+        parts = [t[m.end():], t[:m.start()]]
+    else:
+        m = re.match(r'\s*Observation\s*:', t)
+        parts = [t[m.end():] if m else t]
+    text = ' — '.join(' '.join(p.split()) for p in parts if p.strip())
+    return text[:500]
+
+
+def _sa_parse_estab(html):
+    """
+    Parse an estab.cfm page into its inspection blocks, newest first:
+    [{'date': 'MM/DD/YYYY', 'score': int|None, 'texts': [...]}, ...].
+    Returns None when the body is not a facility page at all (an error page
+    must never read as a clean inspection); [] for a facility page that
+    lists no inspections.
+    """
+    if '<H3>Facility</H3>' not in html or 'Related Reports' not in html:
+        return None
+    seg = html[html.find('Related Reports'):]
+    cut = seg.find('<b>NOTE:</b>')
+    if cut >= 0:
+        seg = seg[:cut]
+    blocks = []
+    for piece in SA_REPORT_SPLIT_RE.split(seg)[1:]:
+        dm = SA_REPORT_DATE_RE.search(piece)
+        if not dm:
+            continue
+        sm = SA_REPORT_SCORE_RE.search(piece)
+        score = int(sm.group(1)) if sm and sm.group(1) else None
+        texts = []
+        for raw in SA_VIOLATION_DIV_RE.findall(piece):
+            text = _sa_violation_text(raw)
+            if len(text) > 5:
+                texts.append(text)
+        blocks.append({'date': dm.group(1), 'score': score, 'texts': texts})
+    return blocks
+
+
+def _sa_fetch_facility(session, license_id):
+    """
+    Fetch a facility's estab.cfm page (every inspection the portal keeps for
+    it, with scores and violation text). Returns the parsed blocks, or None
+    when the fetch failed or the body is not a facility page — callers must
+    not record None as a clean inspection.
+    """
+    try:
+        r = _tyler_request(session, 'GET', f'{SA_BASE}estab.cfm?licenseID={license_id}')
+    except requests.RequestException:
+        return None
+    if r is None:
+        return None
+    return _sa_parse_estab(r.text)
+
+
+def _sa_build_records(fac, blocks, since_iso, until_iso):
+    """
+    Records for one facility from its parsed inspection blocks, limited to
+    [since_iso, until_iso]. A block whose date the search listed keeps the
+    portal's inspectionID (source_id sa_<L>_<I>, estab URL with the id); a
+    block the search never listed carries no id on the page and gets
+    sa_<L>_<YYYYMMDD> (D1 keys inspections by restaurant+date, so the two
+    never collide).
+    """
+    out = []
+    for block in blocks:
+        try:
+            iso = datetime.strptime(block['date'], '%m/%d/%Y').strftime('%Y-%m-%d')
+        except ValueError:
+            continue
+        insp_date = sane_inspection_date(iso)
+        if not insp_date or insp_date < since_iso or insp_date > until_iso:
+            continue
+        violations = [classify_violation(t) for t in block['texts']]
+        computed, pv, pfv, cv = calc_risk_score(violations)
+        score = block.get('score')
+        if score is not None:
+            risk = max(0, min(100, score))
+        else:
+            risk = computed
+        insp_id = fac['inspections'].get(insp_date)
+        if insp_id:
+            source_id = f"sa_{fac['license_id']}_{insp_id}"
+            url = f"{SA_BASE}estab.cfm?licenseID={fac['license_id']}&inspectionID={insp_id}"
+        else:
+            source_id = f"sa_{fac['license_id']}_{insp_date.replace('-', '')}"
+            url = f"{SA_BASE}estab.cfm?licenseID={fac['license_id']}"
+        name, street = fac['name'], fac['street']
+        out.append({
+            'name': name.title() if name.isupper() else name,
+            'address': street.title() if street.isupper() else street,
+            'city': 'San Antonio',
+            'state': 'TX',
+            'zip': fac['zip'],
+            'latitude': None,
+            'longitude': None,
+            'inspection_date': insp_date,
+            'original_score': score,
+            'risk_score': risk,
+            'priority_violations': pv,
+            'priority_foundation_violations': pfv,
+            'core_violations': cv,
+            'total_violations': len(violations),
+            'violations': [[c, s, d] for c, s, d in violations],
+            'inspection_type': '',
+            'results': '',
+            'source': 'San Antonio Metro Health',
+            'source_url': url,
+            'source_id': source_id,
+            'metro': '',
+        })
+    return out
+
+
+def fetch_san_antonio(since_date=None, until_date=None, limit=None, fetch_violations=True):
+    """
+    Fetch San Antonio food inspections from Metro Health's Tyler portal
+    (sanantonio-tx.healthinspections.us). The search lists the FACILITIES
+    with an inspection in the window (one row per facility, linking that
+    inspection's id), 10 per page and never more than 100 per query, so
+    days are searched one at a time and a capped day is re-queried per zip.
+    Each facility's estab.cfm page lists its recent inspections (up to ~10,
+    newest first) with Metro Health's official 0-100 score (100 minus
+    demerits) and the violation text, so one detail fetch per facility
+    yields every one of its inspections inside the window. Only days the search
+    actually covered ship, so a bounded run never advances freshness past
+    them. The official score is the risk score; it is computed from the
+    violations only when a block has no score. No coordinates — records
+    are Census-geocoded by the caller.
+    """
+    log.info(f"Fetching San Antonio data (since={since_date}, limit={limit})")
+    session = _sa_session()
+
+    start = datetime.strptime(str(since_date)[:10], '%Y-%m-%d') if since_date \
+        else datetime(datetime.now().year, 1, 1)
+    end = datetime.now()
+    if until_date:
+        end = min(end, datetime.strptime(str(until_date)[:10], '%Y-%m-%d'))
+    since_iso, until_iso = start.strftime('%Y-%m-%d'), end.strftime('%Y-%m-%d')
+
+    stats = {'days': 0, 'capped_days': 0, 'recovered_days': 0}
+    zip_pool = set(SA_ZIPS)
+    seen = set()
+    raw = []
+    newest = ''
+    searched_through = None   # last day whose search completed
+    day = start
+    while day.date() <= end.date():
+        if _past_deadline():
+            log.warning(f"  San Antonio: fetch deadline reached — stopping search "
+                        f"with {len(raw)} facilities")
+            break
+        rows = _sa_search_day_partitioned(session, day, zip_pool, stats)
+        searched_through = day
+        new = 0
+        for row in rows:
+            key = (row[0], row[1])
+            if key in seen:
+                continue
+            seen.add(key)
+            raw.append(row)
+            new += 1
+            if row[4]:
+                zip_pool.add(row[4])
+            try:
+                iso = datetime.strptime(row[6], '%m/%d/%Y').strftime('%Y-%m-%d')
+            except ValueError:
+                iso = ''
+            newest = max(newest, iso)
+        log.info(f"  San Antonio {day:%m/%d}: {len(rows)} facilities ({new} new), "
+                 f"total {len(raw)}")
+        if limit and len(raw) >= limit:
+            raw = raw[:limit]
+            break
+        day += timedelta(days=1)
+        time.sleep(SA_DELAY)
+    if stats['capped_days']:
+        log.info(f"San Antonio: {stats['capped_days']} of {stats['days']} days hit the "
+                 f"{SA_SEARCH_CAP} cap; zip partition recovered {stats['recovered_days']}")
+    if searched_through is None:
+        return []
+    complete = searched_through.date() >= end.date()
+    if not complete:
+        # Ship nothing from days the search never reached: their facilities
+        # would otherwise post-date the covered window and move the weekly
+        # lookback past days nobody searched.
+        until_iso = min(until_iso, searched_through.strftime('%Y-%m-%d'))
+
+    # One entry per facility; the search gives the id of each inspection it
+    # listed (one row per facility per day searched).
+    facilities = {}
+    other_cities = defaultdict(int)
+    for lic, insp, name, street, zip_code, city_tok, date_str in raw:
+        try:
+            iso = datetime.strptime(date_str, '%m/%d/%Y').strftime('%Y-%m-%d')
+        except ValueError:
+            continue
+        if not name:
+            continue
+        if city_tok and city_tok.upper() != 'SAN ANTONIO':
+            other_cities[city_tok] += 1
+        fac = facilities.setdefault(lic, {
+            'license_id': lic, 'name': name, 'street': street, 'zip': zip_code,
+            'inspections': {}, 'newest_hit': iso,
+        })
+        fac['inspections'][iso] = insp
+        fac['newest_hit'] = max(fac['newest_hit'], iso)
+    if other_cities:
+        log.info(f"San Antonio: {sum(other_cities.values())} results list another "
+                 f"city token (recorded as San Antonio): "
+                 f"{dict(sorted(other_cities.items(), key=lambda kv: -kv[1])[:5])}")
+
+    if not fetch_violations:
+        # Debug path only (--no-dfw-violations): search-only records with no
+        # score or violations, like Houston's.
+        results = []
+        for fac in facilities.values():
+            for iso, insp in fac['inspections'].items():
+                insp_date = sane_inspection_date(iso)
+                if not insp_date or insp_date > until_iso:
+                    continue
+                results.append({
+                    'name': fac['name'].title() if fac['name'].isupper() else fac['name'],
+                    'address': fac['street'].title() if fac['street'].isupper() else fac['street'],
+                    'city': 'San Antonio', 'state': 'TX', 'zip': fac['zip'],
+                    'latitude': None, 'longitude': None,
+                    'inspection_date': insp_date, 'original_score': None,
+                    'risk_score': 100, 'priority_violations': 0,
+                    'priority_foundation_violations': 0, 'core_violations': 0,
+                    'total_violations': 0, 'violations': [],
+                    'inspection_type': '', 'results': '',
+                    'source': 'San Antonio Metro Health',
+                    'source_url': (f"{SA_BASE}estab.cfm?licenseID={fac['license_id']}"
+                                   f"&inspectionID={insp}"),
+                    'source_id': f"sa_{fac['license_id']}_{insp}", 'metro': '',
+                })
+        if complete:
+            _note_source_lag('sanantonio', newest)
+        log.info(f"San Antonio: {len(results)} inspections (search only)")
+        return results
+
+    if facilities and _past_deadline():
+        # Same rule as Houston: nothing has a score or violations yet, so
+        # nothing may ship — the merge keeps existing data and a later run
+        # refetches the window.
+        log.warning(f"San Antonio: fetch deadline reached before the detail phase — "
+                    f"dropping {len(facilities)} undetailed facilities")
+        return []
+
+    results = []
+    if facilities:
+        # Oldest search hit first, so a deadline stop ships the older days
+        # complete and the lookback refetches the newer ones.
+        order = sorted(facilities.values(), key=lambda f: f['newest_hit'])
+        log.info(f"San Antonio: fetching estab pages for {len(order)} facilities "
+                 f"({TYLER_DETAIL_WORKERS} workers)...")
+        local = threading.local()
+
+        def get_session():
+            if not hasattr(local, 's'):
+                local.s = _sa_session()
+            return local.s
+
+        def _sa_hold(fac, counted=True):
+            days = [iso for iso in fac['inspections'] if since_iso <= iso <= until_iso]
+            _hold_freshness('San Antonio Metro Health', min(days) if days else fac['newest_hit'],
+                            counted, key=fac['license_id'])
+
+        def work(fac):
+            if _past_deadline():
+                return fac, 'deadline'
+            blocks = _sa_fetch_facility(get_session(), fac['license_id'])
+            time.sleep(TYLER_DETAIL_DELAY)
+            return fac, blocks
+
+        counts = {'done': 0, 'ok': 0, 'page_only': 0, 'noscore': 0,
+                  'missing': 0, 'deadline': 0}
+
+        def apply_blocks(fac, blocks):
+            recs = _sa_build_records(fac, blocks, since_iso, until_iso)
+            counts['noscore'] += sum(1 for r in recs if r['original_score'] is None)
+            counts['page_only'] += sum(1 for r in recs
+                                       if r['inspection_date'] not in fac['inspections'])
+            shipped = {r['inspection_date'] for r in recs}
+            counts['missing'] += sum(1 for iso in fac['inspections']
+                                     if since_iso <= iso <= until_iso and iso not in shipped)
+            results.extend(recs)
+            counts['ok'] += 1
+
+        consecutive_failures = 0
+        failed = []
+        with ThreadPoolExecutor(max_workers=TYLER_DETAIL_WORKERS) as pool:
+            futures = [pool.submit(work, f) for f in order]
+            for future in as_completed(futures):
+                fac, blocks = future.result()
+                counts['done'] += 1
+                if blocks is None:
+                    failed.append(fac)
+                    consecutive_failures += 1
+                    if consecutive_failures >= TYLER_ABORT_AFTER:
+                        for f in futures:
+                            f.cancel()
+                        raise RuntimeError(
+                            f"San Antonio: {consecutive_failures} consecutive detail "
+                            f"failures — aborting instead of recording "
+                            f"false-clean inspections")
+                elif blocks == 'deadline':
+                    counts['deadline'] += 1
+                    _sa_hold(fac, counted=False)
+                else:
+                    consecutive_failures = 0
+                    apply_blocks(fac, blocks)
+                if counts['done'] % 200 == 0:
+                    log.info(f"  San Antonio details: {counts['done']}/{len(order)} "
+                             f"({len(results)} inspections)")
+
+        if failed and not _past_deadline():
+            log.warning(f"San Antonio: retrying {len(failed)} failed estab fetches")
+            retry_session = _sa_session()
+            still_failed = []
+            for fac in failed:
+                blocks = _sa_fetch_facility(retry_session, fac['license_id'])
+                time.sleep(TYLER_DETAIL_DELAY)
+                if blocks is None:
+                    still_failed.append(fac)
+                else:
+                    apply_blocks(fac, blocks)
+            failed = still_failed
+        if failed:
+            # A facility whose page could not be read ships nothing — never
+            # a clean inspection; the freshness hold makes the lookback
+            # refetch it next run.
+            log.warning(f"San Antonio: dropping {len(failed)} facilities with "
+                        f"unreadable estab pages")
+            retried = not _past_deadline()
+            for fac in failed:
+                _sa_hold(fac, counted=retried)
+        if counts['deadline']:
+            log.warning(f"San Antonio: fetch deadline reached — {counts['deadline']} "
+                        f"facilities left undetailed (dropped)")
+            _set_group_status('sanantonio', 'skipped',
+                              f"fetch deadline reached; {counts['deadline']} facilities not read")
+        log.info(f"San Antonio: {counts['ok']}/{len(order)} estab pages parsed; "
+                 f"{len(results)} inspections in window ({counts['page_only']} found only "
+                 f"on the facility page, {counts['noscore']} without a score, "
+                 f"{counts['missing']} search hits missing from their facility page)")
+
+    if limit:
+        results = results[:limit]
+    if complete:
+        _note_source_lag('sanantonio', newest)
+    log.info(f"San Antonio: {len(results)} inspections")
     return results
 
 
@@ -3128,6 +3821,305 @@ def fetch_detroit(since_date=None, limit=None):
     return results
 
 
+# ─── SAN DIEGO COUNTY, CA (DEH sdfoodinfo.org JSON search) ───────────────────
+# The county Department of Environmental Health's public inspection site is a
+# jQuery front end over one form-encoded search endpoint that answers JSON
+# (served as text/html). A date window returns every facility with at least
+# one inspection of ANY type in the window, and each facility record carries
+# its FULL inspection history (back to 2023-01) with violations inline, so no
+# detail fetch is needed. Server time is dominated by the query, not the page
+# size (a 1-row page of the whole county takes as long as a 1000-row one,
+# about a minute), so always send a window and page at the site's own 1000.
+
+SD_SEARCH_URL = 'https://sdfoodinfo.org/restaurants/search.htm'
+SD_FACILITY_URL = 'https://sdfoodinfo.org/restaurants/restaurant_detail.htm?business_id={}'
+SD_SITE_URL = 'https://www.sdfoodinfo.org/'
+SD_HISTORY_START = '2023-01-01'   # the site holds no inspections before this
+SD_PAGE = 1000                    # verified; a page is ~8 MB and 55-70 s
+SD_TIMEOUT = 300
+SD_RETRIES = 3
+# Results come back sorted by distance from this origin (downtown San Diego,
+# the site's own default). A fixed origin keeps the order, and so the page
+# boundaries, stable from one page to the next (facilities without
+# coordinates sort last, at ~7,800 miles from a 0,0 position).
+SD_SORT_ORIGIN = ('32.715736', '-117.161087')
+SD_HEADERS = {
+    'User-Agent': CHROME_UA,
+    'Accept': 'application/json, text/javascript, */*; q=0.01',
+    'X-Requested-With': 'XMLHttpRequest',
+    'Referer': 'https://sdfoodinfo.org/restaurants/list_restaurants.html',
+}
+SD_INSPECTION_TYPES = ('Routine', 'Re-inspection')
+SD_CLOSURE_STATUSES = ('Ordered Closed', 'Self Closed')
+SD_CLOSURE_RISK_CAP = 55          # a closure grades F whatever the number says
+_SD_ADDR_TAIL_RE = re.compile(r',\s*[^,]+,\s*CA\s+\d{5}(?:-\d{4})?\s*$', re.I)
+
+
+def _sd_search_page(start_date, end_date, page_number, page_count=SD_PAGE):
+    """POST one search page; returns (payload, seconds, bytes).
+
+    Transient failures (timeouts, resets, 429/5xx, a non-JSON error page)
+    are retried with backoff; anything else, or exhausting the retries,
+    raises so the group records an error rather than shipping a partial
+    window with an advanced freshness date."""
+    data = [('name', ''), ('page_number', page_number), ('page_count', page_count),
+            ('lat', SD_SORT_ORIGIN[0]), ('lng', SD_SORT_ORIGIN[1]),
+            ('start_date', start_date), ('end_date', end_date)]
+    last_err = None
+    for attempt in range(1, SD_RETRIES + 1):
+        t0 = time.time()
+        try:
+            r = requests.post(SD_SEARCH_URL, data=data, headers=SD_HEADERS, timeout=SD_TIMEOUT)
+            r.raise_for_status()
+            payload = r.json()   # served as text/html, but it is JSON
+            if not isinstance(payload, dict) or not isinstance(payload.get('result'), list):
+                raise ValueError(f'unexpected response shape: {str(payload)[:120]}')
+            return payload, time.time() - t0, len(r.content)
+        except (requests.RequestException, ValueError) as e:
+            last_err = e
+            status = getattr(getattr(e, 'response', None), 'status_code', None)
+            transient = status is None or status == 429 or status >= 500
+            if not transient or attempt == SD_RETRIES or _past_deadline():
+                break
+            wait = 20 * attempt
+            log.warning(f"  San Diego: page {page_number} failed ({e}) — retrying in "
+                        f"{wait}s ({attempt}/{SD_RETRIES - 1})")
+            time.sleep(wait)
+    raise RuntimeError(f'San Diego search page {page_number} failed: {last_err}')
+
+
+def _sd_title(s):
+    """.title() for an ALL-CAPS source string, keeping possessives ("Joe's")."""
+    s = ' '.join((s or '').split())
+    if s.isupper():
+        s = re.sub(r"'S\b", "'s", s.title())
+    return s
+
+
+def _sd_coord(v):
+    try:
+        f = float(v)
+    except (TypeError, ValueError):
+        return None
+    return f if f and abs(f) <= 180 else None   # "0" means not geocoded
+
+
+def _sd_split_address(address, city='', zip_code=''):
+    """'1007 05TH AVE, SAN DIEGO, CA 92101' (plus the record's own city and
+    zip fields) → ('1007 05TH AVE', 'SAN DIEGO', '92101')."""
+    addr = ' '.join((address or '').split())
+    city = ' '.join((city or '').split())
+    zip_code = (zip_code or '').strip()
+    street = addr
+    tail = f", {city}, CA {zip_code}".lower()
+    if city and zip_code and addr.lower().endswith(tail):
+        street = addr[:-len(tail)]
+    else:
+        m = _SD_ADDR_TAIL_RE.search(addr)
+        if m:
+            street = addr[:m.start()]
+            parts = [p.strip() for p in m.group(0).strip(', ').split(',')]
+            city = city or parts[0]
+            zip_code = zip_code or parts[-1].split()[-1]
+    return street.strip(' ,'), city, zip_code[:5]
+
+
+def _sd_tokens(s):
+    return {w.rstrip('s') for w in re.findall(r'[a-z0-9]+', s.lower())}
+
+
+def _sd_violation(v):
+    """One source violation → [category, severity, description], or None.
+
+    The description is the county's numbered item ("23. No rodents, insects,
+    birds or animals") with the inspector's text appended only when it adds
+    something (the site usually repeats the item's short name there).
+    Severity follows the county's own flag: major → 'priority'; a minor item
+    keeps the classifier's tier but is never 'priority'."""
+    accela = ' '.join((v.get('violation_accela') or '').split()).rstrip(':').strip()
+    name = ' '.join((v.get('violation') or '').split())
+    text = ' '.join((v.get('violation_text') or '').split())
+    major = ((v.get('major_violation') or '').strip().upper() == 'Y'
+             or 'major' in (v.get('status') or '').lower())
+    head = accela or name
+    desc = head or text
+    # The county's one-word finding ("Vermin", "Sewage") is appended only
+    # for MAJOR citations. A minor citation keeps the bare item title (the
+    # FDA form wording, as Chicago's and Omaha's do), so the text-forced F
+    # for an active infestation fires on a county-flagged major vermin
+    # finding and not on the hundreds of minor "Vermin" items a month.
+    if major and head and text and text.lower() != head.lower():
+        tok = _sd_tokens(text)
+        if tok and len(tok & _sd_tokens(head)) * 2 < len(tok):
+            desc = f'{head}: {text}'
+    if not desc:
+        return None
+    cat, sev, _ = classify_violation(desc)
+    if major:
+        sev = 'priority'
+    elif sev == 'priority':
+        sev = 'priority_foundation'
+    return [cat, sev, desc[:500]]
+
+
+def _sd_facility_records(fac, since, seen_ids):
+    """DineScores records for one facility's Routine/Re-inspection history
+    on or after `since` (all of it when None). Returns (records, newest
+    completed_date seen across ALL inspection types)."""
+    street, city, zip5 = _sd_split_address(fac.get('address'), fac.get('city'), fac.get('zip'))
+    name = _sd_title(fac.get('name'))
+    if not name or not street:
+        return [], ''
+    street = _sd_title(street)
+    city = _sd_title(city) if city else 'San Diego'
+    lat, lng = _sd_coord(fac.get('lat')), _sd_coord(fac.get('long'))
+    bid = str(fac.get('business_id') or '').strip()
+    source_url = SD_FACILITY_URL.format(bid) if bid.isdigit() else SD_SITE_URL
+
+    out, newest = [], ''
+    for insp in fac.get('inspections') or []:
+        date = sane_inspection_date(insp.get('completed_date'))
+        if not date:
+            continue
+        newest = max(newest, date)
+        itype = ' '.join((insp.get('type') or '').split())
+        status = ' '.join((insp.get('status') or '').split())
+        if itype not in SD_INSPECTION_TYPES or status == 'No Access':
+            continue
+        if since and date < since:
+            continue
+        iid = str(insp.get('inspection_id') or '').strip() or f'{bid}_{date}_{itype}'
+        if iid in seen_ids:
+            continue
+        seen_ids.add(iid)
+
+        violations = [x for x in (_sd_violation(v) for v in insp.get('violations') or []) if x]
+        try:
+            score = int(float(insp.get('score') or 0))
+        except (TypeError, ValueError):
+            score = 0
+        if score > 0:
+            original_score = score
+            risk_score = max(0, min(100, score))
+            pv = sum(1 for v in violations if v[1] == 'priority')
+            pfv = sum(1 for v in violations if v[1] == 'priority_foundation')
+            cv = len(violations) - pv - pfv
+        else:
+            original_score = None
+            risk_score, pv, pfv, cv = calc_risk_score(violations)
+        if status in SD_CLOSURE_STATUSES:
+            risk_score = min(risk_score, SD_CLOSURE_RISK_CAP)
+
+        grade = (insp.get('grade') or '').strip()
+        results = [f'Grade {grade}'] if grade else []
+        if status and status != 'Complete':
+            results.append(status)
+
+        out.append({
+            'name': name,
+            'address': street,
+            'city': city,
+            'state': 'CA',
+            'zip': zip5,
+            'latitude': lat,
+            'longitude': lng,
+            'inspection_date': date,
+            'original_score': original_score,
+            'risk_score': risk_score,
+            'priority_violations': pv,
+            'priority_foundation_violations': pfv,
+            'core_violations': cv,
+            'total_violations': len(violations),
+            'violations': violations,
+            'inspection_type': itype,
+            'results': '; '.join(results),
+            'source': 'San Diego County DEH',
+            'source_url': source_url,
+            'source_id': f'sd_{iid}',
+            'metro': 'San Diego',
+        })
+    return out, newest
+
+
+def fetch_san_diego(since_date=None, limit=None):
+    """
+    Fetch San Diego County inspections from the county DEH's public site
+    (sdfoodinfo.org): ~17k permitted food facilities across the county's
+    ~40 cities and unincorporated communities (San Diego, Chula Vista,
+    Oceanside, Escondido, El Cajon, Carlsbad, ...), metro chip 'San Diego'.
+
+    One record per Routine or Re-inspection inspection completed on or
+    after since_date (the whole history back to 2023-01 when None). Site
+    Investigation, Status Verification and Environmental visits are skipped
+    (complaint follow-ups, permit checks and plan reviews, never scored),
+    and so are 'No Access' visits (the inspector never got in; a record
+    would read as a clean 100).
+
+    Scoring: a scored inspection (score > 0; the county scores Routine
+    inspections 0-100 and grades them A >= 90 / B 80-89 / C 70-79) ships its
+    official score as both original_score and risk_score. Unscored ones
+    (re-inspections, a few routines) are computed from the violations with
+    calc_risk_score. Severity follows the county's own flag: a major
+    violation (major_violation Y / status '... - Major') is 'priority'; a
+    minor one keeps the classifier's tier but is never 'priority'. An
+    inspection whose status is 'Ordered Closed' or 'Self Closed' has its
+    risk_score capped at 55 so the closure grades F regardless of the
+    number: a closure carries score 0 and typically one or two major items,
+    which would otherwise compute to a 90+.
+
+    The window is sent server-side (start_date/end_date select facilities
+    with an inspection in it) and applied again per inspection, since each
+    facility comes back with its full history.
+    """
+    log.info(f"Fetching San Diego County data (since={since_date}, limit={limit})")
+    since = str(since_date)[:10] if since_date else None
+    start = since or SD_HISTORY_START
+    end = datetime.now().strftime('%Y-%m-%d')
+    page_count = min(SD_PAGE, max(int(limit), 1)) if limit else SD_PAGE
+
+    results, seen, newest = [], set(), ''
+    facilities, page, bad = 0, 1, 0
+    while True:
+        payload, dt, nbytes = _sd_search_page(start, end, page, page_count)
+        rows = payload.get('result') or []
+        try:
+            total = int(payload.get('total_count'))
+        except (TypeError, ValueError):
+            total = None
+        facilities += len(rows)
+        for fac in rows:
+            try:
+                recs, nw = _sd_facility_records(fac, since, seen)
+            except Exception as e:
+                bad += 1
+                if bad <= 5:
+                    log.warning(f"  San Diego: skipping facility "
+                                f"{fac.get('business_id') if isinstance(fac, dict) else fac!r}: {e}")
+                continue
+            results.extend(recs)
+            newest = max(newest, nw)
+        log.info(f"  San Diego: page {page} — {len(rows)} facilities in {dt:.0f}s "
+                 f"({nbytes / 1e6:.1f} MB); {facilities}"
+                 f"{f'/{total}' if total is not None else ''} facilities, "
+                 f"{len(results)} inspections so far")
+        if (not rows or len(rows) < page_count
+                or (total is not None and facilities >= total)
+                or (limit and len(results) >= limit)):
+            break
+        if _past_deadline():
+            raise RuntimeError(f'fetch deadline reached after page {page} '
+                               f'({facilities}/{total} facilities)')
+        page += 1
+    if bad:
+        log.warning(f"  San Diego: {bad} facility records could not be parsed")
+    if limit:
+        results = results[:limit]
+    _note_source_lag('San Diego County', newest)
+    log.info(f"San Diego County: {len(results)} inspections from {facilities} facilities "
+             f"(source newest {newest or 'n/a'})")
+    return results
+
+
 # ─── SACRAMENTO COUNTY, CA (county ArcGIS, MHD-backed) ───────────────────────
 # Layer 0 = facilities with point geometry; layer 1 = inspection/violation
 # history rows. No numeric score — the county publishes categorical results
@@ -3236,6 +4228,286 @@ def fetch_sacramento(since_date=None, limit=None):
     return results
 
 
+# ─── SANTA CLARA COUNTY, CA (San Jose; county LIVES feed on Socrata) ─────────
+# The county Department of Environmental Health publishes its food
+# inspections in the LIVES layout on data.sccgov.org, refreshed daily over a
+# rolling ~two years, as three tables that are joined in memory here:
+#   INSPECTIONS  one row per inspection: the official 0-100 score (present
+#                on ~81% of rows — follow-ups mostly carry none), the placard
+#                colour (G green / Y yellow conditional / R red closure) and
+#                the inspection type. The id column really is spelled
+#                `inpsection_id`, and `date` is TEXT 'YYYYMMDD' rather than
+#                a Socrata date, so the window compares strings.
+#   VIOLATIONS   one row per cited item with the county's own `critical`
+#                flag; no date column, joins on the inspection id.
+#   BUSINESS     name/address/city/zip + coordinates for ~9.7k facilities.
+# No public per-facility page is reachable (the county lookup sits behind a
+# Cloudflare challenge), so source_url is the dataset page.
+
+SCC_INSPECTIONS_URL = 'https://data.sccgov.org/resource/2u2d-8jej.json'
+SCC_VIOLATIONS_URL = 'https://data.sccgov.org/resource/wkaa-4ccv.json'
+SCC_BUSINESS_URL = 'https://data.sccgov.org/resource/vuw7-jmjk.json'
+SCC_SOURCE_PAGE = 'https://data.sccgov.org/Health/SCC_DEH_Food_Data_INSPECTIONS/2u2d-8jej'
+SCC_PLACARDS = {'G': 'Green placard', 'Y': 'Yellow placard (conditional pass)',
+                'R': 'Red placard (closed)'}
+# A red placard closes the facility. The county's score measures overall
+# code compliance while the placard tracks major violations, so closures
+# routinely carry scores in the 70s-80s; cap them so a closure grades F.
+SCC_RED_PLACARD_CAP = 55       # a closure grades F whatever the numeric score
+SCC_YELLOW_PLACARD_CAP = 79    # a conditional pass grades no better than C
+SCC_ID_CHUNK = 100             # inspection ids per `in (...)` violations request
+SCC_BULK_VIOLATIONS_DAYS = 60  # wider windows download the whole violations table
+SCC_PAGE = 50000
+# The output paths keep ONE inspection per restaurant per day (first seen
+# wins), so when a business has two inspections on one day the scored
+# routine inspection must be emitted before its unscored follow-up, and
+# between otherwise-equal visits the worse placard (a closure) comes first.
+SCC_TYPE_RANK = {'ROUTINE INSPECTION': 0, 'RISK FACTOR INSPECTION': 1,
+                 'FOLLOW-UP INSPECTION': 2}
+SCC_PLACARD_RANK = {'R': 0, 'Y': 1, 'G': 2}
+SCC_CITY_FIXES = {'MOUNTIAN VIEW': 'MOUNTAIN VIEW'}   # source typo on a few facilities
+# "[CA] ..." introduces the inspector's corrective-action text (and anything
+# after it, e.g. "[COS]"); only the observation before it describes what was
+# found, so that is what gets classified and shown.
+SCC_CORRECTIVE_TAIL_RE = re.compile(r'\s*\[CA\].*$', re.S)
+
+
+def _scc_window_start(since_date):
+    """'YYYY-MM-DD[T00:00:00]' / None -> the feed's 'YYYYMMDD' text / None."""
+    if not since_date:
+        return None
+    s = str(since_date)[:10]
+    try:
+        return datetime.strptime(s, '%Y-%m-%d').strftime('%Y%m%d')
+    except ValueError:
+        log.warning(f"  Santa Clara: unusable since_date {since_date!r} — fetching everything")
+        return None
+
+
+def _scc_iso_date(yyyymmdd):
+    s = str(yyyymmdd or '').strip()
+    return f'{s[:4]}-{s[4:6]}-{s[6:8]}' if len(s) == 8 and s.isdigit() else ''
+
+
+def _scc_clean(s):
+    return ' '.join(str(s or '').split())
+
+
+def _scc_proper(s):
+    s = _scc_clean(s)
+    return s.title() if s.isupper() else s
+
+
+def _scc_violation_text(description, comment):
+    """'<item description>: <observation>' with the corrective-action tail dropped."""
+    desc = _scc_clean(description)
+    obs = _scc_clean(SCC_CORRECTIVE_TAIL_RE.sub('', comment or ''))
+    if desc and obs:
+        return f'{desc}: {obs}'
+    return desc or obs
+
+
+def _scc_violation(row):
+    """[category, severity, text] for one VIOLATIONS row, or None if blank.
+    The county's own `critical` flag anchors severity: critical -> priority;
+    a non-critical item keeps the classifier's tier but never above
+    priority_foundation."""
+    text = _scc_violation_text(row.get('description'), row.get('violation_comment'))
+    if not text:
+        return None
+    cat, clf_sev, _ = classify_violation(text)
+    crit = row.get('critical')
+    if isinstance(crit, str):
+        crit = crit.strip().lower() in ('true', 't', '1', 'yes', 'y')
+    if crit:
+        sev = 'priority'
+    elif clf_sev == 'priority':
+        sev = 'priority_foundation'
+    else:
+        sev = clf_sev
+    return [cat, sev, text[:500]]
+
+
+def _scc_feed_newest_date():
+    """The feed's own newest inspection date (ISO), '' if the probe fails."""
+    try:
+        r = requests.get(SCC_INSPECTIONS_URL, params={'$select': 'max(date)'},
+                         headers=_socrata_headers(), timeout=60)
+        r.raise_for_status()
+        rows = r.json()
+        return _scc_iso_date((rows[0] if rows else {}).get('max_date'))
+    except (requests.RequestException, ValueError, IndexError, AttributeError) as e:
+        log.warning(f"  Santa Clara: newest-date probe failed: {e}")
+        return ''
+
+
+def _scc_fetch_violations(insp_ids, window_days):
+    """VIOLATIONS rows for the given inspection ids, grouped by id. Narrow
+    windows ask for exactly those ids (100 per request); an open or >60-day
+    window with more than a few hundred inspections pulls the whole ~65k-row
+    table in 50k pages instead."""
+    ids = sorted(i for i in insp_ids if i)
+    by_insp = defaultdict(list)
+    if not ids:
+        return by_insp
+    bulk = ((window_days is None or window_days > SCC_BULK_VIOLATIONS_DAYS)
+            and len(ids) > 3 * SCC_ID_CHUNK)
+    if bulk:
+        rows = _socrata_fetch_pages(
+            SCC_VIOLATIONS_URL, {'$order': ':id', '$limit': SCC_PAGE, '$offset': 0}, None)
+        log.info(f"  Santa Clara: {len(rows)} violation rows (whole table)")
+    else:
+        rows = []
+        for k in range(0, len(ids), SCC_ID_CHUNK):
+            chunk = ids[k:k + SCC_ID_CHUNK]
+            quoted = ','.join("'" + i.replace("'", "''") + "'" for i in chunk)
+            rows.extend(_socrata_fetch_pages(
+                SCC_VIOLATIONS_URL,
+                {'$where': f'inspection_id in ({quoted})', '$order': ':id',
+                 '$limit': SCC_PAGE, '$offset': 0}, None))
+        log.info(f"  Santa Clara: {len(rows)} violation rows for {len(ids)} inspections "
+                 f"({(len(ids) + SCC_ID_CHUNK - 1) // SCC_ID_CHUNK} requests)")
+    wanted = set(ids)
+    for v in rows:
+        iid = v.get('inspection_id')
+        if iid in wanted:
+            by_insp[iid].append(v)
+    return by_insp
+
+
+def fetch_santa_clara(since_date=None, limit=None):
+    """
+    Fetch Santa Clara County (San Jose, Sunnyvale, Santa Clara, Mountain
+    View, Palo Alto, Milpitas, Cupertino, Gilroy, ...) food inspections from
+    the county's LIVES feed on data.sccgov.org. One record per inspection:
+    risk_score is the county's OFFICIAL 0-100 score when published
+    (original_score = that score); an unscored inspection (mostly follow-ups)
+    is scored from its violations (5/2/1) with original_score None.
+    Violation severity follows the county's own `critical` flag. The placard
+    is the county's stated tier and the grade never contradicts it: a RED
+    placard means the facility was closed, so risk_score is capped at
+    SCC_RED_PLACARD_CAP (55, an F), and a YELLOW placard (conditional pass,
+    major violations found) is capped at SCC_YELLOW_PLACARD_CAP (79, a C),
+    regardless of the numeric score — the score measures overall code
+    compliance while the placard tracks major violations, and a closed or
+    conditionally passed restaurant must not show as an A or B. Inspections
+    whose business is missing from the BUSINESS table are skipped (counted
+    in the log).
+    """
+    log.info(f"Fetching Santa Clara County data (since={since_date}, limit={limit})")
+    start = _scc_window_start(since_date)
+    window_days = None
+    if start:
+        window_days = (datetime.now() - datetime.strptime(start, '%Y%m%d')).days
+
+    params = {
+        '$order': 'date DESC, inpsection_id',
+        '$limit': min(limit, SCC_PAGE) if limit else SCC_PAGE,
+        '$offset': 0,
+    }
+    if start:
+        params['$where'] = f"date >= '{start}'"
+    insp_rows = _socrata_fetch_pages(SCC_INSPECTIONS_URL, params, limit)
+    log.info(f"  Santa Clara: {len(insp_rows)} inspection rows"
+             + (f" since {_scc_iso_date(start)}" if start else ''))
+
+    # The feed's own newest row explains a STALE flag when the county itself
+    # is behind; fall back to the newest row fetched if the probe fails.
+    newest = _scc_feed_newest_date() or max(
+        (_scc_iso_date(r.get('date')) for r in insp_rows), default='')
+    _note_source_lag('Santa Clara County', newest)
+    if not insp_rows:
+        return []
+
+    biz_rows = _socrata_fetch_pages(
+        SCC_BUSINESS_URL, {'$order': 'business_id', '$limit': SCC_PAGE, '$offset': 0}, None)
+    businesses = {b['business_id']: b for b in biz_rows if b.get('business_id')}
+    log.info(f"  Santa Clara: {len(businesses)} businesses")
+
+    insp_ids = {r.get('inpsection_id') for r in insp_rows if r.get('inpsection_id')}
+    viols_by_insp = _scc_fetch_violations(insp_ids, window_days)
+
+    def _order(r):
+        d = str(r.get('date') or '')
+        return (-(int(d) if d.isdigit() else 0),
+                SCC_TYPE_RANK.get(_scc_clean(r.get('type')).upper(), 9),
+                0 if str(r.get('score') or '').strip() else 1,
+                SCC_PLACARD_RANK.get(_scc_clean(r.get('result')).upper(), 9),
+                str(r.get('inpsection_id') or ''))
+    insp_rows.sort(key=_order)
+
+    results = []
+    missing_biz = 0
+    seen_ids = set()
+    for row in insp_rows:
+        insp_id = _scc_clean(row.get('inpsection_id'))
+        if not insp_id or insp_id in seen_ids:
+            continue
+        seen_ids.add(insp_id)
+        biz = businesses.get(row.get('business_id'))
+        if not biz:
+            missing_biz += 1
+            continue
+        insp_date = sane_inspection_date(_scc_iso_date(row.get('date')))
+        name = _scc_proper(biz.get('name'))
+        if not insp_date or not name:
+            continue
+
+        violations = [v for v in (_scc_violation(v) for v in viols_by_insp.get(insp_id, ()))
+                      if v]
+        computed, pv, pfv, cv = calc_risk_score([tuple(v) for v in violations])
+        try:
+            score = int(round(float(row.get('score'))))
+        except (TypeError, ValueError):
+            score = None
+        risk = max(0, min(100, score)) if score is not None else computed
+        placard = _scc_clean(row.get('result')).upper()
+        if placard == 'R':
+            risk = min(risk, SCC_RED_PLACARD_CAP)
+        elif placard == 'Y':
+            risk = min(risk, SCC_YELLOW_PLACARD_CAP)
+
+        city_raw = _scc_clean(biz.get('city')).upper()
+        city = SCC_CITY_FIXES.get(city_raw, city_raw).title() or 'San Jose'
+        try:
+            lat, lng = float(biz.get('latitude')), float(biz.get('longitude'))
+            if not lat or not lng:
+                lat = lng = None
+        except (TypeError, ValueError):
+            lat = lng = None
+
+        results.append({
+            'name': name,
+            'address': _scc_proper(biz.get('address')),
+            'city': city,
+            'state': 'CA',
+            'zip': _scc_clean(biz.get('postal_code'))[:5],
+            'latitude': lat,
+            'longitude': lng,
+            'inspection_date': insp_date,
+            'original_score': score,
+            'risk_score': risk,
+            'priority_violations': pv,
+            'priority_foundation_violations': pfv,
+            'core_violations': cv,
+            'total_violations': len(violations),
+            'violations': violations,
+            'inspection_type': _scc_clean(row.get('type')),
+            'results': SCC_PLACARDS.get(placard, ''),
+            'source': 'Santa Clara County Open Data',
+            'source_url': SCC_SOURCE_PAGE,
+            'source_id': f'scc_{insp_id}',
+            'metro': '',
+        })
+        if limit and len(results) >= limit:
+            break
+    if missing_biz:
+        log.warning(f"  Santa Clara: {missing_biz} inspections skipped — business id not "
+                    f"in the BUSINESS table")
+    log.info(f"Santa Clara County: {len(results)} inspections")
+    return results
+
+
 # ─── SOUTH CAROLINA (statewide, SC DPH ArcGIS) ───────────────────────────────
 # Two-layer join like Wake: a points layer with coordinates and an
 # inspections table with dates and POSTED_GRADE (A/B/C — no numeric score
@@ -3308,6 +4580,540 @@ def fetch_sc(since_date=None, limit=None):
         if limit and len(results) >= limit:
             break
     log.info(f"South Carolina: {len(results)} inspections")
+    return results
+
+
+# ─── OMAHA / DOUGLAS COUNTY, NE (county ArcGIS + i2g inspection PDFs) ────────
+# Douglas County Health Department publishes every inspection since its i2g
+# inspection system went live (Dec 2025) as a point layer on ArcGIS Online:
+# one row per inspection with the establishment, the county's letter RATING
+# (A-F) and a link to the public inspection-report PDF. No numeric score is
+# published. The PDF (dompdf, one page: the FDA Food Code inspection form)
+# carries the inspector's TOTAL P / PF / C violation counts and the 56 form
+# items marked IN/OUT/N/O/N/A. The fetcher reads it with the standard
+# library alone (zlib + the Tj/TJ text operators) and scores
+# 100 - 5P - 2PF - C from the totals. An inspection whose PDF cannot be
+# fetched or parsed is DROPPED, never shipped as violation-free; the weekly
+# lookback refetches it. The layer's Score/Status/Match_type/Match_addr/
+# Addr_type fields are the county GEOCODER's output, never an inspection
+# score. The companion MobileFoodInspections table (mobile units, no
+# geometry, a separate PDF endpoint) is not read.
+
+OMAHA_LAYER = ('https://services.arcgis.com/pDAi2YK0L0QxVJHj/arcgis/rest/services/'
+               'Restaurant_Inspections/FeatureServer/14')
+OMAHA_SOURCE = 'Douglas County Health Dept'
+# Errors the county's PDF endpoint returns for specific records on every
+# request (a slash in the establishment name; a missing record).
+OMAHA_PERMANENT_500S = ('filename and the fallback cannot contain',
+                        'Attempt to read property')
+OMAHA_DETAIL_WORKERS = int(os.environ.get('OMAHA_DETAIL_WORKERS', '3'))
+OMAHA_DETAIL_DELAY = float(os.environ.get('OMAHA_DETAIL_DELAY', '0.3'))
+OMAHA_DETAIL_TIMEOUT = 60
+OMAHA_FORM_MARKS = frozenset({'IN', 'OUT', 'NO', 'N/O', 'NA', 'N/A'})
+# The form's 56 items by the Food Code tier of each item's principal
+# provision (FDA Form 3-A / 2017 Food Code). Items 1-29 are the risk factors
+# and interventions, 30-56 the good retail practices; the form itself does
+# not print a tier per item, so this map seeds the severity of an OUT item
+# and _oma_item_severities reconciles it with the inspector's totals.
+OMAHA_P_ITEMS = frozenset({3, 4, 8, 9, 11, 12, 13, 15, 16, 17, 18, 19, 20, 21,
+                           22, 24, 26, 27, 28, 29, 30, 31, 52})
+OMAHA_PF_ITEMS = frozenset({1, 5, 10, 14, 23, 25, 32, 33, 34, 36, 48, 50, 51})
+_OMAHA_TOTALS_RE = re.compile(
+    r'TOTAL\s*P\s*:\s*(\d+)\s*TOTAL\s*PF\s*:\s*(\d+)\s*TOTAL\s*C\s*:\s*(\d+)', re.I)
+_PDF_TOKEN_RE = re.compile(
+    rb'(?P<ws>[\s\x00]+)|(?P<comment>%[^\r\n]*)|(?P<str>\()|(?P<dict><<|>>)|'
+    rb'(?P<hex><[0-9A-Fa-f\s]*>)|(?P<arr>[\[\]])|(?P<name>/[^\s/\[\]()<>{}%]*)|'
+    rb'(?P<num>[-+]?(?:\d+\.?\d*|\.\d+))|(?P<op>[^\s/\[\]()<>{}%]+)|(?P<other>.)', re.S)
+_PDF_ESCAPES = {0x6e: 0x0a, 0x72: 0x0d, 0x74: 0x09, 0x62: 0x08, 0x66: 0x0c}
+
+
+def _pdf_literal(data, i):
+    """Decode the PDF literal string that opens at data[i] == '('.
+    Returns (text, index after the closing paren)."""
+    n = len(data)
+    buf = bytearray()
+    depth = 0
+    j = i
+    while j < n:
+        ch = data[j]
+        if ch == 0x5c:                      # backslash escape
+            j += 1
+            if j >= n:
+                break
+            e = data[j]
+            if e in _PDF_ESCAPES:
+                buf.append(_PDF_ESCAPES[e]); j += 1
+            elif 0x30 <= e <= 0x37:          # \ddd octal
+                k, code = j, 0
+                while k < n and k < j + 3 and 0x30 <= data[k] <= 0x37:
+                    code = code * 8 + (data[k] - 0x30); k += 1
+                buf.append(code & 0xff); j = k
+            elif e in (0x0d, 0x0a):          # line continuation
+                j += 1
+                if e == 0x0d and j < n and data[j] == 0x0a:
+                    j += 1
+            else:
+                buf.append(e); j += 1
+            continue
+        if ch == 0x28:                      # (
+            depth += 1
+            if depth > 1:
+                buf.append(ch)
+        elif ch == 0x29:                    # )
+            depth -= 1
+            if depth == 0:
+                j += 1
+                break
+            buf.append(ch)
+        else:
+            buf.append(ch)
+        j += 1
+    return bytes(buf).decode('cp1252', errors='replace'), j
+
+
+def _pdf_tokens(data):
+    """Yield (kind, value) tokens of a PDF content stream: 'str' (decoded
+    text), 'num' (float), 'name', 'arr' ('[' or ']') and 'op' (operator)."""
+    i, n = 0, len(data)
+    while i < n:
+        m = _PDF_TOKEN_RE.match(data, i)
+        kind = m.lastgroup
+        if kind == 'str':
+            text, i = _pdf_literal(data, i)
+            yield 'str', text
+            continue
+        i = m.end()
+        if kind in ('ws', 'comment', 'dict', 'other'):
+            continue
+        if kind == 'hex':
+            hexs = re.sub(rb'\s', b'', m.group()[1:-1])
+            if len(hexs) % 2:
+                hexs += b'0'
+            try:
+                yield 'str', bytes.fromhex(hexs.decode('ascii')).decode('cp1252', errors='replace')
+            except ValueError:
+                pass
+        elif kind == 'num':
+            try:
+                yield 'num', float(m.group())
+            except ValueError:
+                yield 'op', m.group().decode('latin-1')
+        elif kind == 'arr':
+            yield 'arr', m.group().decode('latin-1')
+        elif kind == 'name':
+            yield 'name', m.group().decode('latin-1')
+        else:
+            yield 'op', m.group().decode('latin-1')
+
+
+def _pdf_text_items(stream):
+    """[(x, y, text)] for every BT..ET block of a content stream, positioned
+    by its first Td/TD/Tm (dompdf emits one block per string)."""
+    items = []
+    operands = []
+    array = None
+    x = y = 0.0
+    cur = None
+    for kind, val in _pdf_tokens(stream):
+        if kind == 'arr':
+            if val == '[':
+                array = []
+            else:
+                operands.append(('arr', array or [])); array = None
+            continue
+        if kind != 'op':
+            if array is not None:
+                if kind == 'str':
+                    array.append(val)
+            else:
+                operands.append((kind, val))
+            continue
+        if val == 'BT':
+            x = y = 0.0; cur = None
+        elif val == 'ET':
+            if cur is not None and cur[2].strip():
+                items.append((cur[0], cur[1], cur[2]))
+            cur = None
+        elif val in ('Td', 'TD'):
+            nums = [v for k, v in operands if k == 'num']
+            if len(nums) >= 2:
+                x += nums[-2]; y += nums[-1]
+        elif val == 'Tm':
+            nums = [v for k, v in operands if k == 'num']
+            if len(nums) >= 6:
+                x, y = nums[-2], nums[-1]
+        elif val in ('Tj', 'TJ', "'", '"'):
+            text = ''
+            for k, v in operands:
+                if k == 'str':
+                    text += v
+                elif k == 'arr':
+                    text += ''.join(v)
+            if cur is None:
+                cur = [x, y, '']
+            cur[2] += text
+        operands = []
+    return items
+
+
+def _oma_pdf_text_rows(pdf_bytes, y_tolerance=1.5):
+    """Positioned text of a PDF as rows: [(stream_index, y, [(x, text), ...])],
+    top-down within each content stream, cells left-to-right. Image streams
+    are skipped; Flate streams are inflated with zlib (stdlib only)."""
+    rows = []
+    stream_no = 0
+    for m in re.finditer(rb'stream\r?\n', pdf_bytes):
+        start = m.end()
+        end = pdf_bytes.find(b'endstream', start)
+        if end < 0:
+            break
+        obj_start = pdf_bytes.rfind(b'obj', 0, m.start())
+        header = pdf_bytes[obj_start if obj_start >= 0 else 0:m.start()]
+        if b'/Image' in header or b'/XObject' in header or b'/FontFile' in header:
+            continue
+        raw = pdf_bytes[start:end]
+        if b'/FlateDecode' in header:
+            try:
+                data = zlib.decompress(raw)
+            except zlib.error:
+                try:
+                    data = zlib.decompressobj().decompress(raw)
+                except zlib.error:
+                    continue
+        elif re.search(rb'/Filter\s*[/\[]', header):
+            continue                        # another filter: not a text stream we can read
+        else:
+            data = raw
+        if b'BT' not in data:
+            continue
+        items = _pdf_text_items(data)
+        items.sort(key=lambda t: (-t[1], t[0]))
+        current = None
+        for x, y, text in items:
+            if current is None or abs(current[1] - y) > y_tolerance:
+                current = (stream_no, y, [])
+                rows.append(current)
+            current[2].append((x, text))
+        stream_no += 1
+    for _, _, cells in rows:
+        cells.sort()
+    return rows
+
+
+def _oma_value_below(rows, label_re, max_dy=16, max_dx=30):
+    """Text of the cell directly under the first cell matching label_re
+    (the i2g header boxes print a label with its value on the next line)."""
+    for idx, (page, y, cells) in enumerate(rows):
+        for x, text in cells:
+            if not re.fullmatch(label_re, text.strip()):
+                continue
+            for page2, y2, cells2 in rows[idx + 1:]:
+                if page2 != page or y - y2 > max_dy:
+                    break
+                for x2, text2 in cells2:
+                    if abs(x2 - x) <= max_dx and text2.strip():
+                        return text2.strip()
+            return None
+    return None
+
+
+def _oma_parse_report(pdf_bytes):
+    """Read an i2g inspection-report PDF. Returns a dict with the totals
+    (p, pf, c), the county's rating letter, the purpose line, the
+    inspection date (MM/DD/YYYY as printed) and the form items marked OUT as
+    [(item_number, title)]. Raises ValueError when the form is not found."""
+    rows = _oma_pdf_text_rows(pdf_bytes)
+    totals = None
+    totals_idx = None
+    for idx, (page, y, cells) in enumerate(rows):
+        m = _OMAHA_TOTALS_RE.search(' '.join(t for _, t in cells))
+        if m:
+            totals = tuple(int(g) for g in m.groups())
+            totals_idx = idx
+            break
+    if totals is None:
+        raise ValueError('no TOTAL P/PF/C line in the inspection PDF')
+    out_items = []
+    seen = set()
+    for page, y, cells in rows[totals_idx + 1:]:
+        num = mark = None
+        for x, text in cells:
+            s = text.strip()
+            if re.fullmatch(r'\d{1,2}', s) and 1 <= int(s) <= 56:
+                num, mark = int(s), None
+                continue
+            if num is None:
+                continue
+            if mark is None and s.upper() in OMAHA_FORM_MARKS and len(s) <= 3:
+                mark = s.upper()
+                continue
+            if mark == 'OUT' and num not in seen:
+                seen.add(num)
+                out_items.append((num, ' '.join(s.split())))
+            num = mark = None
+    out_items.sort()
+    rating = _oma_value_below(rows, r'Rating\s*:?')
+    purpose = _oma_value_below(rows, r'Purpose\s*:?')
+    date = _oma_value_below(rows, r'Inspection Date\s*:?')
+    return {'totals': totals, 'rating': rating or None, 'purpose': purpose or '',
+            'date': date or '', 'out_items': out_items}
+
+
+def _oma_item_severities(out_items, totals):
+    """Severity per OUT form item: seeded by the item's Food Code tier and
+    reconciled with the inspector's TOTAL P/PF/C so no tier the totals say
+    was not cited appears, and no tier carries more items than its total
+    (an item can hold several violations, so a tier may carry fewer).
+    Returns {item_number: severity}."""
+    p, pf, c = totals
+    sev = {}
+    for num, _ in out_items:
+        sev[num] = ('priority' if num in OMAHA_P_ITEMS else
+                    'priority_foundation' if num in OMAHA_PF_ITEMS else 'core')
+
+    def members(tier):
+        return sorted(n for n in sev if sev[n] == tier)
+
+    # Too many P items: the highest-numbered become PF; too many PF: core.
+    for tier, total, lower in (('priority', p, 'priority_foundation'),
+                               ('priority_foundation', pf, 'core')):
+        for n in members(tier)[total:]:
+            sev[n] = lower
+    # Too many core items: the lowest-numbered move up to a tier with room.
+    core = members('core')
+    for n in core[:max(0, len(core) - c)]:
+        if len(members('priority_foundation')) < pf:
+            sev[n] = 'priority_foundation'
+        elif len(members('priority')) < p:
+            sev[n] = 'priority'
+    return sev
+
+
+def _oma_fetch_pdf(url, session=None, info=None):
+    """Download one inspection PDF: bytes, or None after one retry. `info`
+    (a dict) receives the last HTTP status ('status'; None after a network
+    error), so the caller can tell the county's deterministic HTTP 500s
+    (its PDF endpoint crashes on some establishments — a slash in the name,
+    a missing record) from failures worth retrying next run."""
+    client = session or requests
+    for attempt in (1, 2):
+        try:
+            r = client.get(url, headers={'User-Agent': CHROME_UA},
+                           timeout=OMAHA_DETAIL_TIMEOUT)
+            if info is not None:
+                info['status'] = r.status_code
+                info['body'] = ((r.content or b'')[:600].decode('utf-8', 'replace')
+                                if r.status_code != 200 else '')
+            if r.status_code == 200 and r.content[:5] == b'%PDF-':
+                return r.content
+            log.debug(f"  Omaha PDF {url}: HTTP {r.status_code}, "
+                      f"{len(r.content)} bytes (attempt {attempt})")
+        except requests.RequestException as e:
+            if info is not None:
+                info['status'] = None
+            log.debug(f"  Omaha PDF {url}: {e} (attempt {attempt})")
+        if attempt == 1:
+            time.sleep(2)
+    return None
+
+
+def _oma_layer_newest():
+    """Newest inspection_date in the layer (for the lag note when the
+    window itself comes back empty), or ''."""
+    try:
+        r = requests.get(OMAHA_LAYER + '/query', params={
+            'where': '1=1', 'outFields': 'inspection_date', 'returnGeometry': 'false',
+            'orderByFields': 'inspection_date DESC', 'resultRecordCount': 1, 'f': 'json',
+        }, headers={'User-Agent': CHROME_UA}, timeout=60)
+        feats = r.json().get('features') or []
+        return str(feats[0]['attributes'].get('inspection_date') or '')[:10] if feats else ''
+    except Exception as e:  # noqa: BLE001 - the note is best-effort
+        log.debug(f"  Omaha: newest-date probe failed: {e}")
+        return ''
+
+
+def _oma_clean(text):
+    """Collapse whitespace; title-case an ALL CAPS value."""
+    s = ' '.join(str(text or '').split())
+    return s.title() if s.isupper() else s
+
+
+def fetch_omaha(since_date=None, limit=None):
+    """
+    Fetch Omaha / Douglas County, NE inspections: the county's ArcGIS layer
+    (one row per inspection, letter rating, coordinates, PDF link), then each
+    inspection's report PDF for the TOTAL P/PF/C counts and the OUT items.
+    original_score is None (the county publishes a letter, not a number);
+    risk_score = 100 - 5P - 2PF - C from the inspector's totals. Inspections
+    whose PDF cannot be read are dropped.
+    """
+    log.info(f"Fetching Omaha / Douglas County data (since={since_date}, limit={limit})")
+    since = str(since_date)[:10] if since_date else None
+    where = f"inspection_date >= DATE '{since}'" if since else '1=1'
+    rows = _arcgis_query_all(
+        OMAHA_LAYER, where=where,
+        out_fields='inspection_id,inspection_date,est_name,est_address,address_2,'
+                   'est_city,est_state,est_zip,firm_number,rating,downloadDetailsUrl')
+    log.info(f"  Omaha: {len(rows)} inspection rows since {since or 'the start of the feed'}")
+    newest = max((str(f.get('attributes', {}).get('inspection_date') or '')[:10]
+                  for f in rows), default='') or _oma_layer_newest()
+    _note_source_lag('Omaha', newest)
+
+    candidates = []
+    skipped = 0
+    for f in rows:
+        a = f.get('attributes') or {}
+        insp_id = a.get('inspection_id')
+        insp_date = sane_inspection_date(str(a.get('inspection_date') or '')[:10])
+        name = _oma_clean(a.get('est_name'))
+        url = (a.get('downloadDetailsUrl') or '').strip()
+        state = (a.get('est_state') or '').strip().upper()
+        # The layer carries a couple of test permits and one out-of-state
+        # itinerant vendor; only Nebraska rows belong on the map.
+        if (insp_id is None or not insp_date or not name or not url.startswith('http')
+                or state not in ('NE', 'NEBRASKA') or 'test permit' in name.lower()):
+            skipped += 1
+            continue
+        geom = f.get('geometry') or {}
+        lat, lng = geom.get('y'), geom.get('x')
+        if not (isinstance(lat, (int, float)) and isinstance(lng, (int, float))
+                and 39.5 < lat < 43.5 and -105 < lng < -95):
+            lat = lng = None
+        candidates.append((insp_date, int(insp_id), a, url, lat, lng))
+    if skipped:
+        log.info(f"  Omaha: skipped {skipped} rows without an id/date/name/PDF or outside NE")
+    candidates.sort(key=lambda t: (t[0], t[1]), reverse=True)   # newest first
+    if limit:
+        candidates = candidates[:limit]
+    if not candidates:
+        log.info("Omaha: 0 inspections")
+        return []
+
+    log.info(f"  Omaha: fetching {len(candidates)} inspection PDFs "
+             f"({OMAHA_DETAIL_WORKERS} workers)...")
+    local = threading.local()
+
+    def get_session():
+        if not hasattr(local, 's'):
+            local.s = requests.Session()
+        return local.s
+
+    def work(cand):
+        if _past_deadline():
+            return cand, 'deadline'
+        info = {}
+        pdf = _oma_fetch_pdf(cand[3], get_session(), info)
+        time.sleep(OMAHA_DETAIL_DELAY)
+        if pdf is None:
+            # The county's PDF endpoint crashes on some records every time
+            # (measured 2026-10-10: 11 of 472, all HTTP 500 with one of the
+            # two Laravel errors below). Only that is permanent; any other
+            # failure, a bare 500 included, is transient and held.
+            body = info.get('body') or ''
+            if info.get('status') == 500 and any(sig in body for sig in OMAHA_PERMANENT_500S):
+                return cand, 'server'
+            return cand, 'download'
+        try:
+            return cand, _oma_parse_report(pdf)
+        except Exception as e:  # noqa: BLE001 - a bad PDF drops one inspection
+            log.debug(f"  Omaha PDF {cand[3]}: unparseable: {e}")
+            return cand, 'parse'
+
+    reports = {}
+    failures = defaultdict(int)
+    done = 0
+    started = time.time()
+    # Oldest first, so a deadline cut drops the newest tail; transient
+    # drops hold Omaha's freshness so the next run's lookback re-reads them.
+    with ThreadPoolExecutor(max_workers=OMAHA_DETAIL_WORKERS) as pool:
+        ordered = sorted(candidates, key=lambda t: (t[0], t[1]))
+        for future in as_completed([pool.submit(work, c) for c in ordered]):
+            cand, report = future.result()
+            done += 1
+            if isinstance(report, dict):
+                reports[cand[1]] = report
+            else:
+                failures[report] += 1
+                if report in ('download', 'deadline'):
+                    _hold_freshness(OMAHA_SOURCE, cand[0], counted=(report == 'download'),
+                                    key=cand[1])
+            if done % 200 == 0:
+                log.info(f"  Omaha PDFs: {done}/{len(candidates)}")
+    log.info(f"  Omaha: {len(reports)} PDFs read in {time.time() - started:.0f}s")
+    if failures.get('deadline'):
+        _set_group_status('Omaha', 'skipped',
+                          f"fetch deadline reached; {failures['deadline']} PDFs not read")
+    if failures:
+        # Dropped, not shipped clean: transient drops ('download',
+        # 'deadline') hold the freshness so the lookback refetches them;
+        # 'server' (the county's endpoint 500s on that record every time)
+        # and 'parse' are permanent and retried only while in the window.
+        log.warning("  Omaha: dropped " + ', '.join(
+            f"{n} ({why})" for why, n in sorted(failures.items())) +
+            " inspections whose PDF could not be read")
+
+    results = []
+    date_mismatch = 0
+    for insp_date, insp_id, a, url, lat, lng in candidates:
+        report = reports.get(insp_id)
+        if report is None:
+            continue
+        p, pf, c = report['totals']
+        sev = _oma_item_severities(report['out_items'], report['totals'])
+        violations = []
+        for num, title in report['out_items']:
+            cat, _, _ = classify_violation(title)
+            violations.append([cat, sev[num], title[:500]])
+        rating = (a.get('rating') or '').strip().upper()
+        if rating not in ('A', 'B', 'C', 'D', 'F'):
+            rating = (report.get('rating') or '').strip().upper()
+            if rating not in ('A', 'B', 'C', 'D', 'F'):
+                rating = ''                 # junk values ('-', 'aA', 'NA') and nulls
+        pdf_date = report.get('date') or ''
+        try:
+            if pdf_date and datetime.strptime(pdf_date, '%m/%d/%Y').strftime('%Y-%m-%d') != insp_date:
+                date_mismatch += 1
+        except ValueError:
+            pass
+        address = _oma_clean(a.get('est_address'))
+        address_2 = _oma_clean(a.get('address_2'))
+        if address_2:
+            address = f'{address} {address_2}'.strip()
+        # the purpose box prints e.g. 'Routine', 'Follow_up', 'Other ,', 'Other , Fire'
+        purpose = ' '.join((report.get('purpose') or '').replace('Follow_up', 'Follow-up')
+                           .replace('_', ' ').split()).replace(' ,', ',').strip(' ,;:-')
+        results.append({
+            'name': _oma_clean(a.get('est_name')),
+            'address': address,
+            'city': _oma_clean(a.get('est_city')) or 'Omaha',
+            'state': 'NE',
+            'zip': str(a.get('est_zip') or '')[:5],
+            'latitude': lat,
+            'longitude': lng,
+            'inspection_date': insp_date,
+            'original_score': None,         # the county publishes a letter, not a number
+            'risk_score': max(0, 100 - 5 * p - 2 * pf - c),
+            'priority_violations': p,
+            'priority_foundation_violations': pf,
+            'core_violations': c,
+            'total_violations': p + pf + c,
+            'violations': violations,
+            'inspection_type': purpose,
+            'results': f'Rating {rating}' if rating else '',
+            'source': OMAHA_SOURCE,
+            'source_url': url,
+            'source_id': f'oma_{insp_id}',
+            'metro': '',
+        })
+    if date_mismatch:
+        log.warning(f"  Omaha: {date_mismatch} PDFs print a different inspection "
+                    f"date than the layer row")
+    # Same restaurant inspected twice on one day (a routine visit and its
+    # follow-up): D1 keys inspections by restaurant+date and keeps the FIRST
+    # record it sees, so put the rated, violation-bearing visit first.
+    results.sort(key=lambda r: (r['inspection_date'], bool(r['results']),
+                                r['total_violations'], r['source_id']), reverse=True)
+    log.info(f"Omaha / Douglas County: {len(results)} inspections")
     return results
 
 
@@ -3392,41 +5198,140 @@ def fetch_fairfax(since_date=None, limit=None):
 SNHD_API = ('https://www.southernnevadahealthdistrict.org/wp-json/'
             'snhd-eh-restaurants/v1/restaurants')
 SNHD_PAGE = 100          # server caps per_page at 100
-SNHD_DETAIL_WORKERS = 4
+# The district's site rate-limits by answering 401 Unauthorized once a client
+# has made a few hundred requests in a few minutes (GitHub runners saw it
+# after ~60 list pages; a sandbox saw it a few minutes into a 4-worker
+# detail phase), so the detail phase runs gently and a 401/429 is a signal to
+# back off for a minute or two, not a failure to retry three seconds later.
+SNHD_DETAIL_WORKERS = int(os.environ.get('SNHD_DETAIL_WORKERS', '2'))
+SNHD_DETAIL_DELAY = float(os.environ.get('SNHD_DETAIL_DELAY', '0.5'))
+SNHD_LIST_DELAY = float(os.environ.get('SNHD_LIST_DELAY', '0.4'))
+SNHD_RATE_LIMIT_WAIT = float(os.environ.get('SNHD_RATE_LIMIT_WAIT', '90'))   # seconds
+_SNHD_RATE_LIMIT_LOCK = threading.Lock()
+_SNHD_RATE_LIMITED_UNTIL = 0.0
+# Breaker: a throttle or failure that does not lift is a block. Once one
+# unbroken throttling episode (no successful request in between) has paused
+# SNHD_MAX_TOTAL_PAUSE, or SNHD_BREAKER_TRIP requests in a row exhaust their
+# retries for any reason (401/429, a 403 block, 5xx, timeouts), every
+# further SNHD request fails at once — otherwise a lasting block burns the
+# whole fetch deadline in backoff pauses and starves every later group.
+# A 400/404/410 is that one permit's problem: not retried, not counted.
+SNHD_MAX_TOTAL_PAUSE = float(os.environ.get('SNHD_MAX_TOTAL_PAUSE', '900'))   # seconds
+SNHD_BREAKER_TRIP = 3
+# A permit read this run also ships its previous inspections up to this many
+# days before the window start (see fetch_vegas): a permit left unread last
+# run brings along the earlier inspection that run never read (a downgrade
+# before a re-inspection), while the window itself starts at the oldest
+# unread permit so a cut run always moves forward by what it read.
+# Re-shipping a known date is harmless (both merges key on restaurant+date).
+SNHD_PREVIOUS_MARGIN_DAYS = 14
+_SNHD_BLOCKED = False
+_SNHD_PAUSED_TOTAL = 0.0
+_SNHD_EXHAUSTED_STREAK = 0
 
 
 _SNHD_FAILURES_LOGGED = 0
 
 
-def _snhd_get(url, params=None, retries=3):
-    global _SNHD_FAILURES_LOGGED
+_SNHD_LAST_ERROR = ''
+
+
+def _snhd_pause_all(seconds):
+    """Hold every SNHD worker back for `seconds` (one shared clock); trips
+    the breaker once the run's pauses add up to SNHD_MAX_TOTAL_PAUSE."""
+    global _SNHD_RATE_LIMITED_UNTIL, _SNHD_PAUSED_TOTAL, _SNHD_BLOCKED
+    with _SNHD_RATE_LIMIT_LOCK:
+        now = time.time()
+        new_until = max(_SNHD_RATE_LIMITED_UNTIL, now + seconds)
+        # Count only the extension, so overlapping pauses from several
+        # workers are not added up several times.
+        _SNHD_PAUSED_TOTAL += max(0.0, new_until - max(_SNHD_RATE_LIMITED_UNTIL, now))
+        _SNHD_RATE_LIMITED_UNTIL = new_until
+        if _SNHD_PAUSED_TOTAL >= SNHD_MAX_TOTAL_PAUSE and not _SNHD_BLOCKED:
+            _SNHD_BLOCKED = True
+            log.error(f"  SNHD: throttled for {_SNHD_PAUSED_TOTAL / 60:.0f} min this run — "
+                      f"treating it as a block; remaining SNHD requests are skipped")
+
+
+def _snhd_wait_if_limited():
+    while True:
+        remaining = _SNHD_RATE_LIMITED_UNTIL - time.time()
+        if remaining <= 0 or _past_deadline():
+            return
+        time.sleep(min(remaining, 5))
+
+
+def _snhd_get(url, params=None, retries=4, info=None):
+    """GET an SNHD API url; the parsed JSON, or None on failure. With
+    `info` (a dict), info['permanent'] says whether the failure was the
+    request's own (400/404/410: that permit will never read) rather than
+    the district's."""
+    global _SNHD_FAILURES_LOGGED, _SNHD_LAST_ERROR, _SNHD_BLOCKED, _SNHD_EXHAUSTED_STREAK
+    global _SNHD_PAUSED_TOTAL
+    if _SNHD_BLOCKED:
+        _SNHD_LAST_ERROR = 'SNHD breaker tripped this run'
+        return None
     last_err = None
+    permanent = False
     for attempt in range(retries):
+        _snhd_wait_if_limited()
+        if _SNHD_BLOCKED:
+            break
         try:
             r_url, r_params, r_extra = _relay(url, params)
             r = requests.get(r_url, params=r_params,
                              headers={'User-Agent': CHROME_UA, **r_extra}, timeout=60,
                              proxies=_portal_proxies())
             r.raise_for_status()
-            return r.json()
+            data = r.json()
+            with _SNHD_RATE_LIMIT_LOCK:
+                _SNHD_EXHAUSTED_STREAK = 0
+                _SNHD_PAUSED_TOTAL = 0.0      # the throttling episode is over
+            return data
         except (requests.RequestException, ValueError) as e:
             last_err = e
+            resp = getattr(e, 'response', None)
+            status = resp.status_code if resp is not None else None
+            if status in (400, 404, 410):
+                permanent = True
+                if info is not None:
+                    info['permanent'] = True
+                break
             if attempt == retries - 1:
                 break
-            # Back off harder than a couple of seconds: the district's site
-            # throttles bursts, and a 429 carries the wait it wants.
-            wait = 5 * (3 ** attempt)
-            resp = getattr(e, 'response', None)
-            if resp is not None and resp.status_code == 429:
+            if status in (401, 429):
+                # The district is throttling this client. Every worker
+                # pauses together (a lone sleeping worker changes nothing
+                # while three others keep hammering), and a 429's
+                # Retry-After is honoured when it is longer.
+                wait = SNHD_RATE_LIMIT_WAIT * (attempt + 1)
                 try:
-                    wait = max(wait, min(int(resp.headers.get('Retry-After', 0)), 120))
-                except ValueError:
+                    wait = max(wait, min(int((resp.headers or {}).get('Retry-After', 0)), 300))
+                except (TypeError, ValueError):
                     pass
-            time.sleep(wait)
+                if _past_deadline():
+                    break
+                if _SNHD_FAILURES_LOGGED < 5:
+                    log.warning(f"  SNHD rate-limited ({status}); pausing all SNHD "
+                                f"requests {wait:.0f}s (attempt {attempt + 1}/{retries})")
+                _snhd_pause_all(wait)
+                continue
+            # Other failures: back off harder than a couple of seconds.
+            if _past_deadline():
+                break
+            time.sleep(5 * (3 ** attempt))
     # Say WHY: a 403 from an IP the district's site blocks looks nothing
     # like a timeout, and "list fetch failed" alone hid that for weeks.
     # Only the first few failures are logged so a banned detail phase
     # doesn't emit thousands of lines.
+    _SNHD_LAST_ERROR = str(last_err)[:120] if last_err else 'SNHD breaker tripped this run'
+    if last_err is not None and not permanent:
+        with _SNHD_RATE_LIMIT_LOCK:
+            _SNHD_EXHAUSTED_STREAK += 1
+            if _SNHD_EXHAUSTED_STREAK >= SNHD_BREAKER_TRIP and not _SNHD_BLOCKED:
+                _SNHD_BLOCKED = True
+                log.error(f"  SNHD: {_SNHD_EXHAUSTED_STREAK} requests in a row failed through "
+                          f"every retry ({_SNHD_LAST_ERROR}) — treating it as a block")
     if _SNHD_FAILURES_LOGGED < 5:
         _SNHD_FAILURES_LOGGED += 1
         log.warning(f"  SNHD request failed after {retries} attempts "
@@ -3466,12 +5371,25 @@ def fetch_vegas(since_date=None, limit=None, fetch_violations=True):
     """
     log.info(f"Fetching Las Vegas (SNHD) data (since={since_date}, limit={limit})")
     sd = str(since_date)[:10] if since_date else None
+    # While a backlog drains over several cut runs, a permit left unread can
+    # be re-inspected and re-sorted to the newest end, and be read only once
+    # the window is weeks past the inspection it skipped. 'backlog_from' (the
+    # first window start of an unbroken series of runs that left permits
+    # unread) lets its previous inspections reach back that far.
+    fe = ((_FRESHNESS['sources'].setdefault('Southern Nevada Health District', {'group': 'Las Vegas'}))
+          if _FRESHNESS is not None else {})
+    base = min(sd, fe['backlog_from']) if (sd and fe.get('backlog_from')) else sd
+    prev_floor = ((datetime.strptime(base, '%Y-%m-%d') - timedelta(days=SNHD_PREVIOUS_MARGIN_DAYS))
+                  .strftime('%Y-%m-%d') if base else None)
 
     permits, page = {}, 1
     while True:
         d = _snhd_get(SNHD_API, {'per_page': SNHD_PAGE, 'page': page})
         if d is None:
-            raise RuntimeError('SNHD list fetch failed')
+            # A 401/403 here is the district's site refusing this egress
+            # (GitHub runners get it after a few dozen pages); a timeout is
+            # not. Put the reason in the run report, not just the log.
+            raise RuntimeError(f'SNHD list fetch failed on page {page}: {_SNHD_LAST_ERROR}')
         rows = d.get('results') or []
         for row in rows:
             pn = row.get('permit_number')
@@ -3482,7 +5400,7 @@ def fetch_vegas(since_date=None, limit=None, fetch_violations=True):
         page += 1
         if page % 30 == 0:
             log.info(f"  SNHD list: {len(permits)} permits so far...")
-        time.sleep(0.15)
+        time.sleep(SNHD_LIST_DELAY)
     log.info(f"  SNHD: {len(permits)} permits listed")
 
     # Only permits inspected in the window need (re)fetching.
@@ -3494,6 +5412,9 @@ def fetch_vegas(since_date=None, limit=None, fetch_violations=True):
         if sd and d_cur < sd:
             continue
         todo.append(pn)
+    # Oldest first, so a breaker trip or a deadline cut leaves the newest
+    # permits unread; their hold makes the next run read them.
+    todo.sort(key=lambda pn: str(permits[pn].get('date_current') or ''))
     if limit:
         todo = todo[:limit]
 
@@ -3534,21 +5455,38 @@ def fetch_vegas(since_date=None, limit=None, fetch_violations=True):
                  f"({SNHD_DETAIL_WORKERS} workers)...")
 
         def work(pn):
-            d = _snhd_get(f'{SNHD_API}/{pn}')
-            time.sleep(0.1)
-            return pn, d
+            if _past_deadline() or _SNHD_BLOCKED:
+                return pn, None, 'cut'
+            info = {}
+            d = _snhd_get(f'{SNHD_API}/{pn}', info=info)
+            time.sleep(SNHD_DETAIL_DELAY)
+            if d is not None:
+                return pn, d, ''
+            if info.get('permanent'):
+                return pn, None, 'permanent'
+            # A breaker trip or the deadline during this request is the
+            # run's problem, not the permit's.
+            return pn, None, 'cut' if (_SNHD_BLOCKED or _past_deadline()) else 'failed'
 
+        unread = {'failed': [], 'cut': []}
+        permanent = 0
         done = 0
         with ThreadPoolExecutor(max_workers=SNHD_DETAIL_WORKERS) as pool:
             for future in as_completed([pool.submit(work, pn) for pn in todo]):
-                pn, d = future.result()
+                pn, d, why = future.result()
                 done += 1
                 if done % 1000 == 0:
                     log.info(f"  SNHD details: {done}/{len(todo)}")
                 if d is None:
                     # Unreadable permit: skip rather than record without
                     # violation context (same policy as the Tyler portals).
+                    # A 400/404/410 is that permit's own and never reads;
+                    # anything else holds the freshness (below).
                     skipped += 1
+                    if why == 'permanent':
+                        permanent += 1
+                    else:
+                        unread[why].append(pn)
                     continue
                 row = permits[pn]
                 cur_date = sane_inspection_date(str(d.get('date_current') or row.get('date_current') or '')[:10])
@@ -3560,7 +5498,7 @@ def fetch_vegas(since_date=None, limit=None, fetch_violations=True):
                         _snhd_violations(d.get('current_violations_resolved'))))
                 for prev in d.get('previous_inspections') or []:
                     p_date = sane_inspection_date(str(prev.get('inspection_date') or '')[:10])
-                    if not p_date or (sd and p_date < sd):
+                    if not p_date or (prev_floor and p_date < prev_floor):
                         continue
                     results.append(build(
                         row, p_date, prev.get('inspection_grade'),
@@ -3575,8 +5513,38 @@ def fetch_vegas(since_date=None, limit=None, fetch_violations=True):
                 results.append(build(row, cur_date, row.get('current_grade'),
                                      row.get('current_demerits'),
                                      row.get('inspection_type'), []))
+    # Hold Las Vegas so the next run re-reads the unread permits: each permit
+    # holds on its own (its failures count on their own), and the next
+    # window starts exactly at the oldest unread permit's current date, so a
+    # run cut short by the breaker or the deadline still moves the window
+    # forward by what it read (permits run oldest-first). The permit's
+    # earlier inspections come back through SNHD_PREVIOUS_MARGIN_DAYS.
+    # _hold_window_start, not a plain hold: the lookback reaches two days
+    # past a plain hold, so the window would slide back every run. advance:
+    # every permit dated before the oldest unread one was read (oldest-first,
+    # all workers done), so the latest may rise to it; otherwise the next
+    # window would start a day early and a run that cannot finish two days
+    # of permits would never move.
+    for why, pns in unread.items():
+        for pn in pns:
+            cur = sane_inspection_date(str(permits[pn].get('date_current') or '')[:10])
+            if cur:
+                _hold_window_start('Southern Nevada Health District', cur,
+                                   counted=(why == 'failed'), key=pn, advance=True)
+    if fetch_violations and sd:
+        if any(unread.values()):
+            fe.setdefault('backlog_from', sd)
+        else:
+            fe.pop('backlog_from', None)
     if skipped:
-        log.warning(f"  SNHD: skipped {skipped} permits with unreadable details")
+        log.warning(f"  SNHD: skipped {skipped} permits with unreadable details"
+                    + (f" ({permanent} answered 400/404/410 and are not retried)" if permanent else ''))
+        if _SNHD_BLOCKED:
+            _set_group_status('Las Vegas', 'blocked',
+                              f'SNHD throttled the detail phase; {skipped} permits not read')
+        elif _past_deadline():
+            _set_group_status('Las Vegas', 'skipped',
+                              f'fetch deadline reached; {skipped} permits not read')
     log.info(f"Las Vegas (SNHD): {len(results)} inspections")
     return results
 
@@ -3614,10 +5582,25 @@ MHD_DETAIL_BLOCK_TRIP = 3
 # MHD_BAN_COOLDOWNS times per run, and only while the fetch deadline leaves
 # room for the wait. Searches keep working during a detail ban.
 MHD_BAN_COOLDOWN = float(os.environ.get('MHD_BAN_COOLDOWN', '900'))   # seconds
-MHD_BAN_COOLDOWNS = int(os.environ.get('MHD_BAN_COOLDOWNS', '3'))     # per run
+MHD_BAN_COOLDOWNS = int(os.environ.get('MHD_BAN_COOLDOWNS', '16'))    # per run
+# (16 x 15 min matches the 240-minute fetch deadline the weekly job runs
+# with, so in CI the deadline, not this count, is what ends a run; the count
+# matters for local catch-ups with a longer deadline. A week of every MHD
+# jurisdiction is well over 1,000 detail pages, five or more ban windows —
+# the old budget of 3 could never finish a normal week once the portal was
+# reachable again.)
 _MHD_DETAIL_BANNED = False   # detail pages 403ing right now (searches still fine)
 _MHD_COOLDOWNS_USED = 0
 MHD_WINDOW_DAYS = 7    # initial search window; bisected when the query cap is hit
+# The search API allows roughly 250 requests per TCP CONNECTION before it
+# answers 403 to everything on that connection (measured 2026-10-10: 252
+# searches in 265 s, then 403; clearing cookies changed nothing, closing the
+# session — a fresh connection — got 200 at once). The 7-day DFW windows
+# never reached it; Tennessee's bucket mode (30 searches a day) hit it in
+# five minutes and the run-wide breaker then wrote the whole state off as
+# "blocked". So every session rotates its connections proactively, and the
+# first 403 on a search is answered with a reconnect, not a 30 s wait.
+MHD_SEARCHES_PER_CONNECTION = int(os.environ.get('MHD_SEARCHES_PER_CONNECTION', '150'))
 # Detail-page pace, env-overridable: the portal rate-bans IPs that hammer
 # detail pages (searches survive while details start 403ing). When a run
 # trips the block, retry later with MHD_DETAIL_WORKERS=1 and a larger
@@ -3647,31 +5630,80 @@ def _mhd_session():
     return s
 
 
-def _mhd_search_page(session, slug, date_range_str, start_offset, retry_count=0):
+def _mhd_path(slug, config=None):
+    """The portal path (URL slug) behind a jurisdiction-table key.
+
+    Keys are fetch units: usually the portal slug itself, but a config that
+    carries 'path' is a pseudo-jurisdiction — one of several units carved
+    out of one portal slug (the Tennessee metros all live under
+    'tennessee'). Every request URL and payload must use this, never the
+    key."""
+    return str((config or {}).get('path') or slug)
+
+
+def _mhd_norm_city(value):
+    """City string as compared against a config's city_allow: lower-case,
+    whitespace collapsed, hyphens as spaces, periods dropped ('Soddy-Daisy'
+    == 'Soddy Daisy', 'Mt. Juliet' == 'Mt Juliet', 'NASHVILLE' == 'Nashville')."""
+    return ' '.join(str(value or '').lower().replace('-', ' ').replace('.', '').split())
+
+
+def _mhd_row_rejection(rec, programs=(), city_allow=()):
+    """Why a raw search row falls outside a jurisdiction config ('' = keep):
+    'program' when the config lists programs and the row's programName is not
+    one of them, 'city' when it lists city_allow and the row's city is not
+    one of them. Both sets arrive pre-normalised (lower-case programs,
+    _mhd_norm_city cities); an empty set means "no filter"."""
+    if programs and str(rec.get('programName') or '').strip().lower() not in programs:
+        return 'program'
+    if city_allow and _mhd_norm_city(rec.get('city')) not in city_allow:
+        return 'city'
+    return ''
+
+
+def _mhd_rotate_connection(session, force=False):
+    """Count this session's searches and drop its pooled connections every
+    MHD_SEARCHES_PER_CONNECTION of them (or now, when force), so the next
+    request opens a fresh connection with a fresh quota. Cookies are kept:
+    they are not what the quota is keyed on."""
+    n = getattr(session, '_mhd_searches', 0)
+    n = (n if isinstance(n, int) else 0) + 1
+    if force or n >= MHD_SEARCHES_PER_CONNECTION:
+        session.close()   # requests reopens connections on the next request
+        n = 0
+    session._mhd_searches = n
+
+
+def _mhd_search_page(session, path, date_range_str, start_offset, retry_count=0,
+                     search_str='', purpose=''):
     """
     Fetch one page of search results from MHD portal API.
 
     Args:
         session: requests.Session with browser headers
-        slug: portal path (e.g. 'dallas')
+        path: portal path (e.g. 'dallas'; see _mhd_path)
         date_range_str: date filter string like '2026-03-01 to 2026-03-01'
         start_offset: pagination offset
         retry_count: current retry attempt
+        search_str: portal searchStr — '' (default) is the plain date search;
+            non-empty switches the portal to one row per permit (see the
+            Tennessee note above MHD_METRO_JURISDICTIONS)
+        purpose: filters.purpose — '' (default) is any purpose
 
     Returns:
         list of record dicts, or None on permanent failure
     """
     payload = {
         'data': {
-            'path': slug,
-            'programName': '',
+            'path': path,
+            'programName': '',   # never non-empty: the server hangs on it
             'filters': {
                 'date': date_range_str,
-                'purpose': '',
+                'purpose': purpose or '',
             },
             'start': start_offset,
             'count': MHD_PAGE_SIZE,
-            'searchStr': '',
+            'searchStr': search_str or '',
             'lat': 0,
             'lng': 0,
             'sort': {},
@@ -3681,9 +5713,21 @@ def _mhd_search_page(session, slug, date_range_str, start_offset, retry_count=0)
     global _MHD_PORTAL_BLOCKED
     if _MHD_PORTAL_BLOCKED:
         return None
+    _mhd_rotate_connection(session)
     try:
         r = session.post(MHD_BASE_URL, json=payload, timeout=30)
         if r.status_code in (403, 429):
+            if retry_count == 0 and getattr(session, '_mhd_reconnected', False) is not True:
+                # A per-connection quota, not a block: reconnect and retry
+                # right away. The flag keeps one quota exhaustion from
+                # masking a real block (the second 403 goes to the ladder).
+                _mhd_rotate_connection(session, force=True)
+                session._mhd_reconnected = True
+                log.info(f"  MHD {r.status_code} on a search — reconnected and retrying")
+                result = _mhd_search_page(session, path, date_range_str, start_offset,
+                                          retry_count, search_str, purpose)
+                session._mhd_reconnected = False
+                return result
             if retry_count < MHD_MAX_RETRIES:
                 if _past_deadline():
                     # Time budget ran out, not necessarily a persistent
@@ -3696,7 +5740,8 @@ def _mhd_search_page(session, slug, date_range_str, start_offset, retry_count=0)
                 log.warning(f"  MHD blocked ({r.status_code}). Waiting {wait}s before retry "
                             f"{retry_count + 1}/{MHD_MAX_RETRIES}...")
                 time.sleep(wait)
-                return _mhd_search_page(session, slug, date_range_str, start_offset, retry_count + 1)
+                return _mhd_search_page(session, path, date_range_str, start_offset,
+                                        retry_count + 1, search_str, purpose)
             _MHD_PORTAL_BLOCKED = True
             log.error(f"  MHD blocked ({r.status_code}) after {retry_count} retries — "
                       f"skipping the portal's remaining fetches this run")
@@ -3712,12 +5757,85 @@ def _mhd_search_page(session, slug, date_range_str, start_offset, retry_count=0)
             wait = MHD_RETRY_DELAY * (retry_count + 1)
             log.warning(f"  MHD network error: {e}. Waiting {wait}s before retry...")
             time.sleep(wait)
-            return _mhd_search_page(session, slug, date_range_str, start_offset, retry_count + 1)
+            return _mhd_search_page(session, path, date_range_str, start_offset,
+                                    retry_count + 1, search_str, purpose)
         log.error(f"  MHD failed after {retry_count} retries: {e}")
         return None
 
 
-def _mhd_fetch_window(session, slug, start_day, end_day):
+def _mhd_search_all_pages(session, path, date_range, search_str='', purpose=''):
+    """
+    Page one search query (offsets of MHD_PAGE_SIZE) until a short page or
+    the query cap. The first page can carry more than MHD_PAGE_SIZE rows and
+    later pages can repeat rows (both seen on 'gwinnett' and 'tennessee'),
+    so callers dedupe by inspectionID; offsets are never pushed past the cap
+    (the portal rejects them).
+
+    Returns the raw rows (len >= MHD_QUERY_CAP means the cap was hit), or
+    None on permanent failure.
+    """
+    rows = []
+    start = 0
+    while len(rows) < MHD_QUERY_CAP:
+        page = _mhd_search_page(session, path, date_range, start,
+                                search_str=search_str, purpose=purpose)
+        if page is None:
+            return None  # permanent failure
+        if not page:
+            break
+        rows.extend(page)
+        if len(page) < MHD_PAGE_SIZE:
+            break
+        start += MHD_PAGE_SIZE
+        time.sleep(MHD_DELAY)
+    return rows
+
+
+def _mhd_fetch_bucket_window(session, path, start_day, end_day, search_terms,
+                             purposes, label=''):
+    """
+    Bucket-mode search for one window: one paged query per search term ×
+    purpose, unioned by inspectionID (a permit matching two terms, e.g. a
+    'Nashville' address in 'Madison', comes back from both).
+
+    A term+purpose that still reaches MHD_QUERY_CAP is logged as incomplete
+    and KEPT, never bisected: with a searchStr the window is already a
+    single day and the result is one row per permit, so there is nothing
+    finer to split — only a narrower term would help.
+
+    Returns (rows, capped) where capped lists the (term, purpose) pairs that
+    hit the cap, or None on permanent failure.
+    """
+    date_range = f"{start_day:%Y-%m-%d} to {end_day:%Y-%m-%d}"
+    label = label or path
+    by_id = {}
+    capped = []
+    for term in search_terms:
+        for purpose in purposes:
+            if _past_deadline():
+                log.warning(f"  {label} {date_range}: fetch deadline reached inside the "
+                            f"window — stopping after {len(by_id)} rows")
+                return list(by_id.values()), capped
+            rows = _mhd_search_all_pages(session, path, date_range,
+                                         search_str=term, purpose=purpose)
+            if rows is None:
+                return None
+            log.debug(f"  {label} {date_range} '{term}' / {purpose or 'any purpose'}: "
+                      f"{len(rows)} rows")
+            if len(rows) >= MHD_QUERY_CAP:
+                log.warning(f"  {label} {date_range} '{term}' / {purpose or 'any purpose'}: "
+                            f"hit the {MHD_QUERY_CAP} record cap — this bucket is "
+                            f"INCOMPLETE (a narrower search term is needed)")
+                capped.append((term, purpose))
+            for row in rows:
+                key = (str(row.get('inspectionID') or '').strip()
+                       or f"{row.get('permitID')}|{row.get('inspectionDate')}")
+                by_id.setdefault(key, row)
+            time.sleep(MHD_DELAY)
+    return list(by_id.values()), capped
+
+
+def _mhd_fetch_window(session, path, start_day, end_day):
     """
     Fetch all inspection records for a date window (datetime, datetime),
     paginating through results. The search API silently truncates a query
@@ -3727,19 +5845,9 @@ def _mhd_fetch_window(session, slug, start_day, end_day):
     Returns a list of raw records, or None on permanent failure.
     """
     date_range = f"{start_day.strftime('%Y-%m-%d')} to {end_day.strftime('%Y-%m-%d')}"
-    all_results = []
-    start = 0
-    while len(all_results) < MHD_QUERY_CAP:
-        page = _mhd_search_page(session, slug, date_range, start)
-        if page is None:
-            return None  # permanent failure
-        if not page:
-            break
-        all_results.extend(page)
-        if len(page) < MHD_PAGE_SIZE:
-            break
-        start += MHD_PAGE_SIZE
-        time.sleep(MHD_DELAY)
+    all_results = _mhd_search_all_pages(session, path, date_range)
+    if all_results is None:
+        return None  # permanent failure
 
     if len(all_results) >= MHD_QUERY_CAP and start_day.date() < end_day.date():
         # Cap hit on a multi-day window: bisect and refetch both halves.
@@ -3750,15 +5858,15 @@ def _mhd_fetch_window(session, slug, start_day, end_day):
         mid = datetime(mid.year, mid.month, mid.day)
         if mid < start_day:
             mid = datetime(start_day.year, start_day.month, start_day.day)
-        log.info(f"  {slug} {date_range}: hit query cap, splitting window")
-        left = _mhd_fetch_window(session, slug, start_day, mid)
-        right = _mhd_fetch_window(session, slug, mid + timedelta(days=1), end_day)
+        log.info(f"  {path} {date_range}: hit query cap, splitting window")
+        left = _mhd_fetch_window(session, path, start_day, mid)
+        right = _mhd_fetch_window(session, path, mid + timedelta(days=1), end_day)
         if left is None or right is None:
             return None
         return left + right
 
     if len(all_results) >= MHD_QUERY_CAP:
-        log.warning(f"  {slug} {date_range} hit the {MHD_QUERY_CAP} record cap on a "
+        log.warning(f"  {path} {date_range} hit the {MHD_QUERY_CAP} record cap on a "
                     f"single day — some records may be missing")
     return all_results
 
@@ -3807,18 +5915,19 @@ def _mhd_parse_detail_html(html):
     return observations
 
 
-def _mhd_fetch_inspection_detail(session, slug, inspection_id, retry_count=0):
+def _mhd_fetch_inspection_detail(session, path, inspection_id, retry_count=0):
     """
     Fetch violation details for a single inspection by scraping its public
     detail page. (The portal has no JSON API for details — the observations
     are rendered server-side into the page HTML, so a plain GET suffices.)
+    `path` is the real portal path (_mhd_path), never a pseudo-jurisdiction key.
 
     Returns a list of violation description strings, or empty list on failure.
     """
     global _MHD_DETAIL_BLOCK_STREAK, _MHD_DETAIL_BANNED
     if _MHD_PORTAL_BLOCKED or _MHD_DETAIL_BANNED:
         return None  # blocked — must not read as "no violations"
-    url = f'{MHD_BASE_URL}{slug}/inspection/'
+    url = f'{MHD_BASE_URL}{path}/inspection/'
     try:
         r = session.get(url, params={'inspectionID': inspection_id}, timeout=30)
         if r.status_code in (403, 429):
@@ -3826,7 +5935,7 @@ def _mhd_fetch_inspection_detail(session, slug, inspection_id, retry_count=0):
                 if _past_deadline():
                     return None  # out of budget, not evidence of a block
                 time.sleep(MHD_RETRY_DELAY)
-                return _mhd_fetch_inspection_detail(session, slug, inspection_id, retry_count + 1)
+                return _mhd_fetch_inspection_detail(session, path, inspection_id, retry_count + 1)
             with _MHD_BLOCK_LOCK:
                 _MHD_DETAIL_BLOCK_STREAK += 1
                 if (_MHD_DETAIL_BLOCK_STREAK >= MHD_DETAIL_BLOCK_TRIP
@@ -3849,11 +5958,15 @@ def _mhd_fetch_inspection_detail(session, slug, inspection_id, retry_count=0):
         return None
 
 
-def _mhd_fetch_details_bulk(slug, records, trust_official_score=True):
+def _mhd_fetch_details_bulk(path, records, trust_official_score=True, label=None):
     """
     Fetch violation details for many inspections with a small worker pool.
     Each record with details gets its violations/risk fields updated in place.
 
+    path: the real portal path (_mhd_path) the detail URLs live under.
+    label: name for log lines (defaults to the path; pseudo-jurisdictions
+    pass their display name so four Tennessee metros don't all log as
+    'tennessee').
     trust_official_score: True for 0-100 jurisdictions whose official score
     already IS a risk score; False for demerit jurisdictions, where the risk
     score is recomputed from the scraped violations instead.
@@ -3867,6 +5980,7 @@ def _mhd_fetch_details_bulk(slug, records, trust_official_score=True):
     """
     global _MHD_PORTAL_BLOCKED, _MHD_DETAIL_BANNED, _MHD_DETAIL_BLOCK_STREAK
     global _MHD_COOLDOWNS_USED
+    label = label or path
     local = threading.local()
 
     def get_session():
@@ -3875,7 +5989,7 @@ def _mhd_fetch_details_bulk(slug, records, trust_official_score=True):
         return local.session
 
     def fetch_one(rec):
-        texts = _mhd_fetch_inspection_detail(get_session(), slug, rec['source_id'])
+        texts = _mhd_fetch_inspection_detail(get_session(), path, rec['source_id'])
         if not (_MHD_PORTAL_BLOCKED or _MHD_DETAIL_BANNED):
             # no pacing needed for the breaker's instant no-op returns
             time.sleep(MHD_DETAIL_DELAY)
@@ -3935,7 +6049,7 @@ def _mhd_fetch_details_bulk(slug, records, trust_official_score=True):
         if _MHD_DETAIL_BANNED:
             if can_wait_out_ban():
                 _MHD_COOLDOWNS_USED += 1
-                log.warning(f"  {slug}: detail pages banned after {fetched} fetched — "
+                log.warning(f"  {label}: detail pages banned after {fetched} fetched — "
                             f"waiting {MHD_BAN_COOLDOWN / 60:.0f} min for the ban to "
                             f"lift (cooldown {_MHD_COOLDOWNS_USED}/{MHD_BAN_COOLDOWNS}); "
                             f"{len(failed)} inspections still to detail")
@@ -3949,7 +6063,7 @@ def _mhd_fetch_details_bulk(slug, records, trust_official_score=True):
             # detail phase would ban instantly too, so trip the run-wide
             # breaker and drop the undetailed records (never ship as clean).
             _MHD_PORTAL_BLOCKED = True
-            log.error(f"  {slug}: detail pages banned with no cooldown budget left "
+            log.error(f"  {label}: detail pages banned with no cooldown budget left "
                       f"({_MHD_COOLDOWNS_USED}/{MHD_BAN_COOLDOWNS} used, deadline "
                       f"{'set' if _FETCH_DEADLINE else 'none'}) — skipping the "
                       f"portal's remaining fetches this run")
@@ -3960,13 +6074,13 @@ def _mhd_fetch_details_bulk(slug, records, trust_official_score=True):
             still_failed = failed
             break
         plain_retries += 1
-        log.warning(f"  {slug}: retrying {len(failed)} failed detail fetches")
+        log.warning(f"  {label}: retrying {len(failed)} failed detail fetches")
         pending = failed
     return fetched, still_failed
 
 
 def fetch_dfw(jurisdictions=None, since_date=None, limit_per_jurisdiction=None,
-              fetch_violations=True, until_date=None):
+              fetch_violations=True, until_date=None, skipped=None):
     """
     Fetch inspection data for DFW jurisdictions using direct API calls to the
     MyHealthDepartment portal. No browser required — uses the same JSON POST
@@ -3981,35 +6095,62 @@ def fetch_dfw(jurisdictions=None, since_date=None, limit_per_jurisdiction=None,
             server-side into the HTML, so a plain GET per inspection suffices
             (~350 pages for a weekly Dallas+Plano refresh).
 
+        skipped: optional list; the display name and reason of every
+            jurisdiction this call did not fetch (portal blocked, fetch
+            deadline, an exception) are appended to it, so the caller can
+            report the group as partial instead of 'ok'/'empty'.
+
     Returns:
         list of inspection record dicts with 'metro': 'DFW'
     """
     if jurisdictions is None:
         jurisdictions = DFW_JURISDICTIONS
+    if skipped is None:
+        skipped = []
 
     session = _mhd_session()
     all_results = []
 
-    for slug, config in jurisdictions.items():
+    # Stalest jurisdiction first. A run that hits its deadline or the ban
+    # budget always loses the jurisdictions at the END of the list; in a
+    # fixed order the same ones would starve every week, while ordering by
+    # the recorded latest shipped inspection makes each run work on whatever
+    # is furthest behind, so a backlog drains evenly across runs.
+    order = sorted(jurisdictions.items(),
+                   key=lambda kv: _source_latest(kv[1]['display_name']))
+    if len(order) > 1:
+        log.info("MHD order (stalest first): " + ', '.join(
+            f"{c['display_name']} ({_source_latest(c['display_name']) or 'never'})"
+            for _, c in order))
+
+    for slug, config in order:
         display_name = config['display_name']
         if _MHD_PORTAL_BLOCKED:
             log.warning(f"{display_name}: skipped — MHD portal is blocking this run; "
                         f"existing records are preserved by the merge")
+            skipped.append(f"{display_name} (portal blocked)")
             continue
         if _past_deadline():
             log.warning(f"{display_name}: skipped — pipeline fetch deadline reached")
+            skipped.append(f"{display_name} (deadline)")
             continue
         log.info(f"--- Fetching {display_name} ({slug}) via API ---")
+        # since_date may be one date for every jurisdiction or a per-slug
+        # mapping (the weekly run's per-jurisdiction windows).
+        j_since = since_date.get(slug) if isinstance(since_date, dict) else since_date
         try:
             results = _fetch_mhd_jurisdiction_api(
-                session, slug, config, since_date, limit_per_jurisdiction,
+                session, slug, config, j_since, limit_per_jurisdiction,
                 fetch_violations, until_date=until_date)
             all_results.extend(results)
             log.info(f"{display_name}: {len(results)} records")
+            if display_name in _MHD_DEADLINE_CUT:
+                skipped.append(f"{display_name} (deadline)")
         except Exception as e:
             log.error(f"{display_name} fetch failed: {e}")
             import traceback
             log.error(traceback.format_exc())
+            skipped.append(f"{display_name} (error: {str(e)[:60]})")
         time.sleep(3)  # polite pause between jurisdictions
 
     log.info(f"DFW total: {len(all_results)} inspection records across "
@@ -4020,12 +6161,31 @@ def fetch_dfw(jurisdictions=None, since_date=None, limit_per_jurisdiction=None,
 def _fetch_mhd_jurisdiction_api(session, slug, config, since_date=None, limit=None,
                                  fetch_violations=True, until_date=None):
     """
-    Fetch all inspections for one MHD jurisdiction using daily date windows
-    and the searchInspections API. Optionally fetches violation details.
+    Fetch all inspections for one MHD jurisdiction using date windows and the
+    searchInspections API. Optionally fetches violation details.
+
+    `slug` is the jurisdiction-table key; every request uses
+    _mhd_path(slug, config). Config keys 'window_days', 'programs' and the
+    bucket trio 'search_terms'/'purposes'/'city_allow' are documented above
+    MHD_METRO_JURISDICTIONS.
     """
     display_name = config['display_name']
     default_city = config['default_city']
     default_state = config.get('state', 'TX')
+    path = _mhd_path(slug, config)
+    score_scale = config.get('score_scale', '100')
+    metro = config.get('metro', 'DFW')
+    window_days = max(1, int(config.get('window_days') or MHD_WINDOW_DAYS))
+    search_terms = [str(t) for t in (config.get('search_terms') or []) if str(t).strip()]
+    purposes = [str(p) for p in (config.get('purposes') or [''])]
+    programs = {str(p).strip().lower() for p in (config.get('programs') or [])}
+    city_allow = {_mhd_norm_city(c) for c in (config.get('city_allow') or [])}
+    bucket_mode = bool(search_terms)
+    if bucket_mode and window_days > 1:
+        # A searchStr query answers one row per permit per window, so any
+        # window longer than a day drops a permit's earlier inspections.
+        log.warning(f"{display_name}: bucket mode with {window_days}-day windows — "
+                    f"inspections inside each window will be lost; set window_days 1")
 
     # Build date range
     if since_date:
@@ -4045,21 +6205,25 @@ def _fetch_mhd_jurisdiction_api(session, slug, config, since_date=None, limit=No
         except Exception:
             log.warning(f"{display_name}: Could not parse until_date '{until_date}', ignoring")
 
-    # Build list of multi-day windows (bisected automatically if a window
-    # hits the portal's query cap)
+    # Build list of windows (multi-day ones are bisected automatically if
+    # they hit the portal's query cap; bucket configs use one-day windows)
     windows = []
     current = range_start
     while current <= range_end:
-        window_end = min(current + timedelta(days=MHD_WINDOW_DAYS - 1), range_end)
+        window_end = min(current + timedelta(days=window_days - 1), range_end)
         windows.append((current, window_end))
         current = window_end + timedelta(days=1)
 
-    log.info(f"{display_name}: {len(windows)} windows of up to {MHD_WINDOW_DAYS} days from "
-             f"{range_start.strftime('%Y-%m-%d')} to {range_end.strftime('%Y-%m-%d')}")
+    log.info(f"{display_name}: {len(windows)} windows of up to {window_days} days from "
+             f"{range_start.strftime('%Y-%m-%d')} to {range_end.strftime('%Y-%m-%d')}"
+             + (f" — bucket mode: {len(search_terms)} search terms x {len(purposes)} "
+                f"purposes per window" if bucket_mode else ''))
 
     all_records = []
     seen_ids = set()
     stopped_early = False
+    capped_queries = 0
+    dropped_by_program = dropped_by_city = 0
 
     for win_idx, (win_start, win_end) in enumerate(windows):
         if limit and len(all_records) >= limit:
@@ -4068,32 +6232,68 @@ def _fetch_mhd_jurisdiction_api(session, slug, config, since_date=None, limit=No
             log.warning(f"  {display_name}: fetch deadline reached — stopping "
                         f"before window {win_idx + 1}/{len(windows)}")
             stopped_early = True
+            _MHD_DEADLINE_CUT.add(display_name)
             break
 
-        raw_records = _mhd_fetch_window(session, slug, win_start, win_end)
+        capped = []
+        if bucket_mode:
+            fetched = _mhd_fetch_bucket_window(session, path, win_start, win_end,
+                                               search_terms, purposes, label=display_name)
+            raw_records = None if fetched is None else fetched[0]
+            capped = [] if fetched is None else fetched[1]
+            if fetched is not None and _past_deadline():
+                # The deadline may have cut this window's term/purpose queries
+                # short: hold the source at it so the day is read again.
+                _MHD_DEADLINE_CUT.add(display_name)
+                _hold_freshness(f"{display_name} Health Dept", win_start.strftime('%Y-%m-%d'),
+                                counted=False)
+        else:
+            raw_records = _mhd_fetch_window(session, path, win_start, win_end)
         if raw_records is None:
             log.error(f"  {display_name}: stopping early due to server errors on "
                       f"{win_start.strftime('%Y-%m-%d')}")
             stopped_early = True
             break
+        capped_queries += len(capped)
 
-        new_count = 0
+        new_count = win_program = win_city = 0
         for rec in raw_records:
-            parsed = _parse_mhd_record(rec, slug, display_name, default_city,
-                                       default_state, config.get('score_scale', '100'),
-                                       config.get('metro', 'DFW'))
+            why = _mhd_row_rejection(rec, programs, city_allow)
+            if why == 'program':
+                win_program += 1
+                continue
+            if why == 'city':
+                win_city += 1
+                continue
+            parsed = _parse_mhd_record(rec, path, display_name, default_city,
+                                       default_state, score_scale, metro)
             if parsed:
                 uid = parsed.get('source_id') or f"{parsed['name']}|{parsed['inspection_date']}"
                 if uid not in seen_ids:
                     seen_ids.add(uid)
                     all_records.append(parsed)
                     new_count += 1
+        dropped_by_program += win_program
+        dropped_by_city += win_city
 
+        extra = ''
+        if win_program or win_city:
+            extra += f"; dropped {win_program} by program, {win_city} by city"
+        if capped:
+            extra += f"; {len(capped)} term/purpose queries INCOMPLETE at the cap"
         log.info(f"  Window {win_idx+1}/{len(windows)} "
                  f"({win_start.strftime('%Y-%m-%d')}..{win_end.strftime('%Y-%m-%d')}): "
-                 f"{len(raw_records)} results ({new_count} new). Total: {len(all_records)}")
+                 f"{len(raw_records)} results ({new_count} new{extra}). Total: {len(all_records)}")
 
         time.sleep(MHD_DELAY)
+
+    if dropped_by_program or dropped_by_city:
+        log.info(f"{display_name}: filtered out {dropped_by_program} rows by program "
+                 f"and {dropped_by_city} by city allowlist")
+    if capped_queries:
+        log.warning(f"{display_name}: {capped_queries} search queries hit the "
+                    f"{MHD_QUERY_CAP} record cap — their buckets are incomplete and "
+                    f"some inspections are missing this run")
 
     if limit:
         all_records = all_records[:limit]
@@ -4116,15 +6316,21 @@ def _fetch_mhd_jurisdiction_api(session, slug, config, since_date=None, limit=No
         # a future run re-attempts them.
         log.warning(f"{display_name}: fetch deadline reached before the detail "
                     f"phase — dropping {len(all_records)} undetailed inspections")
+        _hold_freshness(all_records[0].get('source'),
+                        min(str(r['inspection_date'])[:10] for r in all_records), counted=False)
+        _MHD_DEADLINE_CUT.add(display_name)
         return []
     if fetch_violations and all_records:
-        inspections_with_id = [r for r in all_records if r.get('source_id')]
+        # Oldest first: a ban or deadline cut then drops the newest tail,
+        # and the freshness hold re-reads from the first dropped day.
+        inspections_with_id = sorted((r for r in all_records if r.get('source_id')),
+                                     key=lambda r: str(r.get('inspection_date') or ''))
         log.info(f"{display_name}: fetching violation details for "
                  f"{len(inspections_with_id)} inspections "
                  f"({MHD_DETAIL_WORKERS} workers)...")
         fetched_violations, unreadable = _mhd_fetch_details_bulk(
-            slug, inspections_with_id,
-            trust_official_score=config.get('score_scale', '100') == '100')
+            path, inspections_with_id,
+            trust_official_score=score_scale == '100', label=display_name)
         log.info(f"{display_name}: {fetched_violations}/{len(inspections_with_id)} "
                  f"inspections had violation details")
         if unreadable:
@@ -4133,6 +6339,14 @@ def _fetch_mhd_jurisdiction_api(session, slug, config, since_date=None, limit=No
             # next weekly refresh) re-attempts it.
             log.warning(f"{display_name}: dropping {len(unreadable)} inspections "
                         f"with unreadable detail pages")
+            # A block or the deadline left them unread: hold without
+            # counting. Otherwise they were tried twice and failed.
+            counted = not (_MHD_PORTAL_BLOCKED or _past_deadline())
+            for r in unreadable:
+                _hold_freshness(r.get('source'), str(r['inspection_date'])[:10], counted,
+                                key=r.get('source_id'))
+            if _past_deadline():
+                _MHD_DEADLINE_CUT.add(display_name)
             drop = {id(r) for r in unreadable}
             all_records = [r for r in all_records if id(r) not in drop]
 
@@ -4160,9 +6374,10 @@ def _mhd_is_food_record(rec):
     return True
 
 
-def _parse_mhd_record(rec, slug, display_name, default_city, default_state,
+def _parse_mhd_record(rec, path, display_name, default_city, default_state,
                       score_scale='100', metro='DFW'):
-    """Parse a single inspection record from the MyHealthDepartment API JSON response."""
+    """Parse a single inspection record from the MyHealthDepartment API JSON
+    response. `path` is the real portal path (_mhd_path) for source_url."""
     try:
         name = (rec.get('establishmentName') or '').strip()
         if not name or len(name) < 2:
@@ -4245,13 +6460,862 @@ def _parse_mhd_record(rec, slug, display_name, default_city, default_state,
             'inspection_type': insp_type,
             'purpose': purpose,
             'source': f'{display_name} Health Dept',
-            'source_url': f'https://inspections.myhealthdepartment.com/{slug}/inspection/?inspectionID={insp_id}' if insp_id else f'https://inspections.myhealthdepartment.com/{slug}',
+            'source_url': f'https://inspections.myhealthdepartment.com/{path}/inspection/?inspectionID={insp_id}' if insp_id else f'https://inspections.myhealthdepartment.com/{path}',
             'source_id': insp_id or permit_id,
             'metro': metro,
         }
     except Exception as e:
         log.warning(f"{display_name}: failed to parse record: {e} — {str(rec)[:100]}")
         return None
+
+
+# ─── ORANGE COUNTY, CA (MHD portal, newest-225 daily poll + sidecar) ────────
+# Orange County Health Care Agency publishes on the MyHealthDepartment portal
+# under the 'orange-county' slug, but the jurisdiction behaves unlike every
+# other MHD portal this pipeline scrapes (measured 2026-10-10, ~140 calls):
+#   * The search API IGNORES the date filter. Every searchInspections query
+#     answers the newest inspections (inspectionDate DESC) truncated at the
+#     portal's 225-record cap (start offsets 0..200; start >= 225 answers
+#     {"err": true, "msg": "bad request"}). Any sort, searchStr or lat/lng
+#     turns the query into a whole-database query, still capped. So the only
+#     query that works is the empty one — programName "", filters
+#     {"date": "", "purpose": ""}, searchStr "", sort {}, lat/lng 0 — read
+#     as nine pages of 25: the newest 225 inspections.
+#   * ~100-140 inspections are published per calendar day (~2-day lag), so
+#     the newest 225 cover ~1.7 days. Polled DAILY (poll-orange-county.yml)
+#     that captures essentially every inspection; a weekly poll would miss
+#     ~75%. Each poll merges into a SIDECAR (OC_SIDECAR_PATH, one pipeline
+#     record per line, the last OC_SIDECAR_KEEP_DAYS of inspections) and the
+#     fetcher returns the sidecar's records, so the Sunday weekly run (data.js
+#     + D1) sees the whole week even though no single poll does, and a poll
+#     that fails ships what the sidecar already holds instead of nothing.
+#   * The county publishes NO numeric score (score=0, scoreDisplay="" on every
+#     record) — only an outcome: PASS, REINSPECTION, CLOSED or CLOSED-OWNER
+#     INITIATED. The grade therefore IS the county's outcome, mapped to a
+#     risk_score band (OC_RESULT_RISK); original_score stays None.
+#   * The HTML detail page carries no violation text (jurisdiction config
+#     showObservations=false). Violations exist only in the printable PDF
+#     (print/?task=getPrintable&pKey=<inspectionID>, 0.3-1 MB), which is read
+#     with the standard library: inflate the page content streams, decode the
+#     Tj/TJ operators through the fonts' ToUnicode CMaps (Identity-H, 2-byte
+#     CIDs) and lay the runs out by position. The PDF lists each cited item
+#     as a bold "NN. Title - MAJ|MIN|OUT" header followed by "Inspector
+#     Comments:" (the observation) and "Violation Description:" (the code
+#     text); verified on four printables (0, 2, 3 and 8 items, one spanning a
+#     page break) against pypdf. An inspection ships only once its printable
+#     has been read: shipped without it, a PASS over "rodent droppings" would
+#     grade A. Until then it waits in the sidecar and every poll retries it
+#     (a PDF that parses without a Result counts as unread). Only after
+#     OC_PDF_GIVE_UP_TRIES failed reads and OC_PDF_GIVE_UP_DAYS does it ship
+#     with the county's official result alone. A poll where most printables
+#     fail, or nearly all read with no violations, is reported as an error
+#     (a layout change); a blocked printable endpoint as 'blocked'.
+
+OC_SLUG = 'orange-county'
+OC_DISPLAY_NAME = 'Orange County'
+OC_SOURCE = 'Orange County Health Care Agency'
+OC_METRO = 'Orange County'
+# The poll's memory, committed by the daily workflow: one pipeline record per
+# line plus the private '_polled' (first seen), '_result' (the portal's raw
+# outcome) and '_pdf' (pending | ok | failed) fields, which never leave the
+# fetcher. OC_SIDECAR_PATH in the environment overrides the location (tests,
+# smoke runs).
+OC_SIDECAR_PATH = (os.environ.get('OC_SIDECAR_PATH', '').strip()
+                   or os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                                   'data', 'orange_county_inspections.jsonl'))
+OC_SIDECAR_KEEP_DAYS = 10      # by inspection_date, relative to the newest held
+# ...but never before the newest OC inspection the last COMMITTED weekly run
+# shipped into data.js (its recorded latest), up to this bound: a weekly run
+# whose D1 update failed holds data.js back, and the days it held must still
+# be in the sidecar for next week's run to ship.
+OC_SIDECAR_MAX_DAYS = 35
+# Printable-PDF pace: a small pool, paced, and the phase stops at the first
+# 403/429 that survives a retry (the records still ship, see above). The cap
+# bounds a run that finds a long backlog of retries.
+OC_PDF_WORKERS = int(os.environ.get('OC_PDF_WORKERS', '2'))
+OC_PDF_DELAY = float(os.environ.get('OC_PDF_DELAY', '0.5'))
+OC_PDF_MAX_PER_RUN = int(os.environ.get('OC_PDF_MAX_PER_RUN', '400'))
+# An inspection ships only once its printable has been read; one whose PDF
+# has failed OC_PDF_GIVE_UP_TRIES times AND was first polled this many days
+# ago ships with the county's official result alone (never one whose PDF
+# was simply not tried, e.g. while the endpoint was blocked).
+OC_PDF_GIVE_UP_DAYS = 5
+OC_PDF_GIVE_UP_TRIES = 3
+# A poll in which most printables fail to parse (at least this many tried)
+# means the county changed the PDF layout: the run is reported as an error.
+OC_PDF_MASS_FAILURE_MIN = 20
+# Orange County publishes only pass / reinspection / closure, so the grade is
+# the county's outcome, not a point score:
+#   PASS                    -> 90 (A)  routine inspection passed
+#   REINSPECTION            -> 75 (C)  violations warrant a return visit
+#   CLOSED                  -> 50 (F)  permit suspended, facility closed
+#   CLOSED-OWNER INITIATED  -> 50 (F)  closed at the operator's request
+# Any other outcome (none seen in ~900 records) keeps the neutral 70 with its
+# raw outcome text as the result, and is logged.
+OC_RESULT_RISK = {'PASS': 90, 'REINSPECTION': 75, 'CLOSED': 50,
+                  'CLOSED-OWNER INITIATED': 50}
+OC_RESULT_LABELS = {'PASS': 'Pass', 'REINSPECTION': 'Reinspection required',
+                    'CLOSED': 'Closed', 'CLOSED-OWNER INITIATED': 'Closed (owner initiated)'}
+OC_NEUTRAL_RISK = 70
+# The PDF tags every cited item with the county's own tier: MAJ (major risk
+# factor), MIN (minor risk factor) or OUT (good-retail-practice item out of
+# compliance). The tag sets the stored severity; classify_violation only
+# supplies the category. Jev treats the source's tiers as fixed.
+OC_TAG_SEVERITY = {'MAJ': 'priority', 'MIN': 'priority_foundation', 'OUT': 'core'}
+_OC_PDF_BLOCKED = False      # printable endpoint 403/429'd through a retry this run
+_OC_LAST_POLL = {}           # this run's poll outcome, read by main() for _record_group
+
+
+# --- stdlib PDF text extraction (enough for the portal's printables) ---------
+
+_PDF_OBJ_RE = re.compile(rb'(\d+)\s+0\s+obj\b(.*?)endobj', re.S)
+_PDF_STREAM_RE = re.compile(rb'stream\r?\n(.*?)\r?\nendstream', re.S)
+_PDF_REF_RE = re.compile(rb'(\d+)\s+0\s+R')
+_PDF_NAME_REF_RE = re.compile(rb'/([^\s/\[\]<>()]+)\s+(\d+)\s+0\s+R')
+_PDF_TEXT_OP_RE = re.compile(
+    rb'/(?P<font>[^\s/\[\]<>()]+)\s+(?P<size>-?[\d.]+)\s+Tf'
+    rb'|(?P<tm>(?:-?[\d.]+\s+){6})Tm'
+    rb'|(?P<td>-?[\d.]+\s+-?[\d.]+)\s+T[dD]'
+    rb'|\[(?P<arr>(?:[^\]\\]|\\.)*)\]\s*TJ'
+    rb'|<(?P<hex>[0-9A-Fa-f\s]*)>\s*Tj'
+    rb'|\((?P<lit>(?:[^()\\]|\\.)*)\)\s*Tj')
+_PDF_STRING_RE = re.compile(rb'<([0-9A-Fa-f\s]*)>|\(((?:[^()\\]|\\.)*)\)')
+_OC_PDF_ESCAPES = {b'n': b'\n', b'r': b'\r', b't': b'\t', b'b': b'\b', b'f': b'\f',
+                b'(': b'(', b')': b')', b'\\': b'\\'}
+
+
+def _pdf_objects(data):
+    return {int(m.group(1)): m.group(2) for m in _PDF_OBJ_RE.finditer(data)}
+
+
+def _pdf_stream(body):
+    """Decoded bytes of an object's stream (FlateDecode or raw), or None."""
+    m = _PDF_STREAM_RE.search(body)
+    if not m:
+        return None
+    raw = m.group(1)
+    if b'/FlateDecode' not in body[:m.start()]:
+        return raw
+    try:
+        return zlib.decompress(raw)
+    except zlib.error:
+        try:
+            return zlib.decompressobj().decompress(raw)   # tolerate a truncated stream
+        except zlib.error:
+            return None
+
+
+def _pdf_tounicode(cmap):
+    """CID -> text from a ToUnicode CMap (bfchar and both bfrange forms)."""
+    out = {}
+    if not cmap:
+        return out
+
+    def utf16(h):
+        try:
+            return bytes.fromhex(h.decode()).decode('utf-16-be', 'replace')
+        except ValueError:
+            return ''
+    for blk in re.findall(rb'beginbfchar(.*?)endbfchar', cmap, re.S):
+        for src, dst in re.findall(rb'<([0-9A-Fa-f]+)>\s*<([0-9A-Fa-f]+)>', blk):
+            out[int(src, 16)] = utf16(dst)
+    for blk in re.findall(rb'beginbfrange(.*?)endbfrange', cmap, re.S):
+        for lo, hi, arr in re.findall(rb'<([0-9A-Fa-f]+)>\s*<([0-9A-Fa-f]+)>\s*\[(.*?)\]', blk, re.S):
+            lo = int(lo, 16)
+            for i, d in enumerate(re.findall(rb'<([0-9A-Fa-f]+)>', arr)):
+                out[lo + i] = utf16(d)
+        for lo, hi, dst in re.findall(
+                rb'<([0-9A-Fa-f]+)>\s*<([0-9A-Fa-f]+)>\s*<([0-9A-Fa-f]+)>(?!\s*>)', blk):
+            lo, hi, base = int(lo, 16), int(hi, 16), int(dst, 16)
+            for c in range(lo, min(hi, lo + 65535) + 1):
+                if base + c - lo < 0x110000:
+                    out.setdefault(c, chr(base + c - lo))
+    return out
+
+
+def _pdf_fonts(objs):
+    """Font object number -> (cid->text map, or None for a simple font; bold?)."""
+    fonts = {}
+    for num, body in objs.items():
+        if not re.search(rb'/Type\s*/Font\b', body) or re.search(rb'/Subtype\s*/CIDFontType', body):
+            continue
+        base = re.search(rb'/BaseFont\s*/([^\s/>]+)', body)
+        bold = bool(base and re.search(rb'bold', base.group(1), re.I))
+        cmap = None
+        if re.search(rb'/Subtype\s*/Type0\b', body):
+            cmap = {}
+            tu = re.search(rb'/ToUnicode\s+(\d+)\s+0\s+R', body)
+            if tu and int(tu.group(1)) in objs:
+                cmap = _pdf_tounicode(_pdf_stream(objs[int(tu.group(1))]))
+        fonts[num] = (cmap, bold)
+    return fonts
+
+
+def _pdf_page_order(objs):
+    """Page object numbers in document order (via the Pages tree)."""
+    pages = [n for n, b in objs.items() if re.search(rb'/Type\s*/Page\b', b)]
+    roots = [n for n, b in objs.items()
+             if re.search(rb'/Type\s*/Pages\b', b) and b'/Parent' not in b]
+    ordered = []
+
+    def walk(num, depth=0):
+        body = objs.get(num)
+        if body is None or depth > 32 or num in ordered:
+            return
+        if re.search(rb'/Type\s*/Page\b', body):
+            ordered.append(num)
+            return
+        kids = re.search(rb'/Kids\s*\[(.*?)\]', body, re.S)
+        if kids:
+            for k in _PDF_REF_RE.findall(kids.group(1)):
+                walk(int(k), depth + 1)
+    for r in roots:
+        walk(r)
+    return ordered or sorted(pages)
+
+
+def _pdf_dict(objs, body, key):
+    """The dictionary at /<key> in body, inline or through an indirect ref."""
+    m = re.search(rb'/' + key + rb'\s+(\d+)\s+0\s+R', body)
+    if m:
+        return objs.get(int(m.group(1)), b'')
+    m = re.search(rb'/' + key + rb'\s*<<', body)
+    if not m:
+        return b''
+    i, depth, start = m.end() - 2, 0, m.end() - 2
+    while i < len(body):
+        if body.startswith(b'<<', i):
+            depth += 1
+            i += 2
+        elif body.startswith(b'>>', i):
+            depth -= 1
+            i += 2
+            if depth == 0:
+                return body[start:i]
+        else:
+            i += 1
+    return body[start:]
+
+
+def _pdf_decode_string(raw, is_hex, cmap):
+    """Text of one string operand. Type0 fonts (cmap given) carry 2-byte CIDs
+    mapped through ToUnicode; simple fonts are read as Latin-1."""
+    if is_hex:
+        h = re.sub(rb'\s+', b'', raw).decode('ascii', 'ignore')
+        if cmap is None:
+            try:
+                return bytes.fromhex(h[:len(h) - len(h) % 2]).decode('latin-1')
+            except ValueError:
+                return ''
+        return ''.join(cmap.get(int(h[i:i + 4], 16), '�')
+                       for i in range(0, len(h) - len(h) % 4, 4))
+
+    def unescape(m):
+        e = m.group(1)
+        return _OC_PDF_ESCAPES.get(e) or bytes([int(e, 8) & 0xFF])
+    b = re.sub(rb'\\([nrtbf()\\]|[0-7]{1,3})', unescape, raw)
+    if cmap is None:
+        return b.decode('latin-1')
+    return ''.join(cmap.get(int.from_bytes(b[i:i + 2], 'big'), '�')
+                   for i in range(0, len(b) - len(b) % 2, 2))
+
+
+def _oc_pdf_text_rows(data, y_tolerance=3.0):
+    """Text of each page as rows of runs, top to bottom and left to right:
+    [[(y, x, bold, text), ...] per row] per page. Each BT..ET block yields one
+    run per string operator, positioned by its Tm (plus Td/TD offsets); runs
+    whose baselines agree within y_tolerance form a row. Returns [] for
+    anything that is not a PDF."""
+    if not data or not data.lstrip()[:5].startswith(b'%PDF'):
+        return []
+    objs = _pdf_objects(data)
+    fonts = _pdf_fonts(objs)
+    root_pages = [b for b in objs.values() if re.search(rb'/Type\s*/Pages\b', b)]
+    pages = []
+    for pn in _pdf_page_order(objs):
+        body = objs[pn]
+        res = _pdf_dict(objs, body, b'Resources')
+        if not res and root_pages:
+            res = _pdf_dict(objs, root_pages[0], b'Resources')
+        fmap = {n: int(r) for n, r in _PDF_NAME_REF_RE.findall(_pdf_dict(objs, res, b'Font'))}
+        m = re.search(rb'/Contents\s+(\d+)\s+0\s+R', body)
+        arr = re.search(rb'/Contents\s*\[(.*?)\]', body, re.S)
+        refs = ([int(m.group(1))] if m else
+                [int(x) for x in _PDF_REF_RE.findall(arr.group(1))] if arr else [])
+        content = b'\n'.join(_pdf_stream(objs[r]) or b'' for r in refs if r in objs)
+        runs = []
+        for blk in re.findall(rb'BT(.*?)ET', content, re.S):
+            x = y = 0.0
+            cmap, bold = None, False
+            for op in _PDF_TEXT_OP_RE.finditer(blk):
+                if op.group('font') is not None:
+                    cmap, bold = fonts.get(fmap.get(op.group('font')), (None, False))
+                elif op.group('tm') is not None:
+                    nums = op.group('tm').split()
+                    x, y = float(nums[4]), float(nums[5])
+                elif op.group('td') is not None:
+                    dx, dy = op.group('td').split()
+                    x, y = x + float(dx), y + float(dy)
+                else:
+                    if op.group('arr') is not None:
+                        parts = _PDF_STRING_RE.findall(op.group('arr'))
+                    elif op.group('hex') is not None:
+                        parts = [(op.group('hex'), b'')]
+                    else:
+                        parts = [(b'', op.group('lit'))]
+                    text = ''.join(_pdf_decode_string(h if h else l, bool(h), cmap)
+                                   for h, l in parts if h or l)
+                    if text.strip():
+                        runs.append((y, x, bold, text))
+        runs.sort(key=lambda r: (-r[0], r[1]))
+        rows, cur, cur_y = [], [], None
+        for r in runs:
+            if cur and abs(r[0] - cur_y) > y_tolerance:
+                rows.append(sorted(cur, key=lambda q: q[1]))
+                cur = []
+            if not cur:
+                cur_y = r[0]
+            cur.append(r)
+        if cur:
+            rows.append(sorted(cur, key=lambda q: q[1]))
+        pages.append(rows)
+    return pages
+
+
+# --- the printable's structure ---------------------------------------------
+
+_OC_PDF_PAGE_LABELS = {'establishment name', 'inspection date', 'establishment address',
+                       'permit number', 'complaint establishment name',
+                       'complaint establishment address'}
+_OC_VIOLATION_HEADER_RE = re.compile(r'^(\d{1,3})\.\s+(.+?)\s+-\s+([A-Z][A-Z/]{1,4})$')
+_OC_MARKER_RE = re.compile(r'^[A-Z][A-Z/&]{1,5}$')      # e.g. a standalone bold COS
+
+
+def _oc_parse_printable(pdf_bytes):
+    """Read an Orange County printable inspection report.
+
+    Returns {'result', 'inspection_type', 'inspection_date' (MM/DD/YYYY as
+    printed), 'violations': [{'code', 'title', 'tag', 'observation',
+    'description', 'flags'}], 'general_comments', 'pages'} or None when the
+    bytes are not a readable PDF. Page 1 is the cover (labels with their
+    values printed beneath them); the "Iterative - Violations" section lists
+    each cited item as a bold "NN. Title - TAG" header followed by the
+    inspector's observation ("Inspector Comments:") and the code text
+    ("Violation Description:"), continuing across page breaks (every page
+    repeats a header block of labels + values, which is skipped). A closure
+    reinspection can have no itemized violations at all; its narrative is in
+    "General Inspection Comments"."""
+    pages = _oc_pdf_text_rows(pdf_bytes)
+    if not pages:
+        return None
+    out = {'result': '', 'inspection_type': '', 'inspection_date': '',
+           'violations': [], 'general_comments': '', 'pages': len(pages)}
+    cover = [r for row in pages[0] for r in row]
+
+    def value_under(label):
+        for y, x, bold, text in cover:
+            if bold and text.strip().lower() == label:
+                below = [(y - ly, t.strip()) for ly, lx, b, t in cover
+                         if not b and t.strip() and abs(lx - x) <= 12 and 0 < y - ly <= 40]
+                if below:
+                    return min(below)[1]
+        return ''
+    out['result'] = value_under('result')
+    out['inspection_type'] = value_under('inspection type')
+    out['inspection_date'] = value_under('inspection date')
+
+    section, skip_next, cur, field = None, False, None, 'observation'
+    for page in pages:
+        for row in page:
+            texts = [t.strip() for _, _, _, t in row if t.strip()]
+            if not texts:
+                continue
+            if skip_next:
+                skip_next = False
+                continue
+            bold = all(b for _, _, b, t in row if t.strip())
+            if bold and all(t.lower() in _OC_PDF_PAGE_LABELS for t in texts):
+                skip_next = True        # a page header: labels, then their values
+                continue
+            line = ' '.join(texts)
+            low = line.lower()
+            if bold and low == 'iterative - violations':
+                section = 'violations'
+                continue
+            if bold and low == 'general inspection comments':
+                section, cur = 'comments', None
+                continue
+            if section == 'violations':
+                if bold:
+                    m = _OC_VIOLATION_HEADER_RE.match(line)
+                    if m:
+                        cur = {'code': m.group(1), 'title': ' '.join(m.group(2).split()),
+                               'tag': m.group(3), 'observation': '', 'description': '',
+                               'flags': []}
+                        out['violations'].append(cur)
+                        field = 'observation'
+                    elif cur is not None and _OC_MARKER_RE.match(line):
+                        cur['flags'].append(line)
+                    else:
+                        section, cur = 'other', None     # the next section's title
+                    continue
+                if cur is None:
+                    continue
+                if low.startswith('inspector comments:'):
+                    field = 'observation'
+                    line = line[len('inspector comments:'):].strip()
+                elif low.startswith('violation description:'):
+                    field = 'description'
+                    line = line[len('violation description:'):].strip()
+                if line:
+                    cur[field] = f"{cur[field]} {line}".strip()
+            elif section == 'comments':
+                if bold:
+                    section = 'other'
+                    continue
+                out['general_comments'] = f"{out['general_comments']} {line}".strip()
+    return out
+
+
+def _oc_violation_rows(parsed):
+    """[category, severity, description] rows for a parsed printable. The
+    county's tag fixes the severity; the text is the cited item followed by
+    the inspector's observation (the code text when there is none)."""
+    rows = []
+    for v in (parsed or {}).get('violations') or []:
+        observation = v.get('observation') or v.get('description') or ''
+        text = f"{v['code']}. {v['title']}"
+        if v.get('tag'):
+            text += f" ({v['tag']})"
+        if observation:
+            text += f": {observation}"
+        category, severity, _ = classify_violation(f"{v['title']} {observation}")
+        severity = OC_TAG_SEVERITY.get((v.get('tag') or '').upper(), severity)
+        rows.append([category, severity, text[:500]])
+    return rows
+
+
+# --- records, sidecar, poll ---------------------------------------------------
+
+def _oc_printable_url(inspection_id):
+    return (f'{MHD_BASE_URL}{OC_SLUG}/print/?task=getPrintable&path={OC_SLUG}'
+            f'&pKey={inspection_id}')
+
+
+def _oc_result_fields(result):
+    """(risk_score, results label) for the portal's raw outcome string."""
+    result = ' '.join(str(result or '').upper().split())
+    if result in OC_RESULT_RISK:
+        return OC_RESULT_RISK[result], OC_RESULT_LABELS[result]
+    return OC_NEUTRAL_RISK, result.title()
+
+
+def _oc_build_record(rec):
+    """Pipeline record for one search-API row (None if unusable)."""
+    parsed = _parse_mhd_record(rec, OC_SLUG, OC_DISPLAY_NAME, 'Anaheim', 'CA',
+                               score_scale='none', metro=OC_METRO)
+    insp_id = str(rec.get('inspectionID') or '').strip()
+    if not parsed or not insp_id:
+        return None
+    # A third of the portal's establishment names end in a caret ("Disneyland^",
+    # "Ami Sushi ^"), a data-entry marker with no public meaning; it would
+    # otherwise show on the map and sit inside the restaurant id.
+    parsed['name'] = parsed['name'].replace('^', '')
+    for k in ('name', 'address', 'city'):
+        parsed[k] = ' '.join(str(parsed.get(k) or '').split())
+    if len(parsed['name']) < 2:
+        return None
+    result = ' '.join(str(rec.get('result') or '').upper().split())
+    risk, label = _oc_result_fields(result)
+    parsed.update({
+        'original_score': None,
+        'risk_score': risk,
+        'results': label,
+        'zip': (parsed.get('zip') or '').strip()[:5],
+        'source': OC_SOURCE,
+        'source_url': _oc_printable_url(insp_id),
+        'source_id': insp_id,
+        'metro': OC_METRO,
+        '_result': result,
+    })
+    return parsed
+
+
+def _oc_load_sidecar(path):
+    recs = {}
+    try:
+        with open(path) as f:
+            for n, line in enumerate(f, 1):
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    r = json.loads(line)
+                except ValueError:
+                    log.warning(f"Orange County: sidecar line {n} is not JSON — skipped")
+                    continue
+                sid = str(r.get('source_id') or '')
+                if sid and r.get('inspection_date'):
+                    recs[sid] = r
+    except FileNotFoundError:
+        log.info(f"Orange County: no sidecar at {path} yet — starting empty")
+    return recs
+
+
+def _oc_write_sidecar(path, recs):
+    d = os.path.dirname(path)
+    if d:
+        os.makedirs(d, exist_ok=True)
+    tmp = f'{path}.tmp'
+    with open(tmp, 'w') as f:
+        for r in sorted(recs.values(), key=lambda r: (r['inspection_date'], r['source_id'])):
+            f.write(json.dumps(r, sort_keys=True, separators=(',', ':'), default=str) + '\n')
+    os.replace(tmp, path)
+
+
+def _oc_prune(recs):
+    """Drop inspections older than OC_SIDECAR_KEEP_DAYS before the newest held
+    (relative to the data, not the clock, so a quiet portal never empties the
+    sidecar), keeping everything after the last shipped weekly (see
+    OC_SIDECAR_MAX_DAYS). Returns the number dropped."""
+    if not recs:
+        return 0
+    newest = max(str(r['inspection_date'])[:10] for r in recs.values())
+    newest_day = datetime.strptime(newest, '%Y-%m-%d')
+    cutoff = (newest_day - timedelta(days=OC_SIDECAR_KEEP_DAYS)).strftime('%Y-%m-%d')
+    shipped = _group_latest('Orange County')
+    if shipped and shipped < cutoff:
+        cutoff = max(shipped, (newest_day - timedelta(days=OC_SIDECAR_MAX_DAYS)).strftime('%Y-%m-%d'))
+    old = [sid for sid, r in recs.items() if str(r['inspection_date'])[:10] < cutoff]
+    for sid in old:
+        del recs[sid]
+    return len(old)
+
+
+def _oc_poll_newest(session, max_pages=None):
+    """Read the newest inspections: the empty query, MHD_QUERY_CAP /
+    MHD_PAGE_SIZE pages of MHD_PAGE_SIZE (a short page ends it early).
+    Returns (raw_records, complete, reason) where reason is '' or why the
+    read stopped: 'blocked', 'deadline' or 'error'."""
+    pages = MHD_QUERY_CAP // MHD_PAGE_SIZE
+    if max_pages:
+        pages = max(1, min(pages, max_pages))
+    records = []
+    for i in range(pages):
+        if _MHD_PORTAL_BLOCKED:
+            return records, False, 'blocked'
+        if _past_deadline():
+            return records, False, 'deadline'
+        if i:
+            time.sleep(MHD_DELAY)
+        page = _mhd_search_page(session, OC_SLUG, '', i * MHD_PAGE_SIZE)
+        if page is None:
+            return records, False, 'blocked' if _MHD_PORTAL_BLOCKED else 'error'
+        records.extend(page)
+        if len(page) < MHD_PAGE_SIZE:
+            break
+    return records, True, ''
+
+
+def _oc_fetch_printable(session, inspection_id, retry_count=0):
+    """Bytes of the printable PDF for one inspection, or None. A 403/429 is
+    retried once; a second one stops this run's PDF phase (the records still
+    ship with their official results) without touching the search breaker."""
+    global _OC_PDF_BLOCKED
+    if _MHD_PORTAL_BLOCKED or _OC_PDF_BLOCKED:
+        return None
+    try:
+        r = session.get(f'{MHD_BASE_URL}{OC_SLUG}/print/',
+                        params={'task': 'getPrintable', 'path': OC_SLUG, 'pKey': inspection_id},
+                        timeout=60)
+    except requests.RequestException as e:
+        # Timeouts and resets happen a few times per hundred over a long
+        # phase (18 of 225 on 2026-10-10, all fine on re-fetch): one quick
+        # retry, then leave it for the next poll.
+        if retry_count < 1 and not _past_deadline():
+            time.sleep(2)
+            return _oc_fetch_printable(session, inspection_id, retry_count + 1)
+        log.debug(f"  Orange County printable {inspection_id} failed: {e}")
+        return None
+    if r.status_code in (403, 429):
+        if retry_count < 1 and not _past_deadline():
+            time.sleep(MHD_RETRY_DELAY)
+            return _oc_fetch_printable(session, inspection_id, retry_count + 1)
+        if not _OC_PDF_BLOCKED:
+            _OC_PDF_BLOCKED = True
+            log.warning(f"  Orange County: printable PDFs blocked ({r.status_code}) through a "
+                        f"retry — stopping this run's PDF phase; the inspections ship with "
+                        f"their official results and the PDFs are retried next poll")
+        return None
+    if r.status_code != 200 or not r.content.lstrip()[:5].startswith(b'%PDF'):
+        log.debug(f"  Orange County printable {inspection_id}: HTTP {r.status_code}, "
+                  f"{r.headers.get('content-type')}")
+        return None
+    return r.content
+
+
+def _oc_fetch_pdfs_bulk(records):
+    """Fetch and parse the printable for each record (OC_PDF_WORKERS workers,
+    OC_PDF_DELAY between a worker's fetches), filling the violation fields in
+    place and marking '_pdf' ok|failed. Records skipped (blocked, deadline)
+    keep their previous mark so the next poll retries them.
+    Returns (ok, failed, skipped)."""
+    local = threading.local()
+
+    def get_session():
+        if not hasattr(local, 'session'):
+            local.session = _mhd_session()
+        return local.session
+
+    def one(rec):
+        if _OC_PDF_BLOCKED or _MHD_PORTAL_BLOCKED or _past_deadline():
+            return rec, None, 'skipped'
+        data = _oc_fetch_printable(get_session(), rec['source_id'])
+        if not (_OC_PDF_BLOCKED or _MHD_PORTAL_BLOCKED):
+            time.sleep(OC_PDF_DELAY)
+        if data is None:
+            return rec, None, 'skipped' if _OC_PDF_BLOCKED else 'failed'
+        try:
+            parsed = _oc_parse_printable(data)
+        except Exception as e:      # a malformed PDF must never take the run down
+            log.debug(f"  Orange County printable {rec['source_id']} unreadable: {e}")
+            parsed = None
+        # A PDF that parses but carries no Result is not an OC printable we
+        # understand (a layout change, an error page rendered as PDF): read
+        # as zero violations it would ship looking clean, so it counts as
+        # failed and is retried by the next poll.
+        if parsed is not None and not parsed.get('result'):
+            log.debug(f"  Orange County printable {rec['source_id']}: no Result found — "
+                      f"unrecognised layout")
+            parsed = None
+        return rec, parsed, 'ok' if parsed is not None else 'failed'
+
+    ok = failed = skipped = 0
+    with ThreadPoolExecutor(max_workers=OC_PDF_WORKERS) as pool:
+        for rec, parsed, status in pool.map(one, records):
+            if status == 'ok':
+                rows = _oc_violation_rows(parsed)
+                _, pv, pfv, cv = calc_risk_score(rows)
+                rec.update(violations=rows, priority_violations=pv,
+                           priority_foundation_violations=pfv, core_violations=cv,
+                           total_violations=len(rows), _pdf='ok')
+                pdf_result = ' '.join((parsed.get('result') or '').upper().split())
+                if pdf_result and rec.get('_result') and pdf_result != rec['_result']:
+                    log.debug(f"  Orange County {rec['source_id']}: PDF result {pdf_result!r} "
+                              f"vs search {rec['_result']!r}")
+                ok += 1
+            elif status == 'failed':
+                rec['_pdf'] = 'failed'
+                rec['_pdf_tries'] = (rec.get('_pdf_tries') or 0) + 1
+                failed += 1
+            else:
+                skipped += 1
+    return ok, failed, skipped
+
+
+def _oc_group_outcome():
+    """(status, detail) for _record_group from this run's poll: (None, note)
+    when the poll worked, else the failure the daily job should fail on even
+    though the sidecar's records still shipped."""
+    status = _OC_LAST_POLL.get('status') or 'ok'
+    return (None if status == 'ok' else status), _OC_LAST_POLL.get('detail', '')
+
+
+def fetch_orange_county(since_date=None, limit=None, fetch_violations=True,
+                        sidecar_path=None, geocode=None):
+    """
+    Orange County, CA (Anaheim, Santa Ana, Irvine, Huntington Beach, ...):
+    poll the MyHealthDepartment portal's newest 225 inspections, merge them
+    into the sidecar and return the sidecar's inspections dated on or after
+    since_date (all of them when None). See the section comment for why the
+    poll is shaped this way.
+
+    Each inspection's grade is the county's official outcome (OC_RESULT_RISK:
+    PASS 90, REINSPECTION 75, CLOSED / CLOSED-OWNER INITIATED 50) — the
+    county publishes no numeric score, so original_score is None and the
+    result is never inferred from the violation details. Violations come
+    from the printable PDF (source_url, the only public place they exist),
+    fetched for every inspection new to the sidecar and retried for those
+    whose PDF failed before. An inspection ships only once its printable
+    has been read (a PDF that parses but carries no Result counts as
+    unread); until then it waits in the sidecar and every poll retries it.
+    One whose printable is still unreadable OC_PDF_GIVE_UP_DAYS after it was
+    first polled ships with the county's official result and no violation
+    list — the result is the county's own outcome, not something inferred
+    from the details. A poll in which most printables fail is reported as
+    an error (a layout change would otherwise hold everything back quietly).
+
+    The portal has no coordinates: `geocode` (geocode_missing_coords in
+    main()) is applied only to the sidecar's records that still lack them,
+    and the coordinates are stored in the sidecar, so a restaurant is
+    geocoded once, not every day. `limit` (test mode) bounds both the pages
+    polled and the records returned. Honours _past_deadline() and
+    _MHD_PORTAL_BLOCKED; if the poll fails the sidecar's records are still
+    returned (and _oc_group_outcome() tells main() so the run is reported
+    as failed) — a bad day never loses the week.
+    """
+    path = sidecar_path or OC_SIDECAR_PATH
+    today = datetime.now().strftime('%Y-%m-%d')
+    sidecar = _oc_load_sidecar(path)
+    log.info(f"Fetching Orange County (newest-{MHD_QUERY_CAP} poll; sidecar {path}: "
+             f"{len(sidecar)} inspections; since={since_date}, limit={limit})")
+    poll = {'status': 'ok', 'detail': '', 'pages': 0, 'raw': 0, 'new': 0, 'updated': 0,
+            'pdf_tried': 0, 'pdf_ok': 0, 'pdf_failed': 0, 'pdf_skipped': 0,
+            'geocoded': 0, 'geocode_missing': 0, 'pruned': 0, 'sidecar': 0}
+    _OC_LAST_POLL.clear()
+    _OC_LAST_POLL.update(poll)
+
+    new_records = []
+    unknown_results = set()
+    if _MHD_PORTAL_BLOCKED:
+        poll.update(status='blocked', detail=f"MHD portal blocked this run; shipped the "
+                                             f"sidecar's {len(sidecar)} inspections")
+        log.warning("Orange County: poll skipped — MHD portal is blocking this run")
+    elif _past_deadline():
+        poll.update(status='skipped', detail=f"fetch deadline reached before the poll; "
+                                             f"shipped the sidecar's {len(sidecar)} inspections")
+        log.warning("Orange County: poll skipped — pipeline fetch deadline reached")
+    else:
+        session = _mhd_session()
+        max_pages = math.ceil(limit / MHD_PAGE_SIZE) if limit else None
+        raw, complete, reason = _oc_poll_newest(session, max_pages)
+        poll['raw'] = len(raw)
+        poll['pages'] = math.ceil(len(raw) / MHD_PAGE_SIZE)
+        for rec in raw:
+            built = _oc_build_record(rec)
+            if not built:
+                continue
+            if built['_result'] not in OC_RESULT_RISK:
+                unknown_results.add(built['_result'] or '(blank)')
+            existing = sidecar.get(built['source_id'])
+            if existing is None:
+                built['_polled'] = today
+                built['_pdf'] = 'pending'
+                sidecar[built['source_id']] = built
+                new_records.append(built)
+            else:
+                # Refresh what the portal states about the visit; keep what
+                # earlier polls earned (coordinates, violations, first-seen).
+                for k in ('inspection_type', 'purpose', 'results', 'risk_score', '_result'):
+                    existing[k] = built[k]
+                poll['updated'] += 1
+        poll['new'] = len(new_records)
+        if not raw:
+            status = {'blocked': 'blocked', 'deadline': 'skipped'}.get(reason, 'error')
+            poll.update(status=status,
+                        detail=f"poll {reason or 'failed'}: no page read; shipped the "
+                               f"sidecar's {len(sidecar)} inspections")
+            log.error(f"Orange County: {poll['detail']}")
+        elif not complete:
+            poll['detail'] = (f"poll read {poll['pages']} of {MHD_QUERY_CAP // MHD_PAGE_SIZE} "
+                              f"pages ({reason}); {len(new_records)} new inspections")
+            log.warning(f"Orange County: {poll['detail']}")
+        else:
+            log.info(f"Orange County: poll read {len(raw)} inspections in {poll['pages']} pages "
+                     f"— {len(new_records)} new, {poll['updated']} already held")
+    if unknown_results:
+        log.warning(f"Orange County: unmapped outcome(s) {sorted(unknown_results)} — "
+                    f"recorded with the neutral risk {OC_NEUTRAL_RISK}; extend OC_RESULT_RISK")
+
+    # The mapping is policy, not data: re-derive it for every held record so a
+    # change to OC_RESULT_RISK reaches the inspections already in the sidecar.
+    for r in sidecar.values():
+        if r.get('_result'):
+            r['risk_score'], r['results'] = _oc_result_fields(r['_result'])
+    poll['pruned'] = _oc_prune(sidecar)
+
+    if fetch_violations and poll['status'] == 'ok':
+        pending = [r for r in sidecar.values() if r.get('_pdf') in (None, 'pending', 'failed')]
+        # New inspections before retries, newest first within each (two stable sorts).
+        pending.sort(key=lambda r: (r['inspection_date'], r['source_id']), reverse=True)
+        pending.sort(key=lambda r: 0 if r.get('_pdf') == 'pending' else 1)
+        if len(pending) > OC_PDF_MAX_PER_RUN:
+            log.warning(f"Orange County: {len(pending)} printables to fetch — capping at "
+                        f"{OC_PDF_MAX_PER_RUN} this run")
+            pending = pending[:OC_PDF_MAX_PER_RUN]
+        if pending and not _past_deadline():
+            log.info(f"Orange County: fetching {len(pending)} printable PDFs "
+                     f"({OC_PDF_WORKERS} workers)...")
+            ok, failed, skipped = _oc_fetch_pdfs_bulk(pending)
+            poll.update(pdf_tried=len(pending), pdf_ok=ok, pdf_failed=failed, pdf_skipped=skipped)
+            log.info(f"Orange County: {ok}/{len(pending)} printables read "
+                     f"({failed} failed, {skipped} skipped)")
+            read = [r for r in pending if r.get('_pdf') == 'ok']
+            empty = sum(1 for r in read if not r.get('violations'))
+            if ok + failed >= OC_PDF_MASS_FAILURE_MIN and failed > (ok + failed) / 2:
+                poll.update(status='error',
+                            detail=f"{failed} of {ok + failed} printables unreadable — "
+                                   f"has the county changed the PDF layout?")
+                log.error(f"Orange County: {poll['detail']}")
+            elif len(read) >= OC_PDF_MASS_FAILURE_MIN and empty > 0.9 * len(read):
+                # About a fifth of real printables cite nothing; nearly all
+                # of them reading as clean means the violations section is
+                # no longer where the parser looks.
+                poll.update(status='error',
+                            detail=f"{empty} of {len(read)} printables read with no violations — "
+                                   f"has the county changed the violations layout?")
+                log.error(f"Orange County: {poll['detail']}")
+            elif skipped and (_OC_PDF_BLOCKED or _MHD_PORTAL_BLOCKED or _past_deadline()):
+                blocked = _OC_PDF_BLOCKED or _MHD_PORTAL_BLOCKED
+                why = ('printable endpoint blocked' if _OC_PDF_BLOCKED else
+                       'MHD portal blocked' if _MHD_PORTAL_BLOCKED else 'fetch deadline reached')
+                poll.update(status='blocked' if blocked else 'skipped',
+                            detail='; '.join(x for x in (
+                                poll.get('detail'),
+                                f"{why}; {skipped} inspections wait for their printable") if x))
+                log.warning(f"Orange County: {poll['detail']}")
+    elif fetch_violations and new_records:
+        log.warning(f"Orange County: PDF phase skipped (poll {poll['status']}); "
+                    f"{len(new_records)} new inspections wait in the sidecar for their printable")
+
+    missing = [r for r in sidecar.values() if not r.get('latitude') or not r.get('longitude')]
+    poll['geocode_missing'] = len(missing)
+    if geocode is not None and missing:
+        geocode(missing)
+        drop_implausible_coords(missing)     # never store a wrong pin for ten days
+        poll['geocoded'] = sum(1 for r in missing if r.get('latitude') and r.get('longitude'))
+        log.info(f"Orange County: geocoded {poll['geocoded']}/{len(missing)} inspections "
+                 f"without coordinates")
+
+    _oc_write_sidecar(path, sidecar)
+    poll['sidecar'] = len(sidecar)
+
+    since = str(since_date)[:10] if since_date else ''
+    give_up = (datetime.now() - timedelta(days=OC_PDF_GIVE_UP_DAYS)).strftime('%Y-%m-%d')
+    out = []
+    held_back = given_up = 0
+    for r in sorted(sidecar.values(), key=lambda r: (r['inspection_date'], r['source_id']),
+                    reverse=True):
+        if since and str(r['inspection_date'])[:10] < since:
+            continue
+        if fetch_violations and r.get('_pdf') != 'ok':
+            # Not read yet: the printable is the only place the violations
+            # are, and an inspection shipped without them can grade A over
+            # rodent droppings. It stays in the sidecar for the next poll —
+            # unless the daily polls have failed on it for OC_PDF_GIVE_UP_DAYS,
+            # when it ships with the county's official result alone.
+            if ((r.get('_polled') or today) > give_up
+                    or (r.get('_pdf_tries') or 0) < OC_PDF_GIVE_UP_TRIES):
+                held_back += 1
+                continue
+            given_up += 1
+        out.append({k: v for k, v in r.items() if not k.startswith('_')})
+    if held_back or given_up:
+        log.info(f"Orange County: {held_back} inspections held back until their printable is "
+                 f"read; {given_up} shipped with the official result only (printable "
+                 f"unreadable for {OC_PDF_GIVE_UP_DAYS}+ days)")
+    poll['held_back'], poll['given_up'] = held_back, given_up
+    if given_up and not poll.get('detail'):
+        poll['detail'] = (f"{given_up} inspections shipped with the official result only "
+                          f"(printable unreadable after {OC_PDF_GIVE_UP_TRIES} tries)")
+    if limit:
+        out = out[:limit]
+    _OC_LAST_POLL.update(poll)
+    log.info(f"Orange County: {len(out)} inspections since {since or 'the start of the sidecar'} "
+             f"(sidecar {len(sidecar)}, pruned {poll['pruned']}, new {poll['new']}, "
+             f"PDFs {poll['pdf_ok']}/{poll['pdf_tried']}, "
+             f"without coordinates {sum(1 for r in out if not r.get('latitude'))})")
+    return out
 
 
 # ─── RICHARDSON (HealthTrak / Lotus Domino) ──────────────────────────────────
@@ -4487,12 +7551,16 @@ def fetch_arlington(since_date=None, limit=None):
     return results
 
 
-def geocode_census_batch(records):
+def geocode_census_batch(records, benchmark='Public_AR_Current'):
     """
     Batch-geocode US street addresses with the free Census Bureau geocoder
     (up to 10k addresses per request — thousands of times faster than the
     1 req/sec Nominatim loop). Fills latitude/longitude in place and returns
-    the number geocoded.
+    the number geocoded. `benchmark` picks the address database: the default
+    'Public_AR_Current' misses newer streets in fast-growing areas (it
+    matched 0 of 81 unresolved Florida Emerald Coast addresses in Oct 2026),
+    while 'Public_AR_Census2020' resolves some of those, so the caller runs
+    both.
     """
     import csv, io
 
@@ -4521,7 +7589,7 @@ def geocode_census_batch(records):
                 resp = requests.post(
                     'https://geocoding.geo.census.gov/geocoder/locations/addressbatch',
                     files={'addressFile': ('addresses.csv', rows.getvalue(), 'text/csv')},
-                    data={'benchmark': 'Public_AR_Current'},
+                    data={'benchmark': benchmark},
                     timeout=600)
                 resp.raise_for_status()
                 break
@@ -4558,6 +7626,11 @@ def geocode_missing_coords(records, nominatim_fallback_cap=150):
     geocoded = geocode_census_batch(missing)
 
     still_missing = [r for r in missing if not r.get('latitude') or not r.get('longitude')]
+    if still_missing:
+        # Second Census pass on the older benchmark: it knows addresses the
+        # current one does not (and vice versa), and a batch call is cheap.
+        geocoded += geocode_census_batch(still_missing, benchmark='Public_AR_Census2020')
+        still_missing = [r for r in missing if not r.get('latitude') or not r.get('longitude')]
     fallback = still_missing[:nominatim_fallback_cap]
     skipped = len(still_missing) - len(fallback)
     for r in fallback:
@@ -4616,6 +7689,12 @@ EMBED_BUDGET = 55000       # global cap on embedded records: Cloudflare Pages
                            # records ≈ 24 MB. Completeness comes from D1.
 EMBED_CITY_FLOOR = 20      # per-city minimum kept regardless of the global
                            # budget, so every covered town paints instantly
+DATA_JS_MAX_BYTES = 24_000_000  # hard cap on the written file. The record
+                           # budget above bounds it only indirectly (the
+                           # per-city floors grow with every new town), and
+                           # Pages rejects any asset over 25 MiB (26,214,400
+                           # bytes) by failing the deploy with no error on
+                           # the commit; ~2 MB stays free for a week's growth.
 
 
 def _weighted_from_history(history_pairs):
@@ -4829,6 +7908,26 @@ def write_data_js(all_inspections, output_path, top_per_city=1000,
     from datetime import datetime as _dt
     header = f"/* DineScores embedded data — auto-generated {_dt.now().strftime('%Y-%m-%d')} */\n"
     js_content = header + 'window.DATA = ' + json.dumps(final, separators=(',', ':'), default=str) + ';\n'
+
+    if len(js_content) > DATA_JS_MAX_BYTES:
+        # Over the byte cap: drop the oldest records outside the per-city
+        # floors until it fits (D1 still serves them). json.dumps escapes to
+        # ASCII, so characters are bytes.
+        floor = {id(r) for city_recs in by_city.values() for r in city_recs[:EMBED_CITY_FLOOR]}
+        excess = len(js_content) - DATA_JS_MAX_BYTES
+        drop, freed = set(), 0
+        for r in sorted((r for r in final if id(r) not in floor), key=lambda r: r.get('d', '')):
+            if freed >= excess:
+                break
+            drop.add(id(r))
+            freed += len(json.dumps(r, separators=(',', ':'), default=str)) + 1
+        final = [r for r in final if id(r) not in drop]
+        js_content = header + 'window.DATA = ' + json.dumps(final, separators=(',', ':'), default=str) + ';\n'
+        log.warning(f"data.js over {DATA_JS_MAX_BYTES:,} bytes: dropped the {len(drop)} oldest "
+                    f"non-floor records (they live in D1); now {len(js_content):,} bytes")
+        if len(js_content) > DATA_JS_MAX_BYTES:
+            log.error(f"data.js is still {len(js_content):,} bytes with only the per-city floors "
+                      f"left — lower EMBED_CITY_FLOOR before the next deploy")
 
     with open(output_path, 'w') as f:
         f.write(js_content)
@@ -5085,8 +8184,18 @@ def write_d1_sql(all_inspections, output_path, include_schema=True):
 # refetched the next time the source answers instead of becoming a permanent
 # gap. The file is also what the CI job summary reads to flag quiet sources.
 
-FRESHNESS_LOOKBACK_API_DAYS = 45      # open-data APIs/CSVs: cheap to re-read
-FRESHNESS_LOOKBACK_PORTAL_DAYS = 21   # scraped portals: every day costs detail pages
+# The caps are safety bounds, not the normal window. A group's window starts
+# the day before its last SHIPPED inspection, so a source that was blocked or
+# went quiet for longer than the cap must still be read back to that day or
+# the gap becomes permanent: the 45-day API cap silently dropped LA County's
+# July and August 2026 when the county's quarterly extract finally appeared,
+# and the 21-day portal cap would have abandoned every MHD week older than
+# three weeks the moment the portal became reachable again.
+FRESHNESS_LOOKBACK_API_DAYS = 400     # open-data APIs/CSVs: cheap to re-read
+FRESHNESS_LOOKBACK_PORTAL_DAYS = 90   # scraped portals: each day costs detail pages;
+                                      # the fetch deadline bounds a run, dropped
+                                      # (undetailed) days are refetched next time, and
+                                      # stalest-first ordering drains a backlog evenly
 FRESHNESS_OVERLAP_DAYS = 1            # re-read the latest known day (late edits)
 
 _FRESHNESS = None    # {'sources': {...}, 'groups': {...}} once --freshness-file is given
@@ -5120,6 +8229,13 @@ def _group_latest(group, source_labels=None):
                  for s in source_labels]
         return min(dates) if dates and all(dates) else ''
     return (_FRESHNESS['groups'].get(group) or {}).get('latest', '')
+
+
+def _source_latest(display_name):
+    """Latest shipped inspection recorded for an MHD source ('' if unknown)."""
+    if not _FRESHNESS:
+        return ''
+    return (_FRESHNESS['sources'].get(f'{display_name} Health Dept') or {}).get('latest', '')
 
 
 def _lookback_since(group, default_start, cap_days, source_labels=None):
@@ -5169,12 +8285,85 @@ def _note_source_lag(group, source_max):
                                f"({age}d old); nothing newer published")
 
 
+# A fetcher that DROPS an inspection it could not read for a transient reason
+# (a detail-page ban, a timeout, a 5xx, the fetch deadline) calls
+# _hold_freshness with that inspection's date. _record_group then keeps the
+# source's recorded latest from moving past the drop, so the next run's
+# lookback reads that day again. Without it, shipping the later days of the
+# same run advanced the latest beyond the drop and lost it for good.
+_MHD_DEADLINE_CUT = set()        # MHD display names whose fetch the deadline cut this run
+# source label -> {'date|record key': counted}. `counted` is False when the
+# drop was not a failure of that record (the deadline, a breaker or a block
+# cut the phase short), True when the record was tried and could not be read.
+_FRESHNESS_HOLDS = {}
+_FRESHNESS_HOLD_LOCK = threading.Lock()
+# A record TRIED and failed this many runs in a row is treated as
+# permanently unreadable: it is given up (remembered per source in the
+# freshness file as 'given_up', so a later re-read that fails again cannot
+# restart its count) and no longer holds the window. The count is per record
+# ('hold': {'date', 'failures': {'date|key': runs}}): two bad records a day
+# apart cannot take turns holding the window open, and one bad record
+# cannot drag a newer record's first failure down with it. Drops the
+# deadline or a breaker caused hold without counting: a backlog that drains
+# over several runs is never given up. No age limit.
+FRESHNESS_HOLD_GIVE_UP_RUNS = 3
+
+# A fetcher that shipped only PART of its window (a breaker tripped, the
+# deadline cut its detail phase) reports the group's real status here, since
+# it ships records and _record_group would otherwise call the run 'ok'.
+_GROUP_STATUS = {}               # group -> (status, detail)
+
+
+def _hold_freshness(source, inspection_date, counted=True, key='', advance=False):
+    """Keep `source`'s recorded latest at or before the day before
+    `inspection_date` this run (see _FRESHNESS_HOLDS). `key` names the
+    dropped record (its inspection or permit id) so its failures are
+    counted on their own; counted=False for a drop the deadline, a breaker
+    or a block caused: it holds, but never counts toward giving it up.
+    advance=True (window-start holds only) also RAISES the latest to the cap
+    when this is the earliest hold: for a fetcher that read everything
+    before it, so the next window starts there and not a day earlier."""
+    d = str(inspection_date or '')[:10]
+    if not source or len(d) != 10:
+        return
+    k = f'{d}|{key or ""}'
+    with _FRESHNESS_HOLD_LOCK:
+        drops = _FRESHNESS_HOLDS.setdefault(source, {})
+        was_counted, was_advance = drops.get(k, (True, False))
+        drops[k] = (was_counted and bool(counted), was_advance or bool(advance))
+
+
+def _hold_window_start(source, start, counted=True, key='', advance=False):
+    """Hold `source` so the next run's lookback starts exactly at `start`
+    (not two days before it, which is what holding at `start` itself gives:
+    the cap is the day before, and the lookback re-reads one more day). For
+    fetchers that must re-read a whole window rather than one day; the hold
+    date then repeats run after run, so the give-up count works."""
+    try:
+        day = datetime.strptime(str(start)[:10], '%Y-%m-%d')
+    except ValueError:
+        return
+    _hold_freshness(source, (day + timedelta(days=1 + FRESHNESS_OVERLAP_DAYS)).strftime('%Y-%m-%d'),
+                    counted, key, advance)
+
+
+def _set_group_status(group, status, detail=''):
+    """Report a partial run for `group` (consumed by _record_group)."""
+    _GROUP_STATUS[group] = (status, detail)
+
+
 def _record_group(group, records, status=None, detail=''):
     """Remember a fetch group's outcome this run and advance the recorded
     latest dates (per group and per record source). Only records that will
-    actually ship count, so a dropped/undetailed batch is refetched later."""
+    actually ship count, so a dropped/undetailed batch is refetched later;
+    a source with a freshness hold (a transient drop this run) is kept at
+    the day before its earliest drop."""
     if not detail:
         detail = _GROUP_NOTES.pop(group, '')
+    reported = _GROUP_STATUS.pop(group, None)
+    if status is None and reported:
+        status = reported[0]
+        detail = '; '.join(x for x in (reported[1], detail) if x)
     latest = max((str(r.get('inspection_date') or '')[:10] for r in records), default='')
     if status is None:
         status = 'ok' if records else 'empty'
@@ -5186,19 +8375,77 @@ def _record_group(group, records, status=None, detail=''):
         return
     g = _FRESHNESS['groups'].setdefault(group, {})
     g['last_run'] = outcome
-    if latest > (g.get('latest') or ''):
-        g['latest'] = latest
     by_source = defaultdict(str)
     for r in records:
         d = str(r.get('inspection_date') or '')[:10]
         s = r.get('source') or ''
         if s and d > by_source[s]:
             by_source[s] = d
+    # Freshness holds for this group's sources: the day before the earliest
+    # transient drop caps what this run may record (and pulls an already
+    # recorded latest back), so the next lookback re-reads the drop. A record
+    # tried and failed FRESHNESS_HOLD_GIVE_UP_RUNS runs in a row is given up
+    # for good; the next-earliest drop holds instead.
+    caps, advance = {}, set()
+    with _FRESHNESS_HOLD_LOCK:
+        mine = [s for s in _FRESHNESS_HOLDS
+                if s in by_source or (_FRESHNESS['sources'].get(s) or {}).get('group') == group]
+        dropped = {s: _FRESHNESS_HOLDS.pop(s) for s in mine}
+    keep_from = (datetime.now() - timedelta(days=FRESHNESS_LOOKBACK_API_DAYS)).strftime('%Y-%m-%d')
+    for s, drops in dropped.items():
+        e = _FRESHNESS['sources'].setdefault(s, {'group': group})
+        prev_fail = (e.get('hold') or {}).get('failures') or {}
+        given_up = set(e.get('given_up') or [])
+        failures, live = {}, set()
+        for k in sorted(drops):
+            if k in given_up:
+                continue
+            runs = prev_fail.get(k, 0) + (1 if drops[k][0] else 0)
+            if runs >= FRESHNESS_HOLD_GIVE_UP_RUNS:
+                given_up.add(k)
+                log.warning(f"{group}: {s} has failed to read a record from {k[:10]} "
+                            f"({k[11:] or 'unnamed'}) {runs} runs in a row — giving up on it")
+                continue
+            if runs:
+                failures[k] = runs
+            live.add(k[:10])
+        if live:
+            first = min(live)
+            e['hold'] = {'date': first, 'failures': failures}
+            caps[s] = (datetime.strptime(first, '%Y-%m-%d') - timedelta(days=1)).strftime('%Y-%m-%d')
+            if any(v[1] for k, v in drops.items() if k[:10] == first and k not in given_up):
+                advance.add(s)
+        else:
+            e.pop('hold', None)
+        given_up = sorted(k for k in given_up if k[:10] >= keep_from)
+        if given_up:
+            e['given_up'] = given_up[-500:]
+        else:
+            e.pop('given_up', None)
+    for s, cap in caps.items():
+        if by_source.get(s, '') > cap:
+            by_source[s] = cap
+        log.info(f"{group}: holding {s} at {cap} (an inspection from the next day was "
+                 f"dropped this run and will be re-read)")
     for s, d in by_source.items():
         e = _FRESHNESS['sources'].setdefault(s, {})
         if d > (e.get('latest') or ''):
             e['latest'] = d
         e['group'] = group
+        if s not in caps and s not in dropped:
+            e.pop('hold', None)          # read cleanly this run
+    for s, cap in caps.items():
+        e = _FRESHNESS['sources'][s]
+        if s in advance or (e.get('latest') or '') > cap:
+            e['latest'] = cap
+    # The group's latest is the newest of its sources after the caps — one
+    # held source must not make a 15-jurisdiction group look stale.
+    group_latest = max((e.get('latest') or '' for e in _FRESHNESS['sources'].values()
+                        if e.get('group') == group), default='')
+    if caps:
+        g['latest'] = group_latest or g.get('latest', '')
+    elif group_latest > (g.get('latest') or ''):
+        g['latest'] = group_latest
 
 
 def _write_freshness(path):
@@ -5443,6 +8690,9 @@ def main():
     if 'minneapolis' in args.cities:
         socrata_jobs['Minneapolis'] = lambda: fetch_minneapolis(
             since_date=api_since('Minneapolis'), limit=record_limit)
+    if 'sandiego' in args.cities:
+        socrata_jobs['San Diego County'] = lambda: fetch_san_diego(
+            since_date=api_since('San Diego County'), limit=record_limit)
     if 'cincinnati' in args.cities:
         socrata_jobs['Cincinnati'] = lambda: fetch_cincinnati(
             since_date=api_since('Cincinnati'), limit=record_limit)
@@ -5461,9 +8711,20 @@ def main():
     if 'detroit' in args.cities:
         socrata_jobs['Detroit'] = lambda: fetch_detroit(
             since_date=api_since('Detroit'), limit=record_limit)
+    if 'omaha' in args.cities:
+        def _omaha():
+            # ~9% of the county's rows carry no geometry (its geocoder
+            # missed the address); fill those the usual way.
+            data = fetch_omaha(since_date=api_since('Omaha'), limit=record_limit)
+            geocode_missing_coords(data)
+            return data
+        socrata_jobs['Omaha'] = _omaha
     if 'sacramento' in args.cities:
         socrata_jobs['Sacramento'] = lambda: fetch_sacramento(
             since_date=api_since('Sacramento'), limit=record_limit)
+    if 'santaclara' in args.cities or 'sanjose' in args.cities:
+        socrata_jobs['Santa Clara County'] = lambda: fetch_santa_clara(
+            since_date=api_since('Santa Clara County'), limit=record_limit)
     if 'vegas' in args.cities or 'lasvegas' in args.cities:
         socrata_jobs['Las Vegas'] = lambda: fetch_vegas(
             since_date=api_since('Las Vegas'), limit=record_limit)
@@ -5482,8 +8743,9 @@ def main():
                     log.error(f"{city} fetch failed: {e}")
                     _record_group(city, [], 'error', str(e))
 
-    # Houston and DC use the Tyler healthinspections.us portals (scraped)
-    for slug, fetcher in (('houston', fetch_houston), ('dc', fetch_dc)):
+    # Houston, San Antonio and DC use the Tyler healthinspections.us portals (scraped)
+    for slug, fetcher in (('houston', fetch_houston), ('sanantonio', fetch_san_antonio),
+                          ('dc', fetch_dc)):
         if slug in args.cities:
             if _past_deadline():
                 log.warning(f"{slug}: skipped — pipeline fetch deadline reached")
@@ -5551,83 +8813,113 @@ def main():
             log.error(f"Arlington fetch failed: {e}")
             _record_group('Arlington', [], 'error', str(e))
 
-    # Non-DFW MyHealthDepartment metros (Orange County, Portland, CO Front
-    # Range, Utah County, Yolo) — same portal machinery as DFW below.
-    mhd_metro_slugs = []
-    for city_slug, portal_slugs in MHD_METRO_SLUG_GROUPS.items():
-        if city_slug in args.cities:
-            mhd_metro_slugs.extend(portal_slugs)
-    mhd_metro_slugs.extend(s for s in args.cities
-                           if s in MHD_METRO_JURISDICTIONS and s not in mhd_metro_slugs)
+    # Orange County, CA: the newest-225 poll + sidecar (see fetch_orange_county).
+    # The daily poll-orange-county.yml runs this group alone; the Sunday
+    # weekly run reads the same sidecar so data.js and D1 see the whole week.
+    if ('orangecounty' in args.cities or 'anaheim' in args.cities) and _past_deadline():
+        log.warning("Orange County: skipped — pipeline fetch deadline reached")
+        _record_group('Orange County', [], 'skipped', 'fetch deadline reached')
+    elif 'orangecounty' in args.cities or 'anaheim' in args.cities:
+        try:
+            oc_since = None
+            if args.mode == 'weekly':
+                # The whole sidecar (its last OC_SIDECAR_KEEP_DAYS days), not
+                # a lookback window: inspections wait there until their
+                # printable is read, so a later poll can make one shippable
+                # days after it was first seen; re-upserting is idempotent.
+                oc_since = None
+            elif args.mode == 'full':
+                oc_since = '2026-01-01'
+            if args.since_date:
+                oc_since = args.since_date
+            # The portal has no coordinates. The fetcher geocodes only the
+            # sidecar's inspections that still lack them and stores the
+            # result there, so each restaurant is geocoded once, not daily.
+            oc_data = fetch_orange_county(since_date=oc_since, limit=record_limit,
+                                          fetch_violations=not args.no_dfw_violations,
+                                          geocode=geocode_missing_coords)
+            all_inspections.extend(oc_data)
+            log.info(f"Orange County: {len(oc_data)} records")
+            # A failed/blocked/skipped poll still ships the sidecar's records,
+            # but is reported as such so the daily job fails loudly.
+            oc_status, oc_detail = _oc_group_outcome()
+            _record_group('Orange County', oc_data, oc_status, oc_detail)
+        except Exception as e:
+            log.error(f"Orange County fetch failed: {e}")
+            _record_group('Orange County', [], 'error', str(e))
+
+    # The two MyHealthDepartment groups — the non-DFW metros (Portland, CO
+    # Front Range, Utah County, Yolo) and DFW — share one portal, one ban
+    # budget and one fetch deadline, so whichever group runs second is the
+    # one a tight run shortchanges. Build both, then run the group whose
+    # recorded data is older FIRST (inside a group, fetch_dfw orders its
+    # jurisdictions the same way).
+    mhd_metro_slugs = _mhd_metro_keys(args.cities)
+    dfw_slugs_requested = [c for c in args.cities if c in DFW_JURISDICTIONS]
+
+    mhd_groups = []   # (group name, jurisdictions)
     if mhd_metro_slugs:
+        mhd_groups.append(('MHD metros', {s: MHD_METRO_JURISDICTIONS[s] for s in mhd_metro_slugs}))
+    if 'dfw' in args.cities or dfw_slugs_requested:
+        juris = DFW_JURISDICTIONS if 'dfw' in args.cities else {
+            s: DFW_JURISDICTIONS[s] for s in dfw_slugs_requested}
+        mhd_groups.append(('DFW', juris))
+
+    def _group_key(entry):
+        group, juris = entry
+        return _group_latest(group, [f"{c['display_name']} Health Dept" for c in juris.values()])
+
+    for group, jurisdictions in sorted(mhd_groups, key=_group_key):
+        if _past_deadline():
+            log.warning(f"{group}: skipped — pipeline fetch deadline reached")
+            _record_group(group, [], 'skipped', 'fetch deadline reached')
+            continue
         try:
             mhd_since = None
             if args.mode == 'full':
                 mhd_since = '2026-01-01'
             elif args.mode == 'weekly':
-                # These portals publish with up to ~2 weeks of lag (Oregon
-                # especially) — look further back than the 8-day default so
-                # late-published inspections aren't permanently missed.
-                mhd_since = weekly_since(
-                    'MHD metros', FRESHNESS_LOOKBACK_PORTAL_DAYS, days=21,
-                    source_labels=[f"{MHD_METRO_JURISDICTIONS[s]['display_name']} Health Dept"
-                                   for s in mhd_metro_slugs])
+                # One window per jurisdiction: its own recorded latest, and
+                # its own re-read lag (config 'lag_days'; the Oregon counties
+                # publish up to two weeks late and carry 21, everyone else
+                # re-reads 8 days). A single group-wide window made every
+                # jurisdiction redo the laggiest one's three weeks of detail
+                # pages each Sunday.
+                mhd_since = {
+                    slug: weekly_since(
+                        group, FRESHNESS_LOOKBACK_PORTAL_DAYS,
+                        days=config.get('lag_days', 8),
+                        source_labels=[f"{config['display_name']} Health Dept"])
+                    for slug, config in jurisdictions.items()}
             if args.since_date:
                 mhd_since = args.since_date
+            not_fetched = []
             mhd_data = fetch_dfw(
-                jurisdictions={s: MHD_METRO_JURISDICTIONS[s] for s in mhd_metro_slugs},
+                jurisdictions=jurisdictions,
                 since_date=mhd_since,
                 until_date=args.until_date,
                 limit_per_jurisdiction=record_limit,
-                fetch_violations=not args.no_dfw_violations)
+                fetch_violations=not args.no_dfw_violations,
+                skipped=not_fetched)
             geocode_missing_coords(mhd_data)
             all_inspections.extend(mhd_data)
-            log.info(f"MHD metros: {len(mhd_data)} records")
-            _record_group('MHD metros', mhd_data,
-                          'blocked' if _MHD_PORTAL_BLOCKED else None,
-                          'MHD portal blocked this run' if _MHD_PORTAL_BLOCKED else '')
-        except Exception as e:
-            log.error(f"MHD metros fetch failed: {e}")
-            _record_group('MHD metros', [], 'error', str(e))
-
-    # DFW metroplex — supports 'dfw' (all MHD cities), 'dallas' (single), or any slug
-    dfw_slugs_requested = [c for c in args.cities if c in DFW_JURISDICTIONS]
-    if 'dfw' in args.cities or dfw_slugs_requested:
-        try:
-            # Use consistent ISO YYYY-MM-DD format for dates
-            dfw_since = None
-            if args.mode == 'full':
-                dfw_since = '2026-01-01'
-            if 'dfw' in args.cities:
-                jurisdictions = DFW_JURISDICTIONS
+            log.info(f"{group}: {len(mhd_data)} records")
+            # A group is only 'ok' when every jurisdiction in it was fetched;
+            # one starved by the deadline or the breaker makes the run red.
+            if _MHD_PORTAL_BLOCKED:
+                status, detail = 'blocked', 'MHD portal blocked this run'
+            elif any('(deadline)' in x for x in not_fetched):
+                status, detail = 'skipped', 'fetch deadline reached'
+            elif not_fetched:
+                status, detail = 'error', 'fetch failed'
             else:
-                jurisdictions = {s: DFW_JURISDICTIONS[s] for s in dfw_slugs_requested}
-            if args.mode == 'weekly':
-                dfw_since = weekly_since(
-                    'DFW', FRESHNESS_LOOKBACK_PORTAL_DAYS,
-                    source_labels=[f"{c['display_name']} Health Dept"
-                                   for c in jurisdictions.values()])
-            if args.since_date:
-                dfw_since = args.since_date
-
-            dfw_data = fetch_dfw(
-                jurisdictions=jurisdictions,
-                since_date=dfw_since,
-                until_date=args.until_date,
-                limit_per_jurisdiction=record_limit,
-                fetch_violations=not args.no_dfw_violations)
-
-            # Geocode records missing coordinates
-            geocode_missing_coords(dfw_data)
-
-            all_inspections.extend(dfw_data)
-            log.info(f"DFW: {len(dfw_data)} records")
-            _record_group('DFW', dfw_data,
-                          'blocked' if _MHD_PORTAL_BLOCKED else None,
-                          'MHD portal blocked this run' if _MHD_PORTAL_BLOCKED else '')
+                status, detail = None, ''
+            if not_fetched:
+                detail = f"{detail}: not fetched — {', '.join(not_fetched)}"
+            _record_group(group, mhd_data, status, detail)
         except Exception as e:
-            log.error(f"DFW fetch failed: {e}")
-            _record_group('DFW', [], 'error', str(e))
+            log.error(f"{group} fetch failed: {e}")
+            _record_group(group, [], 'error', str(e))
 
     # Drop coordinates that are obviously wrong before any output is written
     drop_implausible_coords(all_inspections)

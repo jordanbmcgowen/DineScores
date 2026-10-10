@@ -6,16 +6,27 @@ on:
     - cron: '0 9 * * 0'
   workflow_dispatch:  # Allow manual trigger from GitHub Actions UI
 
+# Shared with poll-orange-county.yml so the two jobs never push at once.
+concurrency:
+  group: data-refresh
+  cancel-in-progress: false
+
 jobs:
   refresh-data:
     runs-on: ubuntu-latest
-    timeout-minutes: 170
+    timeout-minutes: 330
     permissions:
       contents: write  # Needed to commit data.js back to the repo
+      id-token: write  # Lets the job mint the GitHub OIDC token that
+                       # authenticates it to the portal relay (functions/api/relay.js)
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v5
+        with:
+          # The tip of main when the job STARTS (a queued run or a re-run
+          # would otherwise check out a stale SHA and fail to push).
+          ref: main
 
       - name: Set up Python
         uses: actions/setup-python@v6
@@ -26,26 +37,50 @@ jobs:
         run: |
           pip install requests
 
+      - name: List the inspections already stored with details
+        # The MyHealthDepartment fetchers re-read each jurisdiction's last
+        # 8-21 days every Sunday (late-published inspections), but a detail
+        # page costs ban budget and every inspection already in data.js was
+        # detailed when it shipped (undetailed ones are dropped, never
+        # stored). This hands the pipeline those (restaurant, date) pairs so
+        # the detail phase spends the budget on NEW inspections only.
+        run: |
+          python3 - <<'EOF'
+          import json
+          from datetime import date, timedelta
+          data = json.loads(open('public/data.js').read().split('window.DATA = ', 1)[1].rstrip(';\n'))
+          cutoff = (date.today() - timedelta(days=60)).isoformat()
+          n = 0
+          with open('/tmp/known_inspections.tsv', 'w') as f:
+              for r in data:
+                  for d, _ in (r.get('h') or [[r.get('d'), None]]):
+                      if r.get('i') and d and d >= cutoff:
+                          f.write(f"{r['i']}\t{d}\n")
+                          n += 1
+          print(f'{n} stored inspections from the last 60 days will not be re-detailed')
+          EOF
+
       - name: Run data pipeline (all covered metros)
         env:
           # Optional: raises Socrata rate limits if the secret is configured
           SOCRATA_APP_TOKEN: ${{ secrets.SOCRATA_APP_TOKEN }}
-          # Optional: egress for the portals that block GitHub runner IPs.
-          # The MyHealthDepartment portal (Dallas, Plano, Frisco, Fort Worth,
-          # Tarrant, Portland metro, CO Front Range, Utah County, Yolo) returns
-          # 403 to every GitHub-hosted runner type, and the Las Vegas API has
-          # failed from runners too. Set the PORTAL_PROXY_URL repo secret
-          # (http://user:pass@host:port, a residential/ISP proxy) to route
-          # just those requests through an unblocked address. Unset = those
-          # metros are skipped and keep their existing records.
-          PORTAL_PROXY_URL: ${{ secrets.PORTAL_PROXY_URL }}
-          # Or route those same requests through the relay Worker in
-          # workers/portal-relay (a Worker cannot serve HTTP CONNECT, so it is
-          # a URL-rewriting relay rather than a proxy). Deploy it, set its
-          # RELAY_TOKEN, then set these two secrets. Unverified against the
-          # portal's TLS fingerprint check — see that directory's README.
-          PORTAL_RELAY_URL: ${{ secrets.PORTAL_RELAY_URL }}
+          # Egress for the portals that refuse GitHub's runner ranges. The
+          # MyHealthDepartment portal (Dallas, Plano, Frisco, Fort Worth,
+          # Tarrant, Portland metro, CO Front Range, Utah County, Yolo) answers
+          # 403 to every GitHub-hosted runner type and the Las Vegas (SNHD)
+          # API 401s runners after a few dozen pages, so those requests go
+          # through the site's own relay function (functions/api/relay.js,
+          # deployed with every Pages build). Verified 2026-10-10: Cloudflare's
+          # egress gets 200 from both portals. The job authenticates to the
+          # relay with a GitHub OIDC token it mints itself (id-token: write
+          # above), so NO secret has to exist for this to work. The two
+          # secrets below only override the defaults: a different relay URL,
+          # or a static token (RELAY_TOKEN Pages variable) instead of OIDC.
+          PORTAL_RELAY_URL: ${{ secrets.PORTAL_RELAY_URL || 'https://dinescores.com/api/relay' }}
           PORTAL_RELAY_TOKEN: ${{ secrets.PORTAL_RELAY_TOKEN }}
+          # Alternative to the relay: an HTTP proxy (http://user:pass@host:port)
+          # for the same requests. When set it is used alongside the relay.
+          PORTAL_PROXY_URL: ${{ secrets.PORTAL_PROXY_URL }}
           # Jev violation reader (jev_reader.py). The key is only ever read
           # from this variable; it is scrubbed from logs and exceptions and
           # request bodies are never logged. With the secret unset the reader
@@ -59,17 +94,18 @@ jobs:
         run: |
           python3 dinescores_pipeline.py \
             --mode weekly \
-            --cities chicago nyc sf austin boston seattle florida nys wake vegas la louisville minneapolis cincinnati delaware montgomery detroit sacramento southcarolina fairfax portland coloradosprings larimer weld adams utahcounty yolo houston dc dallas plano frisco fort-worth-texas tarrant arlington richardson \
+            --cities chicago nyc sf austin boston seattle florida nys wake vegas la louisville minneapolis cincinnati delaware montgomery detroit sacramento southcarolina fairfax portland coloradosprings larimer weld adams utahcounty yolo santaclara sandiego omaha orangecounty gwinnett nashville memphis knoxville chattanooga houston sanantonio dc dallas plano frisco fort-worth-texas tarrant arlington richardson \
             --output /tmp/dinescores_data.json \
             --output-data-js public/data.js \
             --merge-existing-data-js public/data.js \
             --output-d1-sql /tmp/dinescores_weekly.sql \
             --freshness-file data/source_freshness.json \
-            --deadline-minutes 120 \
+            --skip-known-inspections /tmp/known_inspections.tsv \
+            --deadline-minutes 240 \
             --jev-deadline-minutes 20
         # --jev-deadline-minutes bounds the Jev reading pass that runs after
-        # the fetch phase (120 + 20 + outputs and the D1 upload stay inside
-        # the 170-minute job). Lines not read by then fall back to the regex;
+        # the fetch phase (240 + 20 + outputs and the D1 upload stay inside
+        # the 330-minute job). Lines not read by then fall back to the regex;
         # the pass can never fail the run or drop a record.
         # --merge-existing-data-js is essential: weekly mode only pulls the
         # recent window, and merging preserves the accumulated dataset instead
@@ -83,8 +119,11 @@ jobs:
         # --deadline-minutes keeps the fetch phase inside the job timeout:
         # sources that miss the budget are skipped (their existing records
         # survive via the merge) instead of the whole run timing out and
-        # shipping nothing. The budget also covers the MHD detail-page ban
-        # cooldowns (up to 3 x 15 min) when those portals are reachable.
+        # shipping nothing. The budget is what bounds the MHD detail-page
+        # ban cooldowns (15 min each; a normal week across every MHD
+        # jurisdiction needs five or more, and a backlog needs more) — this
+        # is a Sunday-morning cron, so a four-hour fetch phase costs nothing
+        # but runner minutes.
 
       - name: Show data summary
         run: |
@@ -188,6 +227,11 @@ jobs:
           EOF
 
       - name: Update D1 database
+        id: d1
+        # A D1 failure must not cost the Orange County sidecar or the Jev
+        # cache (committed below either way) or hide the sources' outcomes;
+        # the last step fails the run if this failed.
+        continue-on-error: true
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
@@ -206,17 +250,78 @@ jobs:
             --file /tmp/dinescores_weekly.sql
 
       - name: Commit updated data.js
+        env:
+          D1_OUTCOME: ${{ steps.d1.outcome }}
         run: |
           git config --global user.name "DineScores Bot"
           git config --global user.email "bot@dinescores.com"
           # The Jev cache travels with the data it graded: the run's new
           # judgments file (append-only; see data/jev_judgments/README.md).
-          git add public/data.js data/source_freshness.json data/jev_judgments
+          # The Orange County sidecar is rewritten by this run's poll too; an
+          # uncommitted sidecar loses the inspections (and unread printables)
+          # the Monday poll can no longer see.
+          #
+          # data.js and the freshness file ship only together with D1: when
+          # the D1 update failed they are left out, freshness does not
+          # advance, and next week's run refetches the same window into both
+          # (committing data.js alone would not do: next week's MHD fetch
+          # drops inspections data.js already holds, so D1 would never get
+          # them). The sidecar and the Jev cache are committed either way:
+          # the daily poll re-upserts the sidecar into D1, and the sidecar
+          # keeps every inspection after Orange County's recorded latest, so
+          # next week's run still ships the held-back days into data.js.
+          # The fail step reads its own copy of the freshness file.
+          cp data/source_freshness.json /tmp/weekly_freshness.json
+          git add data/jev_judgments data/orange_county_inspections.jsonl
+          if [ "$D1_OUTCOME" != "failure" ]; then
+            git add public/data.js data/source_freshness.json
+          else
+            echo "::warning::D1 update failed: data.js and the freshness file are not committed; next week's run refetches this window."
+            git checkout -- public/data.js data/source_freshness.json
+          fi
           if git diff --staged --quiet; then
             echo "No changes to data.js — already up to date"
           else
             TIMESTAMP=$(date -u '+%Y-%m-%d')
             git commit -m "Auto-refresh: ${TIMESTAMP} weekly inspection data update"
-            git push
+            git pull --rebase --autostash origin main
+            git push origin HEAD:main
             echo "Successfully pushed updated data.js"
           fi
+
+      - name: Fail the run if any source did not refresh
+        # Runs LAST, after everything that did ship is committed and in D1,
+        # so a red run never costs data. For weeks a blocked portal shipped
+        # zero records while the job stayed green and nobody was told; a
+        # failed run notifies the repository owner. "error" is a fetcher
+        # exception, "blocked" the portal refusing us, "skipped" the fetch
+        # deadline. A source that answered but has published nothing new
+        # ("empty", flagged STALE above with the fetcher's note) is not a
+        # failure of this job.
+        env:
+          D1_OUTCOME: ${{ steps.d1.outcome }}
+        run: |
+          python3 - <<'EOF'
+          import json, os, sys
+          from datetime import date
+          try:
+              data = json.load(open('/tmp/weekly_freshness.json'))
+          except (OSError, ValueError):
+              data = {}
+          today = date.today().isoformat()
+          bad = []
+          if not data.get('groups'):
+              bad.append('pipeline: no source outcomes recorded (it did not reach its output phase)')
+          for group, g in sorted(data.get('groups', {}).items()):
+              run = g.get('last_run') or {}
+              if run.get('at') == today and run.get('status') in ('error', 'blocked', 'skipped'):
+                  bad.append(f"{group}: {run['status']} - {run.get('detail') or 'no records shipped'}")
+          if os.environ.get('D1_OUTCOME') == 'failure':
+              bad.append('D1 update failed: data.js and freshness were held back, next week refetches this window')
+          for b in bad:
+              print(f'::error title=Source did not refresh::{b}')
+          if bad:
+              print(f'{len(bad)} source group(s) did not refresh this run; data that did ship is already committed.')
+              sys.exit(1)
+          print('Every source group refreshed.')
+          EOF

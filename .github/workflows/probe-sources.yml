@@ -22,11 +22,25 @@ jobs:
         os: [ubuntu-latest, macos-latest, windows-latest]
     runs-on: ${{ matrix.os }}
     timeout-minutes: 10
+    permissions:
+      id-token: write   # to mint the OIDC token the relay accepts
     env:
       PORTAL_PROXY_URL: ${{ secrets.PORTAL_PROXY_URL }}
-      PORTAL_RELAY_URL: ${{ secrets.PORTAL_RELAY_URL }}
+      # The site's relay function is the default (see refresh-data.yml); the
+      # secrets only override it.
+      PORTAL_RELAY_URL: ${{ secrets.PORTAL_RELAY_URL || 'https://dinescores.com/api/relay' }}
       PORTAL_RELAY_TOKEN: ${{ secrets.PORTAL_RELAY_TOKEN }}
     steps:
+      - name: Mint a relay credential (GitHub OIDC) when no static token is set
+        if: env.PORTAL_RELAY_TOKEN == ''
+        shell: bash
+        run: |
+          TOKEN=$(curl -s -H "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" \
+            "$ACTIONS_ID_TOKEN_REQUEST_URL&audience=dinescores-portal-relay" \
+            | python3 -c 'import json,sys; print(json.load(sys.stdin).get("value",""))')
+          echo "::add-mask::$TOKEN"
+          echo "PORTAL_RELAY_TOKEN=$TOKEN" >> "$GITHUB_ENV"
+          echo "minted an OIDC token for the relay (${#TOKEN} chars)"
       - name: Probe portals
         shell: bash
         run: |
@@ -64,7 +78,7 @@ jobs:
             echo "PORTAL_PROXY_URL not configured — skipping proxy probes"
           fi
           if [ -n "$PORTAL_RELAY_URL" ]; then
-            echo "PORTAL_RELAY_URL is configured — repeating them through the relay Worker"
+            echo "PORTAL_RELAY_URL is configured — repeating them through the relay function"
             # The relay takes the target in a url= parameter rather than as a
             # proxy, so the portal's own status comes back as the Worker's.
             relay() {  # label, target url, extra curl args...

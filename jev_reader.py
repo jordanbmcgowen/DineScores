@@ -1428,6 +1428,8 @@ SOURCE_TIER_SOURCES = frozenset({
     'Boston Open Data', 'Detroit Open Data', 'Minneapolis Open Data', 'LA County Open Data',
     'Wake County Open Data', 'King County Open Data', 'Southern Nevada Health District',
     'Richardson Health Dept', 'NYS Department of Health',
+    # Orange County's printable tags every item MAJ / MIN / OUT (OC_TAG_SEVERITY).
+    'Orange County Health Care Agency',
 })
 # Sources whose tier was bounded by a per-item rule the stored row no longer
 # carries (Chicago's item number, NYC's critical flag): a stored core line

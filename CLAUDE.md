@@ -6,8 +6,10 @@ metros (NYC, Chicago, LA County, SF, Seattle, Boston, Austin, Houston, DC,
 DFW, Las Vegas, Raleigh, Miami/Tampa/Orlando, Louisville, Minneapolis,
 Cincinnati, Montgomery County MD, Detroit, Sacramento, Fairfax County,
 Portland OR metro incl. Clark County WA, Colorado Springs/Fort Collins/
-Greeley/Adams County CO, Provo/Orem, Yolo County) plus all of Florida,
-New York State, Delaware, and South Carolina.
+Greeley/Adams County CO, Provo/Orem, Yolo County, San Jose/Santa Clara
+County, San Diego County, Omaha/Douglas County, Orange County CA, San
+Antonio, Nashville/Memphis/Knoxville/Chattanooga, Gwinnett County GA) plus
+all of Florida, New York State, Delaware, and South Carolina.
 
 ## Architecture
 
@@ -66,71 +68,190 @@ middleware.
 ## Workflows (.github/workflows/)
 
 - `refresh-data.yml` — cron, Sundays 09:00 UTC. Pulls the recent window from
-  all sources, merges data.js, applies incremental SQL to D1, commits. Source
-  portals sometimes block GitHub runners; fetchers are failure-tolerant and
-  skip rather than ship partial data (the merge preserves existing records).
-  Two guards keep a blocked portal from timing out the whole job (which
-  ships nothing): a run-wide MHD circuit breaker (`_MHD_PORTAL_BLOCKED` —
-  first exhausted 403 retry on a SEARCH skips the portal's remaining
-  jurisdictions) and `--deadline-minutes` (past the budget, remaining fetch
-  groups are skipped and outputs still get written).
-  - **The job going green means nothing about coverage.** The pipeline
-    records every fetch group's outcome in `data/source_freshness.json`
-    (`--freshness-file`), and the "Report source outcomes" step renders it
-    into the run summary with warning annotations for groups that failed or
-    whose newest inspection is >21 days old. Look there first when "the
-    refresh isn't working".
+  all sources, merges data.js, applies incremental SQL to D1, commits, and
+  then FAILS the run if any fetch group was blocked, errored or skipped (the
+  last step, after the commit, so a red run never costs data). Fetchers are
+  failure-tolerant and skip rather than ship partial data (the merge
+  preserves existing records). Two guards keep a blocked portal from timing
+  out the whole job (which ships nothing): a run-wide MHD circuit breaker
+  (`_MHD_PORTAL_BLOCKED` — first exhausted 403 retry on a SEARCH skips the
+  portal's remaining jurisdictions) and `--deadline-minutes` (past the
+  budget, remaining fetch groups are skipped and outputs still get written).
+  - **A green job used to mean nothing about coverage** (2026-09-06 through
+    2026-10-04 every scheduled run shipped 0 records for DFW, Portland, the
+    CO Front Range, Utah County, Yolo and Las Vegas and still passed). The
+    pipeline records every fetch group's outcome in
+    `data/source_freshness.json` (`--freshness-file`); the "Report source
+    outcomes" step renders it into the run summary with warning annotations
+    for groups that failed or whose newest inspection is >21 days old, and
+    the final step turns blocked/error/skipped groups into a failed run so
+    the owner is notified. Look at the summary first when "the refresh
+    isn't working".
   - **A stale source is not always a broken one.** A fetcher can leave a
     one-line reason in `_GROUP_NOTES` (`_note_source_lag` for the common
     "the source itself is behind" case); `_record_group` picks it up and
-    the report prints it next to the STALE/FAILED flag. Two sources that
-    look broken every week and are not, both re-verified 2026-09-15:
-    **LA County** publishes per fiscal year and closed its FY23-26 extract
-    at 2026-06-30 — the successor file does not exist yet on the hub (only
-    the Inventory item has rolled to 07/01/2026), and `_la_hub_items` will
-    pick the new one up by title as soon as it appears. **Austin** simply
-    runs weeks behind: its Socrata dataset's own newest row was 2026-08-20,
-    and the refresh had already fetched every one of them.
-  - **Self-healing windows**: weekly mode starts each group's window at its
-    recorded latest inspection (bounded: 45 days for API/CSV sources, 21 for
-    scraped portals; `_lookback_since`) instead of a flat 8 days, so a lost
-    week refetches itself. `--since-date` still overrides everything.
+    the report prints it next to the STALE/FAILED flag. **LA County**
+    publishes quarterly into the SAME hub items (the title's end date rolls:
+    "... 07/01/2023 to 06/30/2026" became "... 10/01/2023 to 09/30/2026" on
+    2026-10-06), so it looks stale for up to three months and then catches
+    up in one run. **Austin** simply runs weeks behind its own dataset.
+  - **Self-healing windows**: weekly mode starts each group's window the day
+    before its recorded latest SHIPPED inspection (`_lookback_since`)
+    instead of a flat 8 days, so a lost week refetches itself. The caps
+    (400 days for API/CSV sources, 90 for scraped portals) are safety
+    bounds, not the normal window: the old 45/21-day caps silently dropped
+    LA County's July-August 2026 when the quarterly extract appeared, and
+    would have abandoned every MHD week older than three weeks once the
+    portal was reachable again. `--since-date` still overrides everything.
+    Only shipped records advance the recorded latest, so a portal backlog
+    drains oldest-first across runs; `fetch_dfw` orders jurisdictions
+    stalest-first (and `main()` orders the DFW / MHD-metros groups the same
+    way) so a run that hits its deadline never starves the same metro twice.
   - **MHD blocks every GitHub-hosted runner type** (ubuntu, macOS, windows
-    all get 403 — probed 2026-09-07 with `probe-sources.yml`). The MHD metros
-    (DFW, Portland, CO Front Range, Utah County, Yolo) refresh from CI only
-    with the `PORTAL_PROXY_URL` secret (applied to MHD and SNHD requests
-    only), otherwise from a local run. Every scheduled run is blocked this
-    way and still reports success — 2026-09-06 and 2026-09-13 both shipped
-    0 DFW records — so DFW only ever advances from a manual catch-up.
-    The 403 has TWO independent causes, and a fix has to clear both
-    (measured 2026-09-15 from one Google Cloud host, same minute):
-      1. **Egress IP.** GitHub's ranges are blocked; ordinary datacenter
-         IPs are not. Python `requests` — the client the pipeline uses —
-         got a clean 200 with full search and detail pages from that host
-         and 403 from every runner.
-      2. **Client TLS fingerprint.** From that same working IP, `curl`
-         (200, HTTP/2) and Python `requests` (200) pass, while Node's
-         `fetch`/undici gets 403 no matter the headers or accept-encoding.
-         OpenSSL-based clients are accepted; undici is not.
-    So "route it through an unblocked hop" is not sufficient by itself: the
-    hop has to speak with an accepted fingerprint too. A host running the
-    pipeline's own Python is proven on both counts (a self-hosted runner, or
-    any small VM on a cron). `workers/portal-relay` is the cheap option but
-    NOT verified — Cloudflare's fetch is not an OpenSSL client, and undici
-    is already rejected, so test it with the curl in its README before
-    trusting the weekly job to it.
+    all get 403 — probed 2026-09-07 with `probe-sources.yml`) and **SNHD
+    (Las Vegas) answers 401** to a runner after a few dozen list pages. Both
+    now go through the site's own relay, `functions/api/relay.js`
+    (`/api/relay?url=`), which fetches from Cloudflare's network. Verified
+    2026-10-10 from a Pages preview deployment: MHD searches (Dallas, Plano)
+    return real rows, detail pages load, and 70 rapid SNHD list pages all
+    returned 200. The portal's two-factor block (egress IP AND client TLS
+    fingerprint — Node's undici is refused even from an accepted IP,
+    measured 2026-09-15) does not apply to Cloudflare's fetch.
+    - **No secrets.** The job mints a GitHub OIDC token (`id-token: write`,
+      audience `dinescores-portal-relay`, re-minted by `_relay_token()`
+      before expiry) and the function verifies the signature against
+      GitHub's JWKS plus issuer, audience, expiry, `repository ==
+      jordanbmcgowen/DineScores` AND the immutable `repository_id`
+      (1163315559) and `repository_owner_id` (244274424) — names can be
+      re-registered after an account rename, ids cannot. If the repository
+      moves, set both `RELAY_ALLOWED_REPO` and `RELAY_ALLOWED_REPO_ID` as
+      Pages variables (a name override without an id is refused). A static
+      `RELAY_TOKEN` Pages variable is accepted as an alternative
+      (`PORTAL_RELAY_TOKEN` on the client side). Only the two portal
+      hostnames can be fetched, and redirects are followed by hand only
+      while they stay on those hosts over https. The relay deploys with
+      every Pages build, so a broken relay shows up as a red refresh run,
+      not a silent one. `PORTAL_RELAY_URL` defaults to
+      `https://dinescores.com/api/relay` in the workflows; the
+      `PORTAL_RELAY_URL`/`PORTAL_RELAY_TOKEN`/`PORTAL_PROXY_URL` secrets only
+      override it. `tests/test_refresh_hardening.py` covers the client side
+      and `node tests/test_relay.mjs` the function (JWT verification,
+      forged/expired/foreign-repo/re-registered-namespace tokens, host
+      allowlist, redirects, header stripping).
+    - **MHD allows ~250 searches per TCP connection**, then 403s that
+      connection (measured 2026-10-10: 252 searches, 403; cookies cleared,
+      still 403; a new connection, 200 at once). `_mhd_rotate_connection`
+      reconnects every `MHD_SEARCHES_PER_CONNECTION` (150) searches and on
+      the first 403 of a search; only a second 403 goes to the retry ladder
+      and the breaker. Tennessee's bucket mode (30 searches a day per metro)
+      tripped the breaker in five minutes before this.
+    - The cooldown budget `MHD_BAN_COOLDOWNS` defaults to 16 (was 3): a
+      normal week of every MHD jurisdiction is well over 1,000 detail pages,
+      five or more 15-minute ban windows, which the old budget could never
+      finish. The weekly job's 240-minute fetch deadline (330-minute job)
+      is what bounds a CI run; it is a Sunday cron, so the hours are free.
+    - SNHD is rate-limited, not IP-blocked: a 401/429 pauses every SNHD
+      worker (`_snhd_pause_all`, `SNHD_RATE_LIMIT_WAIT`) instead of
+      retrying three seconds later, and the detail phase runs at
+      `SNHD_DETAIL_WORKERS=2` / `SNHD_DETAIL_DELAY=0.5`. A throttle that
+      does not lift is a block: once one unbroken throttling episode has
+      paused `SNHD_MAX_TOTAL_PAUSE` (15 min), or `SNHD_BREAKER_TRIP` (3)
+      requests in a row exhaust their retries for ANY reason (401/429, a 403
+      block, 5xx, timeouts), `_SNHD_BLOCKED` fails every further SNHD
+      request at once, so Las Vegas can never eat the whole fetch deadline.
+      A success resets both counters; a 400/404/410 is that one permit's
+      problem and is neither retried, counted nor held. Permits run
+      oldest-first; each one not read holds Las Vegas on its own with
+      `_hold_window_start(..., advance=True)` (key = permit number), which
+      also RAISES the recorded latest to the hold (everything before it was
+      read), so the next window starts exactly at the oldest unread permit's
+      date and a run the breaker cut short still moves forward by what it
+      read. A re-read permit ships its previous inspections back to
+      `SNHD_PREVIOUS_MARGIN_DAYS` (14) before the window, or before
+      `backlog_from` (the first window start of an unbroken series of cut
+      runs, kept in the freshness file) while a backlog drains, so a permit
+      re-inspected mid-backlog still ships the downgrade a cut run never
+      read. Holding at the window start slid it back two days a run (the
+      lookback reaches a day past the cap), and folding every unread permit
+      into one hold froze a backlog. A breaker trip reports 'blocked'.
+- `poll-orange-county.yml` — cron, 05:00 UTC Monday-Saturday. Orange
+  County's MHD jurisdiction ignores every date filter and returns only its
+  newest 225 inspections (~1.7 days; measured 2026-10-10, see
+  `fetch_orange_county`), so it is polled daily into the sidecar
+  `data/orange_county_inspections.jsonl` (last 10 days) and upserted into
+  D1; the Sunday refresh ships the whole sidecar to rebuild data.js and
+  commits the sidecar too. Both workflows check out `main`'s tip and share
+  the `data-refresh` concurrency group so they never push at once; the
+  poll commits the sidecar BEFORE its D1 update (an uncommitted day is
+  lost for good, a missed D1 update heals on the next poll) and records its
+  outcome in a /tmp copy of the freshness file, never the tracked one (a
+  dirty tracked file stops its `git pull --rebase`, and only the weekly
+  commits freshness). The weekly commits the sidecar and the Jev cache even
+  when its D1 update fails, but then leaves data.js and the freshness file
+  out, so next week refetches that window into both. Committing data.js
+  alone would not work: next week's MHD fetch drops inspections data.js
+  already holds (`--skip-known-inspections`), so D1 would never get them.
+  The sidecar is pruned to 10 days before its newest inspection but never
+  before Orange County's recorded latest (`OC_SIDECAR_MAX_DAYS`=35 bounds
+  it), so the days a failed weekly held back are still there next week. It runs Jev like the weekly, so the daily upsert does not flip
+  D1's grades back to the regex. OC publishes no score: Pass/Reinspection/
+  Closed map to 90/75/50, and violations come from the inspection's
+  printable PDF (stdlib parser, county MAJ/MIN/OUT tags set the severity).
+  An inspection ships only once its printable is read; a PDF that parses
+  without a Result counts as unread (a layout change must not read as
+  zero violations). One whose printable failed `OC_PDF_GIVE_UP_TRIES` (3)
+  times AND was first polled `OC_PDF_GIVE_UP_DAYS` (5) days ago ships with
+  the county's result alone (age alone is not enough: a week the endpoint
+  was blocked is not a failed read). Reported as an error: more than half
+  the printables unreadable, or over 90% of the read ones showing no
+  violations (both need `OC_PDF_MASS_FAILURE_MIN`=20); a printable phase
+  the block breaker or the deadline cut short is 'blocked'/'skipped'.
+- `load-d1-seeds.yml` — on push to `main` touching `data/d1_seed*.sql.gz`
+  (and manual with a glob): loads the seeds that push added or changed.
+  Committing a seed IS loading it; the four 2026-09-15 catch-up seeds sat
+  unloaded for a month because the setup workflow had to be run by hand,
+  leaving D1 nine days behind data.js for DFW. It fetches the push's base
+  commit, so a rebase-merge or multi-commit push loads every seed it
+  added, and fails loudly if that base cannot be fetched.
 - `probe-sources.yml` — manual. Curls each portal from ubuntu/macOS/windows
-  runners (and through `PORTAL_PROXY_URL` if set) and prints the HTTP status.
+  runners, directly and through the relay (with a minted OIDC token) or
+  `PORTAL_PROXY_URL`, and prints the HTTP status.
 - `setup-database.yml` — manual (workflow_dispatch). Bulk-loads
-  `data/d1_seed.sql.gz` into D1 and writes `wrangler.toml`. Idempotent.
-  Re-run only after committing a regenerated/repaired seed.
+  `data/d1_seed*.sql.gz` into D1 and writes `wrangler.toml`. Idempotent.
+  For a single new seed prefer `load-d1-seeds.yml` (automatic on merge).
+
+## Candidate sources surveyed but not added (2026-10-10)
+
+A parallel survey verified these live; each is a small-to-medium fetcher
+away if coverage should grow. MHD slugs ride the relay and the existing
+machinery (config entry + slug group): Amarillo 'aaphd', Arapahoe County
+and Douglas County CO, Roseville CA, Cuyahoga County (Cleveland suburbs),
+Akron, Toledo — all honour the date filter and stay under the 225 cap;
+'virginia' is statewide and capped like Tennessee (bucket mode would be the
+way in). Tyler 'publicportals' JSON API (facilities/{page},
+inspectionsData/{id}; no date filter, no coordinates): Louisiana statewide
+(New Orleans, Baton Rouge), Georgia statewide (Atlanta proper: Fulton,
+DeKalb, Cobb), Columbia MO. Other JSON APIs without auth: Lubbock TX and
+Tucson/Pima (Hedgerow portals), Snohomish County WA, Anchorage, Oklahoma
+City (Inspect2Go, no date filter), Indianapolis (facility list with
+coordinates only). Stale or thin: Boulder County (Socrata, last inspection
+June 2026), Alameda County (ArcGIS, quarterly, violation rows only),
+Allegheny County/Pittsburgh (CKAN, placards only, violations feed dead),
+Hawaii's Tyler portal (host resets every connection), Albuquerque (the
+daily CSV has been header-only since 2020). No machine-readable source at
+all: Denver (Accela), Salt Lake County, Charlotte/Mecklenburg, Kansas City,
+St. Louis, Milwaukee, Madison, Philadelphia's own portal, Baltimore,
+Riverside/San Bernardino DEH, Spokane, Tacoma.
 
 ## Hard-won invariants (violate at your peril)
 
 - **Cloudflare Pages rejects any asset over 25 MiB**, and `public/data.js`
   is the asset that grows. `write_data_js` bounds it (EMBED_BUDGET global
-  cap + EMBED_CITY_FLOOR per-city floor, ~24 MB); a deploy that fails with
-  no error on the commit is usually this. The full dataset lives in D1.
+  cap + EMBED_CITY_FLOOR per-city floor) and then enforces a hard
+  `DATA_JS_MAX_BYTES` (24,000,000) by dropping the oldest records outside
+  the floors — the record budget alone let the file creep to 24.8 MB as
+  new towns added floors. A deploy that fails with no error on the commit
+  is usually this. The full dataset lives in D1.
 - **D1 rejects any SQL statement over 100KB** (`SQLITE_TOOBIG`), and its
   file imports are atomic. `write_d1_sql` caps multi-row INSERTs at 40 rows
   AND 80KB (`_d1_row_batches`) — keep both caps on anything that emits SQL.
@@ -162,10 +283,31 @@ middleware.
   businesses are new since Nov 2025 and get fresh ids; if the county
   reformats again, rebuild the map by matching on name+city+house number
   against D1 before shipping a refresh.
-- **Only shipped records advance freshness.** `_record_group` computes a
-  group's latest date from the records it returns, so dropped/undetailed
-  batches get refetched by the lookback. Keep it that way for any new
-  fetch group, and register every new group with `_record_group`.
+- **Only shipped records advance freshness, and a drop holds it.**
+  `_record_group` computes a group's latest date from the records it
+  returns, so undetailed batches get refetched by the lookback. A fetcher
+  that drops an inspection for a TRANSIENT reason (detail ban, timeout,
+  5xx, deadline) while shipping later days must call
+  `_hold_freshness(source, date)`: the source's latest is then capped at
+  the day before the earliest drop (and pulled back if already past it),
+  or the later days would carry the latest beyond the drop and lose it
+  for good. Each dropped record (`key=` its inspection or permit id) keeps
+  its own count of runs in a row in which it was TRIED and failed
+  (`'hold': {'date', 'failures': {'date|key': runs}}` in the freshness
+  file); at `FRESHNESS_HOLD_GIVE_UP_RUNS` (3) it is given up and remembered
+  (`'given_up'`), so a re-read that fails again cannot restart its count,
+  two bad records a day apart cannot take turns holding the window open,
+  and a bad record cannot take a newer record's first failure with it. Drops the deadline, a breaker or a block
+  caused pass `counted=False`: they hold but never count, so a backlog that
+  drains over several runs is never given up. No age limit. A fetcher that
+  re-reads a whole window rather than one day holds with
+  `_hold_window_start`, which keeps the hold date the same run to run. Omaha's two known per-record PDF crashes
+  (`OMAHA_PERMANENT_500S`, matched on the 500's body) are not held; any
+  other 500 is. An MHD jurisdiction the deadline cut is reported
+  'skipped' (`_MHD_DEADLINE_CUT`). Fetchers that ship part of their window
+  report it with `_set_group_status` so the run goes red.
+  MHD details run oldest-first so a ban or deadline cut drops the newest
+  tail. Register every new fetch group with `_record_group`.
 - **MHD history backfills need score calibration.** Search-only backfills
   (no detail pages) are safe ONLY where the portal's `score` field is a
   real 0-100 score (Dallas, Plano, Frisco, Fort Worth, Portland-metro OR,
@@ -228,6 +370,12 @@ impact and the open policy decisions; `scripts/jev_shadow.py` reproduces it.
   and the "Report source outcomes" step renders it; a failed pass or a run
   that fell back on most lines raises a warning annotation.
 - Tests: `python3 -m unittest tests.test_jev_reader` (no network).
+
+## Tests
+
+`python3 -m unittest discover -s tests` (no network: every fetcher test
+uses captured fixtures under `tests/fixtures/`) and `node
+tests/test_relay.mjs` for the relay function. Run both before pushing.
 
 ## Local commands
 

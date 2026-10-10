@@ -35,23 +35,34 @@ export default function FilterBar({
   cityOptions,
   cityFilter, setCityFilter,
   metroFilter, setMetroFilter,
+  placeFilter, setPlaceFilter,
   gradeFilter, toggleGrade,
   infractionFilter, toggleInfraction,
 }) {
-  // Encode the two-field selection (city XOR metro) as one select value.
-  const selectValue = metroFilter ? `m:${metroFilter}` : cityFilter !== 'all' ? `c:${cityFilter}` : 'all';
+  // Encode the three-way selection (place XOR metro XOR city) as one select
+  // value: 'p:<place id>', 'm:<metro>', 'c:<city>' or 'all'.
+  const selectValue = placeFilter ? `p:${placeFilter}`
+    : metroFilter ? `m:${metroFilter}`
+    : cityFilter !== 'all' ? `c:${cityFilter}` : 'all';
   const handleSelect = (value) => {
-    if (value.startsWith('m:')) {
+    if (value.startsWith('p:')) {
+      setCityFilter('all');
+      setMetroFilter(null);
+      setPlaceFilter?.(value.slice(2));
+    } else if (value.startsWith('m:')) {
       setCityFilter('all');
       setMetroFilter(value.slice(2));
+      setPlaceFilter?.(null);
     } else {
       setCityFilter(value === 'all' ? 'all' : value.slice(2));
       setMetroFilter(null);
+      setPlaceFilter?.(null);
     }
   };
 
   const metros = cityOptions.filter(o => o.metro);
-  const cities = cityOptions.filter(o => !o.metro && o.city !== 'all');
+  const places = cityOptions.filter(o => o.place);
+  const cities = cityOptions.filter(o => !o.metro && !o.place && o.city !== 'all');
   const locationActive = selectValue !== 'all';
 
   return (
@@ -61,7 +72,7 @@ export default function FilterBar({
         <select
           value={selectValue}
           onChange={e => handleSelect(e.target.value)}
-          aria-label="Filter by city or metro area"
+          aria-label="Filter by city, metro area or place"
           className={`appearance-none h-9 pl-3.5 pr-8 rounded-full text-[13px] font-semibold outline-none cursor-pointer transition-colors max-w-[46vw] md:max-w-none truncate ${
             locationActive
               ? 'bg-brand-600 text-white shadow-md'
@@ -73,6 +84,16 @@ export default function FilterBar({
             <optgroup label="Metro areas">
               {metros.map(o => (
                 <option key={`m:${o.metro}`} value={`m:${o.metro}`}>{o.label}</option>
+              ))}
+            </optgroup>
+          )}
+          {/* Named areas that aren't a city in the data (beach towns on
+              30A): matched by coordinates, offered even before any of
+              their records have loaded. */}
+          {places.length > 0 && (
+            <optgroup label="Places">
+              {places.map(o => (
+                <option key={`p:${o.place}`} value={`p:${o.place}`}>{o.label}</option>
               ))}
             </optgroup>
           )}
