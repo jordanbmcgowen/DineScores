@@ -323,6 +323,13 @@ Riverside/San Bernardino DEH, Spokane, Tacoma.
   summaries, `h` score history, `i` restaurant id, `ic` inspection count.
   `make_restaurant_id(name, address, city)` is the stable join key across
   data.js, D1, and the API — don't change its inputs.
+- **One inspection per restaurant per day: the worst.** Several permits can
+  share a name and an address (Disneyland's food stands, a grocery's deli and
+  bakery counters), so they share a restaurant id, and D1 keys inspections by
+  restaurant + date. `_same_day_rank` picks the worst of that day (an F
+  first, then the lowest score) in both output paths, so the pick no longer
+  depends on fetch order. Records kept from earlier runs keep their history
+  until the restaurant is fetched again.
 
 ## Jev violation reader
 
@@ -340,7 +347,10 @@ impact and the open policy decisions; `scripts/jev_shadow.py` reproduces it.
   `jev_reader.apply_to_inspections` over every fetched record on its own
   `--jev-deadline-minutes` budget (20 in CI, inside the 330-minute job), then
   the output paths read the per-record `_jev` result (forces_f, chips,
-  summaries). Nothing in the fetchers changed.
+  summaries). Nothing in the fetchers changed. A data.js record kept from an
+  earlier run keeps the text F decision of the run that last read its full
+  text (`_apply_grades`): re-reading its 200-character verbatims with the
+  regex undid Jev's F's a week later. Score rules still re-apply to it.
 - **Fail open.** Any error, timeout, 429/529 after retries, malformed answer
   or a top answer below `CONFIDENCE_FLOORS` (0.6) means today's regex answers
   that line; a record that raises inside the pass is left as the regex read
@@ -359,6 +369,14 @@ impact and the open policy decisions; `scripts/jev_shadow.py` reproduces it.
   regex does not give must clear `F_ADDING_HAZARD_FLOOR` (0.7); removing one
   needs only the 0.6 floor. Measured 2026-10-10: Jev's added F's between 0.6
   and 0.7 were mostly drains read as sewage, its removed F's mostly right.
+- **Public wording and form titles live in code too.** `SUMMARY_DISPLAY_NAMES`
+  (pipeline) renames two phrases on output only ("Roaches found", "Rodents or
+  droppings found"); Jev's option list keeps the old wording so the cache
+  stays valid, and `data/d1_seed_2026-10-10_summary_display_names.sql.gz`
+  renamed the stored rows. `FORM_TITLE_PHRASES` gives a plain phrase to the
+  bare item titles some forms cite with no observation (San Diego, Omaha, LA
+  County), only when Jev declines and only for exact title wordings; pest,
+  flies and sewage titles are deliberately not in it.
 - **Pinned model + versioned questions.** `JEV_MODEL` and
   `QUESTION_SET_VERSION` are part of every cache key; a wording change must
   bump the version (a fingerprint test enforces it). Cache files under

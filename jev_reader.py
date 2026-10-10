@@ -261,6 +261,7 @@ SUMMARY_LEVEL_BY_PHRASE = {
     'Chemicals unsafe/unlabeled': ACTIVE,
     'Food not kept cold enough': RISK,
     'Food not kept hot enough': RISK,
+    'Food held at unsafe temperature': RISK,      # FORM_TITLE_PHRASES only
     'Dented/Damaged cans': RISK,
     'Missing thermometers': RISK,
     'Hand sink blocked/dirty': RISK,
@@ -501,6 +502,88 @@ SUMMARY_INSTRUCTIONS = {
              'the observation, pick none_of_these.',
 }
 
+
+# Plain phrases for the item titles some inspection forms cite with no
+# observation (San Diego, Omaha, LA County: "Proper cold holding
+# temperatures"). The summary question asks what the inspector observed, so
+# Jev answers none_of_these for a bare title and these counties' summaries
+# showed the title itself; rewording the question (tested 2026-10-10) moved
+# only 11 of 202 titles. A cited title means that item failed, and where one
+# phrase states that failure the site shows it. Pest, flies and sewage titles
+# are left out on purpose (those phrases need an observation), and so is any
+# title no single phrase fits (equipment, plumbing, ventilation, storage).
+# Exact wordings only (any case, item number dropped): a title followed by
+# an observation is still read by Jev. Jev's own confident phrase always wins.
+FORM_TITLE_PHRASES = {
+    'proper hot & cold holding temperatures': 'Food held at unsafe temperature',
+    'proper hot and cold holding temperatures': 'Food held at unsafe temperature',
+    'proper cold holding temperatures': 'Food not kept cold enough',
+    'proper cooling methods': 'Food not kept cold enough',
+    'proper cooling methods used; adequate equipment for temperature control': 'Food not kept cold enough',
+    'proper cooling time & temperature': 'Food not kept cold enough',
+    'proper cooling time and temperature': 'Food not kept cold enough',
+    'proper cooling methods / not allowed in limited food preparation mff': 'Food not kept cold enough',
+    'proper hot holding temperatures': 'Food not kept hot enough',
+    'proper reheating procedures for hot holding': 'Food not kept hot enough',
+    'proper reheating procedure for hot holding; for limited food prep, food cooked to order': 'Food not kept hot enough',
+    'thermometers -provided, accurate': 'Missing thermometers',
+    'thermometers - provided, accurate': 'Missing thermometers',
+    'thermometers provided and accurate': 'Missing thermometers',
+    'thermometers provided & accurate': 'Missing thermometers',
+    'floor, walls and ceilings - built, maintained, clean': 'Floors/Walls dirty or damaged',
+    'floors, walls and ceilings - built, maintained, clean': 'Floors/Walls dirty or damaged',
+    'floors, walls and ceilings properly built, maintained and clean': 'Floors/Walls dirty or damaged',
+    'floors, walls and ceilings: properly built, maintained in good repair and clean': 'Floors/Walls dirty or damaged',
+    'floors, walls and ceilings - built, maintained, clean; unobstructed height of at least 74" and 30" horizontal aisle space for occupied mffs': 'Floors/Walls dirty or damaged',
+    'physical facilities installed, maintained, and clean': 'Floors/Walls dirty or damaged',
+    'nonfood contact surfaces clean': 'Dirty equipment surfaces',
+    'non-food contact surfaces clean': 'Dirty equipment surfaces',
+    'food contact surfaces clean & sanitized': 'Dirty food contact surfaces',
+    'food contact surfaces clean and sanitized': 'Dirty food contact surfaces',
+    'food contact surfaces: clean and sanitized': 'Dirty food contact surfaces',
+    'food-contact surfaces; cleaned & sanitized': 'Dirty food contact surfaces',
+    'food contact surfaces are cleaned and sanitized': 'Dirty food contact surfaces',
+    'adequate handwashing facilities supplied & accessible': 'Hand sink blocked/dirty',
+    'adequate handwashing facilities supplied and accessible': 'Hand sink blocked/dirty',
+    'adequate handwashing facilities; supplied & accessible': 'Hand sink blocked/dirty',
+    'hand washing station stocked and available': 'Hand sink blocked/dirty',
+    'hands clean & properly washed': 'Improper hand washing',
+    'hands clean and properly washed': 'Improper hand washing',
+    'hands clean & properly washed; gloves used properly: handwashing': 'Improper hand washing',
+    'hands clean and properly washed; gloves used properly: handwashing': 'Improper hand washing',
+    'hands clean and properly washed; gloves used properly': 'Improper hand washing',
+    'hands clean and properly washed; proper glove use': 'Improper hand washing',
+    'proper eating, tasting, drinking or tobacco use': 'Worker eating/drinking near food',
+    'proper eating, drinking, or tobacco use': 'Worker eating/drinking near food',
+    'toxic substances - properly identified, stored, used': 'Chemicals unsafe/unlabeled',
+    'toxic substances properly identified, stored, used': 'Chemicals unsafe/unlabeled',
+    'toxic substances properly identified, stored, and used': 'Chemicals unsafe/unlabeled',
+    'toxic substances properly identified, stored, & used': 'Chemicals unsafe/unlabeled',
+    'food in good condition, safe & unadulterated': 'Food spoiled/unsafe',
+    'food in good condition, safe and unadulterated': 'Food spoiled/unsafe',
+    'food in good condition, safe, & unadulterated': 'Food spoiled/unsafe',
+    'food in good condition, safe, and unadulterated': 'Food spoiled/unsafe',
+    'food obtained from approved source': 'Food spoiled/unsafe',
+    'food obtained from approved source; compliance with specialized process': 'Food spoiled/unsafe',
+    'food obtained from approved source [corrected at time of inspection]': 'Food spoiled/unsafe',
+    'warewashing facilities -installed, maintained, used; test strips available': 'Dishwasher not sanitizing',
+    'warewashing facilities - installed, maintained, used; test strips available': 'Dishwasher not sanitizing',
+    'warewashing facilities: installed, maintained; used; test equipment': 'Dishwasher not sanitizing',
+    'warewashing facilities: installed, maintained, used; test equipment': 'Dishwasher not sanitizing',
+    'warewashing facilities; installed, maintained, & used; test strips': 'Dishwasher not sanitizing',
+    'permits available': 'Permit not posted',
+    'no valid permit': 'Permit not posted',
+    'signs posted; last inspection report available': 'Permit not posted',
+    'grade card, signs, last inspection report available': 'Permit not posted',
+    'grade card, signs, last inspection report available; written operational procedures available and followed; restroom letter of agreement': 'Permit not posted',
+}
+
+
+def form_title_phrase(text):
+    """The phrase for a bare cited form title (exact wording, any case, item
+    number dropped), or None."""
+    t = re.sub(r'\s+', ' ', re.sub(r'^\s*\d+[a-z]?\.\s*', '', (text or '').lower())).strip(' .;:')
+    return FORM_TITLE_PHRASES.get(t)
 
 def category_options():
     """The 13 VIOLATION_CATEGORIES (pipeline order) plus unclassified."""
@@ -1343,7 +1426,11 @@ def decide(text, judgment=None, source_severity=None, floors=None, use=None, for
     forces_f = (jhaz in forcing) if jhaz else reg['forces_f']
 
     jsum = confident_answer(judgment, 'summary', floors) if 'summary' in use else None
-    if jsum:
+    title_phrase = form_title_phrase(text) if 'summary' in use else None
+    if title_phrase and (jsum is None or jsum == SUMMARY_NO_MATCH):
+        summary, jsum = title_phrase, None
+        used['summary'] = 'form_title'
+    elif jsum:
         summary = _truncate(text) if jsum == SUMMARY_NO_MATCH else jsum
         used['summary'] = 'jev'
     else:
@@ -1355,7 +1442,7 @@ def decide(text, judgment=None, source_severity=None, floors=None, use=None, for
         used['summary'] = 'hazard_override'
         jsum = None
 
-    any_jev = any(v == 'jev' for v in used.values())
+    any_jev = any(v in ('jev', 'form_title') for v in used.values())
     if any_jev:
         phrase = jsum if (jsum and jsum != SUMMARY_NO_MATCH) else (summary if summary in SUMMARY_LEVEL_BY_PHRASE else None)
         sum_sev, sum_cat = summary_level(jhaz, phrase, category)
@@ -1438,7 +1525,7 @@ def summarize_violations(texts_or_joined, judgments=None, floors=None, use=None)
         # The judgment is cached under the line as stored ("7. Adequate
         # handwashing ..."); the item number is only dropped for display.
         d = decide(clean_raw, _lookup(judgments, raw) or _lookup(judgments, clean_raw), None, floors, use)
-        items.append({'text': d['summary'], 'verbatim': clean_raw,
+        items.append({'text': _pipeline().display_summary_text(d['summary']), 'verbatim': clean_raw,
                       'severity': d['summary_severity'], 'category': d['summary_category']})
     order = {'CRITICAL': 3, 'WARNING': 2, 'INFO': 1}
     items.sort(key=lambda s: order.get(s['severity'], 0), reverse=True)

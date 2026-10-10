@@ -516,6 +516,30 @@ class PolicyTests(unittest.TestCase):
         # with no judgment the regex phrase is unchanged
         self.assertEqual(jr.summarize_violations([towel], {}), dp.summarize_violations(towel))
 
+    def test_bare_form_titles_get_a_plain_phrase(self):
+        none = self.judged('conditions_only', cat='general_cleanliness', summ=jr.SUMMARY_NO_MATCH)
+        d = jr.decide('45. Floor, walls and ceilings - built, maintained, clean', none)
+        self.assertEqual((d['summary'], d['used']['summary']), ('Floors/Walls dirty or damaged', 'form_title'))
+        d = jr.decide('PROPER HOT AND COLD HOLDING TEMPERATURES', none)
+        self.assertEqual(d['summary'], 'Food held at unsafe temperature')
+        self.assertEqual(d['summary_severity'], 'WARNING')
+        # Jev's own confident phrase wins over the table
+        cold = self.judged('none', cat='temperature_control', summ='Food not kept cold enough')
+        self.assertEqual(jr.decide('Proper hot & cold holding temperatures', cold)['summary'], 'Food not kept cold enough')
+        # pest and sewage titles are not in the table; neither is a title with an observation
+        self.assertIsNone(jr.form_title_phrase('Sewage & wastewater properly disposed'))
+        self.assertIsNone(jr.form_title_phrase('23. No rodents, insects, birds or animals: Vermin'))
+        self.assertIsNone(jr.form_title_phrase(
+            'Floors Walls and Ceilings-Cleanability (C): No hood sticker on hood above fry unit'))
+        self.assertIsNone(jr.form_title_phrase('Proper cold holding temperatures: milk at 48F in the reach-in'))
+        for phrase in set(jr.FORM_TITLE_PHRASES.values()):
+            self.assertNotIn(phrase, jr.HAZARD_REQUIRED_BY_PHRASE)
+        # only on the Jev summary path: shadow or off keeps today's regex phrase
+        title = '14. Food contact surfaces clean & sanitized'
+        self.assertEqual(jr.decide(title, none, use=set())['used']['summary'], 'regex')
+        items = jr.summarize_violations([title], {jr.normalize_text(title): none})
+        self.assertEqual(items[0]['text'], 'Dirty food contact surfaces')
+
     def test_points_and_cutoffs_are_untouched(self):
         # Jev output never reaches calc_risk_score: it gets (cat, sev, text) tuples
         vio = [jr.classify_violation(GOLDEN_GAP, {jr.normalize_text(GOLDEN_GAP): self.judged('conditions_only')}),
@@ -556,7 +580,7 @@ class PolicyTests(unittest.TestCase):
         j = {jr.normalize_text(GOLDEN_GAP): self.judged('conditions_only', summ='Gaps/Openings (Risk of entry)'),
              jr.normalize_text(GOLDEN_ROACH): self.judged('vermin_observed', summ='Live roaches found')}
         items = jr.summarize_violations([GOLDEN_GAP, GOLDEN_ROACH], j)
-        self.assertEqual([s['text'] for s in items], ['Live roaches found', 'Gaps/Openings (Risk of entry)'])
+        self.assertEqual([s['text'] for s in items], ['Roaches found', 'Gaps/Openings (Risk of entry)'])
         self.assertEqual(items[0]['severity'], 'CRITICAL')
         self.assertEqual(items[1]['category'], 'Structural Risk')
         self.assertEqual(set(items[0]), {'text', 'verbatim', 'severity', 'category'})
