@@ -1922,6 +1922,506 @@ def fetch_houston(since_date=None, until_date=None, limit=None, fetch_violations
     return results
 
 
+# ─── SAN ANTONIO, TX (Tyler healthinspections.us portal, Metro Health) ──────
+
+SA_BASE = 'https://sanantonio-tx.healthinspections.us/san%20antonio/'
+SA_DELAY = 1.2            # between search requests (same pacing as Houston)
+SA_PAGE_SIZE = 10         # facilities per search page (start=1,11,21,...)
+SA_SEARCH_CAP = 100       # the portal never reports more than 100 facilities
+# Fallback partition for a day that hits the cap: the city's 782xx range plus
+# the suburbs Metro Health inspects; zips seen in results join the pool at
+# run time. A facility with no zip cannot be recovered this way.
+SA_ZIPS = [f'782{n:02d}' for n in range(1, 67)] + [
+    '78002', '78006', '78015', '78023', '78039', '78052', '78054', '78069',
+    '78073', '78101', '78108', '78109', '78112', '78124', '78148', '78150',
+    '78152', '78154', '78163',
+]
+
+# One search result: facility name linked to its last inspection, then the
+# street line, the "San Antonio , TX 78216" line and the last-inspection date.
+SA_RESULT_RE = re.compile(
+    r'<a href="estab\.cfm\?licenseID=(\d+)&(?:amp;)?inspectionID=(\d+)"><b>(.*?)</b></a>'
+    r'\s*<div style="margin-bottom:10px;">\s*(.*?)<br\s*/?>\s*(.*?)\s*<div style="color:green;">'
+    r'\s*Last Inspection Date:\s*<a href="[^"]*">(\d{2}/\d{2}/\d{4})</a>', re.S)
+SA_MATCHED_RE = re.compile(r'<b>\s*(\d+)\s+Facilities matched')
+# One "Related Reports" block per inspection on an estab.cfm page.
+SA_REPORT_SPLIT_RE = re.compile(
+    r'<div style="border:1px solid #003399;width:95%;margin-bottom:10px;">')
+SA_REPORT_DATE_RE = re.compile(r'<b>Date:</b>\s*(\d{2}/\d{2}/\d{4})')
+SA_REPORT_SCORE_RE = re.compile(r'<b>Score</b>\s*(\d*)')
+SA_VIOLATION_DIV_RE = re.compile(
+    r'<div style="background-color:#EFEFEF;padding:5px;">(.*?)</div>', re.S)
+
+
+def _sa_session():
+    s = requests.Session()
+    s.headers.update({'User-Agent': CHROME_UA, 'Referer': SA_BASE + 'search.cfm'})
+    return s
+
+
+def _sa_search_url(day, start=1, zc=''):
+    d = day.strftime('%m/%d/%Y')
+    return (f'{SA_BASE}search.cfm?1=1&sd={d}&ed={d}&kw1=&kw2=&kw3='
+            f'&rel1=L.licenseName&rel2=L.licenseName&rel3=L.licenseName'
+            f'&zc={zc}&dtRng=YES&pre=similar&smoking=nosmoking&start={start}')
+
+
+def _sa_clean(fragment):
+    text = re.sub(r'<[^>]+>', ' ', fragment or '')
+    return ' '.join(html_lib.unescape(text).split())
+
+
+def _sa_parse_search(html):
+    """
+    Parse one search page. Returns (matched, rows): matched is the page's
+    "N Facilities matched" count (None when the marker is missing, i.e. the
+    body is not a results page), rows are (license_id, inspection_id, name,
+    street, zip, city_token, date_str) for the facilities on this page.
+    """
+    m = SA_MATCHED_RE.search(html)
+    matched = int(m.group(1)) if m else None
+    rows = []
+    for lic, insp, name, street, cityline, date_str in SA_RESULT_RE.findall(html):
+        cityline = _sa_clean(cityline)
+        cm = re.match(r'^(.*?)\s*,\s*([A-Z]{2})\b\s*(\d{5})?', cityline)
+        city_tok = cm.group(1).strip() if cm else cityline
+        zip_code = (cm.group(3) or '') if cm else ''
+        rows.append((lic, insp, _sa_clean(name), _sa_clean(street), zip_code,
+                     city_tok, date_str))
+    return matched, rows
+
+
+def _sa_search_day(session, day, zc=''):
+    """
+    Page through one day's search (optionally one zip). Returns (matched,
+    rows): the portal's facility count for the query (capped at
+    SA_SEARCH_CAP) and the facilities actually listed. Raises RuntimeError
+    when a page cannot be fetched or is not a results page.
+    """
+    rows, start, matched = [], 1, None
+    while True:
+        url = _sa_search_url(day, start, zc)
+        r = _tyler_request(session, 'GET', url)
+        page_matched = page_rows = None
+        if r is not None:
+            page_matched, page_rows = _sa_parse_search(r.text)
+            if page_matched is None:
+                # A 200 that is not a results page: re-read it once.
+                time.sleep(SA_DELAY)
+                r = _tyler_request(session, 'GET', url)
+                if r is not None:
+                    page_matched, page_rows = _sa_parse_search(r.text)
+        if r is None or page_matched is None:
+            raise RuntimeError(f'San Antonio search failed ({day:%m/%d/%Y} '
+                               f'zc={zc or "-"} start={start})')
+        if matched is None:
+            matched = page_matched
+        rows.extend(page_rows)
+        if not page_rows or len(rows) >= matched or len(rows) >= SA_SEARCH_CAP:
+            break
+        if _past_deadline():
+            break
+        start += SA_PAGE_SIZE
+        time.sleep(SA_DELAY)
+    return matched, rows
+
+
+def _sa_search_day_partitioned(session, day, zip_pool, stats):
+    """
+    All facilities whose LAST inspection fell on `day`. A day that reports
+    the 100-facility cap is re-queried per zip and the per-zip results are
+    unioned; the log says whether the partition recovered the cap.
+    """
+    matched, rows = _sa_search_day(session, day)
+    stats['days'] += 1
+    if matched < SA_SEARCH_CAP:
+        return rows
+    stats['capped_days'] += 1
+    zips = sorted(set(zip_pool) | {r[4] for r in rows if r[4]})
+    log.warning(f"  San Antonio {day:%m/%d}: hit the {SA_SEARCH_CAP}-facility cap — "
+                f"re-querying per zip ({len(zips)} zips)")
+    union = {(r[0], r[1]): r for r in rows}
+    zip_capped = 0
+    for zc in zips:
+        if _past_deadline():
+            log.warning(f"  San Antonio {day:%m/%d}: fetch deadline reached mid-partition")
+            break
+        time.sleep(SA_DELAY)
+        zm, zrows = _sa_search_day(session, day, zc)
+        if zm >= SA_SEARCH_CAP:
+            zip_capped += 1
+            log.warning(f"  San Antonio {day:%m/%d} zip {zc}: itself at the cap")
+        for r in zrows:
+            union.setdefault((r[0], r[1]), r)
+    if len(union) >= SA_SEARCH_CAP and not zip_capped:
+        stats['recovered_days'] += 1
+        log.info(f"  San Antonio {day:%m/%d}: zip partition recovered "
+                 f"{len(union)} facilities (>= cap)")
+    else:
+        log.warning(f"  San Antonio {day:%m/%d}: zip partition yielded {len(union)} "
+                    f"facilities for a >= {SA_SEARCH_CAP} day ({zip_capped} zips capped) "
+                    f"— some may be missing")
+    return list(union.values())
+
+
+def _sa_violation_text(raw_html):
+    """
+    One violation block → one line, the inspector's finding first. The
+    portal has three layouts: "<item> <cite> <rule text> AT INSPECTION:
+    <finding> [C.O.S.: ...]", "<item> Observation: <finding> FDA Code <cite>:
+    <rule>" and a bare "<item> <finding>". The leading form-item number is
+    dropped; the Food Code cite and rule text follow the finding.
+    """
+    t = re.sub(r'<br\s*/?>', '\n', raw_html or '', flags=re.I)
+    t = re.sub(r'<[^>]+>', ' ', t)
+    t = html_lib.unescape(t).strip()
+    if not t:
+        return ''
+    t = re.sub(r'^\d{1,3}\s+', '', t)
+    m = re.search(r'AT INSPECTION\s*:', t)
+    if m:
+        parts = [t[m.end():], t[:m.start()]]
+    else:
+        m = re.match(r'\s*Observation\s*:', t)
+        parts = [t[m.end():] if m else t]
+    text = ' — '.join(' '.join(p.split()) for p in parts if p.strip())
+    return text[:500]
+
+
+def _sa_parse_estab(html):
+    """
+    Parse an estab.cfm page into its inspection blocks, newest first:
+    [{'date': 'MM/DD/YYYY', 'score': int|None, 'texts': [...]}, ...].
+    Returns None when the body is not a facility page at all (an error page
+    must never read as a clean inspection); [] for a facility page that
+    lists no inspections.
+    """
+    if '<H3>Facility</H3>' not in html or 'Related Reports' not in html:
+        return None
+    seg = html[html.find('Related Reports'):]
+    cut = seg.find('<b>NOTE:</b>')
+    if cut >= 0:
+        seg = seg[:cut]
+    blocks = []
+    for piece in SA_REPORT_SPLIT_RE.split(seg)[1:]:
+        dm = SA_REPORT_DATE_RE.search(piece)
+        if not dm:
+            continue
+        sm = SA_REPORT_SCORE_RE.search(piece)
+        score = int(sm.group(1)) if sm and sm.group(1) else None
+        texts = []
+        for raw in SA_VIOLATION_DIV_RE.findall(piece):
+            text = _sa_violation_text(raw)
+            if len(text) > 5:
+                texts.append(text)
+        blocks.append({'date': dm.group(1), 'score': score, 'texts': texts})
+    return blocks
+
+
+def _sa_fetch_facility(session, license_id):
+    """
+    Fetch a facility's estab.cfm page (every inspection the portal keeps for
+    it, with scores and violation text). Returns the parsed blocks, or None
+    when the fetch failed or the body is not a facility page — callers must
+    not record None as a clean inspection.
+    """
+    try:
+        r = _tyler_request(session, 'GET', f'{SA_BASE}estab.cfm?licenseID={license_id}')
+    except requests.RequestException:
+        return None
+    if r is None:
+        return None
+    return _sa_parse_estab(r.text)
+
+
+def _sa_build_records(fac, blocks, since_iso, until_iso):
+    """
+    Records for one facility from its parsed inspection blocks, limited to
+    [since_iso, until_iso]. A block whose date the search listed keeps the
+    portal's inspectionID (source_id sa_<L>_<I>, estab URL with the id); a
+    block the search never listed carries no id on the page and gets
+    sa_<L>_<YYYYMMDD> (D1 keys inspections by restaurant+date, so the two
+    never collide).
+    """
+    out = []
+    for block in blocks:
+        try:
+            iso = datetime.strptime(block['date'], '%m/%d/%Y').strftime('%Y-%m-%d')
+        except ValueError:
+            continue
+        insp_date = sane_inspection_date(iso)
+        if not insp_date or insp_date < since_iso or insp_date > until_iso:
+            continue
+        violations = [classify_violation(t) for t in block['texts']]
+        computed, pv, pfv, cv = calc_risk_score(violations)
+        score = block.get('score')
+        if score is not None:
+            risk = max(0, min(100, score))
+        else:
+            risk = computed
+        insp_id = fac['inspections'].get(insp_date)
+        if insp_id:
+            source_id = f"sa_{fac['license_id']}_{insp_id}"
+            url = f"{SA_BASE}estab.cfm?licenseID={fac['license_id']}&inspectionID={insp_id}"
+        else:
+            source_id = f"sa_{fac['license_id']}_{insp_date.replace('-', '')}"
+            url = f"{SA_BASE}estab.cfm?licenseID={fac['license_id']}"
+        name, street = fac['name'], fac['street']
+        out.append({
+            'name': name.title() if name.isupper() else name,
+            'address': street.title() if street.isupper() else street,
+            'city': 'San Antonio',
+            'state': 'TX',
+            'zip': fac['zip'],
+            'latitude': None,
+            'longitude': None,
+            'inspection_date': insp_date,
+            'original_score': score,
+            'risk_score': risk,
+            'priority_violations': pv,
+            'priority_foundation_violations': pfv,
+            'core_violations': cv,
+            'total_violations': len(violations),
+            'violations': [[c, s, d] for c, s, d in violations],
+            'inspection_type': '',
+            'results': '',
+            'source': 'San Antonio Metro Health',
+            'source_url': url,
+            'source_id': source_id,
+            'metro': '',
+        })
+    return out
+
+
+def fetch_san_antonio(since_date=None, until_date=None, limit=None, fetch_violations=True):
+    """
+    Fetch San Antonio food inspections from Metro Health's Tyler portal
+    (sanantonio-tx.healthinspections.us). The search lists the FACILITIES
+    with an inspection in the window (one row per facility, linking that
+    inspection's id), 10 per page and never more than 100 per query, so
+    days are searched one at a time and a capped day is re-queried per zip.
+    Each facility's estab.cfm page lists its recent inspections (up to ~10,
+    newest first) with Metro Health's official 0-100 score (100 minus
+    demerits) and the violation text, so one detail fetch per facility
+    yields every one of its inspections inside the window. Only days the search
+    actually covered ship, so a bounded run never advances freshness past
+    them. The official score is the risk score; it is computed from the
+    violations only when a block has no score. No coordinates — records
+    are Census-geocoded by the caller.
+    """
+    log.info(f"Fetching San Antonio data (since={since_date}, limit={limit})")
+    session = _sa_session()
+
+    start = datetime.strptime(str(since_date)[:10], '%Y-%m-%d') if since_date \
+        else datetime(datetime.now().year, 1, 1)
+    end = datetime.now()
+    if until_date:
+        end = min(end, datetime.strptime(str(until_date)[:10], '%Y-%m-%d'))
+    since_iso, until_iso = start.strftime('%Y-%m-%d'), end.strftime('%Y-%m-%d')
+
+    stats = {'days': 0, 'capped_days': 0, 'recovered_days': 0}
+    zip_pool = set(SA_ZIPS)
+    seen = set()
+    raw = []
+    newest = ''
+    searched_through = None   # last day whose search completed
+    day = start
+    while day.date() <= end.date():
+        if _past_deadline():
+            log.warning(f"  San Antonio: fetch deadline reached — stopping search "
+                        f"with {len(raw)} facilities")
+            break
+        rows = _sa_search_day_partitioned(session, day, zip_pool, stats)
+        searched_through = day
+        new = 0
+        for row in rows:
+            key = (row[0], row[1])
+            if key in seen:
+                continue
+            seen.add(key)
+            raw.append(row)
+            new += 1
+            if row[4]:
+                zip_pool.add(row[4])
+            try:
+                iso = datetime.strptime(row[6], '%m/%d/%Y').strftime('%Y-%m-%d')
+            except ValueError:
+                iso = ''
+            newest = max(newest, iso)
+        log.info(f"  San Antonio {day:%m/%d}: {len(rows)} facilities ({new} new), "
+                 f"total {len(raw)}")
+        if limit and len(raw) >= limit:
+            raw = raw[:limit]
+            break
+        day += timedelta(days=1)
+        time.sleep(SA_DELAY)
+    if stats['capped_days']:
+        log.info(f"San Antonio: {stats['capped_days']} of {stats['days']} days hit the "
+                 f"{SA_SEARCH_CAP} cap; zip partition recovered {stats['recovered_days']}")
+    if searched_through is None:
+        return []
+    complete = searched_through.date() >= end.date()
+    if not complete:
+        # Ship nothing from days the search never reached: their facilities
+        # would otherwise post-date the covered window and move the weekly
+        # lookback past days nobody searched.
+        until_iso = min(until_iso, searched_through.strftime('%Y-%m-%d'))
+
+    # One entry per facility; the search gives the id of each inspection it
+    # listed (one row per facility per day searched).
+    facilities = {}
+    other_cities = defaultdict(int)
+    for lic, insp, name, street, zip_code, city_tok, date_str in raw:
+        try:
+            iso = datetime.strptime(date_str, '%m/%d/%Y').strftime('%Y-%m-%d')
+        except ValueError:
+            continue
+        if not name:
+            continue
+        if city_tok and city_tok.upper() != 'SAN ANTONIO':
+            other_cities[city_tok] += 1
+        fac = facilities.setdefault(lic, {
+            'license_id': lic, 'name': name, 'street': street, 'zip': zip_code,
+            'inspections': {}, 'newest_hit': iso,
+        })
+        fac['inspections'][iso] = insp
+        fac['newest_hit'] = max(fac['newest_hit'], iso)
+    if other_cities:
+        log.info(f"San Antonio: {sum(other_cities.values())} results list another "
+                 f"city token (recorded as San Antonio): "
+                 f"{dict(sorted(other_cities.items(), key=lambda kv: -kv[1])[:5])}")
+
+    if not fetch_violations:
+        # Debug path only (--no-dfw-violations): search-only records with no
+        # score or violations, like Houston's.
+        results = []
+        for fac in facilities.values():
+            for iso, insp in fac['inspections'].items():
+                insp_date = sane_inspection_date(iso)
+                if not insp_date or insp_date > until_iso:
+                    continue
+                results.append({
+                    'name': fac['name'].title() if fac['name'].isupper() else fac['name'],
+                    'address': fac['street'].title() if fac['street'].isupper() else fac['street'],
+                    'city': 'San Antonio', 'state': 'TX', 'zip': fac['zip'],
+                    'latitude': None, 'longitude': None,
+                    'inspection_date': insp_date, 'original_score': None,
+                    'risk_score': 100, 'priority_violations': 0,
+                    'priority_foundation_violations': 0, 'core_violations': 0,
+                    'total_violations': 0, 'violations': [],
+                    'inspection_type': '', 'results': '',
+                    'source': 'San Antonio Metro Health',
+                    'source_url': (f"{SA_BASE}estab.cfm?licenseID={fac['license_id']}"
+                                   f"&inspectionID={insp}"),
+                    'source_id': f"sa_{fac['license_id']}_{insp}", 'metro': '',
+                })
+        if complete:
+            _note_source_lag('sanantonio', newest)
+        log.info(f"San Antonio: {len(results)} inspections (search only)")
+        return results
+
+    if facilities and _past_deadline():
+        # Same rule as Houston: nothing has a score or violations yet, so
+        # nothing may ship — the merge keeps existing data and a later run
+        # refetches the window.
+        log.warning(f"San Antonio: fetch deadline reached before the detail phase — "
+                    f"dropping {len(facilities)} undetailed facilities")
+        return []
+
+    results = []
+    if facilities:
+        # Oldest search hit first, so a deadline stop ships the older days
+        # complete and the lookback refetches the newer ones.
+        order = sorted(facilities.values(), key=lambda f: f['newest_hit'])
+        log.info(f"San Antonio: fetching estab pages for {len(order)} facilities "
+                 f"({TYLER_DETAIL_WORKERS} workers)...")
+        local = threading.local()
+
+        def get_session():
+            if not hasattr(local, 's'):
+                local.s = _sa_session()
+            return local.s
+
+        def work(fac):
+            if _past_deadline():
+                return fac, 'deadline'
+            blocks = _sa_fetch_facility(get_session(), fac['license_id'])
+            time.sleep(TYLER_DETAIL_DELAY)
+            return fac, blocks
+
+        counts = {'done': 0, 'ok': 0, 'page_only': 0, 'noscore': 0,
+                  'missing': 0, 'deadline': 0}
+
+        def apply_blocks(fac, blocks):
+            recs = _sa_build_records(fac, blocks, since_iso, until_iso)
+            counts['noscore'] += sum(1 for r in recs if r['original_score'] is None)
+            counts['page_only'] += sum(1 for r in recs
+                                       if r['inspection_date'] not in fac['inspections'])
+            shipped = {r['inspection_date'] for r in recs}
+            counts['missing'] += sum(1 for iso in fac['inspections']
+                                     if since_iso <= iso <= until_iso and iso not in shipped)
+            results.extend(recs)
+            counts['ok'] += 1
+
+        consecutive_failures = 0
+        failed = []
+        with ThreadPoolExecutor(max_workers=TYLER_DETAIL_WORKERS) as pool:
+            futures = [pool.submit(work, f) for f in order]
+            for future in as_completed(futures):
+                fac, blocks = future.result()
+                counts['done'] += 1
+                if blocks is None:
+                    failed.append(fac)
+                    consecutive_failures += 1
+                    if consecutive_failures >= TYLER_ABORT_AFTER:
+                        for f in futures:
+                            f.cancel()
+                        raise RuntimeError(
+                            f"San Antonio: {consecutive_failures} consecutive detail "
+                            f"failures — aborting instead of recording "
+                            f"false-clean inspections")
+                elif blocks == 'deadline':
+                    counts['deadline'] += 1
+                else:
+                    consecutive_failures = 0
+                    apply_blocks(fac, blocks)
+                if counts['done'] % 200 == 0:
+                    log.info(f"  San Antonio details: {counts['done']}/{len(order)} "
+                             f"({len(results)} inspections)")
+
+        if failed and not _past_deadline():
+            log.warning(f"San Antonio: retrying {len(failed)} failed estab fetches")
+            retry_session = _sa_session()
+            still_failed = []
+            for fac in failed:
+                blocks = _sa_fetch_facility(retry_session, fac['license_id'])
+                time.sleep(TYLER_DETAIL_DELAY)
+                if blocks is None:
+                    still_failed.append(fac)
+                else:
+                    apply_blocks(fac, blocks)
+            failed = still_failed
+        if failed:
+            # A facility whose page could not be read ships nothing — never
+            # a clean inspection; the lookback refetches it next run.
+            log.warning(f"San Antonio: dropping {len(failed)} facilities with "
+                        f"unreadable estab pages")
+        if counts['deadline']:
+            log.warning(f"San Antonio: fetch deadline reached — {counts['deadline']} "
+                        f"facilities left undetailed (dropped)")
+        log.info(f"San Antonio: {counts['ok']}/{len(order)} estab pages parsed; "
+                 f"{len(results)} inspections in window ({counts['page_only']} found only "
+                 f"on the facility page, {counts['noscore']} without a score, "
+                 f"{counts['missing']} search hits missing from their facility page)")
+
+    if limit:
+        results = results[:limit]
+    if complete:
+        _note_source_lag('sanantonio', newest)
+    log.info(f"San Antonio: {len(results)} inspections")
+    return results
+
+
 # ─── WASHINGTON DC (Tyler healthinspections.us portal) ──────────────────────
 
 DC_BASE = 'https://dc.healthinspections.us/'
@@ -7761,8 +8261,9 @@ def main():
                     log.error(f"{city} fetch failed: {e}")
                     _record_group(city, [], 'error', str(e))
 
-    # Houston and DC use the Tyler healthinspections.us portals (scraped)
-    for slug, fetcher in (('houston', fetch_houston), ('dc', fetch_dc)):
+    # Houston, San Antonio and DC use the Tyler healthinspections.us portals (scraped)
+    for slug, fetcher in (('houston', fetch_houston), ('sanantonio', fetch_san_antonio),
+                          ('dc', fetch_dc)):
         if slug in args.cities:
             if _past_deadline():
                 log.warning(f"{slug}: skipped — pipeline fetch deadline reached")
