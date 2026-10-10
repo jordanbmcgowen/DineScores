@@ -2,7 +2,12 @@
 
 Multi-city restaurant health inspection scores with proprietary safety grading.
 Shows weighted scores, grade badges (Safe/Evaluate/Avoid), infraction detection,
-and violation summaries for Chicago, NYC, San Francisco, and DFW metro.
+and violation summaries for ~50 metros and four whole states: NYC and New York
+State, Chicago, San Francisco, San Jose, Los Angeles and San Diego counties,
+Sacramento, Orange County, Seattle, Portland, Las Vegas, Houston, Dallas-Fort
+Worth, Austin, San Antonio, Boston, Washington DC, Nashville, Memphis,
+Omaha, Atlanta's Gwinnett County, all of Florida, Delaware and South Carolina,
+and more (see *Data sources* below).
 
 ---
 

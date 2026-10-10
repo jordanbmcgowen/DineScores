@@ -162,6 +162,29 @@ middleware.
   `data/d1_seed*.sql.gz` into D1 and writes `wrangler.toml`. Idempotent.
   For a single new seed prefer `load-d1-seeds.yml` (automatic on merge).
 
+## Candidate sources surveyed but not added (2026-10-10)
+
+A parallel survey verified these live; each is a small-to-medium fetcher
+away if coverage should grow. MHD slugs ride the relay and the existing
+machinery (config entry + slug group): Amarillo 'aaphd', Arapahoe County
+and Douglas County CO, Roseville CA, Cuyahoga County (Cleveland suburbs),
+Akron, Toledo — all honour the date filter and stay under the 225 cap;
+'virginia' is statewide and capped like Tennessee (bucket mode would be the
+way in). Tyler 'publicportals' JSON API (facilities/{page},
+inspectionsData/{id}; no date filter, no coordinates): Louisiana statewide
+(New Orleans, Baton Rouge), Georgia statewide (Atlanta proper: Fulton,
+DeKalb, Cobb), Columbia MO. Other JSON APIs without auth: Lubbock TX and
+Tucson/Pima (Hedgerow portals), Snohomish County WA, Anchorage, Oklahoma
+City (Inspect2Go, no date filter), Indianapolis (facility list with
+coordinates only). Stale or thin: Boulder County (Socrata, last inspection
+June 2026), Alameda County (ArcGIS, quarterly, violation rows only),
+Allegheny County/Pittsburgh (CKAN, placards only, violations feed dead),
+Hawaii's Tyler portal (host resets every connection), Albuquerque (the
+daily CSV has been header-only since 2020). No machine-readable source at
+all: Denver (Accela), Salt Lake County, Charlotte/Mecklenburg, Kansas City,
+St. Louis, Milwaukee, Madison, Philadelphia's own portal, Baltimore,
+Riverside/San Bernardino DEH, Spokane, Tacoma.
+
 ## Hard-won invariants (violate at your peril)
 
 - **Cloudflare Pages rejects any asset over 25 MiB**, and `public/data.js`

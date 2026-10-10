@@ -102,13 +102,13 @@
   },
   "LA County": {
    "last_run": {
-    "at": "2026-10-04",
-    "detail": "county extract ends 2026-06-30; no newer fiscal-year file published yet",
-    "latest": "",
-    "records": 0,
-    "status": "empty"
+    "at": "2026-10-10",
+    "detail": "",
+    "latest": "2026-09-30",
+    "records": 7274,
+    "status": "ok"
    },
-   "latest": "2026-06-30"
+   "latest": "2026-09-30"
   },
   "Las Vegas": {
    "last_run": {
@@ -209,6 +209,16 @@
     "status": "ok"
    },
    "latest": "2026-10-03"
+  },
+  "Santa Clara County": {
+   "last_run": {
+    "at": "2026-10-10",
+    "detail": "",
+    "latest": "2026-10-08",
+    "records": 23487,
+    "status": "ok"
+   },
+   "latest": "2026-10-08"
   },
   "Seattle": {
    "last_run": {
@@ -344,7 +354,7 @@
   },
   "LA County Open Data": {
    "group": "LA County",
-   "latest": "2026-06-30"
+   "latest": "2026-09-30"
   },
   "Larimer County Health Dept": {
    "group": "MHD metros",
@@ -389,6 +399,10 @@
   "Sacramento County Open Data": {
    "group": "Sacramento",
    "latest": "2026-10-03"
+  },
+  "Santa Clara County Open Data": {
+   "group": "Santa Clara County",
+   "latest": "2026-10-08"
   },
   "Southern Nevada Health District": {
    "group": "Las Vegas",
