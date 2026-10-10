@@ -5371,8 +5371,16 @@ def fetch_vegas(since_date=None, limit=None, fetch_violations=True):
     """
     log.info(f"Fetching Las Vegas (SNHD) data (since={since_date}, limit={limit})")
     sd = str(since_date)[:10] if since_date else None
-    prev_floor = ((datetime.strptime(sd, '%Y-%m-%d') - timedelta(days=SNHD_PREVIOUS_MARGIN_DAYS))
-                  .strftime('%Y-%m-%d') if sd else None)
+    # While a backlog drains over several cut runs, a permit left unread can
+    # be re-inspected and re-sorted to the newest end, and be read only once
+    # the window is weeks past the inspection it skipped. 'backlog_from' (the
+    # first window start of an unbroken series of runs that left permits
+    # unread) lets its previous inspections reach back that far.
+    fe = ((_FRESHNESS['sources'].setdefault('Southern Nevada Health District', {'group': 'Las Vegas'}))
+          if _FRESHNESS is not None else {})
+    base = min(sd, fe['backlog_from']) if (sd and fe.get('backlog_from')) else sd
+    prev_floor = ((datetime.strptime(base, '%Y-%m-%d') - timedelta(days=SNHD_PREVIOUS_MARGIN_DAYS))
+                  .strftime('%Y-%m-%d') if base else None)
 
     permits, page = {}, 1
     while True:
@@ -5512,13 +5520,22 @@ def fetch_vegas(since_date=None, limit=None, fetch_violations=True):
     # forward by what it read (permits run oldest-first). The permit's
     # earlier inspections come back through SNHD_PREVIOUS_MARGIN_DAYS.
     # _hold_window_start, not a plain hold: the lookback reaches two days
-    # past a plain hold, so the window would slide back every run.
+    # past a plain hold, so the window would slide back every run. advance:
+    # every permit dated before the oldest unread one was read (oldest-first,
+    # all workers done), so the latest may rise to it; otherwise the next
+    # window would start a day early and a run that cannot finish two days
+    # of permits would never move.
     for why, pns in unread.items():
         for pn in pns:
             cur = sane_inspection_date(str(permits[pn].get('date_current') or '')[:10])
             if cur:
                 _hold_window_start('Southern Nevada Health District', cur,
-                                   counted=(why == 'failed'), key=pn)
+                                   counted=(why == 'failed'), key=pn, advance=True)
+    if fetch_violations and sd:
+        if any(unread.values()):
+            fe.setdefault('backlog_from', sd)
+        else:
+            fe.pop('backlog_from', None)
     if skipped:
         log.warning(f"  SNHD: skipped {skipped} permits with unreadable details"
                     + (f" ({permanent} answered 400/404/410 and are not retried)" if permanent else ''))
@@ -8297,22 +8314,26 @@ FRESHNESS_HOLD_GIVE_UP_RUNS = 3
 _GROUP_STATUS = {}               # group -> (status, detail)
 
 
-def _hold_freshness(source, inspection_date, counted=True, key=''):
+def _hold_freshness(source, inspection_date, counted=True, key='', advance=False):
     """Keep `source`'s recorded latest at or before the day before
     `inspection_date` this run (see _FRESHNESS_HOLDS). `key` names the
     dropped record (its inspection or permit id) so its failures are
     counted on their own; counted=False for a drop the deadline, a breaker
-    or a block caused: it holds, but never counts toward giving it up."""
+    or a block caused: it holds, but never counts toward giving it up.
+    advance=True (window-start holds only) also RAISES the latest to the cap
+    when this is the earliest hold: for a fetcher that read everything
+    before it, so the next window starts there and not a day earlier."""
     d = str(inspection_date or '')[:10]
     if not source or len(d) != 10:
         return
     k = f'{d}|{key or ""}'
     with _FRESHNESS_HOLD_LOCK:
         drops = _FRESHNESS_HOLDS.setdefault(source, {})
-        drops[k] = drops.get(k, True) and bool(counted)
+        was_counted, was_advance = drops.get(k, (True, False))
+        drops[k] = (was_counted and bool(counted), was_advance or bool(advance))
 
 
-def _hold_window_start(source, start, counted=True, key=''):
+def _hold_window_start(source, start, counted=True, key='', advance=False):
     """Hold `source` so the next run's lookback starts exactly at `start`
     (not two days before it, which is what holding at `start` itself gives:
     the cap is the day before, and the lookback re-reads one more day). For
@@ -8323,7 +8344,7 @@ def _hold_window_start(source, start, counted=True, key=''):
     except ValueError:
         return
     _hold_freshness(source, (day + timedelta(days=1 + FRESHNESS_OVERLAP_DAYS)).strftime('%Y-%m-%d'),
-                    counted, key)
+                    counted, key, advance)
 
 
 def _set_group_status(group, status, detail=''):
@@ -8365,7 +8386,7 @@ def _record_group(group, records, status=None, detail=''):
     # recorded latest back), so the next lookback re-reads the drop. A record
     # tried and failed FRESHNESS_HOLD_GIVE_UP_RUNS runs in a row is given up
     # for good; the next-earliest drop holds instead.
-    caps = {}
+    caps, advance = {}, set()
     with _FRESHNESS_HOLD_LOCK:
         mine = [s for s in _FRESHNESS_HOLDS
                 if s in by_source or (_FRESHNESS['sources'].get(s) or {}).get('group') == group]
@@ -8379,7 +8400,7 @@ def _record_group(group, records, status=None, detail=''):
         for k in sorted(drops):
             if k in given_up:
                 continue
-            runs = prev_fail.get(k, 0) + (1 if drops[k] else 0)
+            runs = prev_fail.get(k, 0) + (1 if drops[k][0] else 0)
             if runs >= FRESHNESS_HOLD_GIVE_UP_RUNS:
                 given_up.add(k)
                 log.warning(f"{group}: {s} has failed to read a record from {k[:10]} "
@@ -8392,6 +8413,8 @@ def _record_group(group, records, status=None, detail=''):
             first = min(live)
             e['hold'] = {'date': first, 'failures': failures}
             caps[s] = (datetime.strptime(first, '%Y-%m-%d') - timedelta(days=1)).strftime('%Y-%m-%d')
+            if any(v[1] for k, v in drops.items() if k[:10] == first and k not in given_up):
+                advance.add(s)
         else:
             e.pop('hold', None)
         given_up = sorted(k for k in given_up if k[:10] >= keep_from)
@@ -8413,7 +8436,7 @@ def _record_group(group, records, status=None, detail=''):
             e.pop('hold', None)          # read cleanly this run
     for s, cap in caps.items():
         e = _FRESHNESS['sources'][s]
-        if (e.get('latest') or '') > cap:
+        if s in advance or (e.get('latest') or '') > cap:
             e['latest'] = cap
     # The group's latest is the newest of its sources after the caps — one
     # held source must not make a 15-jurisdiction group look stale.

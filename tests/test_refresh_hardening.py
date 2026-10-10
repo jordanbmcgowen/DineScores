@@ -577,7 +577,8 @@ class VegasHoldTests(unittest.TestCase):
 
         def fake_get(url, params=None, retries=4, info=None):
             if url == dp.SNHD_API:
-                return {'results': rows}
+                page = (params or {}).get('page', 1)
+                return {'results': rows[(page - 1) * dp.SNHD_PAGE:page * dp.SNHD_PAGE]}
             if budget['left'] <= 0:
                 dp._SNHD_BLOCKED = True
                 return None
@@ -603,6 +604,74 @@ class VegasHoldTests(unittest.TestCase):
         self.assertEqual(backlog, sorted(set(backlog)))
         self.assertEqual(shipped, {self._recent(a) for a in range(39, 0, -1)})
         self.assertEqual(dp._RUN_GROUPS['Las Vegas']['status'], 'ok')
+
+    def _drain(self, rows, budget_per_run, runs, before_run=None):
+        """Weekly-style runs (same clock) where SNHD answers only
+        `budget_per_run` detail requests before the breaker trips."""
+        budget = {'left': 0}
+
+        def fake_get(url, params=None, retries=4, info=None):
+            if url == dp.SNHD_API:
+                page = (params or {}).get('page', 1)
+                return {'results': rows[(page - 1) * dp.SNHD_PAGE:page * dp.SNHD_PAGE]}
+            if budget['left'] <= 0:
+                dp._SNHD_BLOCKED = True
+                return None
+            budget['left'] -= 1
+            row = next(r for r in rows if r['permit_number'] == url.rsplit('/', 1)[1])
+            return {'date_current': row['date_current'], 'current_grade': 'A',
+                    'current_demerits': 2,
+                    'previous_inspections': row.get('_previous') or []}
+        starts, shipped = [], []
+        with mock.patch.object(dp, 'SNHD_DETAIL_WORKERS', 1), \
+                mock.patch.object(dp, 'SNHD_LIST_DELAY', 0):
+            for n in range(runs):
+                if before_run:
+                    before_run(n)
+                budget['left'] = budget_per_run
+                since = dp._lookback_since('Las Vegas', datetime.now() - timedelta(days=8),
+                                           dp.FRESHNESS_LOOKBACK_API_DAYS)
+                with mock.patch.object(dp, '_snhd_get', fake_get):
+                    out = dp.fetch_vegas(since_date=since.strftime('%Y-%m-%dT00:00:00'))
+                dp._record_group('Las Vegas', out)
+                dp._SNHD_BLOCKED = False
+                starts.append(since.strftime('%Y-%m-%d'))
+                shipped.extend(out)
+        return starts, shipped
+
+    def test_a_run_that_reads_less_than_two_days_still_moves_forward(self):
+        # Twenty permits a day, thirty reads a run: a day and a half. The
+        # next window must start at the partly read day, not the day before.
+        dp._FRESHNESS['sources'][self.SRC]['latest'] = self._recent(30)
+        dp._FRESHNESS['groups']['Las Vegas']['latest'] = self._recent(30)
+        rows = [{'permit_number': f'P{a}-{i}', 'restaurant_name': f'P{a}-{i}',
+                 'address': f'{a}{i} Strip', 'city_name': 'Las Vegas',
+                 'date_current': self._recent(a)} for a in range(29, 9, -1) for i in range(20)]
+        starts, _ = self._drain(rows, 30, 6)
+        self.assertEqual(starts, sorted(set(starts)))          # strictly later every run
+        self.assertEqual(starts[1:], [self._recent(a) for a in range(28, 23, -1)])
+
+    def test_a_permit_reinspected_mid_backlog_still_ships_its_downgrade(self):
+        dp._FRESHNESS['sources'][self.SRC]['latest'] = self._recent(40)
+        dp._FRESHNESS['groups']['Las Vegas']['latest'] = self._recent(40)
+        rows = [{'permit_number': f'P{a}', 'restaurant_name': f'P{a}', 'address': f'{a} Strip',
+                 'city_name': 'Las Vegas', 'date_current': self._recent(a)}
+                for a in range(39, 0, -1) if a != 30]
+        bad = {'permit_number': 'RAT', 'restaurant_name': 'Rat Cafe', 'address': '9 Strip',
+               'city_name': 'Las Vegas', 'date_current': self._recent(30)}
+        rows.append(bad)
+
+        def reinspect(n):
+            if n == 1:     # re-inspected after the run that left it unread
+                bad['date_current'] = self._recent(2)
+                bad['_previous'] = [{'inspection_date': self._recent(30), 'inspection_grade': 'C',
+                                     'inspection_demerits': 35}]
+        # Nine reads a run: the backlog drains over five runs, and then a
+        # normal week (eight days plus the re-inspected permit) fits.
+        _, shipped = self._drain(rows, 9, 6, before_run=reinspect)
+        rat = sorted({r['inspection_date'] for r in shipped if r['name'] == 'Rat Cafe'})
+        self.assertEqual(rat, [self._recent(30), self._recent(2)])
+        self.assertNotIn('backlog_from', dp._FRESHNESS['sources'][self.SRC])   # drained
 
     def test_a_reread_permit_ships_its_earlier_inspection_from_before_the_window(self):
         rows = [{'permit_number': 'P', 'restaurant_name': 'P', 'address': '1 Strip',

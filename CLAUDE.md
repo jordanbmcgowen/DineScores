@@ -162,12 +162,16 @@ middleware.
       A success resets both counters; a 400/404/410 is that one permit's
       problem and is neither retried, counted nor held. Permits run
       oldest-first; each one not read holds Las Vegas on its own with
-      `_hold_window_start` (key = permit number), so the next window starts
-      exactly at the oldest unread permit's date and a run the breaker cut
-      short still moves forward by what it read. A re-read permit ships its
-      previous inspections back to `SNHD_PREVIOUS_MARGIN_DAYS` (14) before
-      the window, so the earlier inspection a cut run never read comes
-      along. Holding at the window start slid it back two days a run (the
+      `_hold_window_start(..., advance=True)` (key = permit number), which
+      also RAISES the recorded latest to the hold (everything before it was
+      read), so the next window starts exactly at the oldest unread permit's
+      date and a run the breaker cut short still moves forward by what it
+      read. A re-read permit ships its previous inspections back to
+      `SNHD_PREVIOUS_MARGIN_DAYS` (14) before the window, or before
+      `backlog_from` (the first window start of an unbroken series of cut
+      runs, kept in the freshness file) while a backlog drains, so a permit
+      re-inspected mid-backlog still ships the downgrade a cut run never
+      read. Holding at the window start slid it back two days a run (the
       lookback reaches a day past the cap), and folding every unread permit
       into one hold froze a backlog. A breaker trip reports 'blocked'.
 - `poll-orange-county.yml` — cron, 05:00 UTC Monday-Saturday. Orange
