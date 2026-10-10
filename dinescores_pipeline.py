@@ -3309,7 +3309,8 @@ SCC_PLACARDS = {'G': 'Green placard', 'Y': 'Yellow placard (conditional pass)',
 # A red placard closes the facility. The county's score measures overall
 # code compliance while the placard tracks major violations, so closures
 # routinely carry scores in the 70s-80s; cap them so a closure grades F.
-SCC_RED_PLACARD_CAP = 55
+SCC_RED_PLACARD_CAP = 55       # a closure grades F whatever the numeric score
+SCC_YELLOW_PLACARD_CAP = 79    # a conditional pass grades no better than C
 SCC_ID_CHUNK = 100             # inspection ids per `in (...)` violations request
 SCC_BULK_VIOLATIONS_DAYS = 60  # wider windows download the whole violations table
 SCC_PAGE = 50000
@@ -3438,11 +3439,14 @@ def fetch_santa_clara(since_date=None, limit=None):
     risk_score is the county's OFFICIAL 0-100 score when published
     (original_score = that score); an unscored inspection (mostly follow-ups)
     is scored from its violations (5/2/1) with original_score None.
-    Violation severity follows the county's own `critical` flag. A RED
+    Violation severity follows the county's own `critical` flag. The placard
+    is the county's stated tier and the grade never contradicts it: a RED
     placard means the facility was closed, so risk_score is capped at
-    SCC_RED_PLACARD_CAP (55, an F) regardless of the numeric score — the
-    score measures overall code compliance while the placard tracks major
-    violations, and a closed restaurant must not show as a B. Inspections
+    SCC_RED_PLACARD_CAP (55, an F), and a YELLOW placard (conditional pass,
+    major violations found) is capped at SCC_YELLOW_PLACARD_CAP (79, a C),
+    regardless of the numeric score — the score measures overall code
+    compliance while the placard tracks major violations, and a closed or
+    conditionally passed restaurant must not show as an A or B. Inspections
     whose business is missing from the BUSINESS table are skipped (counted
     in the log).
     """
@@ -3516,6 +3520,8 @@ def fetch_santa_clara(since_date=None, limit=None):
         placard = _scc_clean(row.get('result')).upper()
         if placard == 'R':
             risk = min(risk, SCC_RED_PLACARD_CAP)
+        elif placard == 'Y':
+            risk = min(risk, SCC_YELLOW_PLACARD_CAP)
 
         city_raw = _scc_clean(biz.get('city')).upper()
         city = SCC_CITY_FIXES.get(city_raw, city_raw).title() or 'San Jose'

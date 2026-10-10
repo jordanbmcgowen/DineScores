@@ -211,7 +211,7 @@ class SantaClaraFetchTests(unittest.TestCase):
         self.assertEqual(r['risk_score'], 40)
         self.assertEqual(r['original_score'], 40)
 
-    def test_yellow_placard_is_spelled_out_and_blank_result_is_empty(self):
+    def test_yellow_placard_is_spelled_out_capped_at_c_and_blank_result_is_empty(self):
         inspections = copy.deepcopy(self.inspections)
         for i in inspections:
             if i['inpsection_id'] == 'DA0LYU07I':
@@ -220,7 +220,10 @@ class SantaClaraFetchTests(unittest.TestCase):
                 i.pop('result')
         recs = self.by_source_id(self.run_fetch(inspections=inspections))
         self.assertEqual(recs['scc_DA0LYU07I']['results'], 'Yellow placard (conditional pass)')
-        self.assertEqual(recs['scc_DA0LYU07I']['risk_score'], 89)   # no cap for yellow
+        # A conditional pass never grades above C, whatever the point score.
+        self.assertEqual(recs['scc_DA0LYU07I']['risk_score'], dp.SCC_YELLOW_PLACARD_CAP)
+        self.assertEqual(recs['scc_DA0LYU07I']['original_score'], 89)
+        self.assertEqual(dp.calculate_vetted_grade(recs['scc_DA0LYU07I']['risk_score']), 'C')
         self.assertEqual(recs['scc_DA0T90ZVD']['results'], '')
 
     def test_missing_score_is_computed_from_violations(self):
