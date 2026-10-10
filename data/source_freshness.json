@@ -133,10 +133,10 @@
   "MHD metros": {
    "last_run": {
     "at": "2026-10-10",
-    "detail": "MHD portal blocked this run",
-    "latest": "",
-    "records": 0,
-    "status": "blocked"
+    "detail": "",
+    "latest": "2026-10-09",
+    "records": 596,
+    "status": "ok"
    },
    "latest": "2026-10-09"
   },
@@ -470,6 +470,14 @@
   },
   "Tarrant County Health Dept": {
    "group": "DFW",
+   "latest": "2026-10-09"
+  },
+  "Tennessee DOH (Memphis) Health Dept": {
+   "group": "MHD metros",
+   "latest": "2026-10-09"
+  },
+  "Tennessee DOH (Nashville) Health Dept": {
+   "group": "MHD metros",
    "latest": "2026-10-09"
   },
   "Utah County Health Dept": {
