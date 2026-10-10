@@ -6,8 +6,8 @@ metros (NYC, Chicago, LA County, SF, Seattle, Boston, Austin, Houston, DC,
 DFW, Las Vegas, Raleigh, Miami/Tampa/Orlando, Louisville, Minneapolis,
 Cincinnati, Montgomery County MD, Detroit, Sacramento, Fairfax County,
 Portland OR metro incl. Clark County WA, Colorado Springs/Fort Collins/
-Greeley/Adams County CO, Provo/Orem, Yolo County) plus all of Florida,
-New York State, Delaware, and South Carolina.
+Greeley/Adams County CO, Provo/Orem, Yolo County, San Jose/Santa Clara
+County) plus all of Florida, New York State, Delaware, and South Carolina.
 
 ## Architecture
 
