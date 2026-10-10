@@ -4629,6 +4629,14 @@ def _weighted_from_history(history_pairs):
     return round(total / total_w) if total_w else 0
 
 
+def _text_forces_f(violation_text, jev=None):
+    """The text-forced F: Jev's hazard decision when the reader made one for
+    this record (`_jev['forces_f']`), else today's regex over the joined text."""
+    if jev and jev.get('forces_f') is not None:
+        return bool(jev['forces_f'])
+    return has_active_pest_or_sewage(violation_text)
+
+
 def _apply_grades(rec):
     """
     Recompute ws/vg/inf/vs on a compact record from its history + violations.
@@ -4645,8 +4653,9 @@ def _apply_grades(rec):
         violation_text = '|||'.join(
             s.get('verbatim', '') for s in (rec.get('vs') or []) if s.get('verbatim'))
     rec['ws'] = _weighted_from_history(rec.get('h') or [[rec.get('d', ''), rec.get('rs', 0)]])
+    jev = rec.get('_jev') or {}
     vg = calculate_vetted_grade(rec['ws'])
-    if calculate_vetted_grade(rec.get('rs', 0), violation_text) == 'F':
+    if calculate_vetted_grade(rec.get('rs', 0)) == 'F' or _text_forces_f(violation_text, jev):
         vg = 'F'
     if not has_violations and not violation_text and rec.get('vg') == 'F':
         # No violation text to re-check (summaries are only embedded for the
@@ -4656,8 +4665,11 @@ def _apply_grades(rec):
         vg = 'F'
     rec['vg'] = vg
     if has_violations:
-        rec['inf'] = detect_infractions(violation_text)
-        summaries = summarize_violations(violation_text)
+        rec['inf'] = jev['chips'] if jev.get('chips') is not None else detect_infractions(violation_text)
+        if jev.get('summaries') is not None:
+            summaries = [dict(s) for s in jev['summaries']]
+        else:
+            summaries = summarize_violations(violation_text)
         for s in summaries:
             s['verbatim'] = s['verbatim'][:200]
         rec['vs'] = summaries
@@ -4717,6 +4729,8 @@ def write_data_js(all_inspections, output_path, top_per_city=1000,
             'm':   r.get('metro', ''),
             'h':   history,
         }
+        if r.get('_jev'):
+            compact['_jev'] = r['_jev']   # the Jev reading of this inspection, stripped before writing
         records.append(compact)
 
     # Merge with existing data.js if requested (restaurant-level overlay)
@@ -4810,6 +4824,7 @@ def write_data_js(all_inspections, output_path, top_per_city=1000,
     # ~40% of the payload. D1 keeps the full violation detail.
     for rec in final:
         rec.pop('v', None)
+        rec.pop('_jev', None)
 
     from datetime import datetime as _dt
     header = f"/* DineScores embedded data — auto-generated {_dt.now().strftime('%Y-%m-%d')} */\n"
@@ -4963,13 +4978,18 @@ def write_d1_sql(all_inspections, output_path, include_schema=True):
             ]) + ')')
 
         violation_text = build_violation_text(latest.get('violations', []))
+        jev = latest.get('_jev') or {}
         ws = compute_weighted_score(ordered)
         vg = calculate_vetted_grade(ws)
-        if calculate_vetted_grade(latest.get('risk_score', 0), violation_text) == 'F':
+        if calculate_vetted_grade(latest.get('risk_score', 0)) == 'F' or _text_forces_f(violation_text, jev):
             vg = 'F'
-        summaries = summarize_violations(violation_text)
+        if jev.get('summaries') is not None:
+            summaries = [dict(s) for s in jev['summaries']]
+        else:
+            summaries = summarize_violations(violation_text)
         for s in summaries:
             s['verbatim'] = s['verbatim'][:200]
+        infractions = jev['chips'] if jev.get('chips') is not None else detect_infractions(violation_text)
 
         lat = latest.get('latitude')
         lng = latest.get('longitude')
@@ -4989,7 +5009,7 @@ def write_d1_sql(all_inspections, output_path, include_schema=True):
             _sql_quote(latest.get('risk_score', 0)),
             _sql_quote(ws),
             _sql_quote(vg),
-            _sql_json(detect_infractions(violation_text)),
+            _sql_json(infractions),
             _sql_json(summaries),
             _sql_quote(len(ordered)),
             _sql_quote(latest.get('source', '')),
@@ -5189,10 +5209,53 @@ def _write_freshness(path):
         'groups': dict(sorted(_FRESHNESS['groups'].items())),
         'sources': dict(sorted(_FRESHNESS['sources'].items())),
     }
+    if _JEV_STATS is not None:
+        out['jev'] = {k: v for k, v in _JEV_STATS.items() if k != 'summary_lines'}
     with open(path, 'w') as f:
         json.dump(out, f, indent=1, sort_keys=True)
         f.write('\n')
     log.info(f"Freshness file written: {path}")
+
+
+_JEV_STATS = None    # this run's Jev pass outcome, written to the freshness file
+
+
+def _scrub_secret(text):
+    key = os.environ.get('TYPESAFE_API_KEY', '').strip()
+    text = str(text)
+    return text.replace(key, '[REDACTED]') if key and key in text else text
+
+
+def _run_jev_pass(all_inspections, args):
+    """Read every fetched violation line with Jev when JEV_MODE is on. Any
+    failure, including one inside the reader module, leaves the records as
+    the regex read them: the refresh never fails or ships less because of
+    Jev. The outcome goes to the log and the freshness file ('jev')."""
+    global _JEV_STATS
+    mode = (os.environ.get('JEV_MODE') or 'off').strip().lower()
+    if mode in ('', 'off'):
+        return
+    t0 = time.time()
+    deadline = time.time() + args.jev_deadline_minutes * 60 if args.jev_deadline_minutes else None
+    try:
+        import jev_reader
+        reader = jev_reader.JevReader.from_env(deadline=deadline)
+        log.info(f"Jev pass: mode={reader.mode} decide={sorted(reader.decide_set) if reader.mode == 'decide' else []} "
+                 f"budget={args.jev_deadline_minutes or 'none'} min")
+        stats = jev_reader.apply_to_inspections(all_inspections, reader, label=args.mode)
+        path = reader.flush_cache(args.mode)
+        stats['cache_file'] = os.path.basename(path) if path else None
+        stats['status'] = 'ok' if reader.active or reader.mode == 'off' else 'inactive'
+        stats['elapsed_s'] = round(time.time() - t0, 1)
+        for line in stats.get('summary_lines', []):
+            log.info(line)
+        _JEV_STATS = stats
+    except Exception as e:
+        log.error(f"Jev pass failed ({type(e).__name__}: {_scrub_secret(e)[:200]}); "
+                  f"today's regex answers every line this run")
+        _JEV_STATS = {'mode': mode, 'status': 'error',
+                      'error': f'{type(e).__name__}: {_scrub_secret(e)[:200]}',
+                      'elapsed_s': round(time.time() - t0, 1)}
 
 
 def _log_run_outcomes():
@@ -5246,6 +5309,10 @@ def main():
                              'back from its recorded date (bounded) instead of a flat 8 '
                              'days, so a failed or lagging week refetches itself. Updated '
                              'in place at the end of the run.')
+    parser.add_argument('--jev-deadline-minutes', type=float, default=None,
+                        help='Time budget for the Jev violation-reading pass that runs after '
+                             'the fetch phase (JEV_MODE=shadow|decide). Past it, remaining '
+                             'lines are read by the regex as today. Unset = no budget.')
     parser.add_argument('--debug', action='store_true',
                         help='Enable debug logging for network interception diagnostics')
     args = parser.parse_args()
@@ -5564,6 +5631,11 @@ def main():
 
     # Drop coordinates that are obviously wrong before any output is written
     drop_implausible_coords(all_inspections)
+
+    # Jev violation reading (JEV_MODE=shadow|decide; off by default). Runs
+    # after the fetch phase on its own budget and can only ever leave a line
+    # read by today's regex; it never fails the run or drops a record.
+    _run_jev_pass(all_inspections, args)
 
     log.info(f"\nTotal inspections collected: {len(all_inspections)}")
 

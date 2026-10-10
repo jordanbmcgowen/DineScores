@@ -182,32 +182,51 @@ middleware.
   `make_restaurant_id(name, address, city)` is the stable join key across
   data.js, D1, and the API — don't change its inputs.
 
-## Jev violation reader (shadow, phase 1)
+## Jev violation reader
 
 `jev_reader.py` hands the READING of each violation line to TypeSafe's Jev
 model (category, hazard, summary phrase, all picked from fixed lists) and
 leaves the SCORING in code: `SEVERITY_MAP`, the 5/2/1 points, the A/B/C/F
-cutoffs and `F_FORCING_HAZARDS` never move because of an answer.
-`JEV_MODE` is `off` by default; `shadow` asks and caches but the regex
-decides; `decide` lets Jev decide the questions in `JEV_DECIDE`. Nothing is
-wired into the fetchers yet. `docs/jev-shadow-report.md` has the measured
+cutoffs and `F_FORCING_HAZARDS` never move because of an answer. The
+weekly workflow runs it with `JEV_MODE=decide` and `JEV_DECIDE=hazard,summary`:
+Jev decides the text-forced F and the public summary phrases; category
+(which moves points on the computed-score sources) stays in shadow, asked
+and cached but not applied. `docs/jev-shadow-report.md` has the measured
 impact and the open policy decisions; `scripts/jev_shadow.py` reproduces it.
 
+- **One pass, after the fetch phase.** `_run_jev_pass` in `main()` calls
+  `jev_reader.apply_to_inspections` over every fetched record on its own
+  `--jev-deadline-minutes` budget (20 in CI, inside the 170-minute job), then
+  the output paths read the per-record `_jev` result (forces_f, chips,
+  summaries). Nothing in the fetchers changed.
 - **Fail open.** Any error, timeout, 429/529 after retries, malformed answer
-  or a top answer below `CONFIDENCE_FLOORS` means today's regex answers that
-  line. The weekly refresh must never fail or ship less because of Jev.
+  or a top answer below `CONFIDENCE_FLOORS` (0.6) means today's regex answers
+  that line; a record that raises inside the pass is left as the regex read
+  it; a failure of the whole pass is logged and the run continues. The
+  refresh must never fail or ship less because of Jev.
+- **Policy lives in code.** `F_FORCING_HAZARDS` (vermin, sewage; not flies,
+  not `pests_unspecified`), `SCORE_FROM_TIERS_SOURCES` / `SOURCE_TIER_SOURCES`
+  / `BOUNDED_TIER_SOURCES` (which sources may be re-scored or re-tiered), the
+  chip and summary-severity maps. A source-stated tier never moves.
 - **Pinned model + versioned questions.** `JEV_MODEL` and
   `QUESTION_SET_VERSION` are part of every cache key; a wording change must
   bump the version (a fingerprint test enforces it). Cache files under
   `data/jev_judgments/` are append-only gzipped JSONL, loaded in name order,
-  later file wins per key; never edit one.
+  later file wins per key; never edit one. The weekly run commits its new
+  file with data.js.
 - **No F from a batched answer.** A pest/sewage hazard (or a `none` on a
   text naming one) returned inside a multi-line request is re-asked alone
   and the single-line answer is cached. Jev mixed up neighbouring lines in
   ~0.05% of batched texts, once on a line stored 1,088 times.
 - **Only the violation line is sent** (no name, address, id, city, date).
-  The key lives in `TYPESAFE_API_KEY` only; it is scrubbed from logs and
-  exceptions, and request bodies are never logged. Stdlib only (`urllib`).
+  The key lives in `TYPESAFE_API_KEY` only (an Actions secret; unset = the
+  reader switches itself off); it is scrubbed from logs and exceptions, and
+  request bodies are never logged. Stdlib only (`urllib`).
+- **Coverage is in the run summary.** The pass writes a `jev` block into
+  `data/source_freshness.json` (lines judged, cached, fell back and why,
+  decisions per question, F against the regex, re-tiered/re-scored counts)
+  and the "Report source outcomes" step renders it; a failed pass or a run
+  that fell back on most lines raises a warning annotation.
 - Tests: `python3 -m unittest tests.test_jev_reader` (no network).
 
 ## Local commands

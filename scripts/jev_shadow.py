@@ -19,7 +19,7 @@ report quotes. Grade impact is computed in code with today's cutoffs:
   - hazard: Jev's hazard (above its floor) replaces the pest/sewage regex per
     line; the F-forcing set is jev_reader.F_FORCING_HAZARDS.
   - score: re-scored ONLY where DineScores computes the score from regex
-    tiers (SCORE_POLICY below, verified against the stored rows); official
+    tiers (jev_reader.score_policy, verified against the stored rows); official
     scores and source-stated tiers are left alone.
 
 Stdlib only.
@@ -49,58 +49,11 @@ TIERS = ('core', 'priority_foundation', 'priority')
 TIER_RANK = {t: i for i, t in enumerate(TIERS)}
 GRADES = ('A', 'B', 'C', 'F')
 
-# Where does the stored risk_score come from?  'computed' = calc_risk_score
-# over regex tiers (Jev's category changes points); 'official' = the health
-# department's score, counts, result or grade (points do not move);
-# 'source_tiers' = computed, but from tiers the SOURCE stated (points do not
-# move either). 'mhd' is decided per record: official when original_score is
-# present and the jurisdiction is 0-100, computed otherwise. Verified against
-# the seeds by recompute_check() and printed in score_policy.csv.
-SCORE_POLICY = {
-    'Chicago Open Data': 'computed',        # tiers bounded by item number: core stays core
-    'NYC Open Data': 'computed',            # critical flag bumps core to PF
-    'DataSF': 'computed',
-    'Houston Health Dept': 'computed',
-    'Cincinnati Open Data': 'computed',
-    'Delaware Open Data': 'computed',
-    'Montgomery County Open Data': 'computed',
-    'Boston Open Data': 'source_tiers',
-    'Detroit Open Data': 'source_tiers',
-    'King County Open Data': 'official',
-    'Austin Open Data': 'official',
-    'Florida DBPR': 'official',
-    'NYS Department of Health': 'official',
-    'Wake County Open Data': 'official',
-    'LA County Open Data': 'official',
-    'Louisville Open Data': 'official',
-    'Minneapolis Open Data': 'official',
-    'Sacramento County Open Data': 'official',
-    'SC DHEC': 'official',
-    'Fairfax County': 'official',
-    'Southern Nevada Health District': 'official',
-    'DC Health': 'official',
-    'Richardson Health Dept': 'official',
-    'Arlington Open Data': 'official',
-    'SC DPH Food Grades': 'official',          # letter grade only, no violation text
-    'Louisville Metro Open Data': 'official',  # score only, no violation text
-    'Fairfax County Open Data': 'official',    # result only, no violation text
-}
-MHD_DEMERIT_OR_NONE = {'Frisco', 'Fort Worth', 'El Paso County CO', 'Larimer County', 'Weld County',
-                       'Adams County', 'Utah County', 'Clark County WA', 'Yolo County'}
-# Sources whose stored tier came from the regex (SEVERITY_MAP) and may be
-# re-tiered by Jev's category; everything else stated its own tier.
-TIER_FLOOR_SOURCES = {'Chicago Open Data': 'bounded', 'NYC Open Data': 'bounded'}
-
-
-def policy_for(source, original_score):
-    if source in SCORE_POLICY:
-        return SCORE_POLICY[source]
-    if source.endswith(' Health Dept'):
-        juris = source[:-len(' Health Dept')]
-        if juris in MHD_DEMERIT_OR_NONE or original_score is None:
-            return 'computed'
-        return 'official'
-    return 'unknown'
+# Where does the stored risk_score come from, and may Jev's category move a
+# line's tier?  The tables live in jev_reader (SCORE_FROM_TIERS_SOURCES,
+# SOURCE_TIER_SOURCES, BOUNDED_TIER_SOURCES) because the pipeline's phase 2
+# pass uses the same ones; score_policy.csv verifies them against the seeds.
+policy_for = jr.score_policy
 
 
 # ─── LOADING ─────────────────────────────────────────────────────────────────
@@ -245,14 +198,14 @@ def select_judge_set(idx, line_count, regex, sample_n, rng):
 # ─── GRADE IMPACT ────────────────────────────────────────────────────────────
 
 def line_tier_new(stored_sev, reading, source):
-    """New tier for a line in a computed-score source. Only regex-derived
-    tiers move; Chicago/NYC's stored bound is honoured conservatively."""
+    """New tier for a line in a computed-score source: a source-stated tier
+    never moves, Chicago/NYC stay within their stored bound (jev_reader)."""
+    tp = jr.tier_policy(source)
+    if tp == 'fixed':
+        return stored_sev
     new = reading['severity']
-    if TIER_FLOOR_SOURCES.get(source) == 'bounded':
-        if stored_sev == 'core':
-            return 'core'                      # Chicago item >= 30 / NYC non-critical: core stays core
-        if TIER_RANK[new] < TIER_RANK['priority_foundation']:
-            return 'priority_foundation'       # a bumped item never drops below PF
+    if tp == 'bounded':
+        return jr.bounded_tier(stored_sev, new)
     return new
 
 

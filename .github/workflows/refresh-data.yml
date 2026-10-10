@@ -46,6 +46,16 @@ jobs:
           # portal's TLS fingerprint check — see that directory's README.
           PORTAL_RELAY_URL: ${{ secrets.PORTAL_RELAY_URL }}
           PORTAL_RELAY_TOKEN: ${{ secrets.PORTAL_RELAY_TOKEN }}
+          # Jev violation reader (jev_reader.py). The key is only ever read
+          # from this variable; it is scrubbed from logs and exceptions and
+          # request bodies are never logged. With the secret unset the reader
+          # switches itself off and the regex reads every line as before.
+          # JEV_DECIDE names the questions Jev decides; anything not listed
+          # stays in shadow (asked and cached, regex decides). Category stays
+          # shadow for now: it moves points on the computed-score sources.
+          TYPESAFE_API_KEY: ${{ secrets.TYPESAFE_API_KEY }}
+          JEV_MODE: decide
+          JEV_DECIDE: hazard,summary
         run: |
           python3 dinescores_pipeline.py \
             --mode weekly \
@@ -55,7 +65,12 @@ jobs:
             --merge-existing-data-js public/data.js \
             --output-d1-sql /tmp/dinescores_weekly.sql \
             --freshness-file data/source_freshness.json \
-            --deadline-minutes 120
+            --deadline-minutes 120 \
+            --jev-deadline-minutes 20
+        # --jev-deadline-minutes bounds the Jev reading pass that runs after
+        # the fetch phase (120 + 20 + outputs and the D1 upload stay inside
+        # the 170-minute job). Lines not read by then fall back to the regex;
+        # the pass can never fail the run or drop a record.
         # --merge-existing-data-js is essential: weekly mode only pulls the
         # recent window, and merging preserves the accumulated dataset instead
         # of overwriting it. Fetches are failure-tolerant — if a portal blocks
@@ -129,6 +144,39 @@ jobs:
               lines += ['', '### Needs attention', ''] + [f'- {w}' for w in warnings]
           else:
               lines += ['', 'Every source answered and is current.']
+          # Jev reader coverage: what was judged, what came from the cache,
+          # what fell back to the regex and why, and what Jev decided
+          # differently from the regex on the F question.
+          jev = data.get('jev')
+          if jev:
+              lines += ['', '### Jev violation reader', '']
+              if jev.get('status') == 'error':
+                  lines += [f"- FAILED: {jev.get('error')} (every line read by the regex this run)"]
+                  warnings.append(f"Jev pass failed: {jev.get('error')}")
+              else:
+                  r = jev.get('reader') or {}
+                  dec = jev.get('decisions') or {}
+                  fvr = jev.get('f_vs_regex') or {}
+                  lines += [
+                      f"- mode `{jev.get('mode')}`, deciding `{', '.join(jev.get('decide') or []) or 'nothing (shadow)'}`; "
+                      f"model `{jev.get('model')}`, question set `{jev.get('question_set')}`",
+                      f"- lines: {jev.get('lines', 0)} in {jev.get('records_with_violations', 0)} inspections "
+                      f"({jev.get('distinct_texts', 0)} distinct texts); {r.get('lines_cached', 0)} from cache, "
+                      f"{r.get('lines_judged', 0)} judged this run, {r.get('lines_fallback', 0)} fell back",
+                      f"- requests: {r.get('requests', 0)} ({r.get('request_failures', 0)} failed), "
+                      f"{r.get('input_tokens', 0):,} input tokens, hazards re-asked alone {r.get('hazard_verified_alone', 0)}",
+                      '- decisions: ' + ', '.join(f"{q} {d.get('jev', 0)} Jev / {d.get('regex', 0)} regex" for q, d in dec.items()),
+                      f"- F against the regex on judged inspections: {fvr.get('agree', 0)} agree, "
+                      f"{fvr.get('regex_only', 0)} regex-only F, {fvr.get('jev_only', 0)} Jev-only F",
+                      f"- re-tiered lines {jev.get('retiered_lines', 0)}, re-scored inspections {jev.get('rescored_records', 0)}, "
+                      f"record errors {jev.get('record_errors', 0)}; cache file {jev.get('cache_file') or 'none (nothing new)'}; "
+                      f"{jev.get('elapsed_s', 0)} s",
+                  ]
+                  for reason, n in sorted((r.get('fallback_reasons') or {}).items(), key=lambda kv: -kv[1]):
+                      lines.append(f'- fallback: {n} lines, {reason}')
+                  total = jev.get('lines') or 0
+                  if total and r.get('lines_fallback', 0) > total / 2:
+                      warnings.append(f"Jev reader fell back on {r.get('lines_fallback')} of {total} lines")
           text = '\n'.join(lines) + '\n'
           print(text)
           summary_path = os.environ.get('GITHUB_STEP_SUMMARY')
@@ -161,7 +209,9 @@ jobs:
         run: |
           git config --global user.name "DineScores Bot"
           git config --global user.email "bot@dinescores.com"
-          git add public/data.js data/source_freshness.json
+          # The Jev cache travels with the data it graded: the run's new
+          # judgments file (append-only; see data/jev_judgments/README.md).
+          git add public/data.js data/source_freshness.json data/jev_judgments
           if git diff --staged --quiet; then
             echo "No changes to data.js — already up to date"
           else
