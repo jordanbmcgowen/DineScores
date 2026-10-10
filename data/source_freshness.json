@@ -133,10 +133,10 @@
   "MHD metros": {
    "last_run": {
     "at": "2026-10-10",
-    "detail": "",
-    "latest": "2026-10-09",
-    "records": 871,
-    "status": "ok"
+    "detail": "MHD portal blocked this run",
+    "latest": "",
+    "records": 0,
+    "status": "blocked"
    },
    "latest": "2026-10-09"
   },
@@ -235,7 +235,7 @@
     "at": "2026-10-10",
     "detail": "",
     "latest": "2026-10-08",
-    "records": 50000,
+    "records": 28823,
     "status": "ok"
    },
    "latest": "2026-10-08"

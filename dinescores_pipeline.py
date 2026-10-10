@@ -5428,6 +5428,15 @@ MHD_BAN_COOLDOWNS = int(os.environ.get('MHD_BAN_COOLDOWNS', '16'))    # per run
 _MHD_DETAIL_BANNED = False   # detail pages 403ing right now (searches still fine)
 _MHD_COOLDOWNS_USED = 0
 MHD_WINDOW_DAYS = 7    # initial search window; bisected when the query cap is hit
+# The search API allows roughly 250 requests per TCP CONNECTION before it
+# answers 403 to everything on that connection (measured 2026-10-10: 252
+# searches in 265 s, then 403; clearing cookies changed nothing, closing the
+# session — a fresh connection — got 200 at once). The 7-day DFW windows
+# never reached it; Tennessee's bucket mode (30 searches a day) hit it in
+# five minutes and the run-wide breaker then wrote the whole state off as
+# "blocked". So every session rotates its connections proactively, and the
+# first 403 on a search is answered with a reconnect, not a 30 s wait.
+MHD_SEARCHES_PER_CONNECTION = int(os.environ.get('MHD_SEARCHES_PER_CONNECTION', '150'))
 # Detail-page pace, env-overridable: the portal rate-bans IPs that hammer
 # detail pages (searches survive while details start 403ing). When a run
 # trips the block, retry later with MHD_DETAIL_WORKERS=1 and a larger
@@ -5488,6 +5497,19 @@ def _mhd_row_rejection(rec, programs=(), city_allow=()):
     return ''
 
 
+def _mhd_rotate_connection(session, force=False):
+    """Count this session's searches and drop its pooled connections every
+    MHD_SEARCHES_PER_CONNECTION of them (or now, when force), so the next
+    request opens a fresh connection with a fresh quota. Cookies are kept:
+    they are not what the quota is keyed on."""
+    n = getattr(session, '_mhd_searches', 0)
+    n = (n if isinstance(n, int) else 0) + 1
+    if force or n >= MHD_SEARCHES_PER_CONNECTION:
+        session.close()   # requests reopens connections on the next request
+        n = 0
+    session._mhd_searches = n
+
+
 def _mhd_search_page(session, path, date_range_str, start_offset, retry_count=0,
                      search_str='', purpose=''):
     """
@@ -5527,9 +5549,21 @@ def _mhd_search_page(session, path, date_range_str, start_offset, retry_count=0,
     global _MHD_PORTAL_BLOCKED
     if _MHD_PORTAL_BLOCKED:
         return None
+    _mhd_rotate_connection(session)
     try:
         r = session.post(MHD_BASE_URL, json=payload, timeout=30)
         if r.status_code in (403, 429):
+            if retry_count == 0 and getattr(session, '_mhd_reconnected', False) is not True:
+                # A per-connection quota, not a block: reconnect and retry
+                # right away. The flag keeps one quota exhaustion from
+                # masking a real block (the second 403 goes to the ladder).
+                _mhd_rotate_connection(session, force=True)
+                session._mhd_reconnected = True
+                log.info(f"  MHD {r.status_code} on a search — reconnected and retrying")
+                result = _mhd_search_page(session, path, date_range_str, start_offset,
+                                          retry_count, search_str, purpose)
+                session._mhd_reconnected = False
+                return result
             if retry_count < MHD_MAX_RETRIES:
                 if _past_deadline():
                     # Time budget ran out, not necessarily a persistent

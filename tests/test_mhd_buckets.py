@@ -353,3 +353,50 @@ class SlugGroupTests(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
+
+class ConnectionQuotaTests(unittest.TestCase):
+    """The portal allows ~250 searches per TCP connection; see
+    MHD_SEARCHES_PER_CONNECTION."""
+
+    def _resp(self, status, body=None):
+        r = mock.Mock()
+        r.status_code = status
+        r.json = mock.Mock(return_value=body if body is not None else [])
+        r.raise_for_status = mock.Mock()
+        return r
+
+    def test_first_403_reconnects_and_retries_without_waiting(self):
+        session = mock.Mock()
+        session._mhd_searches = 0
+        session._mhd_reconnected = False
+        session.post = mock.Mock(side_effect=[self._resp(403), self._resp(200, [{'inspectionID': 'x'}])])
+        with mock.patch.object(dp.time, 'sleep') as sleep:
+            out = dp._mhd_search_page(session, 'tennessee', '2026-10-06 to 2026-10-06', 0,
+                                      search_str='Nashville', purpose='Routine')
+        self.assertEqual(out, [{'inspectionID': 'x'}])
+        self.assertEqual(session.post.call_count, 2)
+        session.close.assert_called_once()
+        sleep.assert_not_called()
+        self.assertFalse(dp._MHD_PORTAL_BLOCKED)
+
+    def test_second_403_goes_to_the_retry_ladder(self):
+        session = mock.Mock()
+        session._mhd_searches = 0
+        session._mhd_reconnected = False
+        session.post = mock.Mock(side_effect=[self._resp(403), self._resp(403), self._resp(200, [])])
+        with mock.patch.object(dp.time, 'sleep') as sleep:
+            out = dp._mhd_search_page(session, 'tennessee', '2026-10-06 to 2026-10-06', 0)
+        self.assertEqual(out, [])
+        self.assertEqual(session.post.call_count, 3)
+        self.assertEqual(sleep.call_count, 1)   # one 30 s wait, then success
+
+    def test_connections_rotate_every_n_searches(self):
+        session = mock.Mock()
+        session._mhd_searches = 0
+        session._mhd_reconnected = False
+        session.post = mock.Mock(return_value=self._resp(200, []))
+        with mock.patch.object(dp, 'MHD_SEARCHES_PER_CONNECTION', 5):
+            for _ in range(12):
+                dp._mhd_search_page(session, 'dallas', '2026-10-06 to 2026-10-06', 0)
+        self.assertEqual(session.close.call_count, 2)
