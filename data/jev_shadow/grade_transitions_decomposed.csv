@@ -1,0 +1,198 @@
+step,source,grade_from,grade_to,restaurants
+reader_mechanics_no_jev,Chicago Open Data,A,B,5
+reader_mechanics_no_jev,Chicago Open Data,B,A,4
+reader_mechanics_no_jev,Chicago Open Data,F,A,13
+reader_mechanics_no_jev,Chicago Open Data,F,B,9
+reader_mechanics_no_jev,Chicago Open Data,F,C,2
+reader_mechanics_no_jev,Cincinnati Open Data,F,C,2
+reader_mechanics_no_jev,Clark County WA Health Dept,B,A,15
+reader_mechanics_no_jev,Clark County WA Health Dept,C,B,6
+reader_mechanics_no_jev,Clark County WA Health Dept,F,C,1
+reader_mechanics_no_jev,DataSF,A,B,3
+reader_mechanics_no_jev,DataSF,B,A,1
+reader_mechanics_no_jev,DataSF,B,C,1
+reader_mechanics_no_jev,DataSF,C,B,1
+reader_mechanics_no_jev,El Paso County CO Health Dept,A,B,1
+reader_mechanics_no_jev,El Paso County CO Health Dept,B,A,12
+reader_mechanics_no_jev,El Paso County CO Health Dept,C,B,7
+reader_mechanics_no_jev,El Paso County CO Health Dept,F,C,5
+reader_mechanics_no_jev,Fort Worth Health Dept,B,A,1
+reader_mechanics_no_jev,Houston Health Dept,A,B,6
+reader_mechanics_no_jev,Houston Health Dept,B,C,1
+reader_mechanics_no_jev,Houston Health Dept,C,F,1
+reader_mechanics_no_jev,King County Open Data,F,A,2
+reader_mechanics_no_jev,King County Open Data,F,B,4
+reader_mechanics_no_jev,King County Open Data,F,C,2
+reader_mechanics_no_jev,LA County Open Data,F,A,4
+reader_mechanics_no_jev,LA County Open Data,F,B,3
+reader_mechanics_no_jev,Larimer County Health Dept,B,A,11
+reader_mechanics_no_jev,Larimer County Health Dept,C,B,6
+reader_mechanics_no_jev,Larimer County Health Dept,F,C,2
+reader_mechanics_no_jev,NYS Department of Health,F,A,2
+reader_mechanics_no_jev,NYS Department of Health,F,B,2
+reader_mechanics_no_jev,Richardson Health Dept,F,A,1
+reader_mechanics_no_jev,Richardson Health Dept,F,B,7
+reader_mechanics_no_jev,Wake County Open Data,F,A,4
+reader_mechanics_no_jev,Weld County Health Dept,B,A,8
+reader_mechanics_no_jev,Weld County Health Dept,C,B,4
+reader_mechanics_no_jev,Yolo County Health Dept,B,A,1
+reader_mechanics_no_jev,Yolo County Health Dept,C,B,1
+jev_judgments,Adams County Health Dept,A,B,4
+jev_judgments,Adams County Health Dept,B,A,3
+jev_judgments,Adams County Health Dept,B,C,7
+jev_judgments,Adams County Health Dept,C,B,3
+jev_judgments,Adams County Health Dept,C,F,10
+jev_judgments,Adams County Health Dept,F,C,5
+jev_judgments,Boston Open Data,B,F,1
+jev_judgments,Boston Open Data,F,A,1
+jev_judgments,Boston Open Data,F,B,1
+jev_judgments,Chicago Open Data,A,B,4
+jev_judgments,Chicago Open Data,A,F,4
+jev_judgments,Chicago Open Data,B,A,12
+jev_judgments,Chicago Open Data,B,C,1
+jev_judgments,Chicago Open Data,B,F,1
+jev_judgments,Chicago Open Data,C,B,4
+jev_judgments,Chicago Open Data,C,F,1
+jev_judgments,Chicago Open Data,F,A,35
+jev_judgments,Chicago Open Data,F,B,9
+jev_judgments,Chicago Open Data,F,C,4
+jev_judgments,Cincinnati Open Data,A,B,3
+jev_judgments,Cincinnati Open Data,A,F,1
+jev_judgments,Cincinnati Open Data,B,A,31
+jev_judgments,Cincinnati Open Data,B,C,3
+jev_judgments,Cincinnati Open Data,B,F,1
+jev_judgments,Cincinnati Open Data,C,B,29
+jev_judgments,Cincinnati Open Data,C,F,5
+jev_judgments,Cincinnati Open Data,F,B,7
+jev_judgments,Cincinnati Open Data,F,C,23
+jev_judgments,Clackamas County Health Dept,A,F,1
+jev_judgments,Clackamas County Health Dept,B,F,1
+jev_judgments,Clark County WA Health Dept,A,B,8
+jev_judgments,Clark County WA Health Dept,B,A,10
+jev_judgments,Clark County WA Health Dept,B,C,1
+jev_judgments,Clark County WA Health Dept,C,B,2
+jev_judgments,Clark County WA Health Dept,C,F,2
+jev_judgments,DC Health,A,F,1
+jev_judgments,DC Health,F,A,1
+jev_judgments,DC Health,F,C,1
+jev_judgments,Dallas Health Dept,A,F,5
+jev_judgments,Dallas Health Dept,B,F,4
+jev_judgments,Dallas Health Dept,C,F,1
+jev_judgments,Dallas Health Dept,F,A,6
+jev_judgments,Dallas Health Dept,F,B,17
+jev_judgments,Dallas Health Dept,F,C,1
+jev_judgments,DataSF,A,B,12
+jev_judgments,DataSF,B,A,264
+jev_judgments,DataSF,B,C,5
+jev_judgments,DataSF,C,B,145
+jev_judgments,DataSF,C,F,1
+jev_judgments,DataSF,F,A,848
+jev_judgments,DataSF,F,B,412
+jev_judgments,DataSF,F,C,169
+jev_judgments,Delaware Open Data,A,B,88
+jev_judgments,Delaware Open Data,B,A,104
+jev_judgments,Delaware Open Data,B,C,28
+jev_judgments,Delaware Open Data,B,F,4
+jev_judgments,Delaware Open Data,C,B,22
+jev_judgments,Delaware Open Data,C,F,18
+jev_judgments,Delaware Open Data,F,A,19
+jev_judgments,Delaware Open Data,F,B,6
+jev_judgments,Delaware Open Data,F,C,10
+jev_judgments,Detroit Open Data,F,A,9
+jev_judgments,Detroit Open Data,F,B,1
+jev_judgments,El Paso County CO Health Dept,A,B,3
+jev_judgments,El Paso County CO Health Dept,B,A,17
+jev_judgments,El Paso County CO Health Dept,B,C,4
+jev_judgments,El Paso County CO Health Dept,C,B,20
+jev_judgments,El Paso County CO Health Dept,C,F,1
+jev_judgments,El Paso County CO Health Dept,F,A,1
+jev_judgments,El Paso County CO Health Dept,F,B,2
+jev_judgments,El Paso County CO Health Dept,F,C,9
+jev_judgments,Fort Worth Health Dept,A,B,24
+jev_judgments,Fort Worth Health Dept,A,F,1
+jev_judgments,Fort Worth Health Dept,B,A,72
+jev_judgments,Fort Worth Health Dept,B,C,27
+jev_judgments,Fort Worth Health Dept,B,F,1
+jev_judgments,Fort Worth Health Dept,C,B,85
+jev_judgments,Fort Worth Health Dept,C,F,18
+jev_judgments,Fort Worth Health Dept,F,A,7
+jev_judgments,Fort Worth Health Dept,F,B,16
+jev_judgments,Fort Worth Health Dept,F,C,62
+jev_judgments,Frisco Health Dept,A,B,19
+jev_judgments,Frisco Health Dept,B,A,1
+jev_judgments,Frisco Health Dept,B,C,8
+jev_judgments,Frisco Health Dept,B,F,6
+jev_judgments,Frisco Health Dept,C,F,6
+jev_judgments,Frisco Health Dept,F,A,1
+jev_judgments,Houston Health Dept,A,B,25
+jev_judgments,Houston Health Dept,B,A,371
+jev_judgments,Houston Health Dept,B,C,17
+jev_judgments,Houston Health Dept,B,F,2
+jev_judgments,Houston Health Dept,C,A,2
+jev_judgments,Houston Health Dept,C,B,216
+jev_judgments,Houston Health Dept,C,F,4
+jev_judgments,Houston Health Dept,F,A,51
+jev_judgments,Houston Health Dept,F,B,64
+jev_judgments,Houston Health Dept,F,C,135
+jev_judgments,Larimer County Health Dept,A,B,12
+jev_judgments,Larimer County Health Dept,A,F,1
+jev_judgments,Larimer County Health Dept,B,A,28
+jev_judgments,Larimer County Health Dept,B,C,9
+jev_judgments,Larimer County Health Dept,C,B,12
+jev_judgments,Larimer County Health Dept,C,F,5
+jev_judgments,Larimer County Health Dept,F,C,2
+jev_judgments,Minneapolis Open Data,F,A,7
+jev_judgments,Minneapolis Open Data,F,B,1
+jev_judgments,Montgomery County Open Data,A,B,2
+jev_judgments,Montgomery County Open Data,F,A,809
+jev_judgments,Montgomery County Open Data,F,B,21
+jev_judgments,Multnomah County Health Dept,A,F,2
+jev_judgments,Multnomah County Health Dept,B,F,1
+jev_judgments,Multnomah County Health Dept,F,A,9
+jev_judgments,Multnomah County Health Dept,F,B,5
+jev_judgments,Multnomah County Health Dept,F,C,1
+jev_judgments,NYC Open Data,A,B,20
+jev_judgments,NYC Open Data,B,A,2441
+jev_judgments,NYC Open Data,B,C,3
+jev_judgments,NYC Open Data,C,A,1
+jev_judgments,NYC Open Data,C,B,572
+jev_judgments,NYC Open Data,F,B,10
+jev_judgments,NYC Open Data,F,C,141
+jev_judgments,Plano Health Dept,A,F,1
+jev_judgments,Plano Health Dept,B,A,1
+jev_judgments,Plano Health Dept,F,A,2
+jev_judgments,Plano Health Dept,F,B,1
+jev_judgments,Plano Health Dept,F,C,1
+jev_judgments,Richardson Health Dept,F,A,40
+jev_judgments,Richardson Health Dept,F,B,49
+jev_judgments,Richardson Health Dept,F,C,14
+jev_judgments,Tarrant County Health Dept,F,A,6
+jev_judgments,Utah County Health Dept,A,B,17
+jev_judgments,Utah County Health Dept,B,A,17
+jev_judgments,Utah County Health Dept,B,C,9
+jev_judgments,Utah County Health Dept,C,B,11
+jev_judgments,Utah County Health Dept,C,F,3
+jev_judgments,Utah County Health Dept,F,A,3
+jev_judgments,Utah County Health Dept,F,B,1
+jev_judgments,Utah County Health Dept,F,C,4
+jev_judgments,Wake County Open Data,A,F,1
+jev_judgments,Wake County Open Data,F,A,12
+jev_judgments,Washington County OR Health Dept,B,F,1
+jev_judgments,Washington County OR Health Dept,C,F,1
+jev_judgments,Washington County OR Health Dept,F,A,15
+jev_judgments,Washington County OR Health Dept,F,B,4
+jev_judgments,Washington County OR Health Dept,F,C,1
+jev_judgments,Weld County Health Dept,A,B,10
+jev_judgments,Weld County Health Dept,B,A,3
+jev_judgments,Weld County Health Dept,B,C,2
+jev_judgments,Weld County Health Dept,C,B,3
+jev_judgments,Weld County Health Dept,F,A,1
+jev_judgments,Weld County Health Dept,F,B,1
+jev_judgments,Weld County Health Dept,F,C,1
+jev_judgments,Yolo County Health Dept,A,B,8
+jev_judgments,Yolo County Health Dept,A,F,1
+jev_judgments,Yolo County Health Dept,B,A,3
+jev_judgments,Yolo County Health Dept,B,C,6
+jev_judgments,Yolo County Health Dept,B,F,1
+jev_judgments,Yolo County Health Dept,C,F,2
+jev_judgments,Yolo County Health Dept,F,C,1

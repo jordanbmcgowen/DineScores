@@ -1,0 +1,109 @@
+{
+ "inspections": 590896,
+ "violation_lines": 958421,
+ "unique_texts": 250447,
+ "restaurants": 271853,
+ "datajs_restaurants": 69006,
+ "judge_set_texts": 35823,
+ "judge_set_lines": 724567,
+ "strata": {
+  "forced_f": 2260,
+  "sewage_summary": 651,
+  "unclassified": 12980,
+  "sample": 20000
+ },
+ "judged_texts": 35823,
+ "judged_lines": 724567,
+ "reader_stats": {
+  "mode": "shadow",
+  "requests": 0,
+  "request_failures": 0,
+  "lines_asked": 0,
+  "lines_judged": 0,
+  "lines_cached": 35823,
+  "lines_fallback": 0,
+  "fallback_reasons": {},
+  "input_tokens": 0,
+  "output_tokens": 0,
+  "latency_total": 0.0,
+  "latency_max": 0.0,
+  "hazard_verified_alone": 0,
+  "hazard_changed_on_verify": 0
+ },
+ "cache_file": null,
+ "floors": {
+  "category": 0.6,
+  "hazard": 0.6,
+  "summary": 0.6
+ },
+ "model": "jev-1.13.0",
+ "question_set": "qs3",
+ "tokens_per_line": null,
+ "cost_per_line_usd": null,
+ "projected_backfill_usd": null,
+ "weekly_new_unique_texts_estimate": 3969.9166666666665,
+ "projected_weekly_usd": null,
+ "agreement": {
+  "category": {
+   "disagree": 22920,
+   "agree": 12903
+  },
+  "hazard": {
+   "agree": 35183,
+   "disagree": 640
+  },
+  "summary": {
+   "agree": 19846,
+   "disagree": 15977
+  }
+ },
+ "grade_today": {
+  "A": 223463,
+  "C": 6938,
+  "F": 11479,
+  "B": 29973
+ },
+ "grade_new": {
+  "A": 228513,
+  "B": 28462,
+  "C": 6438,
+  "F": 8440
+ },
+ "grade_changes": 8220,
+ "datajs_grade_changes": 850,
+ "today_recomputed_grade_mismatches_vs_stored": 3256,
+ "restaurants_rescored_computed_policy": 83793,
+ "text_forced_f_today": 7364,
+ "text_forced_f_kept": 4710,
+ "text_forced_f_dropped": 2654,
+ "text_forced_f_added": 32,
+ "text_forced_f_dropped_cross_line_artifact": 54,
+ "nojev_text_forced_f_dropped": 54,
+ "nojev_text_forced_f_added": 0,
+ "grade_changes_reader_mechanics_only": 161,
+ "grade_changes_jev_only": 8111,
+ "flies_would_add_f": 186,
+ "unspecified_would_add_f": 2396,
+ "alt_unspecified_forces_f": {
+  "grade_new": {
+   "A": 226345,
+   "B": 28272,
+   "C": 6400,
+   "F": 10836
+  },
+  "grade_changes": 8902,
+  "text_forced_f_kept": 5568,
+  "text_forced_f_dropped": 1796,
+  "text_forced_f_added": 1571,
+  "flies_would_add_f": 184
+ },
+ "marker_lines": 39704,
+ "marker_lines_disagreeing_with_stored_tier": 18140,
+ "marker_lines_by_source": {
+  "Wake County Open Data": 35551,
+  "Boston Open Data": 3845,
+  "Chicago Open Data": 295,
+  "El Paso County CO Health Dept": 13
+ },
+ "elapsed_seconds": 466
+}

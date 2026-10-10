@@ -1,0 +1,13 @@
+regex_forces_f,jev_hazard,texts
+False,none,29124
+False,conditions_only,4217
+True,vermin_observed,1665
+True,conditions_only,360
+False,flies_or_gnats_observed,131
+True,flies_or_gnats_observed,123
+True,pests_unspecified,77
+False,sewage_observed,49
+True,sewage_observed,30
+False,vermin_observed,26
+False,pests_unspecified,16
+True,none,5
