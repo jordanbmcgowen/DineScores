@@ -16,6 +16,10 @@ of anything Jev says.
                      question's confidence floor; everything else falls
                      back to the regex functions.
 
+The pipeline runs apply_to_inspections() once over every fetched record
+after the fetch phase (its own --jev-deadline-minutes budget) and the
+output paths read the per-record `_jev` result it leaves behind.
+
 Fail open: any error, timeout, 429/529 after retries, malformed answer or a
 top answer below its confidence floor means today's regex answers that line.
 
@@ -1401,6 +1405,243 @@ def summarize_violations(texts_or_joined, judgments=None, floors=None, use=None)
             seen.add(s['text'])
             unique.append(s)
     return unique[:5]
+
+
+# ─── PIPELINE PASS (phase 2) ─────────────────────────────────────────────────
+# Where a source's stored risk_score comes from, and where its per-line tier
+# comes from. Read off the fetchers and verified against the committed seeds
+# (docs/jev-shadow-report.md, "Where the score is re-scored"): for every
+# "computed" source calc_risk_score over the stored tiers reproduces the
+# stored risk_score on 95% or more of inspections. Jev's category may move
+# points only on computed sources; a source-stated tier never moves.
+
+SCORE_FROM_TIERS_SOURCES = frozenset({
+    'Chicago Open Data', 'NYC Open Data', 'DataSF', 'Houston Health Dept',
+    'Cincinnati Open Data', 'Delaware Open Data', 'Montgomery County Open Data',
+})
+# Computed from tiers the SOURCE stated (levels, demerit bands): the score is
+# a function of the stored tiers, but Jev's category must not move them.
+SOURCE_TIER_SCORE_SOURCES = frozenset({'Boston Open Data', 'Detroit Open Data'})
+# Sources whose per-line tier is stated by the source (a level, points, a
+# demerit band, a critical flag).
+SOURCE_TIER_SOURCES = frozenset({
+    'Boston Open Data', 'Detroit Open Data', 'Minneapolis Open Data', 'LA County Open Data',
+    'Wake County Open Data', 'King County Open Data', 'Southern Nevada Health District',
+    'Richardson Health Dept', 'NYS Department of Health',
+})
+# Sources whose tier was bounded by a per-item rule the stored row no longer
+# carries (Chicago's item number, NYC's critical flag): a stored core line
+# stays core and a stored non-core line never drops below priority_foundation.
+BOUNDED_TIER_SOURCES = frozenset({'Chicago Open Data', 'NYC Open Data'})
+MHD_SOURCE_SUFFIX = ' Health Dept'
+_TIER_RANK = {'core': 0, 'priority_foundation': 1, 'core_': 0, 'priority': 2}
+_MHD_DEMERIT = None
+
+
+def _mhd_demerit_or_none_jurisdictions():
+    """Display names of MyHealthDepartment jurisdictions whose portal publishes
+    demerits or no score at all: their risk_score is computed from the
+    scraped violations (from the pipeline's jurisdiction configs)."""
+    global _MHD_DEMERIT
+    if _MHD_DEMERIT is None:
+        dp = _pipeline()
+        names = set()
+        for cfg in list(dp.DFW_JURISDICTIONS.values()) + list(dp.MHD_METRO_JURISDICTIONS.values()):
+            if cfg.get('score_scale', '100') in ('demerit', 'none'):
+                names.add(cfg['display_name'])
+        _MHD_DEMERIT = frozenset(names)
+    return _MHD_DEMERIT
+
+
+def score_policy(source, original_score=None):
+    """'computed' (points move with the tiers), 'source_tiers' (computed, but
+    from tiers the source stated) or 'official'."""
+    source = source or ''
+    if source in SCORE_FROM_TIERS_SOURCES:
+        return 'computed'
+    if source in SOURCE_TIER_SCORE_SOURCES:
+        return 'source_tiers'
+    if source in SOURCE_TIER_SOURCES:
+        return 'official'
+    if source.endswith(MHD_SOURCE_SUFFIX):
+        juris = source[:-len(MHD_SOURCE_SUFFIX)]
+        if juris in _mhd_demerit_or_none_jurisdictions() or original_score is None:
+            return 'computed'
+        return 'official'
+    return 'official'
+
+
+def tier_policy(source):
+    """'fixed' (source-stated, never re-tiered), 'bounded' (Chicago, NYC) or 'free'."""
+    source = source or ''
+    if source in SOURCE_TIER_SOURCES:
+        return 'fixed'
+    if source in BOUNDED_TIER_SOURCES:
+        return 'bounded'
+    return 'free'
+
+
+def bounded_tier(stored_sev, new_sev):
+    """The conservative bound for Chicago/NYC lines (see BOUNDED_TIER_SOURCES)."""
+    if stored_sev == 'core':
+        return 'core'
+    if _TIER_RANK.get(new_sev, 0) < _TIER_RANK['priority_foundation']:
+        return 'priority_foundation'
+    return new_sev
+
+
+def _line_parts(v):
+    """(category, severity, text) from a violation entry (list/tuple or dict)."""
+    if isinstance(v, dict):
+        return (v.get('category', 'unclassified'), v.get('severity', 'core'),
+                str(v.get('description', '') or ''))
+    if isinstance(v, (list, tuple)) and len(v) >= 3:
+        return (str(v[0]), str(v[1]), str(v[2]))
+    return None
+
+
+def apply_to_inspections(inspections, reader, use=None, label='run'):
+    """Phase 2: read every violation line of the fetched inspection records
+    with Jev and apply the decisions in `use` (default: the reader's decide
+    set in decide mode, nothing in shadow mode). Mutates records in place:
+
+      violations[i]        -> [category, severity, text] (category/tier only
+                              when 'category' is decided; a source-stated tier
+                              never moves; Chicago/NYC stay within their bound)
+      risk_score           -> recomputed only where the source computes it
+                              from tiers AND the stored score still matches
+                              the stored tiers
+      pv/pfv/cv/tv counts  -> from the final tiers
+      _jev                 -> {'forces_f': bool|None, 'chips': list|None,
+                              'summaries': list|None} for the output paths;
+                              None means "Jev did not decide, use today's
+                              functions"
+
+    Fail open at every level: a line without a judgment gets today's regex,
+    a record that raises is left untouched and counted. Returns a stats dict
+    for the run summary. Never raises for reader or network reasons."""
+    dp = _pipeline()
+    t0 = time.time()
+    if use is None:
+        use = set(reader.decide_set) if reader.mode == 'decide' else set()
+    use = set(use) & set(QUESTIONS)
+    stats = {
+        'mode': reader.mode, 'decide': sorted(use), 'model': reader.client.model,
+        'question_set': QUESTION_SET_VERSION, 'records': len(inspections),
+        'records_with_violations': 0, 'lines': 0, 'distinct_texts': 0, 'lines_with_judgment': 0,
+        'decisions': {q: {'jev': 0, 'regex': 0} for q in QUESTIONS},
+        'f_vs_regex': {'agree': 0, 'regex_only': 0, 'jev_only': 0},
+        'rescored_records': 0, 'retiered_lines': 0, 'record_errors': 0,
+    }
+    texts = []
+    for rec in inspections:
+        try:
+            for v in rec.get('violations') or []:
+                parts = _line_parts(v)
+                if parts and parts[2].strip():
+                    texts.append(parts[2])
+        except Exception as e:                   # a record we cannot read is left to the regex
+            stats['record_errors'] += 1
+            log.warning(f'Jev pass: unreadable violations on a record ({type(e).__name__})')
+    stats['lines'] = len(texts)
+    stats['distinct_texts'] = len({normalize_text(t) for t in texts})
+    judgments = reader.judge_texts(texts, label=label) if texts else {}
+    stats['lines_with_judgment'] = sum(1 for t in texts if judgments.get(normalize_text(t)))
+
+    for rec in inspections:
+        vio = rec.get('violations') or []
+        if not vio or not isinstance(vio, (list, tuple)):
+            continue
+        stats['records_with_violations'] += 1
+        try:
+            _apply_to_record(rec, vio, judgments, use, stats, dp)
+        except Exception as e:                   # one bad record never stops the run
+            stats['record_errors'] += 1
+            log.warning(f'Jev pass: record left as read by the regex ({type(e).__name__})')
+    stats['reader'] = {k: v for k, v in reader.stats.items() if k != 'cache_files_written'}
+    stats['summary_lines'] = reader.summary_lines() + [
+        f"  decisions: " + ', '.join(f"{q} {stats['decisions'][q]['jev']} jev / {stats['decisions'][q]['regex']} regex"
+                                     for q in QUESTIONS),
+        f"  F vs regex on judged records: {stats['f_vs_regex']['agree']} agree, "
+        f"{stats['f_vs_regex']['regex_only']} regex-only F, {stats['f_vs_regex']['jev_only']} jev-only F",
+        f"  re-tiered lines: {stats['retiered_lines']}, re-scored records: {stats['rescored_records']}, "
+        f"record errors: {stats['record_errors']}",
+    ]
+    stats['elapsed_s'] = round(time.time() - t0, 1)
+    return stats
+
+
+def _apply_to_record(rec, vio, judgments, use, stats, dp):
+    source = rec.get('source') or ''
+    tp = tier_policy(source)
+    sp = score_policy(source, rec.get('original_score'))
+    parts = [_line_parts(v) for v in vio]
+    parts = [p for p in parts if p]
+    if not parts:
+        return
+    line_texts = [p[2] for p in parts]
+    joined = '|||'.join(t for t in line_texts if t)
+    readings = []
+    shadow_f = False
+    any_judged = False
+    for (c0, s0, t) in parts:
+        j = judgments.get(normalize_text(t))
+        if j:
+            any_judged = True
+        d = decide(t, j, source_severity=(s0 if tp == 'fixed' else None), use=use)
+        readings.append(d)
+        for q in QUESTIONS:
+            if q in use:
+                stats['decisions'][q]['jev' if d['used'][q] == 'jev' else 'regex'] += 1
+        # what the hazard question would decide, whatever this run's mode
+        shadow_f = shadow_f or decide(t, j, None, None, {'hazard'})['forces_f']
+    if any_judged:
+        regex_f = dp.has_active_pest_or_sewage(joined)
+        if regex_f and shadow_f:
+            stats['f_vs_regex']['agree'] += 1
+        elif regex_f:
+            stats['f_vs_regex']['regex_only'] += 1
+        elif shadow_f:
+            stats['f_vs_regex']['jev_only'] += 1
+        else:
+            stats['f_vs_regex']['agree'] += 1
+
+    result = {'forces_f': None, 'chips': None, 'summaries': None}
+
+    if 'category' in use:
+        old_tiers = [s0 for (_, s0, _) in parts]
+        new_lines = []
+        for d, (c0, s0, t) in zip(readings, parts):
+            sev = d['severity']
+            if tp == 'bounded':
+                sev = bounded_tier(s0, sev)
+            if sev != s0:
+                stats['retiered_lines'] += 1
+            new_lines.append([d['category'], sev, t])
+        if sp == 'computed':
+            old_score, _, _, _ = dp.calc_risk_score([(c0, s0, t) for (c0, s0, t) in parts])
+            if old_score == rec.get('risk_score'):
+                new_score, _, _, _ = dp.calc_risk_score([tuple(x) for x in new_lines])
+                if new_score != rec.get('risk_score'):
+                    stats['rescored_records'] += 1
+                rec['risk_score'] = new_score
+        rec['violations'] = new_lines
+        _, pv, pfv, cv = dp.calc_risk_score([tuple(x) for x in new_lines])
+        rec['priority_violations'] = pv
+        rec['priority_foundation_violations'] = pfv
+        rec['core_violations'] = cv
+        rec['total_violations'] = len(new_lines)
+
+    if any_judged:
+        if 'hazard' in use:
+            result['forces_f'] = any(d['forces_f'] for d in readings)
+        if use:
+            result['chips'] = detect_infractions(line_texts, judgments, use=use)
+            summaries = summarize_violations(line_texts, judgments, use=use)
+            for s in summaries:
+                s['verbatim'] = s['verbatim'][:200]
+            result['summaries'] = summaries
+    rec['_jev'] = result
 
 
 # ─── CLI (debugging aid; prints no secrets) ──────────────────────────────────

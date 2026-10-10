@@ -32,5 +32,5 @@ Rules:
 - `JEV_MODEL` and `QUESTION_SET_VERSION` in `jev_reader.py` are part of the
   key. Changing either is a deliberate version bump and simply misses this
   cache; the next run refills it.
-- The weekly refresh commits its new file alongside `public/data.js`
-  (phase 2), so the same text gets the same answer every week.
+- The weekly refresh commits its new file alongside `public/data.js`, so
+  the same text gets the same answer every week.

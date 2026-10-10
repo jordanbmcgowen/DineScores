@@ -572,5 +572,241 @@ class ModeTests(unittest.TestCase):
         self.assertFalse(d2['forces_f'])
 
 
+GAP = GOLDEN_GAP      # "No Evidence of Insect contamination, rodent/other animals: There is a hole or gap...": forces an F today
+ROACH = GOLDEN_ROACH
+COLD = 'PROPER COLD HOLDING TEMPERATURES: OBSERVED MILK AT 48F IN THE REACH-IN COOLER.'
+SHELVES = 'NON-FOOD/FOOD CONTACT SURFACES CLEAN: shelves inside prep cooler not clean, food debris noted.'
+
+# text -> (category, hazard, summary) Jev answers used by the pass tests
+ANSWERS = {
+    GAP: ('pest_control', 'conditions_only', 'Gaps/Openings (Risk of entry)'),
+    ROACH: ('pest_control', 'vermin_observed', 'Live roaches found'),
+    COLD: ('temperature_control', 'none', 'Food not kept cold enough'),
+    SHELVES: ('general_cleanliness', 'none', 'Dirty equipment surfaces'),
+}
+
+
+def answers_by_text(body):
+    answers = {}
+    for key, text in body['state'].items():
+        i = key.split('_')[1]
+        cat, haz, summ = ANSWERS.get(text, ('unclassified', 'none', jr.SUMMARY_NO_MATCH))
+        for q, choice in (('category', cat), ('hazard', haz), ('summary', summ)):
+            answers[f'{q}_{i}'] = {'type': 'choice', 'choice': choice, 'confidence': 0.95,
+                                   'probabilities': {choice: 0.96}}
+    return {'model': jr.JEV_MODEL, 'answers': answers,
+            'usage': {'input_tokens': 1000 * len(body['state']), 'output_tokens': 10}}
+
+
+def pass_reader(mode='decide', decide=None, cache_dir=None):
+    opener = ScriptedOpener([('ok_fn', answers_by_text)] * 50)
+    client = jr.JevClient(api_key=SECRET, open_fn=opener, sleep_fn=lambda s: None)
+    reader = jr.JevReader(mode=mode, client=client, cache=jr.JudgmentCache(cache_dir or tempfile.mkdtemp()),
+                          decide=decide)
+    return reader, opener
+
+
+def chicago_record():
+    # today's regex: GAP -> pest_control/core but the title forces an F; COLD is
+    # temperature_control/priority; SHELVES is food_handling/priority_foundation
+    vio = [list(dp.classify_violation(GAP)), list(dp.classify_violation(COLD)), list(dp.classify_violation(SHELVES))]
+    score = dp.calc_risk_score([tuple(v) for v in vio])[0]
+    return {'name': 'Test', 'address': '1 Main', 'city': 'Chicago', 'state': 'IL', 'source': 'Chicago Open Data',
+            'inspection_date': '2026-10-01', 'original_score': None, 'risk_score': score, 'violations': vio,
+            'priority_violations': 1, 'priority_foundation_violations': 1, 'core_violations': 1, 'total_violations': 3}
+
+
+class PipelinePassTests(unittest.TestCase):
+
+    def test_hazard_and_summary_decide_without_touching_tiers_or_scores(self):
+        rec = chicago_record()
+        before = [list(v) for v in rec['violations']]
+        score_before = rec['risk_score']
+        reader, opener = pass_reader(decide={'hazard', 'summary'})
+        stats = jr.apply_to_inspections([rec], reader)
+        self.assertEqual(stats['decide'], ['hazard', 'summary'])
+        self.assertEqual(rec['violations'], before)              # category stays shadow: no re-tiering
+        self.assertEqual(rec['risk_score'], score_before)
+        self.assertIs(rec['_jev']['forces_f'], False)             # the door gap no longer forces an F
+        self.assertEqual([s['text'] for s in rec['_jev']['summaries']],
+                         ['Food not kept cold enough', 'Gaps/Openings (Risk of entry)', 'Dirty equipment surfaces'])
+        self.assertEqual(rec['_jev']['chips'], ['temp', 'equipment'])
+        self.assertEqual(stats['decisions']['hazard'], {'jev': 3, 'regex': 0})
+        self.assertEqual(stats['decisions']['category'], {'jev': 0, 'regex': 0})
+        self.assertEqual(stats['f_vs_regex'], {'agree': 0, 'regex_only': 1, 'jev_only': 0})
+        self.assertEqual(stats['rescored_records'], 0)
+
+    def test_category_moves_points_only_where_the_source_computes_its_score(self):
+        chi = chicago_record()
+        boston = {'source': 'Boston Open Data', 'original_score': None, 'city': 'Boston',
+                  'violations': [['maintenance', 'core', SHELVES]], 'risk_score': 99}
+        dallas = {'source': 'Dallas Health Dept', 'original_score': 92, 'city': 'Dallas',
+                  'violations': [list(dp.classify_violation(SHELVES))], 'risk_score': 92}
+        reader, opener = pass_reader(decide={'category', 'hazard', 'summary'})
+        stats = jr.apply_to_inspections([chi, boston, dallas], reader)
+        # Chicago (computed, bounded): SHELVES food_handling/PF -> general_cleanliness, floored at PF
+        shelves = [v for v in chi['violations'] if v[2] == SHELVES][0]
+        self.assertEqual(shelves[:2], ['general_cleanliness', 'priority_foundation'])
+        cold = [v for v in chi['violations'] if v[2] == COLD][0]
+        self.assertEqual(cold[:2], ['temperature_control', 'priority'])
+        gap = [v for v in chi['violations'] if v[2] == GAP][0]
+        self.assertEqual(gap[:2], ['pest_control', 'core'])
+        self.assertEqual(chi['risk_score'], 100 - 5 - 2 - 1)           # same points: PF floor held
+        # Boston: tier stated by the source, never re-tiered even though Jev says general_cleanliness
+        self.assertEqual(boston['violations'][0][:2], ['general_cleanliness', 'core'])
+        self.assertEqual(boston['risk_score'], 99)
+        # Dallas: official score untouched, category re-read for display
+        self.assertEqual(dallas['violations'][0][0], 'general_cleanliness')
+        self.assertEqual(dallas['risk_score'], 92)
+        self.assertEqual(stats['decisions']['category']['jev'], 5)
+
+    def test_computed_score_is_recomputed_when_tiers_move(self):
+        rec = {'source': 'DataSF', 'original_score': None, 'city': 'San Francisco',
+               'violations': [list(dp.classify_violation(SHELVES))], 'risk_score': 98}   # food_handling/PF = 98
+        reader, _ = pass_reader(decide={'category'})
+        stats = jr.apply_to_inspections([rec], reader)
+        self.assertEqual(rec['violations'][0][:2], ['general_cleanliness', 'core'])
+        self.assertEqual(rec['risk_score'], 99)
+        self.assertEqual(stats['rescored_records'], 1)
+        # a stored score that does not match its tiers (official after all) is left alone
+        rec2 = {'source': 'DataSF', 'original_score': None, 'violations': [list(dp.classify_violation(SHELVES))],
+                'risk_score': 73}
+        jr.apply_to_inspections([rec2], pass_reader(decide={'category'})[0])
+        self.assertEqual(rec2['risk_score'], 73)
+
+    def test_shadow_mode_changes_nothing_but_reports(self):
+        rec = chicago_record()
+        before = json.dumps(rec, sort_keys=True)
+        reader, opener = pass_reader(mode='shadow')
+        stats = jr.apply_to_inspections([rec], reader)
+        self.assertEqual(rec['_jev'], {'forces_f': None, 'chips': None, 'summaries': None})
+        rec.pop('_jev')
+        self.assertEqual(json.dumps(rec, sort_keys=True), before)
+        self.assertEqual(stats['decide'], [])
+        self.assertEqual(stats['f_vs_regex']['regex_only'], 1)      # what Jev would change, visible in shadow
+        self.assertGreater(len(opener.requests), 0)                 # asked and cached
+
+    def test_mode_off_or_no_judgments_leaves_records_as_read_by_the_regex(self):
+        rec = chicago_record()
+        reader, opener = pass_reader(mode='off')
+        jr.apply_to_inspections([rec], reader)
+        self.assertEqual(len(opener.requests), 0)
+        self.assertEqual(rec['_jev'], {'forces_f': None, 'chips': None, 'summaries': None})
+        joined = dp.build_violation_text(rec['violations'])
+        self.assertTrue(dp._text_forces_f(joined, rec['_jev']))          # None -> today's regex decides (F)
+        self.assertTrue(dp._text_forces_f(joined, None))
+        self.assertFalse(dp._text_forces_f(joined, {'forces_f': False}))  # a Jev decision wins either way
+        self.assertTrue(dp._text_forces_f('floor dirty', {'forces_f': True}))
+
+    def test_a_bad_record_is_skipped_and_counted(self):
+        good = chicago_record()
+        bad = {'source': 'Chicago Open Data', 'violations': 5, 'risk_score': 99}      # not even iterable
+        odd = {'source': 'Chicago Open Data', 'violations': [['x', 'core', ROACH]], 'risk_score': 'n/a'}
+        reader, _ = pass_reader(decide={'category', 'hazard'})
+        stats = jr.apply_to_inspections([bad, odd, good], reader)
+        self.assertEqual(stats['record_errors'], 1)
+        self.assertNotIn('_jev', bad)
+        self.assertIs(odd['_jev']['forces_f'], True)                  # roach line still read; score left alone
+        self.assertEqual(odd['risk_score'], 'n/a')
+        self.assertIn('_jev', good)
+        self.assertIs(good['_jev']['forces_f'], False)
+
+    def test_policies(self):
+        self.assertEqual(jr.score_policy('NYC Open Data', 23), 'computed')
+        self.assertEqual(jr.score_policy('Boston Open Data'), 'source_tiers')
+        self.assertEqual(jr.score_policy('LA County Open Data', 94), 'official')
+        self.assertEqual(jr.score_policy('Dallas Health Dept', 90), 'official')
+        self.assertEqual(jr.score_policy('Dallas Health Dept', None), 'computed')
+        self.assertEqual(jr.score_policy('Frisco Health Dept', 12), 'computed')
+        self.assertEqual(jr.score_policy('Yolo County Health Dept', None), 'computed')
+        self.assertEqual(jr.score_policy('Richardson Health Dept', 95), 'official')
+        self.assertEqual(jr.score_policy('Some New Source', None), 'official')
+        self.assertEqual(jr.tier_policy('Wake County Open Data'), 'fixed')
+        self.assertEqual(jr.tier_policy('NYC Open Data'), 'bounded')
+        self.assertEqual(jr.tier_policy('Houston Health Dept'), 'free')
+        self.assertEqual(jr.bounded_tier('core', 'priority'), 'core')
+        self.assertEqual(jr.bounded_tier('priority_foundation', 'core'), 'priority_foundation')
+        self.assertEqual(jr.bounded_tier('priority', 'priority_foundation'), 'priority_foundation')
+
+
+class PipelineOutputTests(unittest.TestCase):
+
+    def test_apply_grades_uses_the_jev_result_and_strips_it(self):
+        rec = {'d': '2026-10-01', 'rs': 94, 'h': [['2026-10-01', 94]], 'v': [list(dp.classify_violation(GAP))]}
+        dp._apply_grades(dict(rec))
+        plain = dict(rec)
+        dp._apply_grades(plain)
+        self.assertEqual(plain['vg'], 'F')                       # today: the title forces an F
+        with_jev = dict(rec)
+        with_jev['_jev'] = {'forces_f': False, 'chips': ['equipment'],
+                            'summaries': [{'text': 'Gaps/Openings (Risk of entry)', 'verbatim': GAP,
+                                           'severity': 'INFO', 'category': 'Structural Risk'}]}
+        dp._apply_grades(with_jev)
+        self.assertEqual(with_jev['vg'], 'A')
+        self.assertEqual(with_jev['inf'], ['equipment'])
+        self.assertEqual(with_jev['vs'][0]['text'], 'Gaps/Openings (Risk of entry)')
+        # a low score still fails whatever Jev says about the text
+        low = dict(rec, rs=60, h=[['2026-10-01', 60]], _jev={'forces_f': False, 'chips': [], 'summaries': []})
+        dp._apply_grades(low)
+        self.assertEqual(low['vg'], 'F')
+        # and a Jev F forces the grade even on a clean score
+        forced = dict(rec, _jev={'forces_f': True, 'chips': ['pests'], 'summaries': []})
+        dp._apply_grades(forced)
+        self.assertEqual(forced['vg'], 'F')
+
+    def test_write_d1_sql_uses_the_jev_result(self):
+        rec = chicago_record()
+        rec['_jev'] = {'forces_f': False, 'chips': ['temp'],
+                       'summaries': [{'text': 'Food not kept cold enough', 'verbatim': COLD,
+                                      'severity': 'WARNING', 'category': 'Risk Factor'}]}
+        out = os.path.join(tempfile.mkdtemp(), 'out.sql')
+        dp.write_d1_sql([rec], out, include_schema=False)
+        sql = open(out).read()
+        self.assertIn("'A'", sql)
+        self.assertIn('Food not kept cold enough', sql)
+        self.assertIn('["temp"]', sql)
+        rec.pop('_jev')
+        dp.write_d1_sql([rec], out, include_schema=False)
+        self.assertIn("'F'", open(out).read())                  # regex path: the title forces an F
+
+    def test_run_jev_pass_never_raises(self):
+        import argparse
+        args = argparse.Namespace(jev_deadline_minutes=1, mode='weekly')
+        rec = chicago_record()
+        saved_env = dict(os.environ)
+        saved_from_env = jr.JevReader.from_env
+        try:
+            os.environ['JEV_MODE'] = 'decide'
+            os.environ['TYPESAFE_API_KEY'] = SECRET
+
+            def boom(*a, **k):
+                raise RuntimeError(f'exploded with {SECRET} inside')
+            jr.JevReader.from_env = classmethod(lambda cls, *a, **k: boom())
+            dp._run_jev_pass([rec], args)
+            self.assertEqual(dp._JEV_STATS['status'], 'error')
+            self.assertNotIn(SECRET, json.dumps(dp._JEV_STATS))
+            self.assertNotIn('_jev', rec)
+            # mode off: nothing happens at all
+            os.environ['JEV_MODE'] = 'off'
+            dp._JEV_STATS = None
+            dp._run_jev_pass([rec], args)
+            self.assertIsNone(dp._JEV_STATS)
+        finally:
+            jr.JevReader.from_env = saved_from_env
+            os.environ.clear()
+            os.environ.update(saved_env)
+            dp._JEV_STATS = None
+
+    def test_workflow_is_wired(self):
+        wf = open(os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                               '.github', 'workflows', 'refresh-data.yml')).read()
+        self.assertIn('TYPESAFE_API_KEY: ${{ secrets.TYPESAFE_API_KEY }}', wf)
+        self.assertIn('JEV_MODE: decide', wf)
+        self.assertIn('JEV_DECIDE: hazard,summary', wf)
+        self.assertIn('--jev-deadline-minutes 20', wf)
+        self.assertIn('git add public/data.js data/source_freshness.json data/jev_judgments', wf)
+        self.assertIn("data.get('jev')", wf)
+
+
 if __name__ == '__main__':
     unittest.main()
