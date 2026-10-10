@@ -18,7 +18,7 @@ DFW cities:
   --cities dallas fortworth plano
 """
 
-import os, sys, json, re, time, math, hashlib, logging, argparse, base64
+import os, sys, json, re, time, math, hashlib, logging, argparse, base64, zlib
 import html as html_lib
 import threading
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -3951,6 +3951,506 @@ def fetch_sc(since_date=None, limit=None):
     return results
 
 
+# ─── OMAHA / DOUGLAS COUNTY, NE (county ArcGIS + i2g inspection PDFs) ────────
+# Douglas County Health Department publishes every inspection since its i2g
+# inspection system went live (Dec 2025) as a point layer on ArcGIS Online:
+# one row per inspection with the establishment, the county's letter RATING
+# (A-F) and a link to the public inspection-report PDF. No numeric score is
+# published. The PDF (dompdf, one page: the FDA Food Code inspection form)
+# carries the inspector's TOTAL P / PF / C violation counts and the 56 form
+# items marked IN/OUT/N/O/N/A. The fetcher reads it with the standard
+# library alone (zlib + the Tj/TJ text operators) and scores
+# 100 - 5P - 2PF - C from the totals. An inspection whose PDF cannot be
+# fetched or parsed is DROPPED, never shipped as violation-free; the weekly
+# lookback refetches it. The layer's Score/Status/Match_type/Match_addr/
+# Addr_type fields are the county GEOCODER's output, never an inspection
+# score. The companion MobileFoodInspections table (mobile units, no
+# geometry, a separate PDF endpoint) is not read.
+
+OMAHA_LAYER = ('https://services.arcgis.com/pDAi2YK0L0QxVJHj/arcgis/rest/services/'
+               'Restaurant_Inspections/FeatureServer/14')
+OMAHA_SOURCE = 'Douglas County Health Dept'
+OMAHA_DETAIL_WORKERS = int(os.environ.get('OMAHA_DETAIL_WORKERS', '3'))
+OMAHA_DETAIL_DELAY = float(os.environ.get('OMAHA_DETAIL_DELAY', '0.3'))
+OMAHA_DETAIL_TIMEOUT = 60
+OMAHA_FORM_MARKS = frozenset({'IN', 'OUT', 'NO', 'N/O', 'NA', 'N/A'})
+# The form's 56 items by the Food Code tier of each item's principal
+# provision (FDA Form 3-A / 2017 Food Code). Items 1-29 are the risk factors
+# and interventions, 30-56 the good retail practices; the form itself does
+# not print a tier per item, so this map seeds the severity of an OUT item
+# and _oma_item_severities reconciles it with the inspector's totals.
+OMAHA_P_ITEMS = frozenset({3, 4, 8, 9, 11, 12, 13, 15, 16, 17, 18, 19, 20, 21,
+                           22, 24, 26, 27, 28, 29, 30, 31, 52})
+OMAHA_PF_ITEMS = frozenset({1, 5, 10, 14, 23, 25, 32, 33, 34, 36, 48, 50, 51})
+_OMAHA_TOTALS_RE = re.compile(
+    r'TOTAL\s*P\s*:\s*(\d+)\s*TOTAL\s*PF\s*:\s*(\d+)\s*TOTAL\s*C\s*:\s*(\d+)', re.I)
+_PDF_TOKEN_RE = re.compile(
+    rb'(?P<ws>[\s\x00]+)|(?P<comment>%[^\r\n]*)|(?P<str>\()|(?P<dict><<|>>)|'
+    rb'(?P<hex><[0-9A-Fa-f\s]*>)|(?P<arr>[\[\]])|(?P<name>/[^\s/\[\]()<>{}%]*)|'
+    rb'(?P<num>[-+]?(?:\d+\.?\d*|\.\d+))|(?P<op>[^\s/\[\]()<>{}%]+)|(?P<other>.)', re.S)
+_PDF_ESCAPES = {0x6e: 0x0a, 0x72: 0x0d, 0x74: 0x09, 0x62: 0x08, 0x66: 0x0c}
+
+
+def _pdf_literal(data, i):
+    """Decode the PDF literal string that opens at data[i] == '('.
+    Returns (text, index after the closing paren)."""
+    n = len(data)
+    buf = bytearray()
+    depth = 0
+    j = i
+    while j < n:
+        ch = data[j]
+        if ch == 0x5c:                      # backslash escape
+            j += 1
+            if j >= n:
+                break
+            e = data[j]
+            if e in _PDF_ESCAPES:
+                buf.append(_PDF_ESCAPES[e]); j += 1
+            elif 0x30 <= e <= 0x37:          # \ddd octal
+                k, code = j, 0
+                while k < n and k < j + 3 and 0x30 <= data[k] <= 0x37:
+                    code = code * 8 + (data[k] - 0x30); k += 1
+                buf.append(code & 0xff); j = k
+            elif e in (0x0d, 0x0a):          # line continuation
+                j += 1
+                if e == 0x0d and j < n and data[j] == 0x0a:
+                    j += 1
+            else:
+                buf.append(e); j += 1
+            continue
+        if ch == 0x28:                      # (
+            depth += 1
+            if depth > 1:
+                buf.append(ch)
+        elif ch == 0x29:                    # )
+            depth -= 1
+            if depth == 0:
+                j += 1
+                break
+            buf.append(ch)
+        else:
+            buf.append(ch)
+        j += 1
+    return bytes(buf).decode('cp1252', errors='replace'), j
+
+
+def _pdf_tokens(data):
+    """Yield (kind, value) tokens of a PDF content stream: 'str' (decoded
+    text), 'num' (float), 'name', 'arr' ('[' or ']') and 'op' (operator)."""
+    i, n = 0, len(data)
+    while i < n:
+        m = _PDF_TOKEN_RE.match(data, i)
+        kind = m.lastgroup
+        if kind == 'str':
+            text, i = _pdf_literal(data, i)
+            yield 'str', text
+            continue
+        i = m.end()
+        if kind in ('ws', 'comment', 'dict', 'other'):
+            continue
+        if kind == 'hex':
+            hexs = re.sub(rb'\s', b'', m.group()[1:-1])
+            if len(hexs) % 2:
+                hexs += b'0'
+            try:
+                yield 'str', bytes.fromhex(hexs.decode('ascii')).decode('cp1252', errors='replace')
+            except ValueError:
+                pass
+        elif kind == 'num':
+            try:
+                yield 'num', float(m.group())
+            except ValueError:
+                yield 'op', m.group().decode('latin-1')
+        elif kind == 'arr':
+            yield 'arr', m.group().decode('latin-1')
+        elif kind == 'name':
+            yield 'name', m.group().decode('latin-1')
+        else:
+            yield 'op', m.group().decode('latin-1')
+
+
+def _pdf_text_items(stream):
+    """[(x, y, text)] for every BT..ET block of a content stream, positioned
+    by its first Td/TD/Tm (dompdf emits one block per string)."""
+    items = []
+    operands = []
+    array = None
+    x = y = 0.0
+    cur = None
+    for kind, val in _pdf_tokens(stream):
+        if kind == 'arr':
+            if val == '[':
+                array = []
+            else:
+                operands.append(('arr', array or [])); array = None
+            continue
+        if kind != 'op':
+            if array is not None:
+                if kind == 'str':
+                    array.append(val)
+            else:
+                operands.append((kind, val))
+            continue
+        if val == 'BT':
+            x = y = 0.0; cur = None
+        elif val == 'ET':
+            if cur is not None and cur[2].strip():
+                items.append((cur[0], cur[1], cur[2]))
+            cur = None
+        elif val in ('Td', 'TD'):
+            nums = [v for k, v in operands if k == 'num']
+            if len(nums) >= 2:
+                x += nums[-2]; y += nums[-1]
+        elif val == 'Tm':
+            nums = [v for k, v in operands if k == 'num']
+            if len(nums) >= 6:
+                x, y = nums[-2], nums[-1]
+        elif val in ('Tj', 'TJ', "'", '"'):
+            text = ''
+            for k, v in operands:
+                if k == 'str':
+                    text += v
+                elif k == 'arr':
+                    text += ''.join(v)
+            if cur is None:
+                cur = [x, y, '']
+            cur[2] += text
+        operands = []
+    return items
+
+
+def _pdf_text_rows(pdf_bytes, y_tolerance=1.5):
+    """Positioned text of a PDF as rows: [(stream_index, y, [(x, text), ...])],
+    top-down within each content stream, cells left-to-right. Image streams
+    are skipped; Flate streams are inflated with zlib (stdlib only)."""
+    rows = []
+    stream_no = 0
+    for m in re.finditer(rb'stream\r?\n', pdf_bytes):
+        start = m.end()
+        end = pdf_bytes.find(b'endstream', start)
+        if end < 0:
+            break
+        obj_start = pdf_bytes.rfind(b'obj', 0, m.start())
+        header = pdf_bytes[obj_start if obj_start >= 0 else 0:m.start()]
+        if b'/Image' in header or b'/XObject' in header or b'/FontFile' in header:
+            continue
+        raw = pdf_bytes[start:end]
+        if b'/FlateDecode' in header:
+            try:
+                data = zlib.decompress(raw)
+            except zlib.error:
+                try:
+                    data = zlib.decompressobj().decompress(raw)
+                except zlib.error:
+                    continue
+        elif re.search(rb'/Filter\s*[/\[]', header):
+            continue                        # another filter: not a text stream we can read
+        else:
+            data = raw
+        if b'BT' not in data:
+            continue
+        items = _pdf_text_items(data)
+        items.sort(key=lambda t: (-t[1], t[0]))
+        current = None
+        for x, y, text in items:
+            if current is None or abs(current[1] - y) > y_tolerance:
+                current = (stream_no, y, [])
+                rows.append(current)
+            current[2].append((x, text))
+        stream_no += 1
+    for _, _, cells in rows:
+        cells.sort()
+    return rows
+
+
+def _oma_value_below(rows, label_re, max_dy=16, max_dx=30):
+    """Text of the cell directly under the first cell matching label_re
+    (the i2g header boxes print a label with its value on the next line)."""
+    for idx, (page, y, cells) in enumerate(rows):
+        for x, text in cells:
+            if not re.fullmatch(label_re, text.strip()):
+                continue
+            for page2, y2, cells2 in rows[idx + 1:]:
+                if page2 != page or y - y2 > max_dy:
+                    break
+                for x2, text2 in cells2:
+                    if abs(x2 - x) <= max_dx and text2.strip():
+                        return text2.strip()
+            return None
+    return None
+
+
+def _oma_parse_report(pdf_bytes):
+    """Read an i2g inspection-report PDF. Returns a dict with the totals
+    (p, pf, c), the county's rating letter, the purpose line, the
+    inspection date (MM/DD/YYYY as printed) and the form items marked OUT as
+    [(item_number, title)]. Raises ValueError when the form is not found."""
+    rows = _pdf_text_rows(pdf_bytes)
+    totals = None
+    totals_idx = None
+    for idx, (page, y, cells) in enumerate(rows):
+        m = _OMAHA_TOTALS_RE.search(' '.join(t for _, t in cells))
+        if m:
+            totals = tuple(int(g) for g in m.groups())
+            totals_idx = idx
+            break
+    if totals is None:
+        raise ValueError('no TOTAL P/PF/C line in the inspection PDF')
+    out_items = []
+    seen = set()
+    for page, y, cells in rows[totals_idx + 1:]:
+        num = mark = None
+        for x, text in cells:
+            s = text.strip()
+            if re.fullmatch(r'\d{1,2}', s) and 1 <= int(s) <= 56:
+                num, mark = int(s), None
+                continue
+            if num is None:
+                continue
+            if mark is None and s.upper() in OMAHA_FORM_MARKS and len(s) <= 3:
+                mark = s.upper()
+                continue
+            if mark == 'OUT' and num not in seen:
+                seen.add(num)
+                out_items.append((num, ' '.join(s.split())))
+            num = mark = None
+    out_items.sort()
+    rating = _oma_value_below(rows, r'Rating\s*:?')
+    purpose = _oma_value_below(rows, r'Purpose\s*:?')
+    date = _oma_value_below(rows, r'Inspection Date\s*:?')
+    return {'totals': totals, 'rating': rating or None, 'purpose': purpose or '',
+            'date': date or '', 'out_items': out_items}
+
+
+def _oma_item_severities(out_items, totals):
+    """Severity per OUT form item: seeded by the item's Food Code tier and
+    reconciled with the inspector's TOTAL P/PF/C so no tier the totals say
+    was not cited appears, and no tier carries more items than its total
+    (an item can hold several violations, so a tier may carry fewer).
+    Returns {item_number: severity}."""
+    p, pf, c = totals
+    sev = {}
+    for num, _ in out_items:
+        sev[num] = ('priority' if num in OMAHA_P_ITEMS else
+                    'priority_foundation' if num in OMAHA_PF_ITEMS else 'core')
+
+    def members(tier):
+        return sorted(n for n in sev if sev[n] == tier)
+
+    # Too many P items: the highest-numbered become PF; too many PF: core.
+    for tier, total, lower in (('priority', p, 'priority_foundation'),
+                               ('priority_foundation', pf, 'core')):
+        for n in members(tier)[total:]:
+            sev[n] = lower
+    # Too many core items: the lowest-numbered move up to a tier with room.
+    core = members('core')
+    for n in core[:max(0, len(core) - c)]:
+        if len(members('priority_foundation')) < pf:
+            sev[n] = 'priority_foundation'
+        elif len(members('priority')) < p:
+            sev[n] = 'priority'
+    return sev
+
+
+def _oma_fetch_pdf(url, session=None):
+    """Download one inspection PDF: bytes, or None after one retry."""
+    client = session or requests
+    for attempt in (1, 2):
+        try:
+            r = client.get(url, headers={'User-Agent': CHROME_UA},
+                           timeout=OMAHA_DETAIL_TIMEOUT)
+            if r.status_code == 200 and r.content[:5] == b'%PDF-':
+                return r.content
+            log.debug(f"  Omaha PDF {url}: HTTP {r.status_code}, "
+                      f"{len(r.content)} bytes (attempt {attempt})")
+        except requests.RequestException as e:
+            log.debug(f"  Omaha PDF {url}: {e} (attempt {attempt})")
+        if attempt == 1:
+            time.sleep(2)
+    return None
+
+
+def _oma_layer_newest():
+    """Newest inspection_date in the layer (for the lag note when the
+    window itself comes back empty), or ''."""
+    try:
+        r = requests.get(OMAHA_LAYER + '/query', params={
+            'where': '1=1', 'outFields': 'inspection_date', 'returnGeometry': 'false',
+            'orderByFields': 'inspection_date DESC', 'resultRecordCount': 1, 'f': 'json',
+        }, headers={'User-Agent': CHROME_UA}, timeout=60)
+        feats = r.json().get('features') or []
+        return str(feats[0]['attributes'].get('inspection_date') or '')[:10] if feats else ''
+    except Exception as e:  # noqa: BLE001 - the note is best-effort
+        log.debug(f"  Omaha: newest-date probe failed: {e}")
+        return ''
+
+
+def _oma_clean(text):
+    """Collapse whitespace; title-case an ALL CAPS value."""
+    s = ' '.join(str(text or '').split())
+    return s.title() if s.isupper() else s
+
+
+def fetch_omaha(since_date=None, limit=None):
+    """
+    Fetch Omaha / Douglas County, NE inspections: the county's ArcGIS layer
+    (one row per inspection, letter rating, coordinates, PDF link), then each
+    inspection's report PDF for the TOTAL P/PF/C counts and the OUT items.
+    original_score is None (the county publishes a letter, not a number);
+    risk_score = 100 - 5P - 2PF - C from the inspector's totals. Inspections
+    whose PDF cannot be read are dropped.
+    """
+    log.info(f"Fetching Omaha / Douglas County data (since={since_date}, limit={limit})")
+    since = str(since_date)[:10] if since_date else None
+    where = f"inspection_date >= DATE '{since}'" if since else '1=1'
+    rows = _arcgis_query_all(
+        OMAHA_LAYER, where=where,
+        out_fields='inspection_id,inspection_date,est_name,est_address,address_2,'
+                   'est_city,est_state,est_zip,firm_number,rating,downloadDetailsUrl')
+    log.info(f"  Omaha: {len(rows)} inspection rows since {since or 'the start of the feed'}")
+    newest = max((str(f.get('attributes', {}).get('inspection_date') or '')[:10]
+                  for f in rows), default='') or _oma_layer_newest()
+    _note_source_lag('Omaha', newest)
+
+    candidates = []
+    skipped = 0
+    for f in rows:
+        a = f.get('attributes') or {}
+        insp_id = a.get('inspection_id')
+        insp_date = sane_inspection_date(str(a.get('inspection_date') or '')[:10])
+        name = _oma_clean(a.get('est_name'))
+        url = (a.get('downloadDetailsUrl') or '').strip()
+        state = (a.get('est_state') or '').strip().upper()
+        # The layer carries a couple of test permits and one out-of-state
+        # itinerant vendor; only Nebraska rows belong on the map.
+        if (insp_id is None or not insp_date or not name or not url.startswith('http')
+                or state not in ('NE', 'NEBRASKA') or 'test permit' in name.lower()):
+            skipped += 1
+            continue
+        geom = f.get('geometry') or {}
+        lat, lng = geom.get('y'), geom.get('x')
+        if not (isinstance(lat, (int, float)) and isinstance(lng, (int, float))
+                and 39.5 < lat < 43.5 and -105 < lng < -95):
+            lat = lng = None
+        candidates.append((insp_date, int(insp_id), a, url, lat, lng))
+    if skipped:
+        log.info(f"  Omaha: skipped {skipped} rows without an id/date/name/PDF or outside NE")
+    candidates.sort(key=lambda t: (t[0], t[1]), reverse=True)   # newest first
+    if limit:
+        candidates = candidates[:limit]
+    if not candidates:
+        log.info("Omaha: 0 inspections")
+        return []
+
+    log.info(f"  Omaha: fetching {len(candidates)} inspection PDFs "
+             f"({OMAHA_DETAIL_WORKERS} workers)...")
+    local = threading.local()
+
+    def get_session():
+        if not hasattr(local, 's'):
+            local.s = requests.Session()
+        return local.s
+
+    def work(cand):
+        if _past_deadline():
+            return cand, 'deadline'
+        pdf = _oma_fetch_pdf(cand[3], get_session())
+        time.sleep(OMAHA_DETAIL_DELAY)
+        if pdf is None:
+            return cand, 'download'
+        try:
+            return cand, _oma_parse_report(pdf)
+        except Exception as e:  # noqa: BLE001 - a bad PDF drops one inspection
+            log.debug(f"  Omaha PDF {cand[3]}: unparseable: {e}")
+            return cand, 'parse'
+
+    reports = {}
+    failures = defaultdict(int)
+    done = 0
+    started = time.time()
+    with ThreadPoolExecutor(max_workers=OMAHA_DETAIL_WORKERS) as pool:
+        for future in as_completed([pool.submit(work, c) for c in candidates]):
+            cand, report = future.result()
+            done += 1
+            if isinstance(report, dict):
+                reports[cand[1]] = report
+            else:
+                failures[report] += 1
+            if done % 200 == 0:
+                log.info(f"  Omaha PDFs: {done}/{len(candidates)}")
+    log.info(f"  Omaha: {len(reports)} PDFs read in {time.time() - started:.0f}s")
+    if failures:
+        # Dropped, not shipped clean: the lookback refetches them next run.
+        log.warning("  Omaha: dropped " + ', '.join(
+            f"{n} ({why})" for why, n in sorted(failures.items())) +
+            " inspections whose PDF could not be read")
+
+    results = []
+    date_mismatch = 0
+    for insp_date, insp_id, a, url, lat, lng in candidates:
+        report = reports.get(insp_id)
+        if report is None:
+            continue
+        p, pf, c = report['totals']
+        sev = _oma_item_severities(report['out_items'], report['totals'])
+        violations = []
+        for num, title in report['out_items']:
+            cat, _, _ = classify_violation(title)
+            violations.append([cat, sev[num], title[:500]])
+        rating = (a.get('rating') or '').strip().upper()
+        if rating not in ('A', 'B', 'C', 'D', 'F'):
+            rating = (report.get('rating') or '').strip().upper()
+            if rating not in ('A', 'B', 'C', 'D', 'F'):
+                rating = ''                 # junk values ('-', 'aA', 'NA') and nulls
+        pdf_date = report.get('date') or ''
+        try:
+            if pdf_date and datetime.strptime(pdf_date, '%m/%d/%Y').strftime('%Y-%m-%d') != insp_date:
+                date_mismatch += 1
+        except ValueError:
+            pass
+        address = _oma_clean(a.get('est_address'))
+        address_2 = _oma_clean(a.get('address_2'))
+        if address_2:
+            address = f'{address} {address_2}'.strip()
+        # the purpose box prints e.g. 'Routine', 'Follow_up', 'Other ,', 'Other , Fire'
+        purpose = ' '.join((report.get('purpose') or '').replace('Follow_up', 'Follow-up')
+                           .replace('_', ' ').split()).replace(' ,', ',').strip(' ,;:-')
+        results.append({
+            'name': _oma_clean(a.get('est_name')),
+            'address': address,
+            'city': _oma_clean(a.get('est_city')) or 'Omaha',
+            'state': 'NE',
+            'zip': str(a.get('est_zip') or '')[:5],
+            'latitude': lat,
+            'longitude': lng,
+            'inspection_date': insp_date,
+            'original_score': None,         # the county publishes a letter, not a number
+            'risk_score': max(0, 100 - 5 * p - 2 * pf - c),
+            'priority_violations': p,
+            'priority_foundation_violations': pf,
+            'core_violations': c,
+            'total_violations': p + pf + c,
+            'violations': violations,
+            'inspection_type': purpose,
+            'results': f'Rating {rating}' if rating else '',
+            'source': OMAHA_SOURCE,
+            'source_url': url,
+            'source_id': f'oma_{insp_id}',
+            'metro': '',
+        })
+    if date_mismatch:
+        log.warning(f"  Omaha: {date_mismatch} PDFs print a different inspection "
+                    f"date than the layer row")
+    # Same restaurant inspected twice on one day (a routine visit and its
+    # follow-up): D1 keys inspections by restaurant+date and keeps the FIRST
+    # record it sees, so put the rated, violation-bearing visit first.
+    results.sort(key=lambda r: (r['inspection_date'], bool(r['results']),
+                                r['total_violations'], r['source_id']), reverse=True)
+    log.info(f"Omaha / Douglas County: {len(results)} inspections")
+    return results
+
+
 # ─── FAIRFAX COUNTY, VA (county ArcGIS; not covered by VDH statewide) ────────
 # Rolling 2-year window of pass/fail results (no score, no violation text —
 # detail is behind Accela). Result categories map onto representative risk.
@@ -6192,6 +6692,14 @@ def main():
     if 'detroit' in args.cities:
         socrata_jobs['Detroit'] = lambda: fetch_detroit(
             since_date=api_since('Detroit'), limit=record_limit)
+    if 'omaha' in args.cities:
+        def _omaha():
+            # ~9% of the county's rows carry no geometry (its geocoder
+            # missed the address); fill those the usual way.
+            data = fetch_omaha(since_date=api_since('Omaha'), limit=record_limit)
+            geocode_missing_coords(data)
+            return data
+        socrata_jobs['Omaha'] = _omaha
     if 'sacramento' in args.cities:
         socrata_jobs['Sacramento'] = lambda: fetch_sacramento(
             since_date=api_since('Sacramento'), limit=record_limit)
