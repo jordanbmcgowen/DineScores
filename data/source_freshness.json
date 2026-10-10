@@ -135,7 +135,7 @@
     "at": "2026-10-10",
     "detail": "",
     "latest": "2026-10-09",
-    "records": 596,
+    "records": 257,
     "status": "ok"
    },
    "latest": "2026-10-09"
@@ -470,6 +470,14 @@
   },
   "Tarrant County Health Dept": {
    "group": "DFW",
+   "latest": "2026-10-09"
+  },
+  "Tennessee DOH (Chattanooga) Health Dept": {
+   "group": "MHD metros",
+   "latest": "2026-10-09"
+  },
+  "Tennessee DOH (Knoxville) Health Dept": {
+   "group": "MHD metros",
    "latest": "2026-10-09"
   },
   "Tennessee DOH (Memphis) Health Dept": {
