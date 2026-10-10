@@ -3307,17 +3307,22 @@ def _sd_violation(v):
     accela = ' '.join((v.get('violation_accela') or '').split()).rstrip(':').strip()
     name = ' '.join((v.get('violation') or '').split())
     text = ' '.join((v.get('violation_text') or '').split())
+    major = ((v.get('major_violation') or '').strip().upper() == 'Y'
+             or 'major' in (v.get('status') or '').lower())
     head = accela or name
     desc = head or text
-    if head and text and text.lower() != head.lower():
+    # The county's one-word finding ("Vermin", "Sewage") is appended only
+    # for MAJOR citations. A minor citation keeps the bare item title (the
+    # FDA form wording, as Chicago's and Omaha's do), so the text-forced F
+    # for an active infestation fires on a county-flagged major vermin
+    # finding and not on the hundreds of minor "Vermin" items a month.
+    if major and head and text and text.lower() != head.lower():
         tok = _sd_tokens(text)
         if tok and len(tok & _sd_tokens(head)) * 2 < len(tok):
             desc = f'{head}: {text}'
     if not desc:
         return None
     cat, sev, _ = classify_violation(desc)
-    major = ((v.get('major_violation') or '').strip().upper() == 'Y'
-             or 'major' in (v.get('status') or '').lower())
     if major:
         sev = 'priority'
     elif sev == 'priority':
