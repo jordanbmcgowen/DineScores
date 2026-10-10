@@ -2,8 +2,9 @@ name: Refresh DineScores Data
 
 on:
   schedule:
-    # Every Sunday at 9:00 AM UTC (3:00 AM CST / 4:00 AM CDT)
-    - cron: '0 9 * * 0'
+    # Every Sunday at 9:17 AM UTC (4:17 AM CDT). Off the top of the hour, when
+    # GitHub's scheduler is busiest: the 09:00 runs started 4.5 to 5.5 hours late.
+    - cron: '17 9 * * 0'
   workflow_dispatch:  # Allow manual trigger from GitHub Actions UI
 
 # Shared with poll-orange-county.yml so the two jobs never push at once.

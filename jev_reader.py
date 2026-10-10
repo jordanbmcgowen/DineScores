@@ -84,6 +84,15 @@ PINNED_QUESTION_SET_FINGERPRINT = '11d075f8490356fb922cc0e5e1d5bae948e70f0e89d99
 # it on 3-4%, and Jev was right on 97-99% of hand-checked disagreements.
 CONFIDENCE_FLOORS = {'category': 0.60, 'hazard': 0.60, 'summary': 0.60}
 
+# An F is the strongest thing the site says, so a hazard answer that would
+# ADD an F the regex does not give must clear a higher bar. Measured
+# 2026-10-10: between 0.6 and 0.7, Jev's added F's were mostly drains read
+# as sewage (a sink leaking onto the floor, a sewage odor, grey water),
+# while its removed F's were mostly right (flies, unnamed insects, rule
+# text the regex fires on). Raising the whole hazard floor to 0.7 would
+# have brought about twenty of those regex F's back.
+F_ADDING_HAZARD_FLOOR = 0.70
+
 # POLICY: which hazards force an automatic F. Today's stated policy:
 # observed rodents, roaches, ants, maggots/larvae or other named vermin, or
 # sewage actually backing up, overflowing, leaking or exposed. Flies and
@@ -96,6 +105,32 @@ CONFIDENCE_FLOORS = {'category': 0.60, 'hazard': 0.60, 'summary': 0.60}
 F_FORCING_HAZARDS = frozenset({'vermin_observed', 'sewage_observed'})
 F_FORCING_HAZARDS_WITH_UNSPECIFIED = F_FORCING_HAZARDS | {'pests_unspecified'}
 F_FORCING_HAZARDS_WITH_FLIES = F_FORCING_HAZARDS | {'flies_or_gnats_observed'}
+
+# POLICY: a vermin F needs a named vermin. Jev reads "another crawling insect
+# named by kind" broadly: crickets, bees, spiders, pill bugs, grasshoppers and
+# a can of WD-40 have all come back vermin_observed at 0.74 to 1.00. A
+# vermin_observed answer on a line that names none of these is handled like a
+# low-confidence answer: today's regex answers that line. Misspellings seen in
+# the data ("raoach", "cockoraches") still count. The negated item titles and
+# rule text several counties put on every pest citation name rodents
+# themselves ("No rodents, insects, birds, or animals:"), so they are removed
+# before looking.
+NAMED_VERMIN_RE = re.compile(
+    r"roach|\br[oa]+ch|cock\w*ch|rodent|\brats?\b|\bmice\b|\bmouse\b|dropping|\bgnaw|\brub(?:bing)? ?mark"
+    r"|\bburrow|\bnymphs?\b|\bants?\b|maggot|larva|weevil|beetle|\bmoths?\b|squirrel", re.I)
+VERMIN_TITLE_RE = re.compile(
+    r"no rodents,? insects,? birds,? (?:or|and) animals"                    # CA counties' item title
+    r"|insects?\s*[,;&]?\s*(?:and\s+)?rodents?\s*[,;&]?\s*(?:(?:&|and)\s*)?(?:animals?\s*)?(?:are\s+)?not present"
+    #                                                                        ^ Chicago, Omaha, Delaware, Houston
+    r"|no evidence of insect contamination,? rodent/other animals"             # Richardson
+    r"|removing dead or trapped birds[,;]? insects[,;]? rodents[,;]? and other pests"  # FDA 6-501.112 title
+    r"|presence of insects,? rodents,? and other pests"                        # FDA 6-501.111 rule text
+    r"|including,? but not limited to,? rodents and insects", re.I)          # Orange County boilerplate
+
+
+def names_vermin(text):
+    """True when the line names a vermin outside a negated title or rule text."""
+    return bool(NAMED_VERMIN_RE.search(VERMIN_TITLE_RE.sub(' ', text or '')))
 
 HAZARD_OPTIONS = ('vermin_observed', 'pests_unspecified', 'flies_or_gnats_observed',
                   'sewage_observed', 'conditions_only', 'none')
@@ -1298,8 +1333,14 @@ def decide(text, judgment=None, source_severity=None, floors=None, use=None, for
 
     forcing = F_FORCING_HAZARDS if forcing is None else forcing
     jhaz = confident_answer(judgment, 'hazard', floors) if 'hazard' in use else None
-    forces_f = (jhaz in forcing) if jhaz else reg['forces_f']
     used['hazard'] = 'jev' if jhaz else 'regex'
+    unnamed_vermin = jhaz == 'vermin_observed' and not names_vermin(text)
+    if unnamed_vermin:
+        jhaz, used['hazard'] = None, 'unnamed_vermin'   # today's regex answers the line
+    elif (jhaz in forcing and not reg['forces_f']
+          and answer(judgment, 'hazard')[1] < F_ADDING_HAZARD_FLOOR):
+        jhaz, used['hazard'] = None, 'regex'            # too unsure to add an F
+    forces_f = (jhaz in forcing) if jhaz else reg['forces_f']
 
     jsum = confident_answer(judgment, 'summary', floors) if 'summary' in use else None
     if jsum:
@@ -1309,7 +1350,7 @@ def decide(text, judgment=None, source_severity=None, floors=None, use=None, for
         summary = reg['summary']
         used['summary'] = 'regex'
     needed = HAZARD_REQUIRED_BY_PHRASE.get(summary)
-    if needed and jhaz and jhaz != needed:
+    if needed and ((jhaz and jhaz != needed) or (unnamed_vermin and needed == 'vermin_observed')):
         summary = _truncate(text)
         used['summary'] = 'hazard_override'
         jsum = None
@@ -1394,7 +1435,9 @@ def summarize_violations(texts_or_joined, judgments=None, floors=None, use=None)
         clean_raw = re.sub(r'^\d+\.\s*', '', raw).strip()
         if len(clean_raw) < 5:
             continue
-        d = decide(clean_raw, _lookup(judgments, clean_raw), None, floors, use)
+        # The judgment is cached under the line as stored ("7. Adequate
+        # handwashing ..."); the item number is only dropped for display.
+        d = decide(clean_raw, _lookup(judgments, raw) or _lookup(judgments, clean_raw), None, floors, use)
         items.append({'text': d['summary'], 'verbatim': clean_raw,
                       'severity': d['summary_severity'], 'category': d['summary_category']})
     order = {'CRITICAL': 3, 'WARNING': 2, 'INFO': 1}
@@ -1430,6 +1473,13 @@ SOURCE_TIER_SOURCES = frozenset({
     'Richardson Health Dept', 'NYS Department of Health',
     # Orange County's printable tags every item MAJ / MIN / OUT (OC_TAG_SEVERITY).
     'Orange County Health Care Agency',
+    # Omaha: the inspector's own P/PF/C totals score the inspection. Its name
+    # ends in MHD_SOURCE_SUFFIX but it is not a MyHealthDepartment county, so
+    # without this entry score_policy would let a re-tier re-score it.
+    'Douglas County Health Dept',
+    # The county's critical (Santa Clara) and major (San Diego) flags anchor
+    # every line's tier (_scc_violation, _sd_violation).
+    'Santa Clara County Open Data', 'San Diego County DEH',
 })
 # Sources whose tier was bounded by a per-item rule the stored row no longer
 # carries (Chicago's item number, NYC's critical flag): a stored core line
