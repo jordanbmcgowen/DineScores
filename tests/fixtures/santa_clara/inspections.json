@@ -1,0 +1,36 @@
+[
+ {
+  "business_id": "PR0301404",
+  "inpsection_id": "DA0LYU07I",
+  "date": "20261008",
+  "score": "89",
+  "result": "G",
+  "type": "ROUTINE INSPECTION",
+  "inspection_comment": "Joint inspection with Belin Zepeda. Inspection report written by Belin Z."
+ },
+ {
+  "business_id": "PR0302910",
+  "inpsection_id": "DA0T90ZVD",
+  "date": "20261008",
+  "score": "87",
+  "result": "G",
+  "type": "ROUTINE INSPECTION"
+ },
+ {
+  "business_id": "PR0303331",
+  "inpsection_id": "DAF03LEWI",
+  "date": "20261008",
+  "result": "G",
+  "type": "FOLLOW-UP INSPECTION",
+  "inspection_comment": "Follow-up inspection to routine inspection conducted on 10/01/2026.\n\nNo evidence of vermin observed. \n\nContinue to work on repairs of door sweeps, clutter, harborage, etc."
+ },
+ {
+  "business_id": "PR0302428",
+  "inpsection_id": "DAWN5KH5H",
+  "date": "20261008",
+  "score": "83",
+  "result": "R",
+  "type": "ROUTINE INSPECTION",
+  "inspection_comment": "Facility is prohibited from all food service activities which include, but not limited to: preparation, service, handling, distribution, and sale.\n\nFacility shall remain closed until vermin infestation is completely abated and authorization is provided by this Division.\n\nRequirements Before Reopenin ..."
+ }
+]

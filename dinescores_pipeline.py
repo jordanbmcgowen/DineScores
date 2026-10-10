@@ -3284,6 +3284,280 @@ def fetch_sacramento(since_date=None, limit=None):
     return results
 
 
+# ─── SANTA CLARA COUNTY, CA (San Jose; county LIVES feed on Socrata) ─────────
+# The county Department of Environmental Health publishes its food
+# inspections in the LIVES layout on data.sccgov.org, refreshed daily over a
+# rolling ~two years, as three tables that are joined in memory here:
+#   INSPECTIONS  one row per inspection: the official 0-100 score (present
+#                on ~81% of rows — follow-ups mostly carry none), the placard
+#                colour (G green / Y yellow conditional / R red closure) and
+#                the inspection type. The id column really is spelled
+#                `inpsection_id`, and `date` is TEXT 'YYYYMMDD' rather than
+#                a Socrata date, so the window compares strings.
+#   VIOLATIONS   one row per cited item with the county's own `critical`
+#                flag; no date column, joins on the inspection id.
+#   BUSINESS     name/address/city/zip + coordinates for ~9.7k facilities.
+# No public per-facility page is reachable (the county lookup sits behind a
+# Cloudflare challenge), so source_url is the dataset page.
+
+SCC_INSPECTIONS_URL = 'https://data.sccgov.org/resource/2u2d-8jej.json'
+SCC_VIOLATIONS_URL = 'https://data.sccgov.org/resource/wkaa-4ccv.json'
+SCC_BUSINESS_URL = 'https://data.sccgov.org/resource/vuw7-jmjk.json'
+SCC_SOURCE_PAGE = 'https://data.sccgov.org/Health/SCC_DEH_Food_Data_INSPECTIONS/2u2d-8jej'
+SCC_PLACARDS = {'G': 'Green placard', 'Y': 'Yellow placard (conditional pass)',
+                'R': 'Red placard (closed)'}
+# A red placard closes the facility. The county's score measures overall
+# code compliance while the placard tracks major violations, so closures
+# routinely carry scores in the 70s-80s; cap them so a closure grades F.
+SCC_RED_PLACARD_CAP = 55
+SCC_ID_CHUNK = 100             # inspection ids per `in (...)` violations request
+SCC_BULK_VIOLATIONS_DAYS = 60  # wider windows download the whole violations table
+SCC_PAGE = 50000
+# The output paths keep ONE inspection per restaurant per day (first seen
+# wins), so when a business has two inspections on one day the scored
+# routine inspection must be emitted before its unscored follow-up, and
+# between otherwise-equal visits the worse placard (a closure) comes first.
+SCC_TYPE_RANK = {'ROUTINE INSPECTION': 0, 'RISK FACTOR INSPECTION': 1,
+                 'FOLLOW-UP INSPECTION': 2}
+SCC_PLACARD_RANK = {'R': 0, 'Y': 1, 'G': 2}
+SCC_CITY_FIXES = {'MOUNTIAN VIEW': 'MOUNTAIN VIEW'}   # source typo on a few facilities
+# "[CA] ..." introduces the inspector's corrective-action text (and anything
+# after it, e.g. "[COS]"); only the observation before it describes what was
+# found, so that is what gets classified and shown.
+SCC_CORRECTIVE_TAIL_RE = re.compile(r'\s*\[CA\].*$', re.S)
+
+
+def _scc_window_start(since_date):
+    """'YYYY-MM-DD[T00:00:00]' / None -> the feed's 'YYYYMMDD' text / None."""
+    if not since_date:
+        return None
+    s = str(since_date)[:10]
+    try:
+        return datetime.strptime(s, '%Y-%m-%d').strftime('%Y%m%d')
+    except ValueError:
+        log.warning(f"  Santa Clara: unusable since_date {since_date!r} — fetching everything")
+        return None
+
+
+def _scc_iso_date(yyyymmdd):
+    s = str(yyyymmdd or '').strip()
+    return f'{s[:4]}-{s[4:6]}-{s[6:8]}' if len(s) == 8 and s.isdigit() else ''
+
+
+def _scc_clean(s):
+    return ' '.join(str(s or '').split())
+
+
+def _scc_proper(s):
+    s = _scc_clean(s)
+    return s.title() if s.isupper() else s
+
+
+def _scc_violation_text(description, comment):
+    """'<item description>: <observation>' with the corrective-action tail dropped."""
+    desc = _scc_clean(description)
+    obs = _scc_clean(SCC_CORRECTIVE_TAIL_RE.sub('', comment or ''))
+    if desc and obs:
+        return f'{desc}: {obs}'
+    return desc or obs
+
+
+def _scc_violation(row):
+    """[category, severity, text] for one VIOLATIONS row, or None if blank.
+    The county's own `critical` flag anchors severity: critical -> priority;
+    a non-critical item keeps the classifier's tier but never above
+    priority_foundation."""
+    text = _scc_violation_text(row.get('description'), row.get('violation_comment'))
+    if not text:
+        return None
+    cat, clf_sev, _ = classify_violation(text)
+    crit = row.get('critical')
+    if isinstance(crit, str):
+        crit = crit.strip().lower() in ('true', 't', '1', 'yes', 'y')
+    if crit:
+        sev = 'priority'
+    elif clf_sev == 'priority':
+        sev = 'priority_foundation'
+    else:
+        sev = clf_sev
+    return [cat, sev, text[:500]]
+
+
+def _scc_feed_newest_date():
+    """The feed's own newest inspection date (ISO), '' if the probe fails."""
+    try:
+        r = requests.get(SCC_INSPECTIONS_URL, params={'$select': 'max(date)'},
+                         headers=_socrata_headers(), timeout=60)
+        r.raise_for_status()
+        rows = r.json()
+        return _scc_iso_date((rows[0] if rows else {}).get('max_date'))
+    except (requests.RequestException, ValueError, IndexError, AttributeError) as e:
+        log.warning(f"  Santa Clara: newest-date probe failed: {e}")
+        return ''
+
+
+def _scc_fetch_violations(insp_ids, window_days):
+    """VIOLATIONS rows for the given inspection ids, grouped by id. Narrow
+    windows ask for exactly those ids (100 per request); an open or >60-day
+    window with more than a few hundred inspections pulls the whole ~65k-row
+    table in 50k pages instead."""
+    ids = sorted(i for i in insp_ids if i)
+    by_insp = defaultdict(list)
+    if not ids:
+        return by_insp
+    bulk = ((window_days is None or window_days > SCC_BULK_VIOLATIONS_DAYS)
+            and len(ids) > 3 * SCC_ID_CHUNK)
+    if bulk:
+        rows = _socrata_fetch_pages(
+            SCC_VIOLATIONS_URL, {'$order': ':id', '$limit': SCC_PAGE, '$offset': 0}, None)
+        log.info(f"  Santa Clara: {len(rows)} violation rows (whole table)")
+    else:
+        rows = []
+        for k in range(0, len(ids), SCC_ID_CHUNK):
+            chunk = ids[k:k + SCC_ID_CHUNK]
+            quoted = ','.join("'" + i.replace("'", "''") + "'" for i in chunk)
+            rows.extend(_socrata_fetch_pages(
+                SCC_VIOLATIONS_URL,
+                {'$where': f'inspection_id in ({quoted})', '$order': ':id',
+                 '$limit': SCC_PAGE, '$offset': 0}, None))
+        log.info(f"  Santa Clara: {len(rows)} violation rows for {len(ids)} inspections "
+                 f"({(len(ids) + SCC_ID_CHUNK - 1) // SCC_ID_CHUNK} requests)")
+    wanted = set(ids)
+    for v in rows:
+        iid = v.get('inspection_id')
+        if iid in wanted:
+            by_insp[iid].append(v)
+    return by_insp
+
+
+def fetch_santa_clara(since_date=None, limit=None):
+    """
+    Fetch Santa Clara County (San Jose, Sunnyvale, Santa Clara, Mountain
+    View, Palo Alto, Milpitas, Cupertino, Gilroy, ...) food inspections from
+    the county's LIVES feed on data.sccgov.org. One record per inspection:
+    risk_score is the county's OFFICIAL 0-100 score when published
+    (original_score = that score); an unscored inspection (mostly follow-ups)
+    is scored from its violations (5/2/1) with original_score None.
+    Violation severity follows the county's own `critical` flag. A RED
+    placard means the facility was closed, so risk_score is capped at
+    SCC_RED_PLACARD_CAP (55, an F) regardless of the numeric score — the
+    score measures overall code compliance while the placard tracks major
+    violations, and a closed restaurant must not show as a B. Inspections
+    whose business is missing from the BUSINESS table are skipped (counted
+    in the log).
+    """
+    log.info(f"Fetching Santa Clara County data (since={since_date}, limit={limit})")
+    start = _scc_window_start(since_date)
+    window_days = None
+    if start:
+        window_days = (datetime.now() - datetime.strptime(start, '%Y%m%d')).days
+
+    params = {
+        '$order': 'date DESC, inpsection_id',
+        '$limit': min(limit, SCC_PAGE) if limit else SCC_PAGE,
+        '$offset': 0,
+    }
+    if start:
+        params['$where'] = f"date >= '{start}'"
+    insp_rows = _socrata_fetch_pages(SCC_INSPECTIONS_URL, params, limit)
+    log.info(f"  Santa Clara: {len(insp_rows)} inspection rows"
+             + (f" since {_scc_iso_date(start)}" if start else ''))
+
+    # The feed's own newest row explains a STALE flag when the county itself
+    # is behind; fall back to the newest row fetched if the probe fails.
+    newest = _scc_feed_newest_date() or max(
+        (_scc_iso_date(r.get('date')) for r in insp_rows), default='')
+    _note_source_lag('Santa Clara County', newest)
+    if not insp_rows:
+        return []
+
+    biz_rows = _socrata_fetch_pages(
+        SCC_BUSINESS_URL, {'$order': 'business_id', '$limit': SCC_PAGE, '$offset': 0}, None)
+    businesses = {b['business_id']: b for b in biz_rows if b.get('business_id')}
+    log.info(f"  Santa Clara: {len(businesses)} businesses")
+
+    insp_ids = {r.get('inpsection_id') for r in insp_rows if r.get('inpsection_id')}
+    viols_by_insp = _scc_fetch_violations(insp_ids, window_days)
+
+    def _order(r):
+        d = str(r.get('date') or '')
+        return (-(int(d) if d.isdigit() else 0),
+                SCC_TYPE_RANK.get(_scc_clean(r.get('type')).upper(), 9),
+                0 if str(r.get('score') or '').strip() else 1,
+                SCC_PLACARD_RANK.get(_scc_clean(r.get('result')).upper(), 9),
+                str(r.get('inpsection_id') or ''))
+    insp_rows.sort(key=_order)
+
+    results = []
+    missing_biz = 0
+    seen_ids = set()
+    for row in insp_rows:
+        insp_id = _scc_clean(row.get('inpsection_id'))
+        if not insp_id or insp_id in seen_ids:
+            continue
+        seen_ids.add(insp_id)
+        biz = businesses.get(row.get('business_id'))
+        if not biz:
+            missing_biz += 1
+            continue
+        insp_date = sane_inspection_date(_scc_iso_date(row.get('date')))
+        name = _scc_proper(biz.get('name'))
+        if not insp_date or not name:
+            continue
+
+        violations = [v for v in (_scc_violation(v) for v in viols_by_insp.get(insp_id, ()))
+                      if v]
+        computed, pv, pfv, cv = calc_risk_score([tuple(v) for v in violations])
+        try:
+            score = int(round(float(row.get('score'))))
+        except (TypeError, ValueError):
+            score = None
+        risk = max(0, min(100, score)) if score is not None else computed
+        placard = _scc_clean(row.get('result')).upper()
+        if placard == 'R':
+            risk = min(risk, SCC_RED_PLACARD_CAP)
+
+        city_raw = _scc_clean(biz.get('city')).upper()
+        city = SCC_CITY_FIXES.get(city_raw, city_raw).title() or 'San Jose'
+        try:
+            lat, lng = float(biz.get('latitude')), float(biz.get('longitude'))
+            if not lat or not lng:
+                lat = lng = None
+        except (TypeError, ValueError):
+            lat = lng = None
+
+        results.append({
+            'name': name,
+            'address': _scc_proper(biz.get('address')),
+            'city': city,
+            'state': 'CA',
+            'zip': _scc_clean(biz.get('postal_code'))[:5],
+            'latitude': lat,
+            'longitude': lng,
+            'inspection_date': insp_date,
+            'original_score': score,
+            'risk_score': risk,
+            'priority_violations': pv,
+            'priority_foundation_violations': pfv,
+            'core_violations': cv,
+            'total_violations': len(violations),
+            'violations': violations,
+            'inspection_type': _scc_clean(row.get('type')),
+            'results': SCC_PLACARDS.get(placard, ''),
+            'source': 'Santa Clara County Open Data',
+            'source_url': SCC_SOURCE_PAGE,
+            'source_id': f'scc_{insp_id}',
+            'metro': '',
+        })
+        if limit and len(results) >= limit:
+            break
+    if missing_biz:
+        log.warning(f"  Santa Clara: {missing_biz} inspections skipped — business id not "
+                    f"in the BUSINESS table")
+    log.info(f"Santa Clara County: {len(results)} inspections")
+    return results
+
+
 # ─── SOUTH CAROLINA (statewide, SC DPH ArcGIS) ───────────────────────────────
 # Two-layer join like Wake: a points layer with coordinates and an
 # inspections table with dates and POSTED_GRADE (A/B/C — no numeric score
@@ -5590,6 +5864,9 @@ def main():
     if 'sacramento' in args.cities:
         socrata_jobs['Sacramento'] = lambda: fetch_sacramento(
             since_date=api_since('Sacramento'), limit=record_limit)
+    if 'santaclara' in args.cities or 'sanjose' in args.cities:
+        socrata_jobs['Santa Clara County'] = lambda: fetch_santa_clara(
+            since_date=api_since('Santa Clara County'), limit=record_limit)
     if 'vegas' in args.cities or 'lasvegas' in args.cities:
         socrata_jobs['Las Vegas'] = lambda: fetch_vegas(
             since_date=api_since('Las Vegas'), limit=record_limit)

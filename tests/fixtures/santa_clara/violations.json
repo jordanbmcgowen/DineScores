@@ -1,0 +1,93 @@
+[
+ {
+  "inspection_id": "DA0LYU07I",
+  "description": "No rodents, insects, birds, or animals",
+  "code": "K23",
+  "critical": false,
+  "violation_comment": "Two house flies found at kitchen/prep area. No direct contamination observed. \n[CA] Food facility shall be kept free of flies."
+ },
+ {
+  "inspection_id": "DA0LYU07I",
+  "description": "Food storage: food storage containers identified",
+  "code": "K30",
+  "critical": false,
+  "violation_comment": "Observed several open bags of food in shelving through facility.\n\n[CA] After opening bagged foods immediately store open dry foods in approved food grade containers with tight fitting lids to prevent contamination and pest harborage."
+ },
+ {
+  "inspection_id": "DA0LYU07I",
+  "description": "Nonfood contact surfaces clean",
+  "code": "K33",
+  "critical": false,
+  "violation_comment": "Observed build up of mildew/debris on fan condenser in walk-in cooler.\n\n[CA] Clean area more frequently to avoid build up of debris/mildew."
+ },
+ {
+  "inspection_id": "DA0LYU07I",
+  "description": "Premises clean, in good repair;  Personal/chemical storage; Adequate vermin-proofing",
+  "code": "K44",
+  "critical": false,
+  "violation_comment": "Observed medical /vitamins pills stored in 3- door lower cooler. Employee stated they were vitamins for their personal use.\n[CA] Personal care items (medication/vitamins) shall be label  & stored in a designated storage area for personal items. \n[COS] Employee removed item from cooler and stored in employee designated area."
+ },
+ {
+  "inspection_id": "DA0LYU07I",
+  "description": "Signs posted; last inspection report available",
+  "code": "K47",
+  "critical": false,
+  "violation_comment": "Handwashing signs not posted on some hand wash stations in facility.\n\n[CA] A sign or poster that notifies food employees to wash their hands shall be posted at all handwashing stations used by food employees."
+ },
+ {
+  "inspection_id": "DA0T90ZVD",
+  "description": "Demonstration of knowledge; food safety certification",
+  "code": "K01",
+  "critical": false,
+  "violation_comment": "Facility lack Safe serve certification.\n[CA] Food facilities that prepare, handle, or serve non-prepackaged potentially hazard foods shall have a valid Food Safety Certificate available for review at all times."
+ },
+ {
+  "inspection_id": "DA0T90ZVD",
+  "description": "Proper hot and cold holding temperatures",
+  "code": "K07",
+  "critical": true,
+  "violation_comment": "Cold display unit with sandwiches were measured 50F.\n[CA] PHFs shall be held at 41°F or below or at 135°F or above.\n[SA] Curtain was pulled down to maintained temperature. \nNOTE: After pulling the curtain down temperature went down. The ambient temperature is 35F."
+ },
+ {
+  "inspection_id": "DA0T90ZVD",
+  "description": "Premises clean, in good repair;  Personal/chemical storage; Adequate vermin-proofing",
+  "code": "K44",
+  "critical": false,
+  "violation_comment": "Mop was left in a mop bucker.\n[CA] After use, mops shall be placed in a position that allows them to air-dry without soiling walls, equipment, or supplies."
+ },
+ {
+  "inspection_id": "DAWN5KH5H",
+  "description": "Hot and cold water available",
+  "code": "K21",
+  "critical": false,
+  "violation_comment": "Hot water in mop sink measured 118°F.\n[CA] Hot water shall be supplied at a minimum temperature of at least 120°F measured from the faucet of the mop sink."
+ },
+ {
+  "inspection_id": "DAWN5KH5H",
+  "description": "No rodents, insects, birds, or animals",
+  "code": "K23",
+  "critical": true,
+  "violation_comment": "1. Observed Vermin: Documented in the following areas: Observed rodent droppings on aisle shelves holding 2-liter bottles of soda, dog food, and alcoholic beverages in the main grocery area as well as liquor storage room. One 3-pound bag of dog food had been gnawed through. Droppings also observed on floor around water heater and under chip section in main grocery area. Gnaw marks observed on one wooden rack. PIC did not have pest control reports available to review at time of inspection.\n2. Photographs: Taken for documentation purposes.\n3. Supervisor Notified: Anjani S.\n4. Notification: The person in charge during inspection, Aman and Sunny G., have been informed that the facility must close immediately.\n\n[CA]: The premises of each food facility must be maintained free of vermin. A facility cannot operate if there is a vermin infestation that leads to contamination of food contact surfaces, packaging, utensils, food equipment, or adulteration of food. The facility is required to cease operations immediately and must remain closed until all corrective actions on the provided checklist are completed.\n\nRequirements Before Reopening:\n1. Email the signed and completed Reopening Checklist to the assigned inspector.\n2. Submit a copy of the pest control report from a licensed provider."
+ },
+ {
+  "inspection_id": "DAWN5KH5H",
+  "description": "Toxic substances properly identified, stored, used",
+  "code": "K29",
+  "critical": false,
+  "violation_comment": "Observed open bag of residential rodent bait blocks (D-Con) on top of cased beverages. Per PIC, beverages are to be returned to vendor.\n[CA] Store rodenticides away from food and beverage storage areas. Only those insecticides, rodenticides, and other pesticides that are necessary and specifically approved for use in a food facility may be used.\n[COS] PIC removed rodent bait bag."
+ },
+ {
+  "inspection_id": "DAWN5KH5H",
+  "description": "Food storage: food storage containers identified",
+  "code": "K30",
+  "critical": false,
+  "violation_comment": "Observed 14 cases of Gatorade stored in bathroom.\n[CA] Food shall not be stored in lockers, toilet rooms, dressing rooms, refuse rooms, mechanical rooms, under unshielded sewer lines, leaking water lines, under stairwells, under other sources of contamination."
+ },
+ {
+  "inspection_id": "DAWN5KH5H",
+  "description": "Toilet facilities: properly constructed, supplied, cleaned",
+  "code": "K43",
+  "critical": false,
+  "violation_comment": "At time of inspection, restroom did not have toilet paper.\n[CA] Toilet tissue shall be provided in a permanently installed dispenser at each toilet."
+ }
+]
