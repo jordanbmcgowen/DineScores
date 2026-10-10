@@ -1,0 +1,70 @@
+[
+ {
+  "business_id": "PR0301404",
+  "name": "LUIGI'S",
+  "address": "2495 S WINCHESTER BL",
+  "city": "CAMPBELL",
+  "state": "CA",
+  "postal_code": "95008",
+  "latitude": "37.2794778000",
+  "longitude": "-121.9497749000",
+  "geo_address": {
+   "type": "Point",
+   "coordinates": [
+    -121.9497749,
+    37.2794778
+   ]
+  }
+ },
+ {
+  "business_id": "PR0302428",
+  "name": "LAKE VISTA LIQUORS",
+  "address": "1123 LAWRENCE EX",
+  "city": "SUNNYVALE",
+  "state": "CA",
+  "postal_code": "94089",
+  "latitude": "37.3968284000",
+  "longitude": "-121.9960540000",
+  "geo_address": {
+   "type": "Point",
+   "coordinates": [
+    -121.996054,
+    37.3968284
+   ]
+  }
+ },
+ {
+  "business_id": "PR0302910",
+  "name": "M&S ARCO AMPM",
+  "address": "401 SARATOGA AV",
+  "city": "SAN JOSE",
+  "state": "CA",
+  "postal_code": "95129",
+  "latitude": "37.3204900000",
+  "longitude": "-121.9723940000",
+  "geo_address": {
+   "type": "Point",
+   "coordinates": [
+    -121.972394,
+    37.32049
+   ]
+  }
+ },
+ {
+  "business_id": "PR0303331",
+  "name": "SHORELINE AMPHITHEATRE - COMMISSARY WAREHOUSE",
+  "address": "1 AMPHITHEATRE PY",
+  "city": "MOUNTAIN VIEW",
+  "state": "CA",
+  "postal_code": "94043",
+  "latitude": "37.4267180000",
+  "longitude": "-122.0807220000",
+  "geo_address": {
+   "type": "Point",
+   "coordinates": [
+    -122.080722,
+    37.426718
+   ]
+  }
+ }
+]
