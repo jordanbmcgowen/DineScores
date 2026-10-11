@@ -10,11 +10,6 @@ name: Export D1 for a regrade
 
 on:
   workflow_dispatch:
-  push:
-    branches: [claude/determined-heisenberg-ncvzdt]
-    paths:
-      - '.github/workflows/export-d1.yml'
-      - 'scripts/d1_export.py'
 
 permissions:
   contents: read
