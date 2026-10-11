@@ -368,7 +368,8 @@ impact and the open policy decisions; `scripts/jev_shadow.py` reproduces it.
   Santa Clara, San Diego and Orange County included: their counties state it).
 - **An F needs a named vermin and a firm answer.** A `vermin_observed` answer
   counts only when the line names one (`NAMED_VERMIN_RE`, after removing the
-  negated titles counties print on every pest item); otherwise the regex
+  negated titles counties print on every pest item and generic code-title
+  lists like "flies, insects, rodents and other pests"); otherwise the regex
   answers that line. Jev had read crickets, bees, spiders, pill bugs,
   grasshoppers and a WD-40 can as vermin. An answer that would ADD an F the
   regex does not give must clear `F_ADDING_HAZARD_FLOOR` (0.7); removing one

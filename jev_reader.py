@@ -125,7 +125,15 @@ VERMIN_TITLE_RE = re.compile(
     r"|no evidence of insect contamination,? rodent/other animals"             # Richardson
     r"|removing dead or trapped birds[,;]? insects[,;]? rodents[,;]? and other pests"  # FDA 6-501.112 title
     r"|presence of insects,? rodents,? and other pests"                        # FDA 6-501.111 rule text
-    r"|including,? but not limited to,? rodents and insects", re.I)          # Orange County boilerplate
+    r"|including,? but not limited to,? rodents and insects"                 # Orange County boilerplate
+    # Generic pest lists in code titles name no animal: Fort Worth's "Outer
+    # openings are not protected against the entrance of flies, insects,
+    # rodents and other pests" let a dead cricket in a daycare through, Wake's
+    # "free of insects; rodents and other pests" a live spider. Two list words
+    # at least, so "Rodents and other pests observed" still names one.
+    r"|\b(?:(?:flies|insects?|rodents?|birds?|animals?)\s*(?:,|;|/|&|\band\b|\bor\b)\s*(?:(?:and|or)\s+)?){2,}"
+    r"(?:other\s+(?:pests?|animals?|vermin)|pests?\b)"
+    r"|\b(?:entry|entrance)\s+of\s+(?:flies,?\s+)?insects\s+(?:and|&)\s+rodents", re.I)  # Detroit, Fort Worth
 
 
 def names_vermin(text):

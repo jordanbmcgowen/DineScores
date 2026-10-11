@@ -452,6 +452,13 @@ class PolicyTests(unittest.TestCase):
             # the item title names rodents; the observation does not
             '24. No rodents, insects, birds, or animals (MIN): Observed several dead insects (grasshoppers) throughout '
             'the floors and inside traps under equipment.',
+            # a generic pest list in a code title names no animal either
+            '9: 1. Outer openings are not protected against the entrance of flies, insects, rodents and other pests '
+            'OBSERVED DEAD CRICKET IN 4 YEAR OLD ROOM.',
+            'Insects & rodents not present; no unauthorized animals 6-501.111; Core; Observed a live spider inside the '
+            'cabinet under ice machine at drive thru. Keep the premises free of insects; rodents and other pests.',
+            'Outer openings of a FOOD ESTABLISHMENT shall be protected against the entry of insects and rodents. '
+            'Observed a spider by the back door.',
         ]
         for text in unnamed:
             d = jr.decide(text, self.judged('vermin_observed'))
@@ -468,6 +475,8 @@ class PolicyTests(unittest.TestCase):
             'One live nymph observed crawling on floor in front of the door into the back kitchen.',
             'Ant observed under coffee machine and around espresso area.',
             'Inside a bag of opened flour, observed 10+ live weevils crawling on the flour.',
+            'Rodents and other pests observed in the kitchen.',                    # one list word: an observation
+            'Observed rodents and insects in the dry storage room.',
         ]
         for text in named:
             d = jr.decide(text, self.judged('vermin_observed'))
