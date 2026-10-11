@@ -213,6 +213,11 @@ middleware.
   leaving D1 nine days behind data.js for DFW. It fetches the push's base
   commit, so a rebase-merge or multi-commit push loads every seed it
   added, and fails loudly if that base cannot be fetched.
+- `export-d1.yml` — manual, read-only. `scripts/d1_export.py` pages through
+  the live database and saves every restaurant's stored row plus its latest
+  inspection as a three-day artifact, so a regrade reads D1's own text, not
+  the seeds (which lag it). Changes go back as a committed seed, never from
+  this workflow.
 - `probe-sources.yml` — manual. Curls each portal from ubuntu/macOS/windows
   runners, directly and through the relay (with a minted OIDC token) or
   `PORTAL_PROXY_URL`, and prints the HTTP status.
