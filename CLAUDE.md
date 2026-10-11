@@ -376,7 +376,10 @@ impact and the open policy decisions; `scripts/jev_shadow.py` reproduces it.
   renamed the stored rows. `FORM_TITLE_PHRASES` gives a plain phrase to the
   bare item titles some forms cite with no observation (San Diego, Omaha, LA
   County), only when Jev declines and only for exact title wordings; pest,
-  flies and sewage titles are deliberately not in it.
+  flies and sewage titles are deliberately not in it. `CITED_PEST_ITEM_PREFIXES`
+  reads San Francisco's standard vermin text (its feed has only the state
+  code's description, never the observation) as a pest citation of unnamed
+  kind: pest chip and "Pests found", no F, like Montgomery County's item.
 - **Pinned model + versioned questions.** `JEV_MODEL` and
   `QUESTION_SET_VERSION` are part of every cache key; a wording change must
   bump the version (a fingerprint test enforces it). Cache files under

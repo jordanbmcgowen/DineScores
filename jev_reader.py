@@ -262,6 +262,7 @@ SUMMARY_LEVEL_BY_PHRASE = {
     'Food not kept cold enough': RISK,
     'Food not kept hot enough': RISK,
     'Food held at unsafe temperature': RISK,      # FORM_TITLE_PHRASES only
+    'Pests found': ACTIVE,                        # CITED_PEST_ITEM_PREFIXES only
     'Dented/Damaged cans': RISK,
     'Missing thermometers': RISK,
     'Hand sink blocked/dirty': RISK,
@@ -577,6 +578,27 @@ FORM_TITLE_PHRASES = {
     'grade card, signs, last inspection report available': 'Permit not posted',
     'grade card, signs, last inspection report available; written operational procedures available and followed; restroom letter of agreement': 'Permit not posted',
 }
+
+
+# Standard texts that ARE a pest citation of unnamed kind. San Francisco's
+# feed carries only the state code's standard description of each cited item,
+# never the inspector's observation, and its vermin item reads like an
+# instruction ("Eliminate the infestation/activity of cockroaches/rodents/
+# flies/vermin ..."), so Jev answered conditions_only and these citations lost
+# their pest flag. They read like Montgomery County's "Evidence of rodents or
+# insects observed": pests_unspecified (pest chip, CRITICAL summary, no F under
+# F_FORCING_HAZARDS) with the plain phrase "Pests found". Matched at the start
+# of the line only: Orange County prints the same boilerplate AFTER an
+# observation, and that line is still read by Jev.
+CITED_PEST_ITEM_PREFIXES = (
+    'eliminate the infestation/activity of cockroaches/rodents/flies/vermin',
+)
+
+
+def cited_pest_item(text):
+    """True for a line that is a standard pest citation of unnamed kind."""
+    t = re.sub(r'\s+', ' ', re.sub(r'^\s*\d+[a-z]?\.\s*', '', (text or '').lower())).strip()
+    return t.startswith(CITED_PEST_ITEM_PREFIXES)
 
 
 def form_title_phrase(text):
@@ -1423,10 +1445,14 @@ def decide(text, judgment=None, source_severity=None, floors=None, use=None, for
     elif (jhaz in forcing and not reg['forces_f']
           and answer(judgment, 'hazard')[1] < F_ADDING_HAZARD_FLOOR):
         jhaz, used['hazard'] = None, 'regex'            # too unsure to add an F
+    if 'hazard' in use and cited_pest_item(text):
+        jhaz, used['hazard'] = 'pests_unspecified', 'cited_item'
     forces_f = (jhaz in forcing) if jhaz else reg['forces_f']
 
     jsum = confident_answer(judgment, 'summary', floors) if 'summary' in use else None
-    title_phrase = form_title_phrase(text) if 'summary' in use else None
+    title_phrase = None
+    if 'summary' in use:
+        title_phrase = form_title_phrase(text) or ('Pests found' if cited_pest_item(text) else None)
     if title_phrase and (jsum is None or jsum == SUMMARY_NO_MATCH):
         summary, jsum = title_phrase, None
         used['summary'] = 'form_title'
@@ -1442,7 +1468,7 @@ def decide(text, judgment=None, source_severity=None, floors=None, use=None, for
         used['summary'] = 'hazard_override'
         jsum = None
 
-    any_jev = any(v in ('jev', 'form_title') for v in used.values())
+    any_jev = any(v in ('jev', 'form_title', 'cited_item') for v in used.values())
     if any_jev:
         phrase = jsum if (jsum and jsum != SUMMARY_NO_MATCH) else (summary if summary in SUMMARY_LEVEL_BY_PHRASE else None)
         sum_sev, sum_cat = summary_level(jhaz, phrase, category)

@@ -540,6 +540,25 @@ class PolicyTests(unittest.TestCase):
         items = jr.summarize_violations([title], {jr.normalize_text(title): none})
         self.assertEqual(items[0]['text'], 'Dirty food contact surfaces')
 
+    def test_san_francisco_vermin_item_reads_as_an_unnamed_pest_citation(self):
+        sf = ('Eliminate the infestation/activity of cockroaches/rodents/flies/vermin from the food facility by '
+              'using only approved methods. Remove all evidence of the infestation and thoroughly clean and '
+              'sanitize all affected surfaces.')
+        j = self.judged('conditions_only', cat='pest_control', summ=jr.SUMMARY_NO_MATCH, conf=0.88)
+        d = jr.decide(sf, j)
+        self.assertEqual((d['hazard'], d['used']['hazard']), ('pests_unspecified', 'cited_item'))
+        self.assertFalse(d['forces_f'])
+        self.assertIn('pests', d['chips'])
+        self.assertEqual((d['summary'], d['summary_severity']), ('Pests found', 'CRITICAL'))
+        # an F only if the unnamed-pest policy is ever switched on
+        self.assertTrue(jr.decide(sf, j, forcing=jr.F_FORCING_HAZARDS_WITH_UNSPECIFIED)['forces_f'])
+        # the same boilerplate after an observation (Orange County) is still Jev's to read
+        self.assertFalse(jr.cited_pest_item('24. No rodents, insects, birds, or animals (MIN): Observed flies. ' + sf))
+        # shadow or off: today's regex decides
+        self.assertEqual(jr.decide(sf, j, use=set())['used']['hazard'], 'regex')
+        items = jr.summarize_violations([sf], {jr.normalize_text(sf): j})
+        self.assertEqual((items[0]['text'], items[0]['severity']), ('Pests found', 'CRITICAL'))
+
     def test_points_and_cutoffs_are_untouched(self):
         # Jev output never reaches calc_risk_score: it gets (cat, sev, text) tuples
         vio = [jr.classify_violation(GOLDEN_GAP, {jr.normalize_text(GOLDEN_GAP): self.judged('conditions_only')}),
