@@ -559,6 +559,56 @@ class PolicyTests(unittest.TestCase):
         items = jr.summarize_violations([sf], {jr.normalize_text(sf): j})
         self.assertEqual((items[0]['text'], items[0]['severity']), ('Pests found', 'CRITICAL'))
 
+    def test_cited_pest_item_titles_keep_their_pest_flag_without_an_f(self):
+        title_only = self.judged('conditions_only', cat='pest_control', summ=jr.SUMMARY_NO_MATCH)
+        houston_b = ('6-501.111(B) The PREMISES shall be maintained free of insects, rodents, and other pests. '
+                     'The presence of insects, rodents, and other pests shall be controlled to eliminate their '
+                     'presence on the PREMISES by routinely inspecting the PREMISES for evidence of pests.')
+        houston_city = ('Controlling pests, generally. The presence of insects, rodents, and other pests shall be '
+                        'controlled to eliminate their presence within the physical facility and its contents and '
+                        'on the contiguous land or property under the control of the permit holder by routinely '
+                        'inspecting the premises for the evidence of pests.\\r\\n')
+        delaware_dead = '6-501.112 Removing Dead or Trapped Birds, Insects, Rodents and other Pest'
+        for text in ('NO RODENTS, INSECTS, BIRDS, OR ANIMALS',               # LA County
+                     'NO INSECTS, RODENTS, BIRDS OR ANIMALS PRESENT',        # LA County
+                     '23. No rodents, insects, birds or animals: Vermin',    # San Diego
+                     '22. No rodents, insects, birds or animals',            # San Diego, older form
+                     'No rodents, insects, birds, or animals',               # Santa Clara, bare
+                     delaware_dead, houston_b, houston_city):
+            d = jr.decide(text, title_only)
+            self.assertEqual((d['hazard'], d['used']['hazard']), ('pests_unspecified', 'cited_item'), text)
+            self.assertFalse(d['forces_f'], text)
+            self.assertEqual(d['chips'], ['pests'], text)
+            self.assertEqual((d['summary'], d['summary_severity']), ('Pests found', 'CRITICAL'), text)
+        # the regex read "Dead ... Rodents" in Delaware's bare title as an F; a title is not an observation
+        self.assertTrue(jr.regex_reading(delaware_dead)['forces_f'])
+        # the phrase follows the citation even when Jev picked another one
+        gaps = self.judged('conditions_only', cat='pest_control', summ='Gaps/Openings (Risk of entry)')
+        self.assertEqual(jr.decide('6-501.111 Controlling Pests', gaps)['summary'], 'Pests found')
+
+        nyc = ('Filth flies or food/refuse/sewage associated with (FRSA) flies or other nuisance pests in '
+               'establishment\u2019s food and/or non-food areas. FRSA flies include house flies, blow flies, '
+               'bottle flies, flesh flies, drain flies, Phorid flies and fruit flies.')
+        d = jr.decide(nyc, self.judged('conditions_only', summ='Flies/Gnats present', conf=0.7))
+        self.assertEqual((d['hazard'], d['used']['hazard']), ('flies_or_gnats_observed', 'cited_item'))
+        self.assertFalse(d['forces_f'])
+        self.assertEqual(d['chips'], ['pests'])
+        self.assertEqual((d['summary'], d['summary_severity']), ('Flies/Gnats present', 'CRITICAL'))
+
+        # a title followed by an observation, and items also cited for other reasons, stay with Jev
+        roach = ('6.4(L) - Removing Dead or Trapped Pests The operator failed to remove dead pest(s) in a timely '
+                 'manner. Observed several dead cockroaches within basement. They must be removed.')
+        for text in ('No rodents, insects, birds, or animals: 5+ flies observed in the kitchen area.',
+                     'INSECTS, RODENTS, & ANIMALS NOT PRESENT: OBSERVED 1/4 INCH GAP AT REAR EXIT DOOR SWEEP.',
+                     '6-501.111(D) The PREMISES shall be maintained free of insects, rodents, and other pests. '
+                     'The presence of insects, rodents, and other pests shall be controlled to eliminate their '
+                     'presence on the PREMISES by eliminating harborage conditions.',
+                     'Effective pest control measures. Animals restricted as required.',
+                     'Insects, rodents, animals not present; entrance controlled', roach):
+            self.assertIsNone(jr.cited_pest_item(text), text)
+        d = jr.decide(roach, self.judged('vermin_observed'))
+        self.assertEqual((d['used']['hazard'], d['forces_f']), ('jev', True))
+
     def test_points_and_cutoffs_are_untouched(self):
         # Jev output never reaches calc_risk_score: it gets (cat, sev, text) tuples
         vio = [jr.classify_violation(GOLDEN_GAP, {jr.normalize_text(GOLDEN_GAP): self.judged('conditions_only')}),
