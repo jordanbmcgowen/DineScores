@@ -183,6 +183,15 @@ class DataJsTests(unittest.TestCase):
         self.assertEqual(stats['other_inspection'], 1)
         self.assertTrue(new.startswith('/* header */\n'))
 
+    def test_a_slim_record_stays_slim(self):
+        # records past write_data_js's summaries budget carry no 'vs'
+        content = self.content([{'i': 'r1', 'd': '2026-05-01', 'ws': 95, 'rs': 95, 'vg': 'F', 'inf': ['pests']}])
+        r1 = rg.regrade_row(row([MONTGOMERY], 'F', rid='r1'), JUDGMENTS)
+        new, stats = rg.regrade_data_js(content, {'r1': r1})
+        rec = json.loads(new.split('window.DATA = ', 1)[1].rstrip(';\n'))[0]
+        self.assertNotIn('vs', rec)
+        self.assertEqual(rec['vg'], 'A')
+
 
 if __name__ == '__main__':
     unittest.main()

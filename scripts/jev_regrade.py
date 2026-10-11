@@ -243,7 +243,9 @@ def regrade_data_js(content, results_by_id):
             if rec.get('inf') != r['new_inf']:
                 stats['chips_changed'] += 1
                 rec['inf'] = list(r['new_inf'])
-            if rec.get('vs') != r['new_sum']:
+            # only the newest summaries_budget records carry 'vs' (write_data_js);
+            # the rest load findings from the API and must stay slim
+            if 'vs' in rec and rec.get('vs') != r['new_sum']:
                 stats['summaries_changed'] += 1
                 rec['vs'] = [dict(s) for s in r['new_sum']]
     return head + 'window.DATA = ' + json.dumps(recs, separators=(',', ':'), default=str) + ';\n', stats
