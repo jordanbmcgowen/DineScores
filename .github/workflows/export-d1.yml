@@ -1,0 +1,45 @@
+name: Export D1 for a regrade
+
+# Read-only. scripts/d1_export.py pages through the live database and saves
+# every restaurant's stored row plus its latest inspection as an artifact, so
+# a regrade or an audit reads D1 itself rather than the committed seeds,
+# which lag it (every weekly run writes straight to D1). Nothing here writes
+# to D1: a regrade's changes go back as a committed seed (load-d1-seeds.yml),
+# reviewed in a pull request first. The artifact is public inspection data,
+# the same the site serves, and is kept for three days.
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  export:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+    steps:
+      - name: Check secrets
+        run: |
+          if [ -z "$CLOUDFLARE_API_TOKEN" ] || [ -z "$CLOUDFLARE_ACCOUNT_ID" ]; then
+            echo "::error::Missing CLOUDFLARE_API_TOKEN and/or CLOUDFLARE_ACCOUNT_ID repo secrets."
+            exit 1
+          fi
+
+      - name: Checkout repository
+        uses: actions/checkout@v5
+
+      - name: Export restaurants and their latest inspections
+        run: python3 scripts/d1_export.py --out d1_export.jsonl.gz --summary "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload the export
+        uses: actions/upload-artifact@v4
+        with:
+          name: d1-export
+          path: d1_export.jsonl.gz
+          retention-days: 3
+          compression-level: 0
+          if-no-files-found: error

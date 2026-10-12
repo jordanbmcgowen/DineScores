@@ -125,7 +125,15 @@ VERMIN_TITLE_RE = re.compile(
     r"|no evidence of insect contamination,? rodent/other animals"             # Richardson
     r"|removing dead or trapped birds[,;]? insects[,;]? rodents[,;]? and other pests"  # FDA 6-501.112 title
     r"|presence of insects,? rodents,? and other pests"                        # FDA 6-501.111 rule text
-    r"|including,? but not limited to,? rodents and insects", re.I)          # Orange County boilerplate
+    r"|including,? but not limited to,? rodents and insects"                 # Orange County boilerplate
+    # Generic pest lists in code titles name no animal: Fort Worth's "Outer
+    # openings are not protected against the entrance of flies, insects,
+    # rodents and other pests" let a dead cricket in a daycare through, Wake's
+    # "free of insects; rodents and other pests" a live spider. Two list words
+    # at least, so "Rodents and other pests observed" still names one.
+    r"|\b(?:(?:flies|insects?|rodents?|birds?|animals?)\s*(?:,|;|/|&|\band\b|\bor\b)\s*(?:(?:and|or)\s+)?){2,}"
+    r"(?:other\s+(?:pests?|animals?|vermin)|pests?\b)"
+    r"|\b(?:entry|entrance)\s+of\s+(?:flies,?\s+)?insects\s+(?:and|&)\s+rodents", re.I)  # Detroit, Fort Worth
 
 
 def names_vermin(text):
@@ -261,6 +269,8 @@ SUMMARY_LEVEL_BY_PHRASE = {
     'Chemicals unsafe/unlabeled': ACTIVE,
     'Food not kept cold enough': RISK,
     'Food not kept hot enough': RISK,
+    'Food held at unsafe temperature': RISK,      # FORM_TITLE_PHRASES only
+    'Pests found': ACTIVE,                        # cited pest items only
     'Dented/Damaged cans': RISK,
     'Missing thermometers': RISK,
     'Hand sink blocked/dirty': RISK,
@@ -501,6 +511,193 @@ SUMMARY_INSTRUCTIONS = {
              'the observation, pick none_of_these.',
 }
 
+
+# Plain phrases for the item titles some inspection forms cite with no
+# observation (San Diego, Omaha, LA County: "Proper cold holding
+# temperatures"). The summary question asks what the inspector observed, so
+# Jev answers none_of_these for a bare title and these counties' summaries
+# showed the title itself; rewording the question (tested 2026-10-10) moved
+# only 11 of 202 titles. A cited title means that item failed, and where one
+# phrase states that failure the site shows it. Pest, flies and sewage titles
+# are left out on purpose (those phrases need an observation), and so is any
+# title no single phrase fits (equipment, plumbing, ventilation, storage).
+# Exact wordings only (any case, item number dropped): a title followed by
+# an observation is still read by Jev. Jev's own confident phrase always wins.
+FORM_TITLE_PHRASES = {
+    'proper hot & cold holding temperatures': 'Food held at unsafe temperature',
+    'proper hot and cold holding temperatures': 'Food held at unsafe temperature',
+    'proper cold holding temperatures': 'Food not kept cold enough',
+    'proper cooling methods': 'Food not kept cold enough',
+    'proper cooling methods used; adequate equipment for temperature control': 'Food not kept cold enough',
+    'proper cooling time & temperature': 'Food not kept cold enough',
+    'proper cooling time and temperature': 'Food not kept cold enough',
+    'proper cooling methods / not allowed in limited food preparation mff': 'Food not kept cold enough',
+    'proper hot holding temperatures': 'Food not kept hot enough',
+    'proper reheating procedures for hot holding': 'Food not kept hot enough',
+    'proper reheating procedure for hot holding; for limited food prep, food cooked to order': 'Food not kept hot enough',
+    'thermometers -provided, accurate': 'Missing thermometers',
+    'thermometers - provided, accurate': 'Missing thermometers',
+    'thermometers provided and accurate': 'Missing thermometers',
+    'thermometers provided & accurate': 'Missing thermometers',
+    'floor, walls and ceilings - built, maintained, clean': 'Floors/Walls dirty or damaged',
+    'floors, walls and ceilings - built, maintained, clean': 'Floors/Walls dirty or damaged',
+    'floors, walls and ceilings properly built, maintained and clean': 'Floors/Walls dirty or damaged',
+    'floors, walls and ceilings: properly built, maintained in good repair and clean': 'Floors/Walls dirty or damaged',
+    'floors, walls and ceilings - built, maintained, clean; unobstructed height of at least 74" and 30" horizontal aisle space for occupied mffs': 'Floors/Walls dirty or damaged',
+    'physical facilities installed, maintained, and clean': 'Floors/Walls dirty or damaged',
+    'nonfood contact surfaces clean': 'Dirty equipment surfaces',
+    'non-food contact surfaces clean': 'Dirty equipment surfaces',
+    'food contact surfaces clean & sanitized': 'Dirty food contact surfaces',
+    'food contact surfaces clean and sanitized': 'Dirty food contact surfaces',
+    'food contact surfaces: clean and sanitized': 'Dirty food contact surfaces',
+    'food-contact surfaces; cleaned & sanitized': 'Dirty food contact surfaces',
+    'food contact surfaces are cleaned and sanitized': 'Dirty food contact surfaces',
+    'adequate handwashing facilities supplied & accessible': 'Hand sink blocked/dirty',
+    'adequate handwashing facilities supplied and accessible': 'Hand sink blocked/dirty',
+    'adequate handwashing facilities; supplied & accessible': 'Hand sink blocked/dirty',
+    'hand washing station stocked and available': 'Hand sink blocked/dirty',
+    'hands clean & properly washed': 'Improper hand washing',
+    'hands clean and properly washed': 'Improper hand washing',
+    'hands clean & properly washed; gloves used properly: handwashing': 'Improper hand washing',
+    'hands clean and properly washed; gloves used properly: handwashing': 'Improper hand washing',
+    'hands clean and properly washed; gloves used properly': 'Improper hand washing',
+    'hands clean and properly washed; proper glove use': 'Improper hand washing',
+    'proper eating, tasting, drinking or tobacco use': 'Worker eating/drinking near food',
+    'proper eating, drinking, or tobacco use': 'Worker eating/drinking near food',
+    'toxic substances - properly identified, stored, used': 'Chemicals unsafe/unlabeled',
+    'toxic substances properly identified, stored, used': 'Chemicals unsafe/unlabeled',
+    'toxic substances properly identified, stored, and used': 'Chemicals unsafe/unlabeled',
+    'toxic substances properly identified, stored, & used': 'Chemicals unsafe/unlabeled',
+    'food in good condition, safe & unadulterated': 'Food spoiled/unsafe',
+    'food in good condition, safe and unadulterated': 'Food spoiled/unsafe',
+    'food in good condition, safe, & unadulterated': 'Food spoiled/unsafe',
+    'food in good condition, safe, and unadulterated': 'Food spoiled/unsafe',
+    'food obtained from approved source': 'Food spoiled/unsafe',
+    'food obtained from approved source; compliance with specialized process': 'Food spoiled/unsafe',
+    'food obtained from approved source [corrected at time of inspection]': 'Food spoiled/unsafe',
+    'warewashing facilities -installed, maintained, used; test strips available': 'Dishwasher not sanitizing',
+    'warewashing facilities - installed, maintained, used; test strips available': 'Dishwasher not sanitizing',
+    'warewashing facilities: installed, maintained; used; test equipment': 'Dishwasher not sanitizing',
+    'warewashing facilities: installed, maintained, used; test equipment': 'Dishwasher not sanitizing',
+    'warewashing facilities; installed, maintained, & used; test strips': 'Dishwasher not sanitizing',
+    'permits available': 'Permit not posted',
+    'no valid permit': 'Permit not posted',
+    'signs posted; last inspection report available': 'Permit not posted',
+    'grade card, signs, last inspection report available': 'Permit not posted',
+    'grade card, signs, last inspection report available; written operational procedures available and followed; restroom letter of agreement': 'Permit not posted',
+}
+
+
+# Cited pest items printed without an observation. Several feeds carry only
+# the standard wording of the item an inspector cited, never what was seen:
+# San Francisco's vermin item reads like an instruction ("Eliminate the
+# infestation/activity of cockroaches/rodents/flies/vermin ..."), LA County,
+# San Diego and Santa Clara print the form title "No rodents, insects, birds
+# or animals", Houston, Delaware, Detroit and Cincinnati the Food Code
+# section on pests present or dead pests not removed. Jev reads such a line
+# as a requirement (conditions_only) and the citation lost its pest flag.
+# Citing the item IS the finding, so these read like Montgomery County's
+# "Evidence of rodents or insects observed": pests_unspecified (pest chip,
+# CRITICAL summary, no F under F_FORCING_HAZARDS) with the phrase "Pests
+# found". NYC's filth-flies item is the same for flies (no F either).
+#
+# Titles match the WHOLE line only (any case, item number dropped): the same
+# titles followed by an observation ("No rodents, insects, birds, or animals:
+# 5+ flies observed", Cincinnati's "... Observed dead cockroaches") are still
+# Jev's to read, so a named roach keeps its F. Prefixes are only for the two
+# feeds that never carry an observation (San Francisco, NYC); Orange County
+# prints SF's boilerplate AFTER its observation, so a prefix never matches
+# mid-line. Items a county also cites for other reasons are left out on
+# purpose: harborage (6-501.111(D)), shipments (A), Las Vegas's "Effective pest
+# control measures. Animals restricted", King County's "... entrance
+# controlled", Douglas County's "... no unauthorized person", Detroit's
+# whole-section 6-501.111 paragraph.
+CITED_PEST_ITEM_TITLES = {
+    # LA County; Santa Clara prints the first one bare too
+    'NO RODENTS, INSECTS, BIRDS, OR ANIMALS': 'pests_unspecified',
+    'NO INSECTS, RODENTS, BIRDS OR ANIMALS PRESENT': 'pests_unspecified',
+    # San Diego (item 22 on older forms, 23 now)
+    '23. No rodents, insects, birds or animals': 'pests_unspecified',
+    '23. No rodents, insects, birds or animals: Vermin': 'pests_unspecified',
+    # Delaware
+    '6-501.111 Controlling Pests': 'pests_unspecified',
+    '6-501.112 Removing Dead or Trapped Birds, Insects, Rodents and other Pest': 'pests_unspecified',
+    # Houston: pests found (B), (C); dead pests not removed; the city code's (B)
+    '6-501.111(B) The PREMISES shall be maintained free of insects, rodents, and other pests. The presence of '
+    'insects, rodents, and other pests shall be controlled to eliminate their presence on the PREMISES by '
+    'routinely inspecting the PREMISES for evidence of pests.': 'pests_unspecified',
+    '6-501.111(C) The PREMISES shall be maintained free of insects, rodents, and other pests. The presence of '
+    'insects, rodents, and other pests shall be controlled to eliminate their presence on the PREMISES by using '
+    'methods, if pests are found, such as trapping devices or other means of pest control as specified under '
+    '\u00a7\u00a7 7-202.12, 7-206.12, and 7-206.13.': 'pests_unspecified',
+    '6-501.112 Dead or trapped birds, insects, rodents, and other pests shall be removed from control devices '
+    'and the PREMISES at a frequency that prevents their accumulation, decomposition, or the attraction of '
+    'pests': 'pests_unspecified',
+    'Removing dead or trapped birds / insects / rodents / other pests. Dead or trapped birds / insects / '
+    'rodents / other pests not removed from control devices and the premises at a frequency that prevents the '
+    'accumulation or attraction of pests and minimizes exposure to decomposing remains.': 'pests_unspecified',
+    'Controlling pests, generally. The presence of insects, rodents, and other pests shall be controlled to '
+    'eliminate their presence within the physical facility and its contents and on the contiguous land or '
+    'property under the control of the permit holder by routinely inspecting the premises for the evidence of '
+    'pests.': 'pests_unspecified',
+    # Detroit
+    'Dead or trapped birds, insects, rodents, and other pests shall be removed from control devices and the '
+    'PREMISES at a frequency that prevents their accumulation, decomposition, or the attraction of pests.':
+        'pests_unspecified',
+    'Dead or trapped birds, insects, rodents, and other pests shall be removed from control devices and the '
+    'PREMISES at a frequency that prevents their accumulation, decomposition, or the attraction of pests. Not '
+    'removed from facility': 'pests_unspecified',
+    # Cincinnati
+    '6.4(L) - Removing Dead or Trapped Pests The operator failed to remove dead pest(s) in a timely manner.':
+        'pests_unspecified',
+    '6.4(L) - Facilities: Removing pests: The operator failed to remove dead pest(s) in a timely manner.':
+        'pests_unspecified',
+    '6.4(K) - Controlling Pests The presence of insects, rodents, and other pests is not being adequately '
+    'controlled or minimized.': 'pests_unspecified',
+}
+CITED_PEST_ITEM_PREFIXES = {
+    # San Francisco: the state code's standard description, never an observation
+    'Eliminate the infestation/activity of cockroaches/rodents/flies/vermin': 'pests_unspecified',
+    # NYC: the city's standard description of violation 04N
+    'Filth flies or food/refuse/sewage associated with (FRSA) flies or other nuisance pests in establishment':
+        'flies_or_gnats_observed',
+}
+CITED_ITEM_PHRASES = {
+    'pests_unspecified': 'Pests found',
+    'flies_or_gnats_observed': 'Flies/Gnats present',
+}
+
+
+def _item_key(text):
+    """Lowercase, item number dropped, whitespace collapsed, the literal "\\r\\n"
+    one feed leaves at the end removed, trailing punctuation stripped."""
+    t = re.sub(r'(?:\\[rn])+\s*$', '', (text or '').lower())
+    t = re.sub(r'^\s*\d+[a-z]?\.\s*', '', t)
+    return re.sub(r'\s+', ' ', t).strip(' .;:')
+
+
+_CITED_TITLE_KEYS = {_item_key(t): h for t, h in CITED_PEST_ITEM_TITLES.items()}
+_CITED_PREFIX_KEYS = tuple((_item_key(p), h) for p, h in CITED_PEST_ITEM_PREFIXES.items())
+
+
+def cited_pest_item(text):
+    """The hazard a cited pest item stands for (pests_unspecified or
+    flies_or_gnats_observed), or None when the line is not one."""
+    key = _item_key(text)
+    hazard = _CITED_TITLE_KEYS.get(key)
+    if hazard:
+        return hazard
+    for prefix, hazard in _CITED_PREFIX_KEYS:
+        if key.startswith(prefix):
+            return hazard
+    return None
+
+
+def form_title_phrase(text):
+    """The phrase for a bare cited form title (exact wording, any case, item
+    number dropped), or None."""
+    t = re.sub(r'\s+', ' ', re.sub(r'^\s*\d+[a-z]?\.\s*', '', (text or '').lower())).strip(' .;:')
+    return FORM_TITLE_PHRASES.get(t)
 
 def category_options():
     """The 13 VIOLATION_CATEGORIES (pipeline order) plus unclassified."""
@@ -1340,10 +1537,20 @@ def decide(text, judgment=None, source_severity=None, floors=None, use=None, for
     elif (jhaz in forcing and not reg['forces_f']
           and answer(judgment, 'hazard')[1] < F_ADDING_HAZARD_FLOOR):
         jhaz, used['hazard'] = None, 'regex'            # too unsure to add an F
+    cited = cited_pest_item(text) if use & {'hazard', 'summary'} else None
+    if 'hazard' in use and cited:
+        jhaz, used['hazard'] = cited, 'cited_item'
     forces_f = (jhaz in forcing) if jhaz else reg['forces_f']
 
     jsum = confident_answer(judgment, 'summary', floors) if 'summary' in use else None
-    if jsum:
+    title_phrase = form_title_phrase(text) if 'summary' in use else None
+    if 'summary' in use and cited:
+        summary, jsum = CITED_ITEM_PHRASES[cited], None
+        used['summary'] = 'cited_item'
+    elif title_phrase and (jsum is None or jsum == SUMMARY_NO_MATCH):
+        summary, jsum = title_phrase, None
+        used['summary'] = 'form_title'
+    elif jsum:
         summary = _truncate(text) if jsum == SUMMARY_NO_MATCH else jsum
         used['summary'] = 'jev'
     else:
@@ -1355,7 +1562,7 @@ def decide(text, judgment=None, source_severity=None, floors=None, use=None, for
         used['summary'] = 'hazard_override'
         jsum = None
 
-    any_jev = any(v == 'jev' for v in used.values())
+    any_jev = any(v in ('jev', 'form_title', 'cited_item') for v in used.values())
     if any_jev:
         phrase = jsum if (jsum and jsum != SUMMARY_NO_MATCH) else (summary if summary in SUMMARY_LEVEL_BY_PHRASE else None)
         sum_sev, sum_cat = summary_level(jhaz, phrase, category)
@@ -1438,7 +1645,7 @@ def summarize_violations(texts_or_joined, judgments=None, floors=None, use=None)
         # The judgment is cached under the line as stored ("7. Adequate
         # handwashing ..."); the item number is only dropped for display.
         d = decide(clean_raw, _lookup(judgments, raw) or _lookup(judgments, clean_raw), None, floors, use)
-        items.append({'text': d['summary'], 'verbatim': clean_raw,
+        items.append({'text': _pipeline().display_summary_text(d['summary']), 'verbatim': clean_raw,
                       'severity': d['summary_severity'], 'category': d['summary_category']})
     order = {'CRITICAL': 3, 'WARNING': 2, 'INFO': 1}
     items.sort(key=lambda s: order.get(s['severity'], 0), reverse=True)

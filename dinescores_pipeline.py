@@ -616,6 +616,22 @@ def detect_infractions(text):
     return infractions
 
 
+# What the site shows for two of _paraphrase_violation's phrases. The phrase
+# itself stays: it is one of the fixed options Jev picks from
+# (jev_reader.SUMMARY_PHRASES), so renaming it would invalidate every cached
+# answer. "Live roaches found" was shown for dead roaches too, and "Rodent
+# activity detected" mostly reports droppings.
+SUMMARY_DISPLAY_NAMES = {
+    'Live roaches found': 'Roaches found',
+    'Rodent activity detected': 'Rodents or droppings found',
+}
+
+
+def display_summary_text(phrase):
+    """The public wording of a summary phrase (idempotent)."""
+    return SUMMARY_DISPLAY_NAMES.get(phrase, phrase)
+
+
 def _paraphrase_violation(text):
     """Convert technical violation text to user-friendly summary."""
     lower = (text or '').lower()
@@ -744,7 +760,7 @@ def summarize_violations(full_text):
             category = 'Documentation'
 
         summaries.append({
-            'text': _paraphrase_violation(clean_raw),
+            'text': display_summary_text(_paraphrase_violation(clean_raw)),
             'verbatim': clean_raw,
             'severity': severity,
             'category': category,
@@ -7708,6 +7724,42 @@ def _weighted_from_history(history_pairs):
     return round(total / total_w) if total_w else 0
 
 
+def _same_day_rank(insp):
+    """Sort key, higher = worse: picks which of a restaurant's inspections on
+    one date stands for that date. Several permits often share a name and an
+    address (Disneyland's food stands, a grocery's deli and bakery counters),
+    so they share a restaurant id; showing the worst keeps a problem at any
+    of them visible, and the choice no longer depends on fetch order."""
+    rs = insp.get('risk_score')
+    rs = rs if isinstance(rs, (int, float)) else 100
+    text = build_violation_text(insp.get('violations') or [])
+    is_f = calculate_vetted_grade(rs) == 'F' or _text_forces_f(text, insp.get('_jev') or {})
+    return (bool(is_f), -rs, insp.get('priority_violations') or 0,
+            insp.get('total_violations') or 0, str(insp.get('source_id') or ''))
+
+
+def _one_per_day(inspections):
+    """Newest first, one inspection per date (the worst of that day)."""
+    ordered = sorted(inspections, key=lambda i: (i.get('inspection_date') or '', _same_day_rank(i)),
+                     reverse=True)
+    out, seen = [], set()
+    for i in ordered:
+        d = i.get('inspection_date') or ''
+        if d not in seen:
+            seen.add(d)
+            out.append(i)
+    return out
+
+
+def _coords_from(chosen, siblings):
+    """(lat, lng) of the chosen inspection, else of the first sibling that has
+    both: same restaurant id means same name and address."""
+    for i in [chosen] + list(siblings):
+        if i.get('latitude') is not None and i.get('longitude') is not None:
+            return i.get('latitude'), i.get('longitude')
+    return chosen.get('latitude'), chosen.get('longitude')
+
+
 def _text_forces_f(violation_text, jev=None):
     """The text-forced F: Jev's hazard decision when the reader made one for
     this record (`_jev['forces_f']`), else today's regex over the joined text."""
@@ -7734,13 +7786,18 @@ def _apply_grades(rec):
     rec['ws'] = _weighted_from_history(rec.get('h') or [[rec.get('d', ''), rec.get('rs', 0)]])
     jev = rec.get('_jev') or {}
     vg = calculate_vetted_grade(rec['ws'])
-    if calculate_vetted_grade(rec.get('rs', 0)) == 'F' or _text_forces_f(violation_text, jev):
-        vg = 'F'
-    if not has_violations and not violation_text and rec.get('vg') == 'F':
-        # No violation text to re-check (summaries are only embedded for the
-        # most recent slice of each city). A stored F may be evidence-based
-        # (pest auto-F) — never upgrade it without new inspection data; a
-        # fresh fetch of the restaurant re-grades it from full text.
+    if has_violations:
+        text_f = _text_forces_f(violation_text, jev)
+    else:
+        # A record kept from an earlier run keeps the text decision of the run
+        # that last read its full violation text (Jev's, in decide mode). Its
+        # stored verbatims are cut at 200 characters, and re-reading them with
+        # today's regex would undo Jev's F's (and bring back the regex's) a
+        # week later. A stored F may be evidence-based (pest auto-F): never
+        # upgrade it without new inspection data; a fresh fetch of the
+        # restaurant re-grades it from full text. Score rules still re-apply.
+        text_f = rec.get('vg') == 'F'
+    if calculate_vetted_grade(rec.get('rs', 0)) == 'F' or text_f:
         vg = 'F'
     rec['vg'] = vg
     if has_violations:
@@ -7779,9 +7836,10 @@ def write_data_js(all_inspections, output_path, top_per_city=1000,
         restaurants[rest_id].append(insp)
 
     records = []
-    for rest_id, inspections in restaurants.items():
-        inspections.sort(key=lambda x: x.get('inspection_date', ''), reverse=True)
+    for rest_id, all_for_rest in restaurants.items():
+        inspections = _one_per_day(all_for_rest)
         r = inspections[0]
+        lat, lng = _coords_from(r, all_for_rest)
         history = [[i.get('inspection_date', ''), i.get('risk_score', 0)]
                    for i in inspections[:MAX_HISTORY]]
         compact = {
@@ -7790,8 +7848,8 @@ def write_data_js(all_inspections, output_path, top_per_city=1000,
             'c':   r.get('city', ''),
             's':   r.get('state', ''),
             'z':   r.get('zip', ''),
-            'lt':  r.get('latitude'),
-            'ln':  r.get('longitude'),
+            'lt':  lat,
+            'ln':  lng,
             'd':   r.get('inspection_date', ''),
             'os':  r.get('original_score'),
             'rs':  r.get('risk_score', 0),
@@ -7904,6 +7962,9 @@ def write_data_js(all_inspections, output_path, top_per_city=1000,
     for rec in final:
         rec.pop('v', None)
         rec.pop('_jev', None)
+        for s in rec.get('vs') or []:          # records kept from earlier runs too
+            if isinstance(s, dict) and s.get('text'):
+                s['text'] = display_summary_text(s['text'])
 
     from datetime import datetime as _dt
     header = f"/* DineScores embedded data — auto-generated {_dt.now().strftime('%Y-%m-%d')} */\n"
@@ -8046,9 +8107,9 @@ def write_d1_sql(all_inspections, output_path, include_schema=True):
     seen_insp_ids = set()
 
     for rest_id, inspections in restaurants.items():
-        # Dedupe by date, newest first
+        # One per date, newest first: the worst of that day (_same_day_rank)
         by_date = {}
-        for i in inspections:
+        for i in sorted(inspections, key=_same_day_rank, reverse=True):
             d = i.get('inspection_date', '')
             if d and (d not in by_date):
                 by_date[d] = i
@@ -8090,8 +8151,7 @@ def write_d1_sql(all_inspections, output_path, include_schema=True):
             s['verbatim'] = s['verbatim'][:200]
         infractions = jev['chips'] if jev.get('chips') is not None else detect_infractions(violation_text)
 
-        lat = latest.get('latitude')
-        lng = latest.get('longitude')
+        lat, lng = _coords_from(latest, inspections)
         rest_ids.append(rest_id)
         rest_rows.append('(' + ','.join([
             _sql_quote(rest_id),
