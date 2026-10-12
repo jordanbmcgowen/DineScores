@@ -410,6 +410,21 @@ impact and the open policy decisions; `scripts/jev_shadow.py` reproduces it.
   decisions per question, F against the regex, re-tiered/re-scored counts)
   and the "Report source outcomes" step renders it; a failed pass or a run
   that fell back on most lines raises a warning annotation.
+- **Regrade from stored text** (`scripts/jev_regrade.py`, run 2026-10-11).
+  Rows written before decide mode carried the regex's reading; the regrade
+  re-read every restaurant's stored latest inspection (exported from D1 by
+  `export-d1.yml`) with the weekly decide rules and shipped the result as a
+  seed of guarded UPDATEs (`id` + `inspection_date` + `updated_at` must still
+  match the export, so a row the weekly rewrote since is skipped and a reload
+  changes nothing more) plus the same decision for embedded data.js records
+  holding the same inspection. Scores never move. D1 keeps 20 lines per
+  inspection, 400 characters each, so an F changes only where today's regex
+  reproduces the stored F decision from the stored lines and no line was cut
+  (San Francisco, NYC and Houston print only standard wording, so a cut there
+  hides nothing); chips and summaries follow the same completeness rule.
+  Re-run it the same way if a rule change ever needs to reach old rows:
+  export, `--judge` for the uncached lines, then `--seed` and `--data-js`.
+  `docs/jev-regrade-2026-10-11.md` has the run's numbers and checks.
 - Tests: `python3 -m unittest tests.test_jev_reader` (no network).
 
 ## Tests
