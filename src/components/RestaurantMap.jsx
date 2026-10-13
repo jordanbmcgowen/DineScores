@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import maplibregl from 'maplibre-gl';
 import { gradeMeta } from './GradeBadge.jsx';
+import LocateControl from '../locateControl.js';
 
 // CARTO has enforced API keys on its basemap tiles since Aug 2026: without
 // one the tiles still load but carry an "API KEY REQUIRED" watermark. The
@@ -251,16 +252,18 @@ function createDonutChart(props, dark, minR) {
  *     fit, it wins over that initial nationwide framing.
  * `onViewportChange({ zoom, bounds })` fires (debounced) after the user pans or
  * zooms, so the parent can lazy-load whatever is now in view.
- * `onGeolocate({ lat, lng })` fires when the GPS control gets a fix (the
+ * `onGeolocate({ lat, lng })` fires when the GPS button gets a fix (the
  * control moves the camera itself; the parent just learns the position).
+ * `onGeolocateError(kind)` fires when a tap on it found no location
+ * ('denied' | 'unavailable' | 'unsupported'), so the parent can say why.
  * `userPos` ({ lat, lng }) places the pulsing you-are-here dot — a custom
- * marker, so it shows for the automatic on-load fix too (the stock
- * GeolocateControl dot only appears once its button is pressed).
+ * marker, so it shows for the automatic on-load fix too.
  * `dark` switches the basemap flavor, label colors, and donut centers live.
  */
 export default function RestaurantMap({
   restaurants, onMarkerClick, onBackgroundClick, onStackClick, onViewportChange,
-  fitSignal, fitBox = null, narrowSignal, flyTo, selectedId, dark = false, onGeolocate, userPos,
+  fitSignal, fitBox = null, narrowSignal, flyTo, selectedId, dark = false,
+  onGeolocate, onGeolocateError, userPos,
 }) {
   const mapContainer = useRef(null);
   const mapRef = useRef(null);
@@ -274,6 +277,8 @@ export default function RestaurantMap({
   onStackClickRef.current = onStackClick;
   const onGeolocateRef = useRef(onGeolocate);
   onGeolocateRef.current = onGeolocate;
+  const onGeolocateErrorRef = useRef(onGeolocateError);
+  onGeolocateErrorRef.current = onGeolocateError;
   const [mapLoaded, setMapLoaded] = useState(false);
   const donutsRef = useRef({ byPos: {} });
   const densityRef = useRef(1.0);
@@ -299,22 +304,41 @@ export default function RestaurantMap({
       attributionControl: { compact: true },
     });
 
+    // The strips of the map hidden under the sidebar, the header rail, and
+    // the mobile sheet; null when they would cover most of a tiny map.
+    const visibleInset = () => {
+      const el = map.getContainer();
+      const desktop = window.innerWidth >= 768;
+      const inset = desktop
+        ? { left: 432, top: 112, right: 8, bottom: 8 }
+        : { left: 0, top: 148, right: 0, bottom: 104 };
+      if (inset.left + inset.right > el.clientWidth * 0.8
+        || inset.top + inset.bottom > el.clientHeight * 0.8) return null;
+      return inset;
+    };
+
     map.addControl(new maplibregl.NavigationControl({ showCompass: false }), 'bottom-right');
-    const geolocate = new maplibregl.GeolocateControl({
-      positionOptions: { enableHighAccuracy: true },
-      // Follow mode: the button flies to the fix and keeps following until
-      // the user pans away. Its built-in dot stays OFF — the always-on
-      // userPos marker (below) is the single you-are-here dot, fed by both
-      // the on-load watch and this control, so the two never stack.
-      trackUserLocation: true,
-      showUserLocation: false,
-    });
-    map.addControl(geolocate, 'bottom-right');
-    geolocate.on('geolocate', pos => {
-      if (onGeolocateRef.current) {
-        onGeolocateRef.current({ lat: pos.coords.latitude, lng: pos.coords.longitude });
-      }
-    });
+    // GPS button: zooms to the user and follows them live until they pan.
+    // It draws no dot of its own; the userPos marker (below) is the single
+    // you-are-here dot, fed by both the on-load watch and this control.
+    map.addControl(new LocateControl({
+      onFix: pos => {
+        // Every fix moves the dot at once (App only re-sorts the list after
+        // ~25m of movement, so userPos alone would lag the followed camera).
+        if (userMarkerRef.current) userMarkerRef.current.setLngLat([pos.lng, pos.lat]);
+        if (onGeolocateRef.current) onGeolocateRef.current({ lat: pos.lat, lng: pos.lng });
+      },
+      onError: kind => {
+        if (onGeolocateErrorRef.current) onGeolocateErrorRef.current(kind);
+      },
+      // Center the user in the part of the map they can actually see
+      getOffset: () => {
+        const inset = visibleInset();
+        return inset
+          ? [(inset.left - inset.right) / 2, (inset.top - inset.bottom) / 2]
+          : [0, 0];
+      },
+    }), 'bottom-right');
 
     map.on('load', () => setMapLoaded(true));
 
@@ -326,11 +350,8 @@ export default function RestaurantMap({
       const el = map.getContainer();
       const w = el.clientWidth;
       const h = el.clientHeight;
-      const desktop = window.innerWidth >= 768;
-      const inset = desktop
-        ? { left: 432, top: 112, right: 8, bottom: 8 }
-        : { left: 0, top: 148, right: 0, bottom: 104 };
-      if (inset.left + inset.right > w * 0.8 || inset.top + inset.bottom > h * 0.8) {
+      const inset = visibleInset();
+      if (!inset) {
         const b = map.getBounds();
         return { w: b.getWest(), s: b.getSouth(), e: b.getEast(), n: b.getNorth() };
       }

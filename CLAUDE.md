@@ -24,7 +24,13 @@ Cloudflare Pages builds on deploy, serves public/
 
 - **Frontend**: React 19 + Vite + Tailwind + MapLibre GL. Entry `src/main.jsx`
   → `App.jsx`. Map is `src/components/RestaurantMap.jsx` (donut-chart
-  cluster markers, GPS-centered start). Data sources, in order: embedded
+  cluster markers, GPS-centered start). The GPS button is our own
+  `src/locateControl.js`, not `maplibregl.GeolocateControl`: the stock one
+  disables itself until a reload after a single PERMISSION_DENIED (a
+  dismissed prompt, iOS Location Services off), which read as "the GPS
+  button can't be clicked". Ours never disables, re-asks on every tap,
+  zooms to street level and follows live until the user pans; a tap that
+  finds no location shows a notice saying why. Data sources, in order: embedded
   `public/data.js` (top ~1500/city), then viewport lazy-loading via
   `src/api.js` → `/api/restaurants?bbox=`, history via
   `/api/restaurants/:id/history`. All API helpers fail soft so the map
