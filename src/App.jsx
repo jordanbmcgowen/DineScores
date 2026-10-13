@@ -14,6 +14,13 @@ import SearchBar from './components/SearchBar.jsx';
 // uncapped records for whatever is in view from the D1 API.
 const VIEWPORT_ZOOM = 9;
 
+// What the GPS button says when a tap finds no location (see locateControl.js)
+const LOCATE_MESSAGES = {
+  denied: 'Location access is off for this site. Turn it on in your browser or phone settings, then tap the location button again.',
+  unavailable: "Couldn't find your location. Make sure Location Services is on, then try again.",
+  unsupported: "This browser can't share your location.",
+};
+
 export default function App() {
   const [allData, setAllData] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -148,6 +155,18 @@ export default function App() {
     gpsFromControlRef.current = true;
     applyUserPos(pos);
   }, [applyUserPos]);
+
+  // A tap on the GPS button found no location: say why, briefly. The button
+  // stays live, so the fix is a settings change and one more tap away.
+  const [locateNotice, setLocateNotice] = useState(null); // { text, key }
+  const handleGeolocateError = useCallback(kind => {
+    setLocateNotice({ text: LOCATE_MESSAGES[kind] || LOCATE_MESSAGES.unavailable, key: Date.now() });
+  }, []);
+  useEffect(() => {
+    if (!locateNotice) return;
+    const timer = setTimeout(() => setLocateNotice(null), 8000);
+    return () => clearTimeout(timer);
+  }, [locateNotice]);
 
   // Center on the user only when we actually cover their area (~within
   // 100km of any loaded restaurant) — recentring onto an empty map would
@@ -620,6 +639,7 @@ export default function App() {
           selectedId={preview?.i || selectedRestaurant?.i || null}
           dark={dark}
           onGeolocate={handleGeolocate}
+          onGeolocateError={handleGeolocateError}
           userPos={userPos}
         />
       </div>
@@ -784,6 +804,18 @@ export default function App() {
           formatDate={formatDate}
           onUpgrade={upgradeRecord}
         />
+      )}
+
+      {/* GPS button notice (location blocked or unavailable); tap to dismiss */}
+      {locateNotice && (
+        <button
+          type="button"
+          role="status"
+          onClick={() => setLocateNotice(null)}
+          className="fixed bottom-4 left-4 right-4 md:left-auto md:right-4 md:w-96 text-left rounded-2xl p-4 z-50 animate-slide-up bg-white/95 dark:bg-slate-800/95 backdrop-blur shadow-xl ring-1 ring-slate-900/5 dark:ring-white/10"
+        >
+          <p className="text-sm font-medium text-slate-700 dark:text-slate-200">{locateNotice.text}</p>
+        </button>
       )}
 
       {/* Error banner */}
