@@ -1,0 +1,19 @@
+{
+  "results": [
+    {
+      "id": "inventory-service",
+      "owner": "CMarquez@ph.lacounty.gov_lacounty",
+      "type": "Feature Service",
+      "title": "Environmental Health Restaurant and Market Inventory 09/30/26",
+      "modified": 1
+    },
+    {
+      "id": "old-inventory",
+      "owner": "CMarquez@ph.lacounty.gov_lacounty",
+      "type": "CSV",
+      "title": "Environmental Health Restaurant and Market Inventory 06/30/2026",
+      "modified": 99
+    }
+  ],
+  "nextStart": -1
+}
