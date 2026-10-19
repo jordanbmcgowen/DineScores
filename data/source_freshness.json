@@ -2,197 +2,197 @@
  "groups": {
   "Arlington": {
    "last_run": {
-    "at": "2026-10-18",
+    "at": "2026-10-19",
     "detail": "",
     "latest": "2026-10-16",
-    "records": 151,
+    "records": 70,
     "status": "ok"
    },
    "latest": "2026-10-16"
   },
   "Austin": {
    "last_run": {
-    "at": "2026-10-18",
-    "detail": "source's own newest row is 2026-09-24 (24d old); nothing newer published",
+    "at": "2026-10-19",
+    "detail": "source's own newest row is 2026-09-24 (25d old); nothing newer published",
     "latest": "2026-09-24",
-    "records": 175,
+    "records": 25,
     "status": "ok"
    },
    "latest": "2026-09-24"
   },
   "Boston": {
    "last_run": {
-    "at": "2026-10-18",
+    "at": "2026-10-19",
     "detail": "",
     "latest": "2026-10-16",
-    "records": 270,
+    "records": 202,
     "status": "ok"
    },
    "latest": "2026-10-16"
   },
   "Chicago": {
    "last_run": {
-    "at": "2026-10-18",
+    "at": "2026-10-19",
     "detail": "",
     "latest": "2026-10-16",
-    "records": 111,
+    "records": 98,
     "status": "ok"
    },
    "latest": "2026-10-16"
   },
   "Cincinnati": {
    "last_run": {
-    "at": "2026-10-18",
+    "at": "2026-10-19",
     "detail": "",
     "latest": "2026-10-15",
-    "records": 120,
+    "records": 86,
     "status": "ok"
    },
    "latest": "2026-10-15"
   },
   "DFW": {
    "last_run": {
-    "at": "2026-10-18",
+    "at": "2026-10-19",
     "detail": "",
-    "latest": "2026-10-17",
-    "records": 644,
+    "latest": "2026-10-16",
+    "records": 8,
     "status": "ok"
    },
    "latest": "2026-10-17"
   },
   "Delaware": {
    "last_run": {
-    "at": "2026-10-18",
+    "at": "2026-10-19",
     "detail": "",
-    "latest": "2026-10-19",
-    "records": 125,
+    "latest": "2026-10-20",
+    "records": 32,
     "status": "ok"
    },
-   "latest": "2026-10-19"
+   "latest": "2026-10-20"
   },
   "Detroit": {
    "last_run": {
-    "at": "2026-10-18",
+    "at": "2026-10-19",
     "detail": "",
-    "latest": "2026-10-01",
-    "records": 107,
+    "latest": "2026-10-02",
+    "records": 50,
     "status": "ok"
    },
-   "latest": "2026-10-01"
+   "latest": "2026-10-02"
   },
   "Fairfax County": {
    "last_run": {
-    "at": "2026-10-18",
+    "at": "2026-10-19",
     "detail": "",
-    "latest": "2026-10-07",
-    "records": 216,
+    "latest": "2026-10-09",
+    "records": 92,
     "status": "ok"
    },
-   "latest": "2026-10-07"
+   "latest": "2026-10-09"
   },
   "Florida": {
    "last_run": {
-    "at": "2026-10-18",
+    "at": "2026-10-19",
     "detail": "",
     "latest": "2026-10-17",
-    "records": 3107,
+    "records": 2615,
     "status": "ok"
    },
    "latest": "2026-10-17"
   },
   "LA County": {
    "last_run": {
-    "at": "2026-10-18",
-    "detail": "400 Client Error: Bad Request for url: https://www.arcgis.com/sharing/rest/content/items/4f31c9a99e444a40a3806e3bbe7b5fdd/data",
-    "latest": "",
-    "records": 0,
-    "status": "error"
+    "at": "2026-10-19",
+    "detail": "",
+    "latest": "2026-09-30",
+    "records": 159,
+    "status": "ok"
    },
    "latest": "2026-09-30"
   },
   "Las Vegas": {
    "last_run": {
-    "at": "2026-10-18",
+    "at": "2026-10-19",
+    "detail": "",
+    "latest": "2026-10-18",
+    "records": 493,
+    "status": "ok"
+   },
+   "latest": "2026-10-18"
+  },
+  "Louisville": {
+   "last_run": {
+    "at": "2026-10-19",
     "detail": "",
     "latest": "2026-10-16",
-    "records": 658,
+    "records": 275,
     "status": "ok"
    },
    "latest": "2026-10-16"
   },
-  "Louisville": {
-   "last_run": {
-    "at": "2026-10-18",
-    "detail": "",
-    "latest": "2026-10-09",
-    "records": 303,
-    "status": "ok"
-   },
-   "latest": "2026-10-09"
-  },
   "MHD metros": {
    "last_run": {
-    "at": "2026-10-18",
+    "at": "2026-10-19",
     "detail": "",
-    "latest": "2026-10-17",
-    "records": 1737,
+    "latest": "2026-10-18",
+    "records": 104,
     "status": "ok"
    },
-   "latest": "2026-10-17"
+   "latest": "2026-10-18"
   },
   "Minneapolis": {
    "last_run": {
-    "at": "2026-10-18",
+    "at": "2026-10-19",
     "detail": "",
     "latest": "2026-10-13",
-    "records": 124,
+    "records": 1,
     "status": "ok"
    },
    "latest": "2026-10-13"
   },
   "Montgomery County": {
    "last_run": {
-    "at": "2026-10-18",
+    "at": "2026-10-19",
     "detail": "",
-    "latest": "2026-10-16",
-    "records": 198,
+    "latest": "2026-10-17",
+    "records": 159,
     "status": "ok"
    },
-   "latest": "2026-10-16"
+   "latest": "2026-10-17"
   },
   "NY State": {
    "last_run": {
-    "at": "2026-10-18",
+    "at": "2026-10-19",
     "detail": "",
     "latest": "2026-10-09",
-    "records": 731,
+    "records": 62,
     "status": "ok"
    },
    "latest": "2026-10-09"
   },
   "NYC": {
    "last_run": {
-    "at": "2026-10-18",
+    "at": "2026-10-19",
     "detail": "",
     "latest": "2026-10-15",
-    "records": 698,
+    "records": 241,
     "status": "ok"
    },
    "latest": "2026-10-15"
   },
   "Omaha": {
    "last_run": {
-    "at": "2026-10-18",
+    "at": "2026-10-19",
     "detail": "",
     "latest": "2026-10-16",
-    "records": 102,
+    "records": 67,
     "status": "ok"
    },
    "latest": "2026-10-16"
   },
   "Orange County": {
    "last_run": {
-    "at": "2026-10-18",
+    "at": "2026-10-19",
     "detail": "",
     "latest": "2026-10-16",
     "records": 960,
@@ -202,117 +202,117 @@
   },
   "Richardson": {
    "last_run": {
-    "at": "2026-10-18",
+    "at": "2026-10-19",
     "detail": "",
     "latest": "2026-10-15",
-    "records": 33,
+    "records": 19,
     "status": "ok"
    },
    "latest": "2026-10-15"
   },
   "SF": {
    "last_run": {
-    "at": "2026-10-18",
+    "at": "2026-10-19",
     "detail": "",
     "latest": "2026-10-15",
-    "records": 64,
+    "records": 52,
     "status": "ok"
    },
    "latest": "2026-10-15"
   },
   "Sacramento": {
    "last_run": {
-    "at": "2026-10-18",
+    "at": "2026-10-19",
     "detail": "",
-    "latest": "2026-10-16",
-    "records": 290,
+    "latest": "2026-10-17",
+    "records": 251,
     "status": "ok"
    },
-   "latest": "2026-10-16"
+   "latest": "2026-10-17"
   },
   "San Diego County": {
    "last_run": {
-    "at": "2026-10-18",
+    "at": "2026-10-19",
     "detail": "",
-    "latest": "2026-10-16",
-    "records": 825,
+    "latest": "2026-10-17",
+    "records": 675,
     "status": "ok"
    },
-   "latest": "2026-10-16"
+   "latest": "2026-10-17"
   },
   "Santa Clara County": {
    "last_run": {
-    "at": "2026-10-18",
+    "at": "2026-10-19",
     "detail": "",
     "latest": "2026-10-10",
-    "records": 82,
+    "records": 21,
     "status": "ok"
    },
    "latest": "2026-10-10"
   },
   "Seattle": {
    "last_run": {
-    "at": "2026-10-18",
+    "at": "2026-10-19",
     "detail": "",
     "latest": "2026-10-16",
-    "records": 491,
+    "records": 302,
     "status": "ok"
    },
    "latest": "2026-10-16"
   },
   "South Carolina": {
    "last_run": {
-    "at": "2026-10-18",
+    "at": "2026-10-19",
     "detail": "",
     "latest": "2026-10-14",
-    "records": 1206,
+    "records": 420,
     "status": "ok"
    },
    "latest": "2026-10-14"
   },
   "Wake County": {
    "last_run": {
-    "at": "2026-10-18",
+    "at": "2026-10-19",
     "detail": "",
     "latest": "2026-10-15",
-    "records": 126,
+    "records": 67,
     "status": "ok"
    },
    "latest": "2026-10-15"
   },
   "dc": {
    "last_run": {
-    "at": "2026-10-18",
+    "at": "2026-10-19",
     "detail": "",
     "latest": "2026-10-10",
-    "records": 151,
+    "records": 29,
     "status": "ok"
    },
    "latest": "2026-10-10"
   },
   "houston": {
    "last_run": {
-    "at": "2026-10-18",
+    "at": "2026-10-19",
     "detail": "",
     "latest": "2026-10-16",
-    "records": 369,
+    "records": 208,
     "status": "ok"
    },
    "latest": "2026-10-16"
   },
   "sanantonio": {
    "last_run": {
-    "at": "2026-10-18",
+    "at": "2026-10-19",
     "detail": "",
     "latest": "2026-10-16",
-    "records": 301,
+    "records": 158,
     "status": "ok"
    },
    "latest": "2026-10-16"
   }
  },
  "jev": {
-  "cache_file": "jev_20261018T155045Z_weekly.jsonl.gz",
+  "cache_file": "jev_20261019T120149Z_weekly.jsonl.gz",
   "decide": [
    "hazard",
    "summary"
@@ -323,45 +323,45 @@
     "regex": 0
    },
    "hazard": {
-    "jev": 19571,
-    "regex": 3426
+    "jev": 8611,
+    "regex": 1731
    },
    "summary": {
-    "jev": 20388,
-    "regex": 2609
+    "jev": 8711,
+    "regex": 1631
    }
   },
-  "distinct_texts": 13637,
-  "elapsed_s": 97.3,
+  "distinct_texts": 5438,
+  "elapsed_s": 14.8,
   "f_vs_regex": {
-   "agree": 5851,
-   "jev_only": 18,
-   "regex_only": 92
+   "agree": 2691,
+   "jev_only": 3,
+   "regex_only": 61
   },
-  "lines": 22997,
-  "lines_with_judgment": 22997,
+  "lines": 10342,
+  "lines_with_judgment": 10342,
   "mode": "decide",
   "model": "jev-1.13.0",
   "question_set": "qs3",
   "reader": {
    "fallback_reasons": {},
-   "hazard_changed_on_verify": 15,
-   "hazard_verified_alone": 420,
-   "input_tokens": 30020720,
-   "latency_max": 0.6126856803894043,
-   "latency_total": 242.14457535743713,
-   "lines_asked": 8516,
-   "lines_cached": 5121,
+   "hazard_changed_on_verify": 0,
+   "hazard_verified_alone": 6,
+   "input_tokens": 610964,
+   "latency_max": 0.4608125686645508,
+   "latency_total": 6.544098138809204,
+   "lines_asked": 173,
+   "lines_cached": 5265,
    "lines_fallback": 0,
-   "lines_judged": 8516,
+   "lines_judged": 173,
    "mode": "decide",
-   "output_tokens": 5061975,
+   "output_tokens": 101380,
    "request_failures": 0,
-   "requests": 1130
+   "requests": 21
   },
   "record_errors": 0,
-  "records": 14475,
-  "records_with_violations": 5961,
+  "records": 8001,
+  "records_with_violations": 2755,
   "rescored_records": 0,
   "retiered_lines": 0,
   "status": "ok"
@@ -393,11 +393,11 @@
   },
   "Clackamas County Health Dept": {
    "group": "MHD metros",
-   "latest": "2026-10-02"
+   "latest": "2026-10-05"
   },
   "Clark County WA Health Dept": {
    "group": "MHD metros",
-   "latest": "2026-10-17"
+   "latest": "2026-10-18"
   },
   "DC Health": {
    "group": "dc",
@@ -413,11 +413,11 @@
   },
   "Delaware Open Data": {
    "group": "Delaware",
-   "latest": "2026-10-19"
+   "latest": "2026-10-20"
   },
   "Detroit Open Data": {
    "group": "Detroit",
-   "latest": "2026-10-01"
+   "latest": "2026-10-02"
   },
   "Douglas County Health Dept": {
    "group": "Omaha",
@@ -429,7 +429,7 @@
   },
   "Fairfax County Open Data": {
    "group": "Fairfax County",
-   "latest": "2026-10-07"
+   "latest": "2026-10-09"
   },
   "Florida DBPR": {
    "group": "Florida",
@@ -445,7 +445,7 @@
   },
   "Gwinnett County Health Dept": {
    "group": "MHD metros",
-   "latest": "2026-10-17"
+   "latest": "2026-10-18"
   },
   "Houston Health Dept": {
    "group": "houston",
@@ -465,7 +465,7 @@
   },
   "Louisville Metro Open Data": {
    "group": "Louisville",
-   "latest": "2026-10-09"
+   "latest": "2026-10-16"
   },
   "Minneapolis Open Data": {
    "group": "Minneapolis",
@@ -473,11 +473,11 @@
   },
   "Montgomery County Open Data": {
    "group": "Montgomery County",
-   "latest": "2026-10-16"
+   "latest": "2026-10-17"
   },
   "Multnomah County Health Dept": {
    "group": "MHD metros",
-   "latest": "2026-10-02"
+   "latest": "2026-10-05"
   },
   "NYC Open Data": {
    "group": "NYC",
@@ -505,7 +505,7 @@
   },
   "Sacramento County Open Data": {
    "group": "Sacramento",
-   "latest": "2026-10-16"
+   "latest": "2026-10-17"
   },
   "San Antonio Metro Health": {
    "group": "sanantonio",
@@ -513,7 +513,7 @@
   },
   "San Diego County DEH": {
    "group": "San Diego County",
-   "latest": "2026-10-16"
+   "latest": "2026-10-17"
   },
   "Santa Clara County Open Data": {
    "group": "Santa Clara County",
@@ -521,7 +521,7 @@
   },
   "Southern Nevada Health District": {
    "group": "Las Vegas",
-   "latest": "2026-10-16"
+   "latest": "2026-10-18"
   },
   "Tarrant County Health Dept": {
    "group": "DFW",
@@ -533,13 +533,7 @@
   },
   "Tennessee DOH (Knoxville) Health Dept": {
    "group": "MHD metros",
-   "hold": {
-    "date": "2026-10-08",
-    "failures": {
-     "2026-10-08|984F932B-FDEB-410F-A0F5-D969B4F190B6": 1
-    }
-   },
-   "latest": "2026-10-07"
+   "latest": "2026-10-08"
   },
   "Tennessee DOH (Memphis) Health Dept": {
    "group": "MHD metros",
@@ -547,7 +541,7 @@
   },
   "Tennessee DOH (Nashville) Health Dept": {
    "group": "MHD metros",
-   "latest": "2026-10-17"
+   "latest": "2026-10-18"
   },
   "Utah County Health Dept": {
    "group": "MHD metros",
@@ -559,22 +553,16 @@
   },
   "Washington County OR Health Dept": {
    "group": "MHD metros",
-   "latest": "2026-10-03"
+   "latest": "2026-10-05"
   },
   "Weld County Health Dept": {
    "group": "MHD metros",
-   "hold": {
-    "date": "2026-10-12",
-    "failures": {
-     "2026-10-12|82B5F725-C217-4F8A-9D52-156758992728": 1
-    }
-   },
-   "latest": "2026-10-11"
+   "latest": "2026-10-16"
   },
   "Yolo County Health Dept": {
    "group": "MHD metros",
    "latest": "2026-10-15"
   }
  },
- "updated": "2026-10-18"
+ "updated": "2026-10-19"
 }
