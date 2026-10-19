@@ -53,7 +53,8 @@ Cloudflare Pages builds on deploy, serves public/
   per source (Socrata, ArcGIS, state portals, SNHD, MyHealthDepartment
   scraper for DFW). Seattle/King County is Socrata dataset `r878-4sxa`
   (the old `f29f-zza5` requires a login since 2026); LA County discovers
-  its fiscal-year CSV hub items by title (`_la_hub_items`). Normalizes everything to `risk_score` 0-100 and grades
+  its quarterly inspection/violation CSVs and inventory CSV or Feature Service
+  by publisher and title (`_la_hub_items`). Normalizes everything to `risk_score` 0-100 and grades
   A/B/C/F (`calculate_vetted_grade`; an F can be forced by severe violation
   text regardless of score). `write_data_js` merges into the existing
   data.js at restaurant level; `write_d1_sql` emits idempotent SQL

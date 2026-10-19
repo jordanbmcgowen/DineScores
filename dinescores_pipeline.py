@@ -2952,15 +2952,17 @@ WAKE_BASE = ('https://maps.wake.gov/arcgis/rest/services/Inspections/'
              'RestaurantInspectionsOpenData/MapServer')
 
 
-def _arcgis_query_all(layer_url, where='1=1', out_fields='*', page_size=2000):
+def _arcgis_query_all(layer_url, where='1=1', out_fields='*', page_size=2000,
+                      strict=False, object_id_field='OBJECTID'):
     """Fetch every row of an ArcGIS layer via resultOffset pagination."""
     rows = []
     offset = 0
+    last_oid = -1
     while True:
         for attempt in (1, 2, 3):
             r = requests.get(layer_url + '/query', params={
                 'where': where, 'outFields': out_fields, 'outSR': '4326',
-                'orderByFields': 'OBJECTID', 'resultOffset': offset,
+                'orderByFields': object_id_field, 'resultOffset': offset,
                 'resultRecordCount': page_size, 'f': 'json',
             }, headers={'User-Agent': CHROME_UA}, timeout=120)
             # Hosted feature services intermittently 5xx on deep pagination;
@@ -2973,6 +2975,15 @@ def _arcgis_query_all(layer_url, where='1=1', out_fields='*', page_size=2000):
         if 'error' in data:
             raise RuntimeError(f"ArcGIS error: {data['error'].get('message')}")
         feats = data.get('features', [])
+        if strict:
+            if not isinstance(data.get('features'), list) or (
+                    not feats and data.get('exceededTransferLimit')):
+                raise RuntimeError('ArcGIS inventory page missing or incomplete')
+            for feature in feats:
+                oid = feature.get('attributes', {}).get(object_id_field)
+                if not isinstance(oid, int) or oid <= last_oid:
+                    raise RuntimeError('ArcGIS inventory pagination did not advance')
+                last_oid = oid
         rows.extend(feats)
         # Servers silently clamp responses to their maxRecordCount (which can
         # be smaller than page_size) — only stop when the server says the
@@ -3100,7 +3111,7 @@ def fetch_wake(since_date=None, limit=None):
 # LA County DPH Environmental Health covers unincorporated areas plus 85 of
 # the county's 88 cities (all except Long Beach, Pasadena, and Vernon). The
 # open-data portal (data.lacounty.gov) publishes rolling three-year extracts
-# as hosted CSV items on the county ArcGIS hub, refreshed weekly:
+# as hosted CSV items on the county ArcGIS hub, released quarterly:
 #   inspections — one row per inspection with the official 0-100 SCORE
 #   violations  — join on SERIAL NUMBER; POINTS is the deduction assessed
 #                 (4 = major/critical, 2 = minor critical, 1 = good practice)
@@ -3120,31 +3131,52 @@ LA_HUB_TITLE_RE = re.compile(
 
 
 def _la_hub_items():
-    """Resolve the current LA County CSV hub items.
+    """Resolve the current county-published CSVs and inventory Feature Service.
 
-    The county publishes each fiscal year's extract as a NEW hub item
-    ("... Inspections 07/01/2023 to 06/30/2026"), so a hardcoded id silently
-    freezes at the last day of the file it points to. Search the hub for
+    Quarterly extracts can update in place or move to a new hub item and
+    format. A hardcoded id can freeze or disappear. Search the hub for
     the item with the latest end date per file (ties broken by modified
     time) and fall back to the known ids if the search fails.
     """
     items = {'inspections': LA_INSPECTIONS_ITEM, 'violations': LA_VIOLATIONS_ITEM,
              'inventory': LA_INVENTORY_ITEM}
     try:
-        r = requests.get(LA_HUB_SEARCH_URL, params={
-            'q': f'owner:{LA_HUB_OWNER} type:CSV '
-                 f'title:"Environmental Health Restaurant and Market"',
-            'f': 'json', 'num': 50}, timeout=60)
-        r.raise_for_status()
+        candidates = []
+        start = 1
+        while start != -1:
+            r = requests.get(LA_HUB_SEARCH_URL, params={
+                'q': f'owner:{LA_HUB_OWNER} (type:CSV OR type:"Feature Service") '
+                     f'title:"Environmental Health Restaurant and Market"',
+                'f': 'json', 'num': 50, 'start': start}, timeout=60)
+            r.raise_for_status()
+            data = r.json()
+            if 'error' in data or not isinstance(data.get('results'), list):
+                raise RuntimeError('Invalid LA hub discovery response')
+            candidates.extend(data['results'])
+            next_start = data.get('nextStart', -1)
+            if next_start != -1 and (not isinstance(next_start, int) or next_start <= start):
+                raise RuntimeError('LA hub discovery pagination did not advance')
+            start = next_start
         best = {}
-        for it in r.json().get('results', []):
+        for it in candidates:
             title = it.get('title') or ''
             m = LA_HUB_TITLE_RE.match(title)
-            if not m or it.get('type') != 'CSV':
+            if not m or it.get('owner') != LA_HUB_OWNER:
                 continue
             kind = m.group(1).lower()
-            dates = re.findall(r'(\d{2})/(\d{2})/(\d{4})', title)
-            end_date = f'{dates[-1][2]}-{dates[-1][0]}-{dates[-1][1]}' if dates else ''
+            if it.get('type') != 'CSV' and not (
+                    kind == 'inventory' and it.get('type') == 'Feature Service'):
+                continue
+            dates = re.findall(r'(\d{2})/(\d{2})/(\d{4}|\d{2})(?!\d)', title)
+            end_date = ''
+            if dates:
+                month, day, year = dates[-1]
+                year = '20' + year if len(year) == 2 else year
+                try:
+                    end_date = datetime.strptime(
+                        f'{month}/{day}/{year}', '%m/%d/%Y').strftime('%Y-%m-%d')
+                except ValueError:
+                    continue
             key = (end_date, it.get('modified') or 0)
             if kind not in best or key > best[kind][0]:
                 best[kind] = (key, it['id'], title)
@@ -3173,6 +3205,53 @@ def _la_csv_rows(item_id):
                for k, v in row.items()}
 
 
+def _la_inventory_rows(item_id):
+    """Read CSV or a single-layer inventory service from the trusted publisher.
+
+    Resolve the service URL from item metadata rather than freezing a dated
+    service name in code. Refuse schema changes instead of silently losing
+    every coordinate. API errors (including HTTP-200 ArcGIS errors) propagate
+    to the fetch group's existing source-health reporting.
+    """
+    def metadata(url):
+        response = requests.get(url, params={'f': 'json'}, timeout=60)
+        response.raise_for_status()
+        data = response.json()
+        if 'error' in data:
+            raise RuntimeError(f"LA inventory metadata error: {data['error']}")
+        return data
+
+    item = metadata(LA_HUB_ITEM_URL.format(item=item_id).removesuffix('/data'))
+    if item.get('owner') != LA_HUB_OWNER:
+        raise RuntimeError('LA inventory publisher mismatch')
+    if item.get('type') == 'CSV':
+        yield from _la_csv_rows(item_id)
+        return
+    if item.get('type') != 'Feature Service':
+        raise RuntimeError('Unsupported LA inventory item type')
+    service = (item.get('url') or '').rstrip('/')
+    if not re.fullmatch(r'https://services\d*\.arcgis\.com/[A-Za-z0-9]+/'
+                        r'arcgis/rest/services/[^/?#]+/FeatureServer', service):
+        raise RuntimeError('Invalid LA inventory service URL')
+    layers = metadata(service).get('layers', [])
+    if len(layers) != 1 or not isinstance(layers[0].get('id'), int):
+        raise RuntimeError('LA inventory must have one unambiguous layer')
+    layer = f"{service}/{layers[0]['id']}"
+    layer_info = metadata(layer)
+    fields = {f['name'] for f in layer_info.get('fields', [])}
+    oid_field = layer_info.get('objectIdField')
+    if (not oid_field or oid_field not in fields
+            or not {'FACILITY_ID', 'LATITUDE', 'LONGITUDE'} <= fields):
+        raise RuntimeError('LA inventory coordinate schema changed')
+    for feature in _arcgis_query_all(
+            layer, out_fields=f'{oid_field},FACILITY_ID,LATITUDE,LONGITUDE',
+            strict=True, object_id_field=oid_field):
+        attributes = feature['attributes']
+        yield {'FACILITY ID': attributes.get('FACILITY_ID'),
+               'FACILITY LATITUDE': attributes.get('LATITUDE'),
+               'FACILITY LONGITUDE': attributes.get('LONGITUDE')}
+
+
 def _la_date(mdy):
     """'07/01/2023' → '2023-07-01' (None if unparseable)."""
     try:
@@ -3184,7 +3263,8 @@ def _la_date(mdy):
 def fetch_la(since_date=None, limit=None):
     """
     Fetch LA County restaurant & market inspections from the county's
-    hosted open-data CSVs. Coordinates come from the facility inventory;
+    quarterly inspection and violation CSVs. Coordinates come from the
+    facility inventory (CSV or Feature Service);
     facilities absent from it (recently closed or re-permitted) fall back
     to the Census batch geocoder downstream.
     """
@@ -3193,14 +3273,15 @@ def fetch_la(since_date=None, limit=None):
     items = _la_hub_items()
 
     coords = {}
-    for row in _la_csv_rows(items['inventory']):
+    for row in _la_inventory_rows(items['inventory']):
         fid = row.get('FACILITY ID')
         try:
             lat = float(row.get('FACILITY LATITUDE') or 0)
             lng = float(row.get('FACILITY LONGITUDE') or 0)
-        except ValueError:
+        except (TypeError, ValueError):
             continue
-        if fid and lat and lng:
+        if (fid and math.isfinite(lat) and math.isfinite(lng)
+                and -90 <= lat <= 90 and -180 <= lng <= 180 and lat and lng):
             coords[fid] = (lat, lng)
     log.info(f"  LA: {len(coords)} facilities with coordinates in inventory")
 
@@ -3229,16 +3310,16 @@ def fetch_la(since_date=None, limit=None):
             break
     log.info(f"  LA: {len(inspections)} scored inspections since {since or 'start'}")
     if not inspections:
-        # The county closes each fiscal year's extract and publishes the next
-        # one as a new hub item, so a window past the current file's last day
+        # The county releases quarterly extracts, so a window past the file's
+        # last day
         # legitimately returns nothing. Say which it is: _la_hub_items already
         # picks up the successor automatically once it appears.
         if source_max:
             log.warning(f"  LA: the county's extract itself ends {source_max} — "
                         f"nothing published for the requested window")
             _GROUP_NOTES['LA County'] = (
-                f"county extract ends {source_max}; no newer fiscal-year file "
-                f"published yet")
+                f"quarterly county extract ends {source_max}; "
+                f"no newer inspections published for this window")
         return []
 
     wanted = {serial for serial, _, _, _ in inspections}
