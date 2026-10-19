@@ -20,6 +20,14 @@ def feature(oid, fid='F1', lat=34.1, lng=-118.2):
 
 
 class LATests(unittest.TestCase):
+    def setUp(self):
+        self._notes = dict(dp._GROUP_NOTES)
+        dp._GROUP_NOTES.clear()
+
+    def tearDown(self):
+        dp._GROUP_NOTES.clear()
+        dp._GROUP_NOTES.update(self._notes)
+
     def discovery(self, extra=()):
         data = json.loads((FIXTURES / 'discovery.json').read_text())
         data['results'].extend(extra)
@@ -116,6 +124,27 @@ class LATests(unittest.TestCase):
         self.assertEqual((rows[0]['latitude'], rows[0]['longitude']), (34.1, -118.2))
         self.assertEqual(rows[0]['inspection_date'], '2026-09-30')
         self.assertEqual(len(rows[0]['violations']), 1)
+
+    def test_quarterly_lag_note_names_the_extracts_newest_row(self):
+        # Between releases the lookback re-reads the extract's last days, so
+        # the group ships records and only this note explains its STALE flag.
+        csv = (b'FACILITY ID,FACILITY NAME,SERIAL NUMBER,ACTIVITY DATE,SCORE,PROGRAM STATUS\n'
+               b'F2,Synthetic Deli,S2,06/29/2026,95,ACTIVE\n'
+               b'F1,Synthetic Cafe,S1,06/30/2026,92,ACTIVE\n')
+
+        def fetch(**kwargs):
+            replies = [response(content=csv),
+                       response(content=(FIXTURES / 'violations.csv').read_bytes())]
+            with patch.object(dp, '_la_hub_items', return_value={'inventory': 'i', 'inspections': 's', 'violations': 'v'}), \
+                    patch.object(dp, '_la_inventory_rows', return_value=[]), \
+                    patch.object(dp.requests, 'get', side_effect=replies):
+                return dp.fetch_la(since_date='2026-06-29', **kwargs)
+
+        self.assertEqual(len(fetch()), 2)
+        self.assertIn('2026-06-30', dp._GROUP_NOTES.get('LA County', ''))
+        dp._GROUP_NOTES.clear()
+        self.assertEqual(len(fetch(limit=1)), 1)
+        self.assertNotIn('LA County', dp._GROUP_NOTES)   # a bounded read never saw the end
 
 
 if __name__ == '__main__':
