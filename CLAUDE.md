@@ -101,7 +101,12 @@ middleware.
     publishes quarterly into the SAME hub items (the title's end date rolls:
     "... 07/01/2023 to 06/30/2026" became "... 10/01/2023 to 09/30/2026" on
     2026-10-06), so it looks stale for up to three months and then catches
-    up in one run. **Austin** simply runs weeks behind its own dataset.
+    up in one run; `_note_source_lag` says so in the report. Its inventory
+    did move: the CSV item was deleted for a Feature Service around
+    2026-10-13, failing the 2026-10-18 run. Discovery follows such moves;
+    the `LA_*_ITEM` constants are only the fallback when the hub search
+    fails, so keep them on live items. **Austin** simply runs weeks behind
+    its own dataset.
   - **Self-healing windows**: weekly mode starts each group's window the day
     before its recorded latest SHIPPED inspection (`_lookback_since`)
     instead of a flat 8 days, so a lost week refetches itself. The caps

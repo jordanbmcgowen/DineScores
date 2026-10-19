@@ -3121,7 +3121,11 @@ def fetch_wake(since_date=None, limit=None):
 LA_HUB_ITEM_URL = 'https://www.arcgis.com/sharing/rest/content/items/{item}/data'
 LA_INSPECTIONS_ITEM = '19b6607ac82c4512b10811870975dbdc'
 LA_VIOLATIONS_ITEM = '5eaea9f89b7549ee841da7617d3a9cba'
-LA_INVENTORY_ITEM = '4f31c9a99e444a40a3806e3bbe7b5fdd'
+# The inventory moved to a Feature Service around 2026-10-13 and its old CSV
+# item (4f31c9a99e444a40a3806e3bbe7b5fdd) was deleted, which failed the
+# 2026-10-18 refresh. Discovery finds the current item; this id is only the
+# fallback when the hub search itself fails, so keep it on a live item.
+LA_INVENTORY_ITEM = '6715145614f34cce8ac7ded3d8b3a508'
 LA_SOURCE_PAGE = ('https://data.lacounty.gov/datasets/'
                   'lacounty::environmental-health-restaurant-and-market-inspections')
 LA_HUB_SEARCH_URL = 'https://www.arcgis.com/sharing/rest/search'
@@ -3309,6 +3313,12 @@ def fetch_la(since_date=None, limit=None):
         if limit and len(inspections) >= limit:
             break
     log.info(f"  LA: {len(inspections)} scored inspections since {since or 'start'}")
+    if not limit or len(inspections) < limit:
+        # The whole extract was read, so source_max is the county's newest
+        # row. Between quarterly releases the lookback still re-reads the
+        # extract's last days, so the run ships records and the report's
+        # STALE flag needs this to say the county has not published.
+        _note_source_lag('LA County', source_max)
     if not inspections:
         # The county releases quarterly extracts, so a window past the file's
         # last day
