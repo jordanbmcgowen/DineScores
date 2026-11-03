@@ -14,11 +14,10 @@ Georgia (fetch_georgia) + Louisiana (fetch_louisiana) on one shared Tyler
 - [x] fetch_louisiana (test mode run OK: 25 records, 51 requests, 28 s, 23/25 geocoded;
       printable 503s found -> one worker, 1.2 s spacing, Retry-After honoured)
 - [x] Fixtures (tests/fixtures/georgia, tests/fixtures/louisiana)
-- [ ] tests/test_georgia.py, tests/test_louisiana.py written; being made green
+- [x] tests/test_georgia.py (26), tests/test_louisiana.py (24) green; suite 324 tests OK
 - [x] Georgia --mode full --since-date 2026-10-20 (15 days): OK, see Live results
-- [ ] Louisiana --mode full --since-date 2026-10-20: running (started 01:16:56 UTC; 1,434
-      facilities listed at 01:26; details then ~1,100 printables at ~2.3 s each)
-- [ ] Final cleanup + report
+- [x] Louisiana --mode full --since-date 2026-10-20: OK, see Live results
+- [x] Final cleanup + report (this file; structured output to the orchestrator)
 
 ## Design decisions (so a successor does not re-derive them)
 - Search URL: JSON of base64 values, `keyword` always present (LA 500s without
@@ -82,9 +81,51 @@ Georgia (fetch_georgia) + Louisiana (fetch_louisiana) on one shared Tyler
   line carries an observation; 17% still contain inspector-pasted rule sentences with no
   marker (none fire the pest/sewage regex) — left in place on purpose.
   => weekly (9-day window) estimate for Georgia: ~1,650 requests, ~6 min wall.
+- 2026-11-03 louisiana --mode full --since-date 2026-10-20: 1,434 facilities listed (LDH posts
+  ~7 days late, so the 15 windows held ~8 days of data: 10-20..10-26); 3,127 requests =
+  ~600 search pages + 1,434 inspectionsData + 1,084 printables (+ their 503 retries) + 1 lag
+  probe; 22.1 min in requests, 65.8 min wall (listing 9.6 min, details 9.2 min, printables
+  47 min at one worker ~2.6 s each incl. Retry-After waits; 1,084/1,084 printables read, 0
+  failed). 2 transient 500s on inspectionsData recovered on the first retry; 0 drops/holds;
+  6 facilities skipped for an unparsable address (fixed afterwards: one-line and junk-zip
+  variants now parse; they will ship on the next read). 1,392 inspections (1,146
+  restaurants). Census geocoded 1,319/1,392 = 95%, 3 implausible points dropped by the
+  sanity check. Grades by score A 803 / B 192 / C 101 / F 50 (risk 26-100, median 95),
+  original_score None everywhere, regex text-F 0 (LDH narratives are templated statements +
+  short free text; pest lines read "Effective measures are not taken..." style, see
+  follow-ups). metro New Orleans 282 / Baton Rouge 149 / none 715. Types: Routine/Renewal
+  822, Follow-up 177, Other 63, Opening 39, 2nd Re-inspection 20, Complaint 19,
+  Preliminary 6. Violation lines 4,921 (Critical->priority 1,236, Non-Critical->core 3,685),
+  4,508 with a narrative.
+  => weekly estimate for Louisiana: ~3,100 requests, ~65 min wall (47 min printables);
+     set LA_PRINTABLE_MAX_PER_RUN lower (or 0) if that ever needs to shrink.
 
 ## Open questions / follow-ups
-(none yet)
+- Jev bare pest titles: a Georgia line with empty notes ships the bare title
+  "Insects, rodents, and animals not present"; a Louisiana record whose printable
+  failed ships bare titles such as "Insect/rodent control" / "Insect control
+  devices". Neither is in jev_reader.CITED_PEST_ITEM_TITLES, so Jev reads them as
+  conditions_only (no pest chip). Rare in practice (0 failed printables live, 8% of
+  GA notes have no observation) — the integrator may add the GA title there.
+- LDH pest wording is a templated statement: "Rodents are present in the
+  establishment." / "Insects are present in the establishment. ANTS IN THE BACK
+  STORAGE AREA" (195 pest-ish lines of 4,921 live; 'Openings ... not protected
+  against the entry of rodents or insects' is 111 of them and is not a sighting).
+  PEST_EVIDENCE_RE needs an evidence word before the pest noun, so the regex
+  forced 0 F's; in the weekly run Jev reads these lines (a named rodent clears
+  F_FORCING_HAZARDS). Worth a look at the first weekly Jev stats for Louisiana.
+- Georgia inspectors paste rule sentences with no marker into 17% of notes; left
+  in place (none fire the pest/sewage regex; Jev's rules treat rule text as a
+  non-observation). A stronger cut emptied observations that put the rule first.
+- GA metro depends on GA_ATLANTA_EH_PHONES (county EH phone per row); if a county
+  changes its number the chip silently disappears for it (records still ship).
+- Louisiana's weekly run is ~65 min wall, dominated by the /paper/ rate limit
+  (one worker, ~2.6 s per printable). It runs inside the API pool and respects
+  the fetch deadline; LA_PRINTABLE_MAX_PER_RUN (env) caps it per run.
+- Backfill cost: Georgia ~40-50k facilities / Louisiana 28.6k facilities for the
+  whole ~3-year history (one inspectionsData each, 5 rows per search page);
+  Louisiana printables for history would be ~200k and are impractical — run the
+  backfill with LA_PRINTABLE_MAX_PER_RUN=0 (titles only) or in dated chunks.
 
 ## Handoff notes for the integrator (docs/workflow are theirs)
 - Slugs: `georgia` / `atlanta` -> group 'Georgia' (source 'Georgia DPH', source_id
