@@ -485,8 +485,10 @@ class ViolationTests(unittest.TestCase):
                      'result': 'Out of Compliance', 'isCritical': False,
                      'cannedComments': [{'description': rule, 'severity': 'Core',
                                          'observationComment': obs, 'locationComment': 'Ceiling'}]}]
-        # the form's title alone trips the regex ('evidence of' before 'Insect'); the shipped line must not
-        self.assertTrue(dp.has_active_pest_or_sewage('No evidence of Insect Contamination, Rodent, Other Animals'))
+        # the form's title used to trip the regex on its own ('evidence of' before 'Insect'); the
+        # pipeline now removes such listed-kinds titles (LISTED_PEST_TITLE_RE), and the fetcher ships
+        # the criterion under a neutral heading anyway
+        self.assertFalse(dp.has_active_pest_or_sewage('No evidence of Insect Contamination, Rodent, Other Animals'))
         trap = dp._hh_violations(item('Sticky fly trap stored over prep table located in center of kitchen'))
         self.assertEqual(trap[0][2], 'Pests and animals: Sticky fly trap stored over prep table located in '
                                      'center of kitchen (Ceiling)')

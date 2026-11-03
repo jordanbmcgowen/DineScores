@@ -36,5 +36,5 @@ python3 dinescores_pipeline.py --mode full --cities "${SLUGS[@]}" --since-date "
   || { echo "pipeline FAILED ($TAG); tail:"; tail -30 "$LOG"; exit 1; }
 grep -E "Fetch outcomes this run" -A 60 "$LOG" | grep -E "(ok|error|empty|skipped|blocked|partial) " | cut -c24- | head -45 || true
 echo "== $TAG fetched; absorbing $(date -u +%FT%TZ)"
-flock "$OUT/absorb.lock" "$HERE/absorb.sh" "$TAG" "$SINCE" "$BASE.records.json.gz" "$BASE.sql" "$WT/data/source_freshness.json" "$WT/data/jev_judgments"
+"$HERE/absorb.sh" "$TAG" "$SINCE" "$BASE.records.json.gz" "$BASE.sql" "$WT/data/source_freshness.json" "$WT/data/jev_judgments"
 echo "== $TAG done $(date -u +%FT%TZ)"

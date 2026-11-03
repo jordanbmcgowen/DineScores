@@ -22,8 +22,12 @@ import dinescores_pipeline as dp  # noqa: E402
 
 SECRET = 'sk-test-SECRET-0123456789abcdef-DO-NOT-LEAK'
 
-GOLDEN_GAP = ('No Evidence of Insect contamination, rodent/other animals: There is a hole '
-              'or gap along the floor, wall or ceiling.')
+# A door gap the regex misreads ("observed ... vermin"): the standard example
+# of an F that Jev removes. (Until 2026-11-03 it was the item-34 title "No
+# Evidence of Insect contamination, rodent/other animals: There is a hole or
+# gap ...", which the regex no longer reads as evidence: LISTED_PEST_TITLE_RE.)
+GOLDEN_GAP = ('INSECTS, RODENTS, & ANIMALS NOT PRESENT: Observed a gap under the back door '
+              'large enough for vermin to enter.')
 GOLDEN_ROACH = ('INSECTS, RODENTS, & ANIMALS NOT PRESENT: Found live cockroaches in rear '
                 'storage room around water heater')
 GOLDEN_BACKFLOW = ('Anti-siphonage or back-flow prevention device not provided where required; '
@@ -761,7 +765,7 @@ class ModeTests(unittest.TestCase):
         self.assertFalse(d2['forces_f'])
 
 
-GAP = GOLDEN_GAP      # "No Evidence of Insect contamination, rodent/other animals: There is a hole or gap...": forces an F today
+GAP = GOLDEN_GAP      # "...: Observed a gap under the back door large enough for vermin to enter.": the regex forces an F
 ROACH = GOLDEN_ROACH
 COLD = 'PROPER COLD HOLDING TEMPERATURES: OBSERVED MILK AT 48F IN THE REACH-IN COOLER.'
 SHELVES = 'NON-FOOD/FOOD CONTACT SURFACES CLEAN: shelves inside prep cooler not clean, food debris noted.'

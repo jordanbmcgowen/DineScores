@@ -13,3 +13,6 @@ public/index.html
 
 # Temporary agent worktrees created by Claude Code workflow runs
 .claude/worktrees/
+
+# scratch data.js written by scripts/backfill/absorb.sh before it is moved into place
+public/.absorb_*

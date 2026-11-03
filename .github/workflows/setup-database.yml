@@ -78,8 +78,10 @@ jobs:
           # seeds) first, then the dated incremental seeds in date order, so a
           # full rebuild ends on the newest rows: lexically 'd1_seed_2_...'
           # sorts AFTER 'd1_seed_2026-...' and would overwrite them.
+          set -o pipefail
           SEEDS=$(ls ${{ github.event.inputs.seeds || 'data/d1_seed*.sql.gz' }} \
             | awk '{ print (/d1_seed_[0-9][0-9][0-9][0-9]-/ ? 1 : 0) "\t" $0 }' | sort -k1,1n -k2,2 | cut -f2)
+          [ -n "$SEEDS" ] || { echo "::error::no seed file matches ${{ github.event.inputs.seeds || 'data/d1_seed*.sql.gz' }}"; exit 1; }
           echo "Load order:"; echo "$SEEDS"
           for SEED in $SEEDS; do
             echo "Loading $SEED..."

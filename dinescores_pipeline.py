@@ -744,9 +744,40 @@ DEAD_PEST_TITLE_RE = re.compile(
     r'(?:other\s+(?:pests?|animals?|vermin)|pests?\b)', re.I)
 
 
+# Two more code titles list every kind of pest after an evidence word: the
+# older TFER item 34 "No Evidence of Insect contamination, rodent/other
+# animals" (Harris County prints it bare, 672 inspections before 2025) and
+# Ohio's 3717-1-06.4(K) "Presence of live insects, rodents, and other pests"
+# (Cuyahoga prints it before every pest observation, door gaps and flies
+# included). Same rule as the dead-pest title: a list that names every kind
+# names none, so it is removed before the evidence match. Measured
+# 2026-11-03 over 244,538 distinct lines (the Jev caches plus the 2026-11
+# backfills): 233 regex F's go, all of them this wording; the 7 among them
+# whose observation names droppings keep their F through PEST_AFTER_RE.
+LISTED_PEST_TITLE_RE = re.compile(
+    r'\b(?:no\s+)?(?:evidence\s+of|presence\s+of)(?:\s+live)?\s+'
+    r'(?:(?:insects?(?:\s+contamination)?|rodents?|birds?|animals?|flies)\s*'
+    r'(?:,|;|/|&|\band\b|\bor\b)\s*(?:(?:and|or)\s+)?){2,}'
+    r'other\s+(?:pests?|animals?|vermin)\b', re.I)
+# "Rodent droppings on the floor", "rat feces in dry storage": the pest word
+# BEFORE its evidence, which PEST_EVIDENCE_RE (evidence first) never read.
+# A negation or a preventive verb earlier in the same clause ("did not observe
+# any rodent droppings", "free of mouse droppings") cancels it. Measured on
+# the same 244,538 lines: +250 F's, every sampled one a recorded finding.
+PEST_AFTER_RE = re.compile(
+    r'\b(?:rats?|mice|mouse|rodents?|roach(?:es)?|cockroach(?:es)?)\s+'
+    r'(?:droppings?|feces|fecal\s+matter|excreta)\b', re.I)
+PEST_NEGATION_RE = re.compile(
+    r'(?:\bno\b|\bnot\b|\bnor\b|\bnever\b|\bfree\s+of\b|\bwithout\b|\babsence\s+of\b|'
+    r'\bprevent\w*|\bcheck\w*\s+for\b)[^.;|:]{0,40}$', re.I)
+
+
 def has_active_pest_or_sewage(text):
-    t = DEAD_PEST_TITLE_RE.sub(' ', text or '')
-    return bool(PEST_EVIDENCE_RE.search(t) or SEWAGE_ISSUE_RE.search(t))
+    t = LISTED_PEST_TITLE_RE.sub(' ', DEAD_PEST_TITLE_RE.sub(' ', text or ''))
+    if PEST_EVIDENCE_RE.search(t) or SEWAGE_ISSUE_RE.search(t):
+        return True
+    return any(not PEST_NEGATION_RE.search(t[max(0, m.start() - 60):m.start()])
+               for m in PEST_AFTER_RE.finditer(t))
 
 
 def calculate_vetted_grade(score, violation_text=''):
@@ -13424,7 +13455,9 @@ def geocode_missing_coords(records, nominatim_fallback_cap=None):
         # current one does not (and vice versa), and a batch call is cheap.
         geocoded += geocode_census_batch(still_missing, benchmark='Public_AR_Census2020')
         still_missing = [r for r in missing if not r.get('latitude') or not r.get('longitude')]
-    fallback = still_missing[:nominatim_fallback_cap]
+    # past the fetch deadline the stragglers wait for the next run (the
+    # fallback is one request a second, serialized across every thread)
+    fallback = [] if _past_deadline() else still_missing[:nominatim_fallback_cap]
     skipped = len(still_missing) - len(fallback)
     for r in fallback:
         lat, lon = geocode_address(r['address'], r['city'], r['state'])
@@ -13463,6 +13496,30 @@ def save_to_json(all_inspections, output_path):
     return output
 
 
+US_STATE_CODES = {
+    'ALABAMA': 'AL', 'ALASKA': 'AK', 'ARIZONA': 'AZ', 'ARKANSAS': 'AR', 'CALIFORNIA': 'CA',
+    'COLORADO': 'CO', 'CONNECTICUT': 'CT', 'DELAWARE': 'DE', 'DISTRICT OF COLUMBIA': 'DC',
+    'FLORIDA': 'FL', 'GEORGIA': 'GA', 'HAWAII': 'HI', 'IDAHO': 'ID', 'ILLINOIS': 'IL',
+    'INDIANA': 'IN', 'IOWA': 'IA', 'KANSAS': 'KS', 'KENTUCKY': 'KY', 'LOUISIANA': 'LA',
+    'MAINE': 'ME', 'MARYLAND': 'MD', 'MASSACHUSETTS': 'MA', 'MICHIGAN': 'MI', 'MINNESOTA': 'MN',
+    'MISSISSIPPI': 'MS', 'MISSOURI': 'MO', 'MONTANA': 'MT', 'NEBRASKA': 'NE', 'NEVADA': 'NV',
+    'NEW HAMPSHIRE': 'NH', 'NEW JERSEY': 'NJ', 'NEW MEXICO': 'NM', 'NEW YORK': 'NY',
+    'NORTH CAROLINA': 'NC', 'NORTH DAKOTA': 'ND', 'OHIO': 'OH', 'OKLAHOMA': 'OK', 'OREGON': 'OR',
+    'PENNSYLVANIA': 'PA', 'RHODE ISLAND': 'RI', 'SOUTH CAROLINA': 'SC', 'SOUTH DAKOTA': 'SD',
+    'TENNESSEE': 'TN', 'TEXAS': 'TX', 'UTAH': 'UT', 'VERMONT': 'VT', 'VIRGINIA': 'VA',
+    'WASHINGTON': 'WA', 'WEST VIRGINIA': 'WV', 'WISCONSIN': 'WI', 'WYOMING': 'WY',
+}
+
+
+def state_code(state):
+    """A record's state as its two-letter code: portals sometimes spell it
+    out ('VIRGINIA' on 38 VDH rows, 'TEXAS', 'OREGON'), which split the
+    (city, state) buckets and missed the coordinate box. Anything else is
+    returned stripped and upper-cased, unchanged."""
+    s = str(state or '').strip().upper()
+    return US_STATE_CODES.get(s, s)
+
+
 def write_records_json(all_inspections, output_path):
     """Dump every inspection of this run (the full fetcher dicts, Jev reading
     included) so a backfill can be split across runs or machines and put
@@ -13486,7 +13543,8 @@ def read_records_json(paths):
             raise ValueError(f"{path}: expected a JSON list of inspection records")
         for i, rec in enumerate(data):
             if (not isinstance(rec, dict)
-                    or not all(isinstance(rec.get(k), str) and rec.get(k) for k in ('name', 'address', 'city', 'state', 'source'))
+                    or not all(isinstance(rec.get(k), str) for k in ('name', 'address', 'city', 'state', 'source'))
+                    or not rec['name'] or not rec['source']
                     or not sane_inspection_date(rec.get('inspection_date'))
                     or not isinstance(rec.get('risk_score'), (int, float)) or isinstance(rec.get('risk_score'), bool)
                     or not isinstance(rec.get('violations'), list)):
@@ -13701,7 +13759,7 @@ def write_data_js(all_inspections, output_path, top_per_city=1000,
             'n':   r.get('name', ''),
             'a':   r.get('address', ''),
             'c':   r.get('city', ''),
-            's':   r.get('state', ''),
+            's':   state_code(r.get('state', '')),
             'z':   r.get('zip', ''),
             'lt':  lat,
             'ln':  lng,
@@ -13772,6 +13830,8 @@ def write_data_js(all_inspections, output_path, top_per_city=1000,
     # restaurants that happen to be refetched.
     for rec in records:
         _apply_grades(rec)
+        if rec.get('s'):
+            rec['s'] = state_code(rec['s'])   # heals spelled-out states kept from earlier runs
 
     # Cities are (name, state): statewide sources brought a Dallas GA, a
     # Rome GA and 90 other towns whose names already exist under another
@@ -14037,7 +14097,7 @@ def write_d1_sql(all_inspections, output_path, include_schema=True):
             _sql_quote(latest.get('name', '')),
             _sql_quote(latest.get('address', '')),
             _sql_quote(latest.get('city', '')),
-            _sql_quote(latest.get('state', '')),
+            _sql_quote(state_code(latest.get('state', ''))),
             _sql_quote(latest.get('zip', '')),
             _sql_quote(float(lat) if lat else None),
             _sql_quote(float(lng) if lng else None),
@@ -14523,9 +14583,12 @@ def main():
         if not os.path.isfile(path):
             parser.error(f"--input-records: {path} is not a file")
     if args.output_records:
+        existed = os.path.exists(args.output_records)
         try:
             with open(args.output_records, 'ab'):
                 pass
+            if not existed:
+                os.remove(args.output_records)   # an empty file would read as a broken record file
         except OSError as e:
             parser.error(f"--output-records: cannot write {args.output_records}: {e}")
 

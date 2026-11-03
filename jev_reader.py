@@ -631,9 +631,11 @@ FORM_TITLE_PHRASES = {
 # whole-section 6-501.111 paragraph.
 CITED_PEST_ITEM_TITLES = {
     # TFER / FDA form item 38 printed bare: Harris County ("38. ..."), Georgia
-    # when the inspector left no note, Pima's title when no observation follows
-    # (a title WITH an observation is a different line and stays with Jev)
+    # when the inspector left no note (a title WITH an observation is a
+    # different line and stays with Jev)
     'Insects, rodents, and animals not present': 'pests_unspecified',
+    # the older TFER form's item 34, which Harris County printed bare before 2025
+    'No Evidence of Insect contamination, rodent/other animals': 'pests_unspecified',
     # McKinney's placeholder for item 34 cited with no attributable sentence
     'Pest control item cited on the inspection report; no observation recorded': 'pests_unspecified',
     # LA County; Santa Clara prints the first one bare too

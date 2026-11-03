@@ -3,15 +3,32 @@
  * have pre-computed vetted fields. Also used for display helpers.
  */
 
-// Automatic-F trigger: ACTIVE pest evidence or sewage problems (mirrors the
-// pipeline's has_active_pest_or_sewage — an evidence word must precede the
-// pest word so titles like "RODENTS NOT PRESENT" don't misfire).
-const PEST_EVIDENCE_RE = /(?:evidence of|live|dead|observed|found|fresh|infestation|activity of|droppings?|excreta|feces)[^.]{0,60}?\b(?:rats?|mice|mouse|roach(?:es)?|cockroach(?:es)?|rodents?|vermin)\b/i;
+// Automatic-F trigger: ACTIVE pest evidence or sewage problems. A port of
+// the pipeline's has_active_pest_or_sewage (dinescores_pipeline.py, the
+// source of truth: change both together). An evidence word must precede the
+// pest word so titles like "RODENTS NOT PRESENT" don't misfire; code titles
+// that list every kind of pest ("Dead or trapped birds, insects, rodents and
+// other pests", "Presence of live insects, rodents, and other pests") are
+// removed first; "rodent droppings" written pest-first counts unless a
+// negation precedes it in the same clause.
+const PEST_EVIDENCE_RE = /(?:evidence of|live|dead|observed|found|fresh|infestation|activity of|crawling|droppings?|excreta|feces)[^.]{0,60}?\b(?:rats?|mice|mouse|roach(?:es)?|cockroach(?:es)?|rodents?|vermin|ants?|maggots?|larvae?)\b|\b(?:ants?|roach(?:es)?|maggots?)\b[^.]{0,40}?(?:crawling|in(?:side)? (?:the |of )?(?:food|ice|soda|drink|prep|machine|container))/i;
 const SEWAGE_ISSUE_RE = /sewage[^.]{0,40}(?:back|overflow|leak|expos|floor|discharg)|(?:back|overflow|leak)[^.]{0,40}sewage/i;
+const DEAD_PEST_TITLE_RE = /\b(?:remov(?:e|ing)\s+)?dead(?:\s*(?:or|\/)\s*trapped)?\s+(?:(?:flies|insects?|rodents?|birds?|animals?)\s*(?:,|;|\/|&|\band\b|\bor\b)\s*(?:(?:and|or)\s+)?){2,}(?:other\s+(?:pests?|animals?|vermin)|pests?\b)/gi;
+const LISTED_PEST_TITLE_RE = /\b(?:no\s+)?(?:evidence\s+of|presence\s+of)(?:\s+live)?\s+(?:(?:insects?(?:\s+contamination)?|rodents?|birds?|animals?|flies)\s*(?:,|;|\/|&|\band\b|\bor\b)\s*(?:(?:and|or)\s+)?){2,}other\s+(?:pests?|animals?|vermin)\b/gi;
+const PEST_AFTER_RE = /\b(?:rats?|mice|mouse|rodents?|roach(?:es)?|cockroach(?:es)?)\s+(?:droppings?|feces|fecal\s+matter|excreta)\b/gi;
+const PEST_NEGATION_RE = /(?:\bno\b|\bnot\b|\bnor\b|\bnever\b|\bfree\s+of\b|\bwithout\b|\babsence\s+of\b|\bprevent\w*|\bcheck\w*\s+for\b)[^.;|:]{0,40}$/i;
+
+export function hasActivePestOrSewage(text) {
+  const t = (text || '').replace(DEAD_PEST_TITLE_RE, ' ').replace(LISTED_PEST_TITLE_RE, ' ');
+  if (PEST_EVIDENCE_RE.test(t) || SEWAGE_ISSUE_RE.test(t)) return true;
+  for (const m of t.matchAll(PEST_AFTER_RE)) {
+    if (!PEST_NEGATION_RE.test(t.slice(Math.max(0, m.index - 60), m.index))) return true;
+  }
+  return false;
+}
 
 export function calculateGrade(score, violationDesc = '') {
-  const desc = violationDesc || '';
-  const hasBad = PEST_EVIDENCE_RE.test(desc) || SEWAGE_ISSUE_RE.test(desc);
+  const hasBad = hasActivePestOrSewage(violationDesc || '');
   if (score < 70 || hasBad) return 'F';
   if (score >= 90) return 'A';
   if (score >= 80) return 'B';

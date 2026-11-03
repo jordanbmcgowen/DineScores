@@ -17,7 +17,8 @@ import jev_reader as jr           # noqa: E402
 ROACH = ('24. No rodents, insects, birds, or animals (MIN): Observed a dead American Cockroach at the '
          'sticky trap below the cooler. Eliminate the activity of cockroaches from the food facility.')
 DEBRIS = '45. Floors, walls and ceilings: built, maintained, and clean (OUT): Observed debris at the floor.'
-DROPPINGS = 'No rodents, insects, birds, or animals: Rodent droppings observed in the boiler room in the basement.'
+# a named-vermin finding the regex misses (no evidence word, no droppings) and Jev reads as an F
+DROPPINGS = 'No rodents, insects, birds, or animals: Mouse nesting material and gnawed food packaging in dry storage.'
 FLIES = ('No rodents, insects, birds, or animals: 1. Observed Vermin: Documented in the following areas: '
          '- Flies on produce - Flies throughout facility.')
 
