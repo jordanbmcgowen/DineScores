@@ -1,0 +1,43 @@
+{
+ "data": [
+  {
+   "eplGlobalEntityGUID": null,
+   "eplBusinessLicenseGUID": null,
+   "permitId": "FD-02429",
+   "permitType": "Food Establishment - Eating & Drinking",
+   "businessName": "Harlows Cafe",
+   "businessAddressConcat": "1021 W UNIVERSITY DR TEMPE AZ 85281",
+   "isCuttingEdgeParticipant": false,
+   "issuedDateString": null,
+   "issuedDate": null,
+   "cuttingEdgeIcon": "",
+   "notes": null
+  },
+  {
+   "eplGlobalEntityGUID": null,
+   "eplBusinessLicenseGUID": null,
+   "permitId": "FD-12738",
+   "permitType": "Food Establishment - Eating & Drinking",
+   "businessName": "Moxy Hotel",
+   "businessAddressConcat": "1333 S RURAL RD TEMPE AZ 85281",
+   "isCuttingEdgeParticipant": false,
+   "issuedDateString": null,
+   "issuedDate": null,
+   "cuttingEdgeIcon": "",
+   "notes": null
+  },
+  {
+   "eplGlobalEntityGUID": null,
+   "eplBusinessLicenseGUID": null,
+   "permitId": "MF-19-0887",
+   "permitType": "Mobile Food Annual - Mobile Annual Event Food Establishment",
+   "businessName": "Phx Lechon Roasters",
+   "businessAddressConcat": "2013 E CEDAR ST TEMPE AZ 85281",
+   "isCuttingEdgeParticipant": false,
+   "issuedDateString": null,
+   "issuedDate": null,
+   "cuttingEdgeIcon": "",
+   "notes": null
+  }
+ ]
+}
