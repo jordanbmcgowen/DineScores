@@ -184,7 +184,21 @@ DFW_JURISDICTIONS = {
 #   programs:    programName allowlist, applied on top of _mhd_is_food_record
 #                (which only drops pool/spa/septic rows — hotels, tattoo
 #                studios and child care pass it).
-#   window_days: search window length (default MHD_WINDOW_DAYS).
+#   exclude:     {row field: regex} — rows whose field matches are dropped
+#                before parsing (_mhd_exclude_patterns; Arapahoe's mobile
+#                units have no address).
+#   window_days: search window length (default MHD_WINDOW_DAYS = 1; a longer
+#                window loses a permit's earlier inspections, see there).
+#   sort:        the search payload's sort (default MHD_DEFAULT_SORT, the
+#                stable inspectionID order; None opts out). Bucket entries
+#                default to the portal's own order.
+#   group:       the fetch group the jurisdiction runs in (default
+#                MHD_DEFAULT_GROUP, 'MHD metros'). Heavy jurisdictions run
+#                under 'MHD metros (midweek)' so the workflow can give them
+#                their own cron and detail-page budget; main() builds one
+#                group per distinct name (_mhd_metro_groups).
+#   lag_days:    how far back the weekly window starts even when current
+#                (default 8; the Oregon counties publish two weeks late).
 #   search_terms + purposes + city_allow: BUCKET MODE (see the Tennessee note
 #                below). For every window, for every term, for every purpose,
 #                the search runs with searchStr=term and filters.purpose=
@@ -230,6 +244,40 @@ def _mhd_tn_bucket(metro, cities):
             'metro': metro, 'programs': ['Food Service Establishment'],
             'purposes': ['Routine', 'Follow-Up'], 'window_days': 1,
             'search_terms': list(cities), 'city_allow': list(cities)}
+
+
+# Virginia Department of Health publishes every district on this portal
+# (verified 2026-11-02/03). The statewide 'virginia' slug is unusable — it
+# is capped at 225 rows on busy days and its unsorted pages re-serve rows —
+# and bucket mode is NOT viable either (searchStr collapses to one row per
+# permit AND silently drops ~40% of permits). But each of the 33 health
+# districts is its own sub-site ('va-richmond', 'va-norfolk', ...) and an
+# ordinary, uncapped jurisdiction (at most ~20 rows a day), whose rows sum
+# exactly to the statewide total. Every row is programName 'Food
+# Establishment' with score 0 and scoreDisplay '' (no score of any kind:
+# score_scale 'none', risk comes from the scraped observations), the date
+# is MM/DD/YYYY (_parse_mhd_record handles it) and the detail page MUST be
+# fetched under the inspection's own district slug (the statewide path
+# serves the welcome page) — which one jurisdiction per district gives for
+# free. The portal ran a week behind on 2026-11-02, hence lag_days 14.
+# Fairfax County is NOT on the portal (its district link goes to
+# fairfaxcounty.gov; it is DineScores' own 'fairfax' source); 'Lord Fairfax'
+# is the Winchester-area district, not Fairfax County. ~1,000 inspections
+# a week statewide, every one a detail page, so the districts run in the
+# midweek group.
+MHD_VA_GROUP = 'MHD metros (midweek)'
+
+
+def _mhd_va_district(district, default_city, metro=''):
+    """MHD_METRO_JURISDICTIONS entry for one VDH health district sub-site.
+    `district` is the district's name as the portal titles it (minus
+    'Health District/Department'); default_city only fills a row with no
+    city (every row seen carried one); `metro` groups the Richmond, Hampton
+    Roads and Northern Virginia districts under one chip each."""
+    return {'display_name': f'VDH {district}', 'default_city': default_city,
+            'state': 'VA', 'score_scale': 'none', 'metro': metro,
+            'programs': ['Food Establishment'], 'lag_days': 14,
+            'group': MHD_VA_GROUP}
 
 
 MHD_METRO_JURISDICTIONS = {
@@ -285,13 +333,100 @@ MHD_METRO_JURISDICTIONS = {
     'tennessee:chattanooga': _mhd_tn_bucket('Chattanooga', [
         'Chattanooga', 'Hixson', 'East Ridge', 'Ooltewah', 'Red Bank',
         'Soddy Daisy', 'Signal Mountain']),
-    # NOT included despite a live portal: 'virginia' (statewide) exceeds the
-    # ~225-record query cap every day like Tennessee; the bucket mode above
-    # would be the way in, but its searchStr behaviour is unverified.
-    # 'orange-county' (CA) has the same cap AND ignores the date filter, so it
-    # is not a jurisdiction here at all: fetch_orange_county polls its newest
-    # 225 daily into a sidecar instead (see that section).
+    # 'orange-county' (CA) is capped AND ignores the date filter, so it is not
+    # a jurisdiction here at all: fetch_orange_county polls its newest 225
+    # daily into a sidecar instead (see that section).
+    #
+    # ── 2026-11 expansion (each verified live 2026-11-03: slug answers rows,
+    # detail pages parse with _mhd_parse_detail_html, score scale and
+    # programName values read off the rows) ──
+    # Fort Bend County Environmental Health, TX (Richmond, Katy's Fort Bend
+    # side, Fulshear, Fresno, Needville, Meadows Place — unincorporated Fort
+    # Bend; Sugar Land, Missouri City, Stafford and Rosenberg run their own
+    # programs). Official 0-100 score (100 <-> zero observations, 72 <-> 6),
+    # ~50 food inspections a week, history from 2025-03-07. programName
+    # 'Food' | 'Pools' (pool rows score 0). No metro chip: it is the Houston
+    # area but Houston proper is a different source.
+    'fbceh':                {'display_name': 'Fort Bend County', 'default_city': 'Richmond',
+                             'state': 'TX', 'score_scale': '100', 'metro': '',
+                             'programs': ['Food'], 'group': 'MHD metros'},
+    # Arapahoe County Public Health, CO (Aurora's southern half, Centennial,
+    # Englewood, Littleton, Greenwood Village). `score` is the county's
+    # risk-index demerit total (Pass 0-49, Re-Inspection Required 50-109,
+    # Closed 110+), scoreDisplay '' — demerit scale, risk recomputed from the
+    # detail pages. ~65 food inspections a week since 2023-01-04. programName
+    # 'Retail Food' | 'Child Care' | 'Pools' | 'Body Art' (the allowlist is
+    # mandatory: child care and body art pass _mhd_is_food_record). Mobile
+    # units carry addressLine1 '^Mobile Unit' with no city or zip — excluded.
+    'acph':                 {'display_name': 'Arapahoe County', 'default_city': 'Aurora',
+                             'state': 'CO', 'score_scale': 'demerit', 'metro': '',
+                             'programs': ['Retail Food'],
+                             'exclude': {'addressLine1': r'^\^?\s*Mobile Unit'},
+                             'group': 'MHD metros'},
+    # Douglas County Health Department, CO (Castle Rock, Parker, Highlands
+    # Ranch, Lone Tree, Castle Pines). Same risk-index demerit scale as
+    # Arapahoe (Pass 0-49 / Re-Inspection Required 50-109 / Closed 110+; 0
+    # on a fifth of rows, up to 105), ~24 food inspections a week since
+    # 2022-09-07. programName 'Retail Food' | 'Child Care' | 'Recreational
+    # Water' | 'Body Art'. The display name MUST carry 'CO': Omaha's source
+    # is 'Douglas County Health Dept' (OMAHA_SOURCE), and a bare 'Douglas
+    # County' here would merge the two counties' freshness and Jev policy.
+    'dchd':                 {'display_name': 'Douglas County CO', 'default_city': 'Castle Rock',
+                             'state': 'CO', 'score_scale': 'demerit', 'metro': '',
+                             'programs': ['Retail Food'], 'group': 'MHD metros'},
+    # Cuyahoga County Board of Health, OH: the 58 Cleveland suburbs (Parma,
+    # Lakewood, Euclid, Strongsville, Shaker Heights, ...); the City of
+    # Cleveland has its own department and is NOT here. No score of any kind
+    # (score 0, scoreDisplay '' on every row; Ohio's form has none), so risk
+    # comes from the scraped observations ('NN: 3717-1-xx <code title>.
+    # **<observation>'). ~200-230 food inspections a week (35-84 a day),
+    # history from 2024-11-04. programName 'Food' | 'Schools' | 'Body Art' |
+    # 'Pools' | 'Animal Venue'. `state` is null on some rows (default fills
+    # it). Every row is a detail page, hence the midweek group.
+    'ccbh':                 {'display_name': 'Cuyahoga County', 'default_city': 'Parma',
+                             'state': 'OH', 'score_scale': 'none', 'metro': 'Cleveland',
+                             'programs': ['Food'], 'group': 'MHD metros (midweek)'},
+    # Virginia (VDH) — the 33 district sub-sites, see _mhd_va_district above.
+    # Richmond metro
+    'va-richmond':          _mhd_va_district('Richmond City', 'Richmond', 'Richmond'),
+    'va-henrico':           _mhd_va_district('Henrico', 'Henrico', 'Richmond'),
+    'va-chesterfield':      _mhd_va_district('Chesterfield', 'Chesterfield', 'Richmond'),
+    'va-chickahominy':      _mhd_va_district('Chickahominy', 'Mechanicsville', 'Richmond'),
+    # Hampton Roads
+    'va-virginia-beach':    _mhd_va_district('Virginia Beach', 'Virginia Beach', 'Hampton Roads'),
+    'va-norfolk':           _mhd_va_district('Norfolk', 'Norfolk', 'Hampton Roads'),
+    'va-chesapeake':        _mhd_va_district('Chesapeake', 'Chesapeake', 'Hampton Roads'),
+    'va-portsmouth':        _mhd_va_district('Portsmouth', 'Portsmouth', 'Hampton Roads'),
+    'va-hampton':           _mhd_va_district('Hampton', 'Hampton', 'Hampton Roads'),
+    'va-peninsula':         _mhd_va_district('Peninsula', 'Newport News', 'Hampton Roads'),
+    'va-western-tidewater': _mhd_va_district('Western Tidewater', 'Suffolk', 'Hampton Roads'),
+    # Northern Virginia (Fairfax County is its own source and not on the portal)
+    'va-arlington':         _mhd_va_district('Arlington', 'Arlington', 'Northern Virginia'),
+    'va-alexandria':        _mhd_va_district('Alexandria', 'Alexandria', 'Northern Virginia'),
+    'va-loudoun':           _mhd_va_district('Loudoun', 'Leesburg', 'Northern Virginia'),
+    'va-prince-william':    _mhd_va_district('Prince William', 'Manassas', 'Northern Virginia'),
+    # The other 18 districts: no metro chip
+    'va-alleghany-roanoke': _mhd_va_district('Alleghany-Roanoke', 'Roanoke'),
+    'va-blue-ridge':        _mhd_va_district('Blue Ridge', 'Charlottesville'),
+    'va-central':           _mhd_va_district('Central Virginia', 'Lynchburg'),
+    'va-central-shenandoah': _mhd_va_district('Central Shenandoah', 'Harrisonburg'),
+    'va-crater':            _mhd_va_district('Crater', 'Petersburg'),
+    'va-cumberland-plateau': _mhd_va_district('Cumberland Plateau', 'Tazewell'),
+    'va-eastern-shore':     _mhd_va_district('Eastern Shore', 'Accomac'),
+    'va-lenowisco':         _mhd_va_district('Lenowisco', 'Wise'),
+    'va-lord-fairfax':      _mhd_va_district('Lord Fairfax', 'Winchester'),
+    'va-mount-rogers':      _mhd_va_district('Mount Rogers', 'Bristol'),
+    'va-new-river':         _mhd_va_district('New River', 'Christiansburg'),
+    'va-piedmont':          _mhd_va_district('Piedmont', 'Farmville'),
+    'va-pittsylvania-danville': _mhd_va_district('Pittsylvania-Danville', 'Danville'),
+    'va-rappahannock':      _mhd_va_district('Rappahannock', 'Fredericksburg'),
+    'va-rappahannock-rapidan': _mhd_va_district('Rappahannock-Rapidan', 'Warrenton'),
+    'va-southside':         _mhd_va_district('Southside', 'South Hill'),
+    'va-three-rivers':      _mhd_va_district('Three Rivers', 'Saluda'),
+    'va-west-piedmont':     _mhd_va_district('West Piedmont', 'Martinsville'),
 }
+
+MHD_DEFAULT_GROUP = 'MHD metros'   # fetch group of an entry without 'group'
 
 # CLI city slugs → MHD_METRO_JURISDICTIONS subsets
 MHD_METRO_SLUG_GROUPS = {
@@ -311,6 +446,17 @@ MHD_METRO_SLUG_GROUPS = {
     # convenience: all four Tennessee metros
     'tennessee': ['tennessee:nashville', 'tennessee:memphis',
                   'tennessee:knoxville', 'tennessee:chattanooga'],
+    # 2026-11 expansion
+    'fortbend': ['fbceh'],
+    'arapahoe': ['acph'],
+    'douglas': ['dchd'],
+    'cuyahoga': ['ccbh'],
+    'richmond': ['va-richmond', 'va-henrico', 'va-chesterfield', 'va-chickahominy'],
+    'hamptonroads': ['va-virginia-beach', 'va-norfolk', 'va-chesapeake', 'va-portsmouth',
+                     'va-hampton', 'va-peninsula', 'va-western-tidewater'],
+    'nova': ['va-arlington', 'va-alexandria', 'va-loudoun', 'va-prince-william'],
+    # convenience: every VDH district
+    'virginia': [k for k in MHD_METRO_JURISDICTIONS if k.startswith('va-')],
 }
 
 CHROME_UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36'
@@ -454,6 +600,19 @@ def _mhd_metro_keys(cities):
     return keys
 
 
+def _mhd_metro_groups(keys):
+    """The fetch groups the requested MHD_METRO_JURISDICTIONS keys run in:
+    {group name: {key: config}}, one group per distinct config 'group'
+    (MHD_DEFAULT_GROUP when unset), groups and keys in first-seen order.
+    Each group is its own report row and freshness key, so the heavy
+    jurisdictions ('MHD metros (midweek)') can run on their own cron."""
+    groups = {}
+    for k in keys:
+        config = MHD_METRO_JURISDICTIONS[k]
+        groups.setdefault(str(config.get('group') or MHD_DEFAULT_GROUP), {})[k] = config
+    return groups
+
+
 def sane_inspection_date(date_str):
     """
     Validate an ISO inspection date (YYYY-MM-DD prefix). Source data contains
@@ -566,10 +725,27 @@ SEWAGE_ISSUE_RE = re.compile(
     r'sewage[^.]{0,40}(?:back|overflow|leak|expos|floor|discharg)|'
     r'(?:back|overflow|leak)[^.]{0,40}sewage',
     re.I)
+# The Food Code's dead-pest item names its pests as a list: "Dead or trapped
+# birds, insects, rodents, and other pests shall be removed ..." (6-501.112,
+# which Fort Bend County prints verbatim on every item-38 citation, Houston,
+# Detroit and Delaware as the bare title, Dallas as "Dead insects, rodents
+# and other pests have not been removed from the facility"). PEST_EVIDENCE_RE
+# read "dead ... rodents" in it as evidence and forced F's on county-scored
+# 97s (3 of 117 Fort Bend inspections, 2026-11-03). A list that names every
+# kind names none — the rule jev_reader's names_vermin already applies to
+# Jev's answers — so the construction is removed before the evidence match.
+# Measured over the 161,604 distinct lines in the Jev caches: 147 regex F's
+# go, every one this title (mostly Dallas's item 34 over dead crickets,
+# beetles and flies), none is added; a finding written after the title
+# ("... OBSERVED DEAD ROACHES UNDER THE SINK") keeps its F.
+DEAD_PEST_TITLE_RE = re.compile(
+    r'\b(?:remov(?:e|ing)\s+)?dead(?:\s*(?:or|/)\s*trapped)?\s+'
+    r'(?:(?:flies|insects?|rodents?|birds?|animals?)\s*(?:,|;|/|&|\band\b|\bor\b)\s*(?:(?:and|or)\s+)?){2,}'
+    r'(?:other\s+(?:pests?|animals?|vermin)|pests?\b)', re.I)
 
 
 def has_active_pest_or_sewage(text):
-    t = text or ''
+    t = DEAD_PEST_TITLE_RE.sub(' ', text or '')
     return bool(PEST_EVIDENCE_RE.search(t) or SEWAGE_ISSUE_RE.search(t))
 
 
@@ -5706,7 +5882,13 @@ MHD_BAN_COOLDOWNS = int(os.environ.get('MHD_BAN_COOLDOWNS', '16'))    # per run
 # reachable again.)
 _MHD_DETAIL_BANNED = False   # detail pages 403ing right now (searches still fine)
 _MHD_COOLDOWNS_USED = 0
-MHD_WINDOW_DAYS = 7    # initial search window; bisected when the query cap is hit
+# Search window length. ONE day: any multi-day window answers one row per
+# permit (its latest inspection in the window), so a 7-day window lost the
+# earlier inspections of every permit re-inspected inside it — measured
+# 2026-11-03 (Adams County: three inspections of one permit on consecutive
+# days, one row back from every 7-day read). A multi-day window set by a
+# config is still bisected when it reaches the query cap.
+MHD_WINDOW_DAYS = 1
 # The search API allows roughly 250 requests per TCP CONNECTION before it
 # answers 403 to everything on that connection (measured 2026-10-10: 252
 # searches in 265 s, then 403; clearing cookies changed nothing, closing the
@@ -5728,6 +5910,38 @@ MHD_DETAIL_DELAY = float(os.environ.get('MHD_DETAIL_DELAY', '0.4'))
 # must not spend them re-fetching inspections it already has. Loaded from
 # --skip-known-inspections; the merge keeps the skipped records' existing data.
 SKIP_KNOWN_INSPECTIONS = set()
+# display name -> the newest inspection date among the rows a jurisdiction's
+# searches returned this run, recorded only by a COMPLETE read whose window
+# reached today (not cut by the deadline, a failed window or the record
+# limit). _mhd_group_lag_note turns the group's newest into the freshness
+# report's source-lag note, so a STALE flag on a group whose portal is
+# behind (VDH ran a week late on 2026-11-02) reads as the source's lag, not
+# a broken fetch. The self-healing lookback makes this work: a quiet source
+# is re-read from its last shipped day, so the rows it still holds are seen.
+_MHD_NEWEST_SEEN = {}
+# display name -> (unreadable, tried) for a jurisdiction whose detail phase
+# failed on most of its pages this run for a reason other than a ban or the
+# deadline (a 404 after the detail path moved, a template the parser does
+# not know, the welcome page a renamed district slug serves). The records
+# are dropped and held either way; this is what makes fetch_dfw REPORT the
+# jurisdiction, so the group goes red instead of 'ok' on the other
+# jurisdictions' records while the held records are given up after
+# FRESHNESS_HOLD_GIVE_UP_RUNS quiet runs.
+_MHD_DETAIL_FAILED = {}
+# A detail phase's failures are systemic, not transient, when every page
+# tried failed, or more than half of at least this many did. One flaky page
+# among many is held and re-read next run, not a red run (the same rule as
+# OC_PDF_MASS_FAILURE_MIN for Orange County's printables).
+MHD_DETAIL_MASS_FAILURE_MIN = 20
+
+
+def _mhd_detail_mass_failure(unreadable, tried):
+    """True when `unreadable` of `tried` detail pages failing looks like the
+    jurisdiction's detail pages cannot be read at all (see _MHD_DETAIL_FAILED)."""
+    if not tried or not unreadable:
+        return False
+    return unreadable >= tried or (tried >= MHD_DETAIL_MASS_FAILURE_MIN
+                                   and unreadable * 2 > tried)
 
 
 def _mhd_session():
@@ -5763,16 +5977,76 @@ def _mhd_norm_city(value):
     return ' '.join(str(value or '').lower().replace('-', ' ').replace('.', '').split())
 
 
-def _mhd_row_rejection(rec, programs=(), city_allow=()):
+def _mhd_row_rejection(rec, programs=(), city_allow=(), exclude=()):
     """Why a raw search row falls outside a jurisdiction config ('' = keep):
     'program' when the config lists programs and the row's programName is not
     one of them, 'city' when it lists city_allow and the row's city is not
-    one of them. Both sets arrive pre-normalised (lower-case programs,
+    one of them, 'excluded' when one of the config's exclude patterns
+    ((row field, compiled regex) pairs from _mhd_exclude_patterns) matches
+    the row's field. The sets arrive pre-normalised (lower-case programs,
     _mhd_norm_city cities); an empty set means "no filter"."""
     if programs and str(rec.get('programName') or '').strip().lower() not in programs:
         return 'program'
     if city_allow and _mhd_norm_city(rec.get('city')) not in city_allow:
         return 'city'
+    for field, pattern in exclude:
+        if pattern.search(str(rec.get(field) or '')):
+            return 'excluded'
+    return ''
+
+
+def _mhd_exclude_patterns(config):
+    """Compiled (row field, regex) pairs from a config's 'exclude' mapping
+    ({field: regex}); a row whose field matches is dropped before parsing.
+    Arapahoe County's mobile units are the case: addressLine1 '^Mobile Unit'
+    with no city and no zip — no fixed address to geocode or to map."""
+    return [(str(field), re.compile(str(rx))) for field, rx in
+            (config.get('exclude') or {}).items()]
+
+
+# Sorting the plain date search. The portal pages a query by `start` offset,
+# and with 'sort': {} (its default) the order is UNSTABLE on inspectionDate
+# ties: page N+1 re-serves rows page N already had and never serves others.
+# Measured 2026-11-03 on the jurisdictions DineScores ships, over two
+# completed weeks each: the weekly unsorted 7-day read lost 3-13% of the
+# rows a day-by-day read found (Dallas 20 of 154, Frisco 5 of 56, El Paso
+# County 9 of 77, Adams County 5 of 59), while sorting on the unique
+# inspectionID served disjoint, complete pages on every read. Every lossy
+# unsorted read showed its loss as rows REPEATED across pages (as many
+# repeats as rows lost), so _mhd_pages_consistent refuses a sorted page
+# sequence with a repeat rather than shipping it short. It does NOT check
+# the order of the keys: most portals serve the sort in SQL Server
+# uniqueidentifier order, but Gwinnett's pages — disjoint and complete,
+# first page 45-60 rows long — are not in that order, so an order check
+# would fail a correct read. Orange County's newest-225 poll must NOT sort
+# (any sort turns its query into a whole-database one, see
+# fetch_orange_county), so the default lives in the jurisdiction fetch, not
+# in _mhd_search_page.
+MHD_SORT_INSPECTION_ID = {'field': 'inspectionID', 'direction': 'asc'}
+MHD_DEFAULT_SORT = MHD_SORT_INSPECTION_ID
+# A sorted query whose pages do not fit together is read again once (a row
+# posted between two page requests shifts the sequence by one) before the
+# window is failed.
+MHD_SORTED_READ_ATTEMPTS = 2
+
+
+def _mhd_pages_consistent(pages, sort):
+    """'' when a sorted query's pages fit together as one stable sequence,
+    else 'repeat': an inspectionID appeared on two pages, which means the
+    portal did not page the query stably (the unstable default order
+    re-serves rows from an earlier page in place of rows it never serves),
+    so the rows are not a complete read of the window. `sort` is the
+    payload sort the pages were read with (kept for the log and for a
+    field-specific check, should one ever prove universal)."""
+    seen_on = {}
+    for page_no, page in enumerate(pages):
+        for row in page:
+            iid = str(row.get('inspectionID') or '').strip()
+            if not iid:
+                continue
+            if seen_on.get(iid, page_no) != page_no:
+                return 'repeat'
+            seen_on[iid] = page_no
     return ''
 
 
@@ -5790,7 +6064,7 @@ def _mhd_rotate_connection(session, force=False):
 
 
 def _mhd_search_page(session, path, date_range_str, start_offset, retry_count=0,
-                     search_str='', purpose=''):
+                     search_str='', purpose='', sort=None):
     """
     Fetch one page of search results from MHD portal API.
 
@@ -5804,6 +6078,9 @@ def _mhd_search_page(session, path, date_range_str, start_offset, retry_count=0,
             non-empty switches the portal to one row per permit (see the
             Tennessee note above MHD_METRO_JURISDICTIONS)
         purpose: filters.purpose — '' (default) is any purpose
+        sort: the payload's sort ({'field': ..., 'direction': 'asc'|'desc'});
+            None (default) sends the portal's own unstable order (see
+            MHD_DEFAULT_SORT) — Orange County's poll depends on that
 
     Returns:
         list of record dicts, or None on permanent failure
@@ -5821,7 +6098,7 @@ def _mhd_search_page(session, path, date_range_str, start_offset, retry_count=0,
             'searchStr': search_str or '',
             'lat': 0,
             'lng': 0,
-            'sort': {},
+            'sort': dict(sort) if sort else {},
         },
         'task': 'searchInspections',
     }
@@ -5840,7 +6117,7 @@ def _mhd_search_page(session, path, date_range_str, start_offset, retry_count=0,
                 session._mhd_reconnected = True
                 log.info(f"  MHD {r.status_code} on a search — reconnected and retrying")
                 result = _mhd_search_page(session, path, date_range_str, start_offset,
-                                          retry_count, search_str, purpose)
+                                          retry_count, search_str, purpose, sort)
                 session._mhd_reconnected = False
                 return result
             if retry_count < MHD_MAX_RETRIES:
@@ -5856,7 +6133,7 @@ def _mhd_search_page(session, path, date_range_str, start_offset, retry_count=0,
                             f"{retry_count + 1}/{MHD_MAX_RETRIES}...")
                 time.sleep(wait)
                 return _mhd_search_page(session, path, date_range_str, start_offset,
-                                        retry_count + 1, search_str, purpose)
+                                        retry_count + 1, search_str, purpose, sort)
             _MHD_PORTAL_BLOCKED = True
             log.error(f"  MHD blocked ({r.status_code}) after {retry_count} retries — "
                       f"skipping the portal's remaining fetches this run")
@@ -5864,8 +6141,16 @@ def _mhd_search_page(session, path, date_range_str, start_offset, retry_count=0,
         r.raise_for_status()
         data = r.json()
         if not isinstance(data, list):
-            log.debug(f"  MHD search returned non-list: {type(data).__name__}")
-            return []
+            # The portal answers a request it rejects with 200 and
+            # {"err": true, "msg": "bad request"} — a path it does not know
+            # (a renamed district slug), an offset past the cap (measured
+            # 2026-11-03) — while an empty day is a plain []. So this is not
+            # "no inspections today" but a window that was not read: None,
+            # which the jurisdiction fetch holds and fails closed on.
+            log.error(f"  MHD search {path} {date_range_str} start={start_offset}: the portal "
+                      f"answered {type(data).__name__} {str(data)[:100]!r}, not a result "
+                      f"list — the window is unread")
+            return None
         return data
     except requests.RequestException as e:
         if retry_count < MHD_MAX_RETRIES and not _past_deadline():
@@ -5873,41 +6158,69 @@ def _mhd_search_page(session, path, date_range_str, start_offset, retry_count=0,
             log.warning(f"  MHD network error: {e}. Waiting {wait}s before retry...")
             time.sleep(wait)
             return _mhd_search_page(session, path, date_range_str, start_offset,
-                                    retry_count + 1, search_str, purpose)
+                                    retry_count + 1, search_str, purpose, sort)
         log.error(f"  MHD failed after {retry_count} retries: {e}")
         return None
 
 
-def _mhd_search_all_pages(session, path, date_range, search_str='', purpose=''):
+def _mhd_search_all_pages(session, path, date_range, search_str='', purpose='',
+                          sort=None, label=''):
     """
     Page one search query (offsets of MHD_PAGE_SIZE) until a short page or
-    the query cap. The first page can carry more than MHD_PAGE_SIZE rows and
-    later pages can repeat rows (both seen on 'gwinnett' and 'tennessee'),
-    so callers dedupe by inspectionID; offsets are never pushed past the cap
-    (the portal rejects them).
+    the query cap. The first page can carry more than MHD_PAGE_SIZE rows and,
+    without a sort, later pages can repeat rows (both seen on 'gwinnett' and
+    'tennessee'), so callers dedupe by inspectionID; offsets are never pushed
+    past the cap (the portal rejects them).
+
+    With a `sort` the pages must fit together (_mhd_pages_consistent): a row
+    repeated across pages means the portal did not page the query stably
+    and the window is NOT complete — the query then fails (None, as a 403
+    exhaustion does) so the caller re-reads the window instead of shipping
+    it short.
 
     Returns the raw rows (len >= MHD_QUERY_CAP means the cap was hit), or
     None on permanent failure.
     """
-    rows = []
-    start = 0
-    while len(rows) < MHD_QUERY_CAP:
-        page = _mhd_search_page(session, path, date_range, start,
-                                search_str=search_str, purpose=purpose)
-        if page is None:
-            return None  # permanent failure
-        if not page:
-            break
-        rows.extend(page)
-        if len(page) < MHD_PAGE_SIZE:
-            break
-        start += MHD_PAGE_SIZE
-        time.sleep(MHD_DELAY)
-    return rows
+    for attempt in range(MHD_SORTED_READ_ATTEMPTS):
+        rows = []
+        pages = []
+        start = 0
+        while len(rows) < MHD_QUERY_CAP:
+            page = _mhd_search_page(session, path, date_range, start,
+                                    search_str=search_str, purpose=purpose, sort=sort)
+            if page is None:
+                return None  # permanent failure
+            if not page:
+                break
+            rows.extend(page)
+            pages.append(page)
+            if len(page) < MHD_PAGE_SIZE:
+                break
+            start += MHD_PAGE_SIZE
+            time.sleep(MHD_DELAY)
+        if not (sort and len(pages) > 1):
+            return rows
+        why = _mhd_pages_consistent(pages, sort)
+        if not why:
+            return rows
+        if attempt + 1 < MHD_SORTED_READ_ATTEMPTS and not _past_deadline():
+            # A row posted between two page requests shifts the sequence
+            # once; a re-read of the whole query settles it. Anything that
+            # repeats on the re-read is the portal, not timing.
+            log.warning(f"  {label or path} {date_range}: sorted pages are not one stable "
+                        f"sequence ({why}: {len(pages)} pages, {len(rows)} rows) — "
+                        f"re-reading the query")
+            time.sleep(MHD_DELAY)
+            continue
+        log.error(f"  {label or path} {date_range}: sorted pages are not one stable "
+                  f"sequence ({why}: {len(pages)} pages, {len(rows)} rows) — the "
+                  f"window cannot be read completely, failing the query")
+        return None
+    return None
 
 
 def _mhd_fetch_bucket_window(session, path, start_day, end_day, search_terms,
-                             purposes, label=''):
+                             purposes, label='', sort=None):
     """
     Bucket-mode search for one window: one paged query per search term ×
     purpose, unioned by inspectionID (a permit matching two terms, e.g. a
@@ -5932,7 +6245,8 @@ def _mhd_fetch_bucket_window(session, path, start_day, end_day, search_terms,
                             f"window — stopping after {len(by_id)} rows")
                 return list(by_id.values()), capped
             rows = _mhd_search_all_pages(session, path, date_range,
-                                         search_str=term, purpose=purpose)
+                                         search_str=term, purpose=purpose,
+                                         sort=sort, label=label)
             if rows is None:
                 return None
             log.debug(f"  {label} {date_range} '{term}' / {purpose or 'any purpose'}: "
@@ -5950,17 +6264,18 @@ def _mhd_fetch_bucket_window(session, path, start_day, end_day, search_terms,
     return list(by_id.values()), capped
 
 
-def _mhd_fetch_window(session, path, start_day, end_day):
+def _mhd_fetch_window(session, path, start_day, end_day, sort=None, label=''):
     """
     Fetch all inspection records for a date window (datetime, datetime),
     paginating through results. The search API silently truncates a query
     around MHD_QUERY_CAP records, so if we collect that many the window is
-    bisected into halves and re-fetched recursively.
+    bisected into halves and re-fetched recursively. `sort` and `label` go
+    to _mhd_search_all_pages (the sorted-pages guard and its log line).
 
     Returns a list of raw records, or None on permanent failure.
     """
     date_range = f"{start_day.strftime('%Y-%m-%d')} to {end_day.strftime('%Y-%m-%d')}"
-    all_results = _mhd_search_all_pages(session, path, date_range)
+    all_results = _mhd_search_all_pages(session, path, date_range, sort=sort, label=label)
     if all_results is None:
         return None  # permanent failure
 
@@ -5973,15 +6288,15 @@ def _mhd_fetch_window(session, path, start_day, end_day):
         mid = datetime(mid.year, mid.month, mid.day)
         if mid < start_day:
             mid = datetime(start_day.year, start_day.month, start_day.day)
-        log.info(f"  {path} {date_range}: hit query cap, splitting window")
-        left = _mhd_fetch_window(session, path, start_day, mid)
-        right = _mhd_fetch_window(session, path, mid + timedelta(days=1), end_day)
+        log.info(f"  {label or path} {date_range}: hit query cap, splitting window")
+        left = _mhd_fetch_window(session, path, start_day, mid, sort, label)
+        right = _mhd_fetch_window(session, path, mid + timedelta(days=1), end_day, sort, label)
         if left is None or right is None:
             return None
         return left + right
 
     if len(all_results) >= MHD_QUERY_CAP:
-        log.warning(f"  {path} {date_range} hit the {MHD_QUERY_CAP} record cap on a "
+        log.warning(f"  {label or path} {date_range} hit the {MHD_QUERY_CAP} record cap on a "
                     f"single day — some records may be missing")
     return all_results
 
@@ -6030,6 +6345,28 @@ def _mhd_parse_detail_html(html):
     return observations
 
 
+# What the parser reads on an inspection detail page: the observations block
+# (every template probed 2026-11-03 — Fort Bend, Plano, Frisco, Dallas,
+# Tarrant, Gwinnett, Multnomah, El Paso County, Utah County, Arapahoe,
+# Cuyahoga, VDH Norfolk — renders it, Plano's inside an HTML comment, and
+# a clean inspection renders it EMPTY) or Frisco's itemNum/comments JS. The
+# portal's welcome page ('Welcome | Virginia Department of Health | My
+# Health Department', served for a district's inspection id under another
+# path) and its landing page ('My Health Department', served for a path it
+# does not know) carry neither, and nor would a template the parser no
+# longer understands: such a 200 is not a read of the inspection, and the
+# parser would otherwise read it as a CLEAN one (risk 100 on the no-score
+# and demerit jurisdictions, where the grade is nothing but this parse).
+_MHD_INSPECTION_PAGE_RE = re.compile(
+    r'observations-(?:text|header)|itemNum\s*=\s*"\d+"', re.I)
+
+
+def _mhd_is_inspection_page(html):
+    """True when `html` carries the observations block (or the itemNum JS)
+    the detail parser reads — i.e. is an inspection page, clean or not."""
+    return bool(html) and bool(_MHD_INSPECTION_PAGE_RE.search(html))
+
+
 def _mhd_fetch_inspection_detail(session, path, inspection_id, retry_count=0):
     """
     Fetch violation details for a single inspection by scraping its public
@@ -6037,7 +6374,9 @@ def _mhd_fetch_inspection_detail(session, path, inspection_id, retry_count=0):
     are rendered server-side into the page HTML, so a plain GET suffices.)
     `path` is the real portal path (_mhd_path), never a pseudo-jurisdiction key.
 
-    Returns a list of violation description strings, or empty list on failure.
+    Returns a list of violation description strings (empty for a clean
+    inspection), or None when the page could not be read — a non-200, a
+    block, or a 200 that is not an inspection page (_mhd_is_inspection_page).
     """
     global _MHD_DETAIL_BLOCK_STREAK, _MHD_DETAIL_BANNED
     if _MHD_PORTAL_BLOCKED or _MHD_DETAIL_BANNED:
@@ -6067,6 +6406,14 @@ def _mhd_fetch_inspection_detail(session, path, inspection_id, retry_count=0):
         with _MHD_BLOCK_LOCK:
             _MHD_DETAIL_BLOCK_STREAK = 0
         r.encoding = 'utf-8'  # pages omit charset; default latin-1 mangles § etc.
+        if not _mhd_is_inspection_page(r.text):
+            # The welcome/landing page, or a template without the block the
+            # parser reads: not a read, never "no violations".
+            title = re.search(r'<title>(.*?)</title>', r.text or '', re.S | re.I)
+            log.debug(f"  Detail page for {inspection_id} under {path} is not an inspection "
+                      f"page ({' '.join((title.group(1) if title else 'no title').split())[:80]}) "
+                      f"— not read")
+            return None
         return _mhd_parse_detail_html(r.text)
     except Exception as e:
         log.debug(f"  Detail fetch failed for {inspection_id}: {e}")
@@ -6212,7 +6559,8 @@ def fetch_dfw(jurisdictions=None, since_date=None, limit_per_jurisdiction=None,
 
         skipped: optional list; the display name and reason of every
             jurisdiction this call did not fetch (portal blocked, fetch
-            deadline, an exception) are appended to it, so the caller can
+            deadline, an exception) or whose detail pages mostly failed to
+            read (_MHD_DETAIL_FAILED) are appended to it, so the caller can
             report the group as partial instead of 'ok'/'empty'.
 
     Returns:
@@ -6261,6 +6609,9 @@ def fetch_dfw(jurisdictions=None, since_date=None, limit_per_jurisdiction=None,
             log.info(f"{display_name}: {len(results)} records")
             if display_name in _MHD_DEADLINE_CUT:
                 skipped.append(f"{display_name} (deadline)")
+            elif display_name in _MHD_DETAIL_FAILED:
+                n_bad, n_tried = _MHD_DETAIL_FAILED[display_name]
+                skipped.append(f"{display_name} (error: {n_bad}/{n_tried} detail pages unreadable)")
         except Exception as e:
             log.error(f"{display_name} fetch failed: {e}")
             import traceback
@@ -6271,6 +6622,22 @@ def fetch_dfw(jurisdictions=None, since_date=None, limit_per_jurisdiction=None,
     log.info(f"DFW total: {len(all_results)} inspection records across "
              f"{len(jurisdictions)} jurisdictions")
     return all_results
+
+
+def _mhd_group_lag_note(group, jurisdictions, not_fetched=()):
+    """Leave the fetch group's source-lag note (_note_source_lag) once, after
+    a complete read: the newest inspection date any of its jurisdictions'
+    searches returned this run (_MHD_NEWEST_SEEN). The note only shows when
+    that date is older than SOURCE_LAG_NOTE_DAYS, i.e. when the whole group
+    is behind because the portal is. No note when a jurisdiction was not
+    fetched (the report's detail already says which) or none completed a
+    read that reached today."""
+    if not_fetched:
+        return
+    newest = max((_MHD_NEWEST_SEEN.get(c['display_name'], '') for c in jurisdictions.values()),
+                 default='')
+    if newest:
+        _note_source_lag(group, newest)
 
 
 def _fetch_mhd_jurisdiction_api(session, slug, config, since_date=None, limit=None,
@@ -6295,12 +6662,24 @@ def _fetch_mhd_jurisdiction_api(session, slug, config, since_date=None, limit=No
     purposes = [str(p) for p in (config.get('purposes') or [''])]
     programs = {str(p).strip().lower() for p in (config.get('programs') or [])}
     city_allow = {_mhd_norm_city(c) for c in (config.get('city_allow') or [])}
+    exclude = _mhd_exclude_patterns(config)
     bucket_mode = bool(search_terms)
-    if bucket_mode and window_days > 1:
-        # A searchStr query answers one row per permit per window, so any
-        # window longer than a day drops a permit's earlier inspections.
-        log.warning(f"{display_name}: bucket mode with {window_days}-day windows — "
-                    f"inspections inside each window will be lost; set window_days 1")
+    # The plain date search sorts on inspectionID unless the config says
+    # otherwise (MHD_DEFAULT_SORT; 'sort': None opts out). Bucket mode keeps
+    # the portal's own order unless the config sets one: a searchStr query
+    # answers one row per permit and its sorting is unverified.
+    sort = config['sort'] if 'sort' in config else (None if bucket_mode else MHD_DEFAULT_SORT)
+    if window_days > 1:
+        # ANY multi-day window answers one row per permit — that permit's
+        # latest inspection in the window (measured 2026-11-03 on Adams
+        # County: a permit inspected on three consecutive days came back
+        # once from every 7-day read, sorted or not; the same on Summit
+        # County OH, Placer County CA). So a window longer than a day loses
+        # a permit's earlier inspections, including the Routine that earned
+        # a Follow-Up. MHD_WINDOW_DAYS is 1 for that reason.
+        log.warning(f"{display_name}: {window_days}-day windows — a permit inspected "
+                    f"twice inside a window keeps only its latest inspection; set "
+                    f"window_days 1")
 
     # Build date range
     if since_date:
@@ -6338,7 +6717,8 @@ def _fetch_mhd_jurisdiction_api(session, slug, config, since_date=None, limit=No
     seen_ids = set()
     stopped_early = False
     capped_queries = 0
-    dropped_by_program = dropped_by_city = 0
+    dropped_by_program = dropped_by_city = dropped_by_exclude = 0
+    newest_seen = ''   # newest inspection date among ALL rows returned
 
     for win_idx, (win_start, win_end) in enumerate(windows):
         if limit and len(all_records) >= limit:
@@ -6353,7 +6733,8 @@ def _fetch_mhd_jurisdiction_api(session, slug, config, since_date=None, limit=No
         capped = []
         if bucket_mode:
             fetched = _mhd_fetch_bucket_window(session, path, win_start, win_end,
-                                               search_terms, purposes, label=display_name)
+                                               search_terms, purposes, label=display_name,
+                                               sort=sort)
             raw_records = None if fetched is None else fetched[0]
             capped = [] if fetched is None else fetched[1]
             if fetched is not None and _past_deadline():
@@ -6363,22 +6744,40 @@ def _fetch_mhd_jurisdiction_api(session, slug, config, since_date=None, limit=No
                 _hold_freshness(f"{display_name} Health Dept", win_start.strftime('%Y-%m-%d'),
                                 counted=False)
         else:
-            raw_records = _mhd_fetch_window(session, path, win_start, win_end)
+            raw_records = _mhd_fetch_window(session, path, win_start, win_end,
+                                            sort=sort, label=display_name)
         if raw_records is None:
-            log.error(f"  {display_name}: stopping early due to server errors on "
-                      f"{win_start.strftime('%Y-%m-%d')}")
-            stopped_early = True
-            break
+            if _MHD_PORTAL_BLOCKED or _past_deadline():
+                # The breaker or the deadline: the group is reported
+                # 'blocked'/'skipped' by the caller; ship what was read.
+                log.error(f"  {display_name}: stopping early due to server errors on "
+                          f"{win_start.strftime('%Y-%m-%d')}")
+                stopped_early = True
+                break
+            # Neither: the window could not be read completely (exhausted
+            # network retries, or sorted pages that did not fit together).
+            # Fail closed — hold the source at the window so the next run
+            # re-reads it, and raise so the group is reported, never ship
+            # the jurisdiction short and call it 'ok'.
+            _hold_window_start(f"{display_name} Health Dept", win_start.strftime('%Y-%m-%d'),
+                               counted=False)
+            raise RuntimeError(f"{display_name}: the search for "
+                               f"{win_start:%Y-%m-%d}..{win_end:%Y-%m-%d} could not be read "
+                               f"completely — nothing shipped for this jurisdiction")
         capped_queries += len(capped)
 
-        new_count = win_program = win_city = 0
+        new_count = win_program = win_city = win_excluded = 0
         for rec in raw_records:
-            why = _mhd_row_rejection(rec, programs, city_allow)
+            newest_seen = max(newest_seen, _mhd_row_date(rec))
+            why = _mhd_row_rejection(rec, programs, city_allow, exclude)
             if why == 'program':
                 win_program += 1
                 continue
             if why == 'city':
                 win_city += 1
+                continue
+            if why == 'excluded':
+                win_excluded += 1
                 continue
             parsed = _parse_mhd_record(rec, path, display_name, default_city,
                                        default_state, score_scale, metro)
@@ -6390,10 +6789,12 @@ def _fetch_mhd_jurisdiction_api(session, slug, config, since_date=None, limit=No
                     new_count += 1
         dropped_by_program += win_program
         dropped_by_city += win_city
+        dropped_by_exclude += win_excluded
 
         extra = ''
-        if win_program or win_city:
-            extra += f"; dropped {win_program} by program, {win_city} by city"
+        if win_program or win_city or win_excluded:
+            extra += (f"; dropped {win_program} by program, {win_city} by city, "
+                      f"{win_excluded} excluded")
         if capped:
             extra += f"; {len(capped)} term/purpose queries INCOMPLETE at the cap"
         log.info(f"  Window {win_idx+1}/{len(windows)} "
@@ -6402,13 +6803,21 @@ def _fetch_mhd_jurisdiction_api(session, slug, config, since_date=None, limit=No
 
         time.sleep(MHD_DELAY)
 
-    if dropped_by_program or dropped_by_city:
-        log.info(f"{display_name}: filtered out {dropped_by_program} rows by program "
-                 f"and {dropped_by_city} by city allowlist")
+    if dropped_by_program or dropped_by_city or dropped_by_exclude:
+        log.info(f"{display_name}: filtered out {dropped_by_program} rows by program, "
+                 f"{dropped_by_city} by city allowlist and {dropped_by_exclude} by the "
+                 f"exclude patterns")
     if capped_queries:
         log.warning(f"{display_name}: {capped_queries} search queries hit the "
                     f"{MHD_QUERY_CAP} record cap — their buckets are incomplete and "
                     f"some inspections are missing this run")
+
+    # A complete read that reached today tells what the source itself holds
+    # (see _MHD_NEWEST_SEEN); a read the limit, the deadline or a failed
+    # window cut short does not.
+    limit_cut = bool(limit) and len(all_records) >= limit
+    if not stopped_early and not limit_cut and range_end.date() >= datetime.now().date():
+        _MHD_NEWEST_SEEN[display_name] = newest_seen
 
     if limit:
         all_records = all_records[:limit]
@@ -6462,6 +6871,14 @@ def _fetch_mhd_jurisdiction_api(session, slug, config, since_date=None, limit=No
                                 key=r.get('source_id'))
             if _past_deadline():
                 _MHD_DEADLINE_CUT.add(display_name)
+            elif counted and _mhd_detail_mass_failure(len(unreadable), len(inspections_with_id)):
+                # Tried and failed on most of the pages: the detail pages
+                # cannot be read (a moved path, a renamed slug, a new
+                # template), which fetch_dfw reports so the run goes red
+                # instead of quietly giving the records up in three runs.
+                _MHD_DETAIL_FAILED[display_name] = (len(unreadable), len(inspections_with_id))
+                log.error(f"{display_name}: {len(unreadable)}/{len(inspections_with_id)} detail "
+                          f"pages unreadable — reporting the jurisdiction as failed")
             drop = {id(r) for r in unreadable}
             all_records = [r for r in all_records if id(r) not in drop]
 
@@ -6489,6 +6906,28 @@ def _mhd_is_food_record(rec):
     return True
 
 
+def _mhd_row_date(rec):
+    """A raw search row's inspection date as 'YYYY-MM-DD' ('' if none): ISO
+    ('2026-10-20T00:00:00.000Z'), MM/DD/YYYY (the VDH districts) or an epoch
+    in milliseconds (read as UTC), each through sane_inspection_date."""
+    raw_date = rec.get('inspectionDate') or rec.get('date') or ''
+    date_str = sane_inspection_date(raw_date) or ''
+    if not date_str and raw_date:
+        m = re.match(r'^(\d{2})/(\d{2})/(\d{4})', str(raw_date))
+        if m:
+            date_str = sane_inspection_date(f'{m.group(3)}-{m.group(1)}-{m.group(2)}') or ''
+    if not date_str and raw_date:
+        try:
+            # UTC, as the Sunday runner reads it: a local-time read gives the
+            # day before on a US clock.
+            date_str = sane_inspection_date(
+                datetime.fromtimestamp(int(raw_date) / 1000, tz=timezone.utc)
+                .strftime('%Y-%m-%d')) or ''
+        except Exception:
+            date_str = ''
+    return date_str
+
+
 def _parse_mhd_record(rec, path, display_name, default_city, default_state,
                       score_scale='100', metro='DFW'):
     """Parse a single inspection record from the MyHealthDepartment API JSON
@@ -6510,19 +6949,7 @@ def _parse_mhd_record(rec, path, display_name, default_city, default_state,
         zip_code = (rec.get('zip') or '').strip()
 
         # Inspection date — may be ISO string, MM/DD/YYYY (Virginia), or timestamp
-        raw_date = rec.get('inspectionDate') or rec.get('date') or ''
-        date_str = sane_inspection_date(raw_date) or ''
-        if not date_str and raw_date:
-            m = re.match(r'^(\d{2})/(\d{2})/(\d{4})', str(raw_date))
-            if m:
-                date_str = sane_inspection_date(
-                    f'{m.group(3)}-{m.group(1)}-{m.group(2)}') or ''
-        if not date_str and raw_date:
-            try:
-                date_str = sane_inspection_date(
-                    datetime.fromtimestamp(int(raw_date) / 1000).strftime('%Y-%m-%d')) or ''
-            except Exception:
-                date_str = ''
+        date_str = _mhd_row_date(rec)
         if not date_str:
             return None
 
@@ -6552,9 +6979,12 @@ def _parse_mhd_record(rec, path, display_name, default_city, default_state,
         insp_id = str(rec.get('inspectionID') or rec.get('id') or '').strip()
         permit_id = str(rec.get('permitID') or '').strip()
 
-        # Inspection type / purpose
+        # Inspection type / purpose / the county's own result where it
+        # publishes one (Arapahoe and Douglas County CO: 'Pass',
+        # 'Re-Inspection Required', 'Closed'; most portals have no field)
         insp_type = (rec.get('inspectionType') or '').strip()
         purpose = (rec.get('purpose') or '').strip()
+        result = str(rec.get('result') or '').strip()
 
         return {
             'name': name.title(),
@@ -6574,6 +7004,7 @@ def _parse_mhd_record(rec, path, display_name, default_city, default_state,
             'violations': [],
             'inspection_type': insp_type,
             'purpose': purpose,
+            'results': result,
             'source': f'{display_name} Health Dept',
             'source_url': f'https://inspections.myhealthdepartment.com/{path}/inspection/?inspectionID={insp_id}' if insp_id else f'https://inspections.myhealthdepartment.com/{path}',
             'source_id': insp_id or permit_id,
@@ -11461,18 +11892,20 @@ def main():
             log.error(f"Orange County fetch failed: {e}")
             _record_group('Orange County', [], 'error', str(e))
 
-    # The two MyHealthDepartment groups — the non-DFW metros (Portland, CO
-    # Front Range, Utah County, Yolo) and DFW — share one portal, one ban
-    # budget and one fetch deadline, so whichever group runs second is the
-    # one a tight run shortchanges. Build both, then run the group whose
-    # recorded data is older FIRST (inside a group, fetch_dfw orders its
-    # jurisdictions the same way).
+    # The MyHealthDepartment groups — the non-DFW metros (Portland, CO Front
+    # Range, Utah County, Yolo, ...; one group per distinct config 'group',
+    # so the heavy 'MHD metros (midweek)' jurisdictions can run on their own
+    # cron) and DFW — share one portal, one ban budget and one fetch
+    # deadline, so whichever group runs later is the one a tight run
+    # shortchanges. Build them all, then run the group whose recorded data
+    # is oldest FIRST (inside a group, fetch_dfw orders its jurisdictions
+    # the same way).
     mhd_metro_slugs = _mhd_metro_keys(args.cities)
     dfw_slugs_requested = [c for c in args.cities if c in DFW_JURISDICTIONS]
 
     mhd_groups = []   # (group name, jurisdictions)
-    if mhd_metro_slugs:
-        mhd_groups.append(('MHD metros', {s: MHD_METRO_JURISDICTIONS[s] for s in mhd_metro_slugs}))
+    for group, juris in _mhd_metro_groups(mhd_metro_slugs).items():
+        mhd_groups.append((group, juris))
     if 'dfw' in args.cities or dfw_slugs_requested:
         juris = DFW_JURISDICTIONS if 'dfw' in args.cities else {
             s: DFW_JURISDICTIONS[s] for s in dfw_slugs_requested}
@@ -11529,6 +11962,7 @@ def main():
                 status, detail = None, ''
             if not_fetched:
                 detail = f"{detail}: not fetched — {', '.join(not_fetched)}"
+            _mhd_group_lag_note(group, jurisdictions, not_fetched)
             _record_group(group, mhd_data, status, detail)
         except Exception as e:
             log.error(f"{group} fetch failed: {e}")
