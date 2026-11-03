@@ -46,7 +46,14 @@ Branch `feat/maricopa`, worktree `/home/user/wt-maricopa`. Section header in
       header<parsed, 1 unread (the 'Inspection Not Available' fixture).
       Fixtures inspection_INSP-143596-2026.html / inspection_INSP-195554-2026.html
       and 5 tests added (52 in the module).
-- [ ] Final cleanup + report.
+- [x] Post-fix live checks (03:39-03:48 UTC): test mode again -> 25 records,
+      53 requests, 0 retries, 25/25 ArcGIS coordinates, 49 s; a sample of 145
+      of the 14-day run's detail pages (every 10th restaurant) re-fetched and
+      re-parsed: 0 unread, 140 identical, 5 (3.4%) gain a PF/Core line the old
+      parser lost (scores -1/-2; one A->B), so the 14-day grade counts above are
+      the PRE-fix parser's and shift slightly down; +15 recovered inspections.
+- [x] Final cleanup + report (worktree clean, suite 326 OK, relay PASS,
+      py_compile OK on 3.13 and 3.11).
 
 ## Design decisions (so a successor does not re-derive them)
 - Group 'Maricopa County', source 'Maricopa County Environmental Services',
