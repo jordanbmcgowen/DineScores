@@ -158,9 +158,12 @@ class MaricopaTestCase(unittest.TestCase):
         dp._GROUP_NOTES.clear()
         dp._FETCH_DEADLINE = None
         dp.SKIP_KNOWN_INSPECTIONS.clear()
+        # the posting-lag margin and the 3-year history floor are pinned so the
+        # fixture's fixed dates give the same windows whenever the suite runs
         for name, value in (('MCESD_ZIP_RANGE', (85003, 85005)), ('MCESD_SEARCH_WORKERS', 1),
                             ('MCESD_LISTING_WORKERS', 1), ('MCESD_DETAIL_WORKERS', 1),
-                            ('MCESD_MIN_FOOD_PERMITS', 3)):
+                            ('MCESD_MIN_FOOD_PERMITS', 3), ('MCESD_POSTING_LAG_DAYS', 0),
+                            ('MCESD_HISTORY_DAYS', 10000)):
             patcher = mock.patch.object(dp, name, value)
             patcher.start()
             self.addCleanup(patcher.stop)
@@ -380,7 +383,8 @@ class RecordTests(MaricopaTestCase):
         with mock.patch.object(dp, 'MCESD_ZIP_RANGE', (85003, 85005)), \
                 mock.patch.object(dp, 'MCESD_LISTING_WORKERS', 1), \
                 mock.patch.object(dp, 'MCESD_DETAIL_WORKERS', 1), \
-                mock.patch.object(dp, 'MCESD_MIN_FOOD_PERMITS', 3):
+                mock.patch.object(dp, 'MCESD_MIN_FOOD_PERMITS', 3), \
+                mock.patch.object(dp, 'MCESD_POSTING_LAG_DAYS', 0):
             cls.records, cls.portal = run_fetch(since='2026-08-01T00:00:00')
         cls.by_id = _by_id(cls.records)
         dp._FRESHNESS = saved[0]
@@ -525,6 +529,25 @@ class WindowAndLimitTests(MaricopaTestCase):
         self.assertEqual(records, [])
         self.assertEqual(portal.detail_requests(), 0)
         self.assertNotIn(GROUP, dp._GROUP_STATUS)
+
+    def test_window_reaches_back_the_posting_lag_margin(self):
+        # the county publishes late: a weekly window that starts the day
+        # before the newest shipped row must still read the days before it
+        days_back = (datetime.now() - datetime(2026, 10, 19)).days + 2
+        with mock.patch.object(dp, 'MCESD_POSTING_LAG_DAYS', days_back):
+            records, portal = run_fetch(since='2026-10-20')
+        self.assertEqual([r['source_id'] for r in records], ['mcesd_FD-00408_INSP-026373-2026'])
+        # ... while holds still refer to the requested start, so a held
+        # window repeats run to run and the give-up count can accumulate
+        portal = FakePortal()
+        portal.permits['FD-00570'] = FakeResponse('<html>error</html>', 503)
+        with mock.patch.object(dp, 'MCESD_POSTING_LAG_DAYS', days_back):
+            run_fetch(portal, since='2026-10-20')
+        self.assertEqual(dp._FRESHNESS_HOLDS[SOURCE], {'2026-10-22|FD-00570': (True, False)})
+        # a far-older since is never narrowed by the margin
+        with mock.patch.object(dp, 'MCESD_POSTING_LAG_DAYS', 7):
+            records, _ = run_fetch(since='2026-08-01')
+        self.assertEqual(len(records), 4)
 
     def test_no_since_reads_the_whole_history_and_holds_what_it_cannot_read(self):
         # every row of every permit page is a candidate; the rows without a

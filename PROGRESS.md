@@ -42,10 +42,19 @@ Branch `feat/maricopa`, worktree `/home/user/wt-maricopa`. Section header in
   log at /tmp/claude-0/-home-user/7e1d0e8e-72d4-5821-aacd-ab7518c42dd1/scratchpad/live/maricopa_14d.log
   (pid 1081). If this file says nothing more about it, the machine restarted:
   check the log, re-run if needed.
+  - Inventory: 21,722 food permits from 25,831 rows over 403 zip searches in
+    102 s (2 workers, 4 req/s).
+  - Listing: 21,722 permit pages, 0 unread, 3,131 s (6.9 pages/s at the 7/s
+    pacer, 4 workers), 1,692 inspections dated >= 2026-10-20. NEWEST ROW ACROSS
+    ALL PERMITS: 2026-10-29 (5 days before the run) -> the county posts late,
+    so MCESD_POSTING_LAG_DAYS (21) widens every window; see the commit after
+    f8bf4f4. The margin's value is to be confirmed from the per-date histogram.
+  - Details: in progress at 01:58 UTC.
 
 ## Open questions
-- Posting lag: the 58 probe-sample permits gained 0 rows between 11/02 and
-  11/03 (expected ~0.5/day), so the one-day diff says nothing; use the
-  14-day run's newest-row dates instead.
+- Posting lag: measured 5 days at the newest end (newest row 2026-10-29 on
+  2026-11-03 across all permits). The spread (how many days until a date is
+  'full') comes from the 14-day run's per-date histogram; MCESD_POSTING_LAG_DAYS
+  must exceed it.
 - Detail-date vs row-date: the ROW date ships (commit after a9e94f7); a
   mismatch is only logged. Both come from the same county record.

@@ -7758,6 +7758,13 @@ MCESD_FOOD_PERMIT_TYPES = frozenset({
 MCESD_ZIP_RANGE = (85001, 85399)     # every Maricopa County zip; unioned with ArcGIS's list
 MCESD_MIN_FOOD_PERMITS = 15000       # 21,723 on 2026-11-02; fewer means the inventory broke
 MCESD_HISTORY_DAYS = 3 * 366         # the portal's rolling window (oldest row seen: 1,096 days)
+# The county posts inspections days to weeks after they happen: on 2026-11-03
+# the newest row across all 21,722 permits was dated 2026-10-29. The weekly
+# lookback starts the day before the newest SHIPPED date, so a window that
+# began there would skip every inspection dated earlier but published later.
+# The fetcher therefore reaches back at least this many days on every run
+# (inspections already stored are skipped, not re-read, via SKIP_KNOWN_INSPECTIONS).
+MCESD_POSTING_LAG_DAYS = int(os.environ.get('MCESD_POSTING_LAG_DAYS', '21'))
 MCESD_SEARCH_WORKERS = 2
 MCESD_SEARCH_RATE = 4.0              # zip searches per second, all workers together
 MCESD_LISTING_WORKERS = int(os.environ.get('MCESD_LISTING_WORKERS', '4'))
@@ -8165,7 +8172,16 @@ def fetch_maricopa(since_date=None, limit=None):
     """
     log.info(f"Fetching Maricopa County data (since={since_date}, limit={limit})")
     since = str(since_date)[:10] if since_date else None
-    window_start = since or (datetime.now() - timedelta(days=MCESD_HISTORY_DAYS)).strftime('%Y-%m-%d')
+    floor = (datetime.now() - timedelta(days=MCESD_HISTORY_DAYS)).strftime('%Y-%m-%d')
+    # requested_start is what the holds refer to (it repeats run to run while
+    # held, so the give-up count works); window_start is what ships, reaching
+    # back the posting-lag margin (see MCESD_POSTING_LAG_DAYS).
+    requested_start = since or floor
+    lag_start = (datetime.now() - timedelta(days=MCESD_POSTING_LAG_DAYS)).strftime('%Y-%m-%d')
+    window_start = min(requested_start, lag_start) if since else floor
+    if window_start != requested_start:
+        log.info(f"  Maricopa: window widened from {requested_start} to {window_start} "
+                 f"for the county's posting lag")
     stats = _McesdStats()
     started = time.time()
     local = threading.local()
@@ -8255,11 +8271,11 @@ def fetch_maricopa(since_date=None, limit=None):
         # re-reads it (given up after FRESHNESS_HOLD_GIVE_UP_RUNS runs) and
         # go red: a silently missing permit is how coverage gaps hide.
         for pid in unread:
-            _hold_window_start(MCESD_SOURCE, window_start, counted=True, key=pid)
+            _hold_window_start(MCESD_SOURCE, requested_start, counted=True, key=pid)
         log.warning(f"  Maricopa: {len(unread)} permit pages could not be read: "
                     + ', '.join(unread[:10]) + (' ...' if len(unread) > 10 else ''))
     if cut in ('deadline', 'blocked'):
-        _hold_window_start(MCESD_SOURCE, window_start, counted=False)
+        _hold_window_start(MCESD_SOURCE, requested_start, counted=False)
         reason = ('fetch deadline reached' if cut == 'deadline'
                   else f'portal blocked ({MCESD_BREAKER_TRIP} permit pages in a row unreadable)')
         _set_group_status(MCESD_GROUP, 'skipped' if cut == 'deadline' else 'blocked',
