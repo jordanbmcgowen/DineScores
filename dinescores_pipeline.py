@@ -7746,6 +7746,45 @@ def fetch_harris(since_date=None, limit=None):
 # dropped: a mobile unit's siteAddress is its commissary, and 84 Pima trucks
 # share one — pinning them there would put 84 "restaurants" on a kitchen.
 # Mesquite hides the type, so all of its rows ship.
+#
+# Fail-closed rules (review 2026-11-03):
+# - A 400/404/410 is that one record's problem (dropped, never held, as
+#   SNHD's permits are); EVERY other failure — 401/403 (a block), 408, 429,
+#   5xx, a timeout, a non-JSON body — is the portal's: retried, then the
+#   record is dropped AND held so the next window re-reads it.
+#   HH_BREAKER_TRIP requests in a row that exhaust their retries trip a
+#   per-portal breaker: every further request of the run fails at once, the
+#   unread tail is held uncounted and the group reports 'blocked' (a hanging
+#   portal could otherwise burn the whole fetch deadline: Mesquite issues
+#   ~690 GETs a run and one failing request costs up to ~195 s). Scattered
+#   failures beyond HH_MASS_FAILURE_MIN and HH_MASS_FAILURE_FRACTION of the
+#   reads report 'error'.
+# - A checklist without a cited item is CLEAN only when the inspection row
+#   agrees. Pima's rows carry hasInfractions (True on every cited visit seen
+#   live, False on every clean one; an Enforcement 'Fail' whose 62 items
+#   were all 'No Answer Selected' was observed and would otherwise compute
+#   to a 100), Lubbock's carry criticalInfractionCount (it counts every
+#   citation, Core included). Lubbock's and Mesquite's clean checklists ARE
+#   empty lists (verified live: every score-100 visit answered []), so an
+#   empty list is unread only where the row says there were infractions;
+#   Mesquite's rows carry neither flag and its score is the county's own.
+# - Lubbock's paging trusts nothing it can check: the echoed pageSize must
+#   be HH_PAGE (a silent clamp would end the read after one short page) and
+#   every page must be sorted newest-inspected first with never-inspected
+#   rows last and continue the page before (the same vendor's Mesquite
+#   server ignores that sort), or the list raises and the window ships
+#   nothing.
+# - Pima publishes each report as it is finalised, ~16 days after the
+#   inspection and spread over several days (2026-11-03: Thursday 10-16
+#   showed 15 facilities against 26-33 on the other Thursdays, Fridays 1-2),
+#   so a window that starts the day before the last shipped inspection
+#   misses the stragglers. 'lag_margin_days' widens every dated window that
+#   far; holds stay at the start the caller asked for, so the margin never
+#   creeps back. The same margin lets a weekly run with nothing recorded
+#   (an 8-day window, all of it newer than anything the portal has
+#   published) read its first batch instead of shipping a green 'empty'
+#   forever; a window that still starts after the portal's newest row
+#   reports 'error' and says how to seed the group.
 HH_HEADERS = {'User-Agent': CHROME_UA, 'Accept': 'application/json, text/plain, */*'}
 HH_POST_HEADERS = dict(HH_HEADERS, **{'Content-Type': 'application/json'})
 HH_TIMEOUT = 60              # one detail GET (measured 0.2-2.6 s)
@@ -7761,6 +7800,13 @@ HH_VIOLATION_RESULTS = frozenset({'Out of Compliance', 'Corrected During Inspect
 HH_SEVERITY = {'priority': 'priority', 'priority foundation': 'priority_foundation', 'core': 'core'}
 HH_MOBILE_TYPE_RE = re.compile(r'mobile|push ?cart|vehicle', re.I)
 HH_SKIP_TYPES = frozenset({'TF15 Temporary Food', 'School'})   # Lubbock's vocabulary
+HH_PERMANENT_STATUSES = frozenset({400, 404, 410})   # that record's own problem; every other status is the portal's
+HH_BREAKER_TRIP = 3          # requests in a row that exhaust their retries -> the portal is blocked this run
+HH_MASS_FAILURE_MIN = 10     # unread (held) lists/checklists that report the group 'error' when they are also
+HH_MASS_FAILURE_FRACTION = 0.1   # ...more than this share of the reads
+# A checklist item's possible answers; an item outside this vocabulary (a
+# renamed field, a new result) is neither a citation nor a clean answer.
+HH_ANSWERED_RESULTS = HH_VIOLATION_RESULTS | {'In Compliance', 'Not Applicable', 'Not Observed'}
 HH_PORTALS = {
     'pima': {
         'group': 'Pima County', 'source': 'Pima County Health Department', 'prefix': 'pima',
@@ -7772,6 +7818,7 @@ HH_PORTALS = {
         'list': 'whole', 'list_sort': 'id', 'list_min_rows': 4000,   # 5,177 rows on 2026-11-02
         'dated_list': True, 'official_score': False, 'results': 'rating',
         'title_caps': True,                 # 2,229 of 5,177 names (and their streets) are ALL CAPS
+        'lag_margin_days': 21,              # reports publish ~16 days late, spread over days (section comment)
     },
     'lubbock': {
         'group': 'Lubbock', 'source': 'Lubbock Environmental Health', 'prefix': 'lbk',
@@ -7783,6 +7830,7 @@ HH_PORTALS = {
         'list': 'paged', 'list_sort': 'lastInspectionDate', 'list_min_rows': 1,
         'dated_list': True, 'official_score': True, 'results': 'grade',
         'title_caps': False,                # mixed case as published; '(OXXO) DK #401' is a brand
+        'lag_margin_days': 0,               # an inspection is on the portal the next day
     },
     'mesquite': {
         'group': 'Mesquite', 'source': 'Mesquite Environmental Health', 'prefix': 'mesq',
@@ -7794,6 +7842,7 @@ HH_PORTALS = {
         'list': 'whole', 'list_sort': 'id', 'list_min_rows': 400,     # 689 rows on 2026-11-03
         'dated_list': False, 'official_score': True, 'results': 'none',
         'title_caps': False,
+        'lag_margin_days': 0,               # no dates on the list; every inspection list is read anyway
     },
 }
 # Pima's inspections carry a categorical rating. Graded visits ship with the
@@ -7804,11 +7853,22 @@ HH_PORTALS = {
 # verdict (site visits, emergency responses, 'No rating' and the vocabulary
 # of other programs) never ship — a site visit has no citations and would
 # read as a clean 100.
+# The county's own ordering, from its portal's colours: Excellent and Pass
+# green, Good light blue, Satisfactory orange, Needs Improvement purple,
+# Probation / Fail / IHH red. A 'Needs Improvement' is up to four priority
+# or priority-foundation items NOT corrected during the inspection (the
+# county's definition, KOLD 2020-01-31) and the step before Probation: a
+# re-inspection verdict like Orange County's REINSPECTION (75) and Santa
+# Clara's yellow placard, so it caps the computed score in the C band (its
+# citations alone computed to 86-93, an A, on 2026-11-03), and a
+# 'Satisfactory' can never show as an A. A cap never raises a score (a
+# Probation whose citations compute to 62 stays 62). 'Good' and 'Excellent'
+# are not banded: the citations decide between A and B.
 PIMA_SHIP_RATINGS = frozenset({
     'Excellent', 'Good', 'Satisfactory', 'Needs Improvement', 'Probation', 'Fail',
     'Pass', 'Educational', 'Complaint Open', 'Complaint Closed', 'IHH',
 })
-PIMA_RATING_RISK_CAP = {'Fail': 55, 'IHH': 55, 'Probation': 65}
+PIMA_RATING_RISK_CAP = {'Fail': 55, 'IHH': 55, 'Probation': 65, 'Needs Improvement': 79, 'Satisfactory': 89}
 # Lubbock publishes the letter only for a facility's newest inspection (per
 # inspection it is the literal 'INFO_REDACTED'); its bounds were verified on
 # all 2,044 rated facilities (A 90-100, B 80-89, C 70-79, F below).
@@ -7842,39 +7902,62 @@ _HH_STREET_SUFFIXES = frozenset({
 _HH_ORDINAL_RE = re.compile(r'(\d)(St|Nd|Rd|Th)\b')
 _HH_PLACEHOLDER_RE = re.compile(r'\s*@?\s*_{2,}\s*(?:PPM|°F|F\b)?', re.I)
 # The Texas form's pest criterion is titled 'No evidence of Insect
-# Contamination, Rodent, Other Animals'. The title alone trips the text-forced
-# F (an evidence word before a pest word; measured 2026-11-03: 10 of Lubbock's
-# 72 window records graded F for fly tape, door gaps and ceiling tiles, 8 of
-# Mesquite's 136 for 'Outer openings'), and a 'Rodent' left in the heading
-# also matches the regex across the '|||' line join and defeats Jev's
-# named-vermin guard. The line therefore ships under the section's neutral
-# heading, 'Pest control: <observation>': a sticky fly trap stays a Core
-# line, 'Observed live roaches' still forces an F from the observation.
+# Contamination, Rodent, Other Animals', Pima's 'Insects, rodents, and
+# animals not present'. The Texas title alone trips the text-forced F (an
+# evidence word before a pest word; measured 2026-11-03: 10 of Lubbock's 72
+# window records graded F for fly tape, door gaps and ceiling tiles, 8 of
+# Mesquite's 136 for 'Outer openings'), and EITHER title's 'rodent' matches
+# the regex across the '|||' line join when the line before ends in an
+# evidence word ('... soap not found|||Insects, rodents, ...') and defeats
+# Jev's named-vermin guard. Both therefore ship under one neutral heading,
+# 'Pests and animals: <observation>' (not 'Pest control', which the regex
+# summariser reads as "No pest control records"): a sticky fly trap stays a
+# Core line, 'Observed live roaches' still forces an F from the observation.
 _HH_PEST_TITLE_RE = re.compile(
-    r'^(?:no\s+)?evidence\s+of\s+insect\s+contamination,?\s+rodent[/,]?\s*(?:and\s+)?other\s+animals$', re.I)
-HH_PEST_TITLE = 'Pest control'
+    r'^(?:(?:no\s+)?evidence\s+of\s+insect\s+contamination,?\s+rodent[/,]?\s*(?:and\s+)?other\s+animals'
+    r'|insects,?\s+rodents,?\s+(?:and\s+)?animals\s+(?:are\s+)?not\s+present)$', re.I)
+HH_PEST_TITLE = 'Pests and animals'
 _HH_CODE_PREFIX_RE = re.compile(r'^\s*(?:§\s*)?[\d][\w.()§-]*\s*(?:-|–|:)\s*')
 _HH_REQUESTS = defaultdict(int)       # portal slug -> requests this run (for the log)
+_HH_STREAK = defaultdict(int)         # portal slug -> requests in a row that exhausted their retries
+_HH_BLOCKED = {}                      # portal slug -> reason, once the breaker tripped this run
 _HH_REQUESTS_LOCK = threading.Lock()
 
 
 class _HhError(Exception):
     """A Hedgehog request that could not be completed. `permanent` is True
-    for a 4xx (that record is gone from the portal), False for a timeout,
-    reset, 429, 5xx or a non-JSON body (transient: the record is held and
-    re-read next run)."""
+    for a 400/404/410 (that record is gone from the portal: dropped, never
+    held); `blocked` is True when the request was not made because the
+    portal's breaker had tripped (held, not counted). Otherwise the failure
+    is transient — a timeout, a reset, 401/403/408/429, 5xx, a non-JSON
+    body — and the record is held and re-read next run."""
 
-    def __init__(self, msg, permanent=False):
+    def __init__(self, msg, permanent=False, blocked=False):
         super().__init__(msg)
         self.permanent = permanent
+        self.blocked = blocked
+
+
+def _hh_blocked(slug):
+    """Why the portal's breaker tripped this run, or '' while it has not."""
+    with _HH_REQUESTS_LOCK:
+        return _HH_BLOCKED.get(slug, '')
 
 
 def _hh_json(slug, path, body=None, timeout=HH_TIMEOUT):
     """GET (or POST `body` as JSON) one Hedgehog endpoint and return the
     decoded JSON. Transient failures are retried HH_RETRIES times with
-    backoff, never past the fetch deadline; a 4xx is raised at once."""
+    backoff, never past the fetch deadline; a 400/404/410 is raised at once.
+    HH_BREAKER_TRIP requests in a row that exhaust their retries trip the
+    portal's breaker, and every later request of the run fails at once
+    (`blocked`); a success resets the streak, a retry the deadline cut
+    short and a permanent 4xx count for nothing."""
+    group = HH_PORTALS[slug]['group']
+    reason = _hh_blocked(slug)
+    if reason:
+        raise _HhError(f'portal breaker tripped: {reason}', blocked=True)
     url = HH_PORTALS[slug]['base'] + path
-    last = None
+    last, exhausted = None, False
     for attempt in range(1, HH_RETRIES + 1):
         with _HH_REQUESTS_LOCK:
             _HH_REQUESTS[slug] += 1
@@ -7888,19 +7971,35 @@ def _hh_json(slug, path, body=None, timeout=HH_TIMEOUT):
         else:
             if r.status_code == 200:
                 try:
-                    return r.json()
+                    data = r.json()
                 except ValueError:
                     last = _HhError(f'non-JSON body {r.text[:60]!r}')
-            elif r.status_code == 429 or r.status_code >= 500:
-                last = _HhError(f'HTTP {r.status_code}')
-            else:
+                else:
+                    with _HH_REQUESTS_LOCK:
+                        _HH_STREAK[slug] = 0
+                    return data
+            elif r.status_code in HH_PERMANENT_STATUSES:
                 raise _HhError(f'HTTP {r.status_code}', permanent=True)
-        if attempt == HH_RETRIES or _past_deadline():
+            else:
+                # 401/403 (a block), 408, 429, 5xx: the portal's problem, not the record's
+                last = _HhError(f'HTTP {r.status_code}')
+        if attempt == HH_RETRIES:
+            exhausted = True
+            break
+        if _past_deadline():
             break
         wait = HH_RETRY_WAIT * attempt
-        log.warning(f"  {HH_PORTALS[slug]['group']}: {path[:90]} failed ({last}) — "
-                    f"retry {attempt}/{HH_RETRIES - 1} in {wait}s")
+        log.warning(f"  {group}: {path[:90]} failed ({last}) — retry {attempt}/{HH_RETRIES - 1} in {wait}s")
         time.sleep(wait)
+    if exhausted:
+        with _HH_REQUESTS_LOCK:
+            _HH_STREAK[slug] += 1
+            tripped = _HH_STREAK[slug] >= HH_BREAKER_TRIP and slug not in _HH_BLOCKED
+            if tripped:
+                _HH_BLOCKED[slug] = f'{_HH_STREAK[slug]} requests in a row failed (last: {last})'
+        if tripped:
+            log.error(f"  {group}: {_HH_BLOCKED[slug]} — treating the portal as blocked; the run's "
+                      f"remaining requests are skipped and their records held")
     raise last
 
 
@@ -8017,7 +8116,7 @@ def _hh_facility_rows(slug, since):
     failure, a bad shape or an implausibly short whole list raises: the list
     is the completeness check, so a partial one must ship nothing."""
     cfg = HH_PORTALS[slug]
-    rows, page, total = [], 0, None
+    rows, page, total, prev_last = [], 0, None, ''
     while True:
         if page and _past_deadline():
             raise RuntimeError(f"{cfg['group']}: fetch deadline reached while listing facilities "
@@ -8042,11 +8141,34 @@ def _hh_facility_rows(slug, since):
                 raise RuntimeError(f"{cfg['group']}: facility list has only {len(rows)} rows "
                                    f"(expected at least {cfg['list_min_rows']}); not trusting it")
             return rows
-        last = str(page_rows[-1].get('lastInspectionDate') or '')[:10] if page_rows else ''
+        # Two server behaviours the paged read depends on, both checked
+        # against the response: the page size (a silent clamp would end the
+        # read after one short page) and the sort (newest-inspected first,
+        # never-inspected rows last, each page continuing the one before —
+        # the same vendor's Mesquite server ignores a sort on this field).
+        # A list that fails either is not trusted: nothing ships.
+        try:
+            echo = int(payload.get('pageSize') or 0)
+        except (TypeError, ValueError):
+            echo = 0
+        if echo and echo != HH_PAGE:
+            raise RuntimeError(f"{cfg['group']}: facility list page {page} came back with pageSize {echo}, "
+                               f"not the {HH_PAGE} asked for; not trusting the paging")
+        dates = [str(r.get('lastInspectionDate') or '')[:10] if isinstance(r, dict) else '' for r in page_rows]
+        dated = [d for d in dates if d]
+        if (dated != sorted(dated, reverse=True) or dates != dated + [''] * (len(dates) - len(dated))
+                or (prev_last and dated and dated[0] > prev_last)):
+            raise RuntimeError(f"{cfg['group']}: facility list page {page} is not sorted newest-inspected "
+                               f"first; not trusting the paging")
+        prev_last = dated[-1] if dated else prev_last
+        last = dates[-1] if dates else ''
         log.info(f"  {cfg['group']}: facility page {page} — {len(page_rows)} rows"
                  f"{f' of {total}' if total else ''}, last inspected {last or 'never'}")
-        if (not page_rows or len(page_rows) < HH_PAGE or last < since
-                or (total and len(rows) >= total)):
+        # The read ends at an empty page, the echoed total, the first row
+        # inspected before the window, or a short page whose size the
+        # server confirmed.
+        if (not page_rows or last < since or (total and len(rows) >= total)
+                or (len(page_rows) < HH_PAGE and echo == HH_PAGE)):
             return rows
         page += 1
         if page >= HH_MAX_PAGES:
@@ -8097,6 +8219,24 @@ def _hh_violations(items):
     return out
 
 
+def _hh_clean_is_believable(cfg, cand, items):
+    """Whether a checklist with no cited item may ship as a clean visit. The
+    inspection row is the cross-check: Pima's hasInfractions flag, Lubbock's
+    criticalInfractionCount (every citation, Core included). Without either
+    (Mesquite) the empty list IS the county's clean checklist and the score
+    is the county's own; Pima's 62-item form always carries answered items,
+    so a Pima checklist with none ([], all 'No Answer Selected', a renamed
+    result field) is unread, never a clean 100."""
+    if cand.get('infractions') is not None:
+        return not cand['infractions']
+    if cand.get('count') is not None:
+        return cand['count'] == 0
+    if cfg['official_score']:
+        return True
+    return any(' '.join(str(i.get('result') or '').split()) in HH_ANSWERED_RESULTS
+               for i in items if isinstance(i, dict))
+
+
 def _lbk_grade(score):
     for letter, floor in LBK_GRADE_BOUNDS:
         if score >= floor:
@@ -8105,24 +8245,25 @@ def _lbk_grade(score):
 
 
 def _hh_record(cfg, fac, cand, violations):
-    """One DineScores record, or None for an unscored visit without violation
-    data (a published score of 0/null and no citations has no grade basis)."""
+    """One DineScores record, or None for an unscored visit on an official-
+    score portal (a published score of 0/null: the county scored nothing, and
+    a 5/2/1 count over its citations would grade it on another scale than
+    every other record of the source — the Texas form deducts 3/2/1)."""
     pv = sum(1 for v in violations if v[1] == 'priority')
     pfv = sum(1 for v in violations if v[1] == 'priority_foundation')
     cv = len(violations) - pv - pfv
     score = cand['score']
-    if cfg['official_score'] and score is not None and score > 0:
+    rating = cand['rating']
+    if cfg['official_score']:
+        if score is None or score <= 0:
+            return None
         original, risk = score, max(0, min(100, score))
-    elif cfg['official_score'] and not violations:
-        return None
     else:
         original = None
         risk, pv, pfv, cv = calc_risk_score(violations)
-    rating = cand['rating']
-    if not cfg['official_score']:
         cap = PIMA_RATING_RISK_CAP.get(rating)
         if cap is not None:
-            risk = min(risk, cap)
+            risk = min(risk, cap)        # the county's verdict is never contradicted upward
     if cfg['results'] == 'rating':
         results = rating
     elif cfg['results'] == 'grade' and original is not None:
@@ -8181,10 +8322,19 @@ def _hh_candidates(cfg, fac, inspections, since, skipped):
             score = None
         itype = ' '.join(str(insp.get('inspectionType') or '').split())
         number = ' '.join(str(insp.get('inspectionNumber') or '').split())
+        # The row's own word on whether anything was cited (Pima's flag,
+        # Lubbock's count of every citation): the cross-check for a checklist
+        # that comes back with no cited item.
+        flag = insp.get('hasInfractions')
+        try:
+            count = int(insp.get('criticalInfractionCount'))
+        except (TypeError, ValueError):
+            count = None
         out.append({
             'fac': fac, 'id': iid, 'date': date, 'score': score, 'rating': rating,
             'type': itype or ' '.join(str(insp.get('inspectionReason') or '').split()),
             'key': number if cfg['prefix'] == 'lbk' and number else iid,
+            'infractions': flag if isinstance(flag, bool) else None, 'count': count,
         })
     return out, newest
 
@@ -8197,11 +8347,22 @@ def _hh_chunks(items, size):
 def _fetch_hedgehog(slug, since_date=None, limit=None):
     cfg = HH_PORTALS[slug]
     group, source = cfg['group'], cfg['source']
-    since = str(since_date)[:10] if since_date else cfg['history_start']
+    # `asked` is the window the caller wants: holds are keyed to it, so the
+    # next run starts there and widens again. `since` is what is read — the
+    # portal's publication-lag margin earlier (never in test mode / the
+    # history floor, where there is nothing to miss).
+    asked = str(since_date)[:10] if since_date else cfg['history_start']
+    margin = cfg.get('lag_margin_days', 0) if since_date else 0
+    since = asked
+    if margin:
+        since = (datetime.strptime(asked, '%Y-%m-%d') - timedelta(days=margin)).strftime('%Y-%m-%d')
     started = time.time()
     with _HH_REQUESTS_LOCK:
         _HH_REQUESTS[slug] = 0
-    log.info(f"Fetching {group} data (since={since}, limit={limit})")
+        _HH_STREAK[slug] = 0
+        _HH_BLOCKED.pop(slug, None)
+    log.info(f"Fetching {group} data (since={since}"
+             + (f", {margin} days before the {asked} asked for" if margin else '') + f", limit={limit})")
 
     # Phase 0 — the facility list (atomic: any failure raises and ships nothing).
     rows = _hh_facility_rows(slug, since)
@@ -8243,43 +8404,46 @@ def _fetch_hedgehog(slug, since_date=None, limit=None):
         return data
 
     candidates, dropped, cut, bounded = [], defaultdict(int), False, False
-    read = set()
+    read, unread_lists = set(), []
     with ThreadPoolExecutor(max_workers=HH_WORKERS) as pool:
         for chunk in _hh_chunks(facilities, HH_WORKERS):
             if limit and len(candidates) >= limit:
                 bounded = True
                 break
-            if _past_deadline():
+            if _past_deadline() or _hh_blocked(slug):
                 break
             for fac, got in zip(chunk, pool.map(list_one, chunk)):
-                if got == 'deadline':
-                    cut = True
-                    continue
+                if got == 'deadline' or (isinstance(got, _HhError) and got.blocked):
+                    continue                     # not tried: held with the unread tail below
                 read.add(fac['id'])
                 if isinstance(got, _HhError):
                     if got.permanent:
-                        dropped['facility gone'] += 1       # a 4xx: nothing to re-read
+                        dropped['facility gone'] += 1       # a 400/404/410: nothing to re-read
                     else:
                         dropped['facility list unread'] += 1
-                        # Its in-window inspections are unknown, so the whole
-                        # window is held (counted: given up after 3 runs).
-                        _hold_window_start(source, since, counted=True, key=fac['id'])
+                        unread_lists.append(fac['id'])
                     continue
                 try:
                     cands, nw = _hh_candidates(cfg, fac, got, since, skipped)
                 except _HhError:
                     dropped['facility list unread'] += 1
-                    _hold_window_start(source, since, counted=True, key=fac['id'])
+                    unread_lists.append(fac['id'])
                     continue
                 newest = max(newest, nw)
                 candidates.extend(cands)
+    blocked = bool(_hh_blocked(slug))
+    # An unread list leaves the facility's in-window inspections unknown, so
+    # the whole window is held: counted (given up after 3 runs) unless the
+    # portal was blocking, which is not that facility's fault.
+    for fid in unread_lists:
+        _hold_window_start(source, asked, counted=not blocked, key=fid)
     unread = len(facilities) - len(read)
     if unread and not bounded:
-        # The deadline cut the facility phase: the window is held (not
-        # counted) and the group reports a partial read.
-        cut = True
-        _hold_window_start(source, since, counted=False, key='facilities')
-        dropped['facility list not read (deadline)'] += unread
+        # The deadline or the breaker cut the facility phase: the window is
+        # held (not counted) and the group reports a partial read.
+        cut = cut or not blocked
+        _hold_window_start(source, asked, counted=False, key='facilities')
+        dropped[f"facility list not read ({'blocked' if blocked else 'deadline'})"] += unread
     candidates.sort(key=lambda c: (c['date'], c['id']))
     if limit and len(candidates) > limit:
         bounded = True
@@ -8299,14 +8463,13 @@ def _fetch_hedgehog(slug, since_date=None, limit=None):
         time.sleep(HH_DELAY)
         return data
 
-    results = []
-    read_cands = set()
+    results, read_cands, unread_checklists = [], set(), []
     with ThreadPoolExecutor(max_workers=HH_WORKERS) as pool:
         for chunk in _hh_chunks(candidates, HH_WORKERS):
-            if _past_deadline():
+            if _past_deadline() or _hh_blocked(slug):
                 break
             for cand, got in zip(chunk, pool.map(read_one, chunk)):
-                if got == 'deadline':
+                if got == 'deadline' or (isinstance(got, _HhError) and got.blocked):
                     continue
                 read_cands.add(cand['id'])
                 if isinstance(got, _HhError):
@@ -8314,34 +8477,56 @@ def _fetch_hedgehog(slug, since_date=None, limit=None):
                         dropped['checklist gone'] += 1
                     else:
                         dropped['checklist unread'] += 1
-                        _hold_freshness(source, cand['date'], counted=True, key=cand['id'])
+                        unread_checklists.append(cand)
                     continue
                 try:
                     violations = _hh_violations(got)
+                    if not violations and not _hh_clean_is_believable(cfg, cand, got):
+                        raise ValueError('no cited item on a checklist the inspection row says has infractions')
                 except ValueError as e:
-                    log.debug(f"  {group}: inspection {cand['id']}: {e}")
+                    log.debug(f"  {group}: inspection {cand['id']} ({cand['date']}): {e}")
                     dropped['checklist unread'] += 1
-                    _hold_freshness(source, cand['date'], counted=True, key=cand['id'])
+                    unread_checklists.append(cand)
                     continue
                 rec = _hh_record(cfg, cand['fac'], cand, violations)
                 if rec is None:
-                    skipped['unscored visit without citations'] += 1
+                    skipped['unscored visit'] += 1
                     continue
                 results.append(rec)
+    blocked = bool(_hh_blocked(slug))
+    for cand in unread_checklists:
+        _hold_freshness(source, cand['date'], counted=not blocked, key=cand['id'])
     pending = [c for c in candidates if c['id'] not in read_cands]
     if pending:
-        cut = True
+        cut = cut or not blocked
         for cand in pending:
             _hold_freshness(source, cand['date'], counted=False, key=cand['id'])
-        dropped['checklist not read (deadline)'] += len(pending)
-    if cut:
-        _set_group_status(group, 'skipped',
-                          f"fetch deadline reached; {dropped.get('facility list not read (deadline)', 0)} "
-                          f"facility lists and {len(pending)} checklists not read")
+        dropped[f"checklist not read ({'blocked' if blocked else 'deadline'})"] += len(pending)
+
+    # The group's status, worst first: a tripped breaker, too many unread
+    # records, a deadline cut, a window the portal has not published yet.
+    held = len(unread_lists) + len(unread_checklists)
+    tried = len(read) + len(read_cands)
+    not_read = sum(n for why, n in dropped.items() if 'not read' in why)
+    if blocked:
+        _set_group_status(group, 'blocked', f"{_hh_blocked(slug)}; {not_read} facility lists/checklists not "
+                                            f"read and {held} unread, all held for the next run")
+    elif held >= HH_MASS_FAILURE_MIN and held > HH_MASS_FAILURE_FRACTION * tried:
+        _set_group_status(group, 'error', f"{held} of {tried} facility lists/checklists could not be read "
+                                          f"(held for the next run)")
+    elif cut:
+        _set_group_status(group, 'skipped', f"fetch deadline reached; {not_read} facility lists/checklists "
+                                            f"not read (held for the next run)")
+    elif newest and since > newest and not bounded:
+        _set_group_status(group, 'error', f"the window starts {since} but the portal's newest inspection is "
+                                          f"{newest}: nothing to read. Seed the group once with --since-date "
+                                          f"and --freshness-file so a latest is recorded")
     if dropped:
         log.warning(f"  {group}: dropped " + ', '.join(f'{n} ({why})' for why, n in sorted(dropped.items()))
                     + " — none shipped as clean")
-    if not bounded:
+    # The source's own newest row: a dated list shows it whatever was read,
+    # an undated one (Mesquite) only once every facility's list was read.
+    if not bounded and (cfg['dated_list'] or not (cut or blocked)):
         _note_source_lag(group, newest)
 
     # Newest day first; within a day the worst visit first (D1 keeps one

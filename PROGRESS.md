@@ -85,7 +85,7 @@ LUBBOCK TX, MESQUITE TX". Scaffold commit 75d73d8.
   city parsed as Mesquite; 0 text-forced F's (was 8 with the raw title);
   A 127 / B 9 by score. Suite also green under python3.11 (CI's version).
 
-## Status: DONE — branch feat/hedgerow, not pushed; integrator squash-merges.
+## Status: FIX PASS in progress (2026-11-03) — see below; was DONE before the review.
 
 ## Open questions
 - Pima 'Needs Improvement' computes to a B (e.g. 93 for P+C+C); only Fail /
@@ -94,3 +94,55 @@ LUBBOCK TX, MESQUITE TX". Scaffold commit 75d73d8.
   the pest word); Jev's hazard decision covers it in the weekly run.
 - Mobile units dropped (Pima 630, Lubbock 146) — pinned at commissaries
   otherwise; flip HH_MOBILE_TYPE_RE if the owner wants them.
+
+## Fix pass (2026-11-03, after two adversarial reviews)
+
+Pipeline changes (all inside the Hedgerow section):
+- 4xx classes: only 400/404/410 are permanent (dropped, not held); 401/403/
+  408/429/5xx/timeouts/non-JSON are transient (retried, dropped AND held).
+- Per-portal breaker `HH_BREAKER_TRIP`=3 consecutive exhausted requests ->
+  `_HH_BLOCKED[slug]`, every later request fails at once (`_HhError.blocked`),
+  unread tail held counted=False, group 'blocked'. Failures in a phase where
+  the breaker tripped are held uncounted too (a block is not the record's
+  fault). Mass rule: >= `HH_MASS_FAILURE_MIN` (10) held records that are also
+  > `HH_MASS_FAILURE_FRACTION` (10%) of the reads -> group 'error'.
+- Unread checklists: a checklist with no cited item ships clean only when the
+  inspection row agrees (`_hh_clean_is_believable`): Pima hasInfractions
+  (live: True <-> cited on 12/12 samples; the all-'No Answer Selected' Fail
+  observed by the reviewer has True -> unread/held), Lubbock
+  criticalInfractionCount (counts every citation incl. Core: crit=2 <-> 2
+  Core items in the fixture). LIVE FACT: Lubbock's and Mesquite's clean
+  checklists are EMPTY LISTS (every score-100 visit probed answered []), so
+  the reviewer's blunt "empty list = unread" would have dropped every clean
+  Texas inspection; Mesquite (no flag, no count) trusts the official score.
+- Lubbock paging: echoed pageSize must equal HH_PAGE; every page sorted
+  newest-first with nulls last and continuing the previous page; stop on an
+  empty page / total reached / last < since / a short page the echo confirms.
+- Pima caps: 'Needs Improvement' 79 (C), 'Satisfactory' 89 (B) added to
+  PIMA_RATING_RISK_CAP. Basis: the portal's own colours (Excellent/Pass green,
+  Good light blue, Satisfactory orange, NI purple, Probation/Fail/IHH red) and
+  the county's definition of NI (up to four P/PF items NOT corrected during
+  the inspection, KOLD 2020-01-31; the step before Probation). Flyer PDF is
+  unreachable (every path serves the SPA index).
+- Official-score portals drop unscored visits (score None/0) even with
+  citations (contract case a; the Texas form deducts 3/2/1, our 5/2/1 would
+  grade them on another scale). No live instance in 208 Texas records.
+- Pima's pest title 'Insects, rodents, and animals not present' joins the
+  Texas title under the neutral heading, now 'Pests and animals' (the regex
+  summariser read 'Pest control' as "No pest control records"); the Pima
+  title's 'rodents' tripped has_active_pest_or_sewage across the '|||' join
+  when the previous line ended in an evidence word (verified).
+- Bootstrap / lag: `lag_margin_days` (Pima 21) widens every dated window;
+  holds stay at the asked start. A window that still starts after the
+  portal's newest row -> group 'error' with a seeding hint (was a green
+  'empty' forever in weekly mode: 8-day window vs ~16-day publication lag).
+  Evidence for the spread: Pima list on 2026-11-03 — Thu 10-16 has 15
+  facilities vs 26-33 on other Thursdays (Fridays 1-2); list unchanged
+  between 04:00 and 13:00 (no publication event observed).
+- Lag note for an undated list (Mesquite) only after a complete read.
+
+Rejected: A2's literal rule (empty list = unread for every portal) — see the
+live fact above; applied with per-portal cross-checks instead.
+
+Next: update tests/test_hedgerow.py for the new behaviour + new tests, run
+the suite, live test-mode runs, commit, final PROGRESS.md.
