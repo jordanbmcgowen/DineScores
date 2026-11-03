@@ -22,8 +22,8 @@ and the MHD parts of tests/test_refresh_hardening.py.
       _mhd_metro_groups in main(), 'exclude' row patterns, 'results' field.
 - [x] (C) CONFIG committed: fbceh, acph, dchd, ccbh, 33 va-* districts via
       _mhd_va_district; slug groups fortbend/arapahoe/douglas/cuyahoga/
-      richmond/hamptonroads/nova/virginia. Live verification running
-      (scratchpad/mhd_verify/verify_new_slugs.py -> verify.jsonl).
+      richmond/hamptonroads/nova/virginia. ALL 37 VERIFIED LIVE 2026-11-03
+      (production path, week 2026-10-20..26; see "Verification" below).
 - [x] Tests extended in tests/test_mhd_buckets.py (+ tests/fixtures/mhd/),
       suite 315 green.
 - [ ] (D) LIVE RUNS: --mode test --cities fortbend arapahoe douglas cuyahoga
@@ -94,9 +94,78 @@ TOTAL rows 3158, lost by the production 7-day unsorted read 188 (6.0%)
 
 (AFTER columns: filled by the fixed after_measure.py once it has run.)
 
-## Live results (fill in as soon as available)
+## Verification of the new jurisdictions (C) — live, production code path
 
-(verification in progress)
+Each slug read with _fetch_mhd_jurisdiction_api(fetch_violations=False) over
+2026-10-20..26 (sorted one-day windows + guard), then 3 detail pages parsed
+with _mhd_parse_detail_html. "obs/score" = observations parsed / row score.
+Every slug answered rows, every detail page parsed (0 unreadable), no 403/429,
+no portal block or detail ban; every raw row unique. Score evidence: fbceh
+0-100 (100 <-> 0 observations, 88 <-> 8); acph/dchd demerit totals (0 on
+~40% of rows, result Pass/Re-Inspection Required/Closed); ccbh and every VDH
+district score 0 + scoreDisplay '' on 100% of rows (no score: 'none').
+programName values: fbceh Food|Pools; acph Retail Food|Child Care|Pools|Body
+Art; dchd Retail Food|Child Care; ccbh Food|Schools|Body Art|Pools; VDH Food
+Establishment only.
+
+37 jurisdictions verified live (window 2026-10-20..2026-10-26, production path, sorted one-day windows)
+
+| key | display | records/week (= detail pages/week) | raw rows | programName values seen | score values (top) | scoreDisplay | details parsed (obs count, score) | top cities | s |
+|---|---|---|---|---|---|---|---|---|---|
+| fbceh | Fort Bend County | 58 | 69 | Food:58, Pools:11 | 0:11, 98:9, 100:8, 96:8 | 'None':69 | 0/100, 5/94, 8/88 | Katy, Richmond, Sugar Land | 11.9 |
+| acph | Arapahoe County | 84 | 104 | Retail Food:89, Child Care:12, Pools:2, Body Art:1 | 0:39, 10:11, 20:7, 45:4 | '':104 | 1/0, 5/45, 5/32 | Aurora, Englewood, Centennial | 14.2 |
+| dchd | Douglas County CO | 31 | 41 | Retail Food:31, Child Care:10 | 0:18, 10:5, 15:3, 5:3 | '':41 | 3/35, 2/10, 8/47 | Castle Rock, Highlands Ranch, Lone Tree | 14.1 |
+| ccbh | Cuyahoga County | 218 | 265 | Food:218, Schools:22, Body Art:13, Pools:12 | 0:265 | '':265 | 2/None, 0/None, 7/None | Cleveland Heights, Strongsville, Westlake | 34.4 |
+| va-richmond | VDH Richmond City | 41 | 41 | Food Establishment:41 | 0:41 | '':41 | 0/None, 6/None, 1/None | Richmond | 15.4 |
+| va-henrico | VDH Henrico | 32 | 32 | Food Establishment:32 | 0:32 | '':32 | 1/None, 2/None, 3/None | Richmond, Henrico, Glen Allen | 12.9 |
+| va-chesterfield | VDH Chesterfield | 90 | 90 | Food Establishment:90 | 0:90 | '':90 | 2/None, 0/None, 1/None | Midlothian, North Chesterfield, Chester | 13.1 |
+| va-chickahominy | VDH Chickahominy | 30 | 30 | Food Establishment:30 | 0:30 | '':30 | 1/None, 0/None, 3/None | Ashland, Mechanicsville, Quinton | 14.5 |
+| va-virginia-beach | VDH Virginia Beach | 50 | 50 | Food Establishment:50 | 0:50 | '':50 | 2/None, 4/None, 0/None | Virginia Beach | 14.1 |
+| va-norfolk | VDH Norfolk | 82 | 82 | Food Establishment:82 | 0:82 | '':82 | 1/None, 7/None, 1/None | Norfolk | 14.3 |
+| va-chesapeake | VDH Chesapeake | 25 | 25 | Food Establishment:25 | 0:25 | '':25 | 2/None, 5/None, 1/None | Chesapeake | 23.3 |
+| va-portsmouth | VDH Portsmouth | 18 | 18 | Food Establishment:18 | 0:18 | '':18 | 4/None, 23/None, 13/None | Portsmouth | 13.4 |
+| va-hampton | VDH Hampton | 12 | 12 | Food Establishment:12 | 0:12 | '':12 | 1/None, 4/None, 0/None | Hampton | 12.5 |
+| va-peninsula | VDH Peninsula | 39 | 39 | Food Establishment:39 | 0:39 | '':39 | 3/None, 1/None, 3/None | Williamsburg, Newport News, Yorktown | 12.8 |
+| va-western-tidewater | VDH Western Tidewater | 22 | 22 | Food Establishment:22 | 0:22 | '':22 | 0/None, 4/None, 0/None | Suffolk, Franklin, Isle Of Wight | 13.4 |
+| va-arlington | VDH Arlington | 53 | 53 | Food Establishment:53 | 0:53 | '':53 | 0/None, 1/None, 0/None | Arlington, Washington, Falls Church | 12.9 |
+| va-alexandria | VDH Alexandria | 26 | 26 | Food Establishment:26 | 0:26 | '':26 | 0/None, 1/None, 2/None | Alexandria, Washington | 13.1 |
+| va-loudoun | VDH Loudoun | 61 | 61 | Food Establishment:61 | 0:61 | '':61 | 3/None, 1/None, 6/None | Sterling, Ashburn, Leesburg | 13.9 |
+| va-prince-william | VDH Prince William | 12 | 12 | Food Establishment:12 | 0:12 | '':12 | 3/None, 0/None, 0/None | Woodbridge, Manassas, Dumfries | 14.0 |
+| va-alleghany-roanoke | VDH Alleghany-Roanoke | 50 | 50 | Food Establishment:50 | 0:50 | '':50 | 4/None, 2/None, 0/None | Roanoke, Salem, Covington | 13.1 |
+| va-blue-ridge | VDH Blue Ridge | 19 | 19 | Food Establishment:19 | 0:19 | '':19 | 0/None, 0/None, 10/None | Charlottesville, Gordonsville, Ruckersville | 17.5 |
+| va-central | VDH Central Virginia | 31 | 31 | Food Establishment:31 | 0:31 | '':31 | 3/None, 2/None, 2/None | Lynchburg, Forest, Bedford | 13.2 |
+| va-central-shenandoah | VDH Central Shenandoah | 40 | 40 | Food Establishment:40 | 0:40 | '':40 | 0/None, 0/None, 0/None | Harrisonburg, Waynesboro, Staunton | 15.0 |
+| va-crater | VDH Crater | 19 | 19 | Food Establishment:19 | 0:19 | '':19 | 11/None, 8/None, 2/None | Hopewell, Emporia, Petersburg | 12.5 |
+| va-cumberland-plateau | VDH Cumberland Plateau | 17 | 17 | Food Establishment:17 | 0:17 | '':17 | 1/None, 0/None, 0/None | Tazewell, Richlands, North Tazewell | 12.4 |
+| va-eastern-shore | VDH Eastern Shore | 10 | 10 | Food Establishment:10 | 0:10 | '':10 | 0/None, 3/None, 3/None | Accomac, Cape Charles, Parksley | 14.2 |
+| va-lenowisco | VDH Lenowisco | 17 | 17 | Food Establishment:17 | 0:17 | '':17 | 4/None, 0/None, 1/None | Norton, Nickelsville, Wise | 20.0 |
+| va-lord-fairfax | VDH Lord Fairfax | 37 | 37 | Food Establishment:37 | 0:37 | '':37 | 4/None, 5/None, 5/None | Winchester, Front Royal, Woodstock | 15.6 |
+| va-mount-rogers | VDH Mount Rogers | 40 | 40 | Food Establishment:40 | 0:40 | '':40 | 0/None, 0/None, 3/None | Bristol, Wytheville, Abingdon | 12.7 |
+| va-new-river | VDH New River | 7 | 7 | Food Establishment:7 | 0:7 | '':7 | 9/None, 0/None, 5/None | Blacksburg, Christiansburg, Narrows | 13.0 |
+| va-piedmont | VDH Piedmont | 3 | 3 | Food Establishment:3 | 0:3 | '':3 | 3/None, 1/None, 1/None | Drakes Branch, Farmville, Keysville | 12.5 |
+| va-pittsylvania-danville | VDH Pittsylvania-Danville | 21 | 21 | Food Establishment:21 | 0:21 | '':21 | 0/None, 1/None, 0/None | Danville, Gretna | 12.3 |
+| va-rappahannock | VDH Rappahannock | 24 | 24 | Food Establishment:24 | 0:24 | '':24 | 0/None, 0/None, 0/None | Fredericksburg, King George, Stafford | 22.1 |
+| va-rappahannock-rapidan | VDH Rappahannock-Rapidan | 14 | 14 | Food Establishment:14 | 0:14 | '':14 | 1/None, 0/None, 0/None | Culpeper, Warrenton, Bealeton | 12.7 |
+| va-southside | VDH Southside | 11 | 11 | Food Establishment:11 | 0:11 | '':11 | 0/None, 2/None, 2/None | South Hill, Clarksville, South Boston | 20.3 |
+| va-three-rivers | VDH Three Rivers | 21 | 21 | Food Establishment:21 | 0:21 | '':21 | 2/None, 0/None, 0/None | Montross, Mathews, West Point | 13.2 |
+| va-west-piedmont | VDH West Piedmont | 31 | 31 | Food Establishment:31 | 0:31 | '':31 | 0/None, 5/None, 1/None | Martinsville, Rocky Mount, Collinsville | 13.5 |
+
+Weekly detail pages added per fetch group (sum of records/week):
+  MHD metros: 173
+  MHD metros (midweek): 1223
+VDH by metro chip:
+  Richmond: 193
+  Hampton Roads: 248
+  Northern Virginia: 152
+  (no chip): 412
+all rows unique: True
+any portal block/ban flags: False
+details unreadable (None): 0
+
+
+## Live results (D)
+
+(test-mode and 14-day runs in progress: scratchpad/mhd_live/)
 
 ## Open questions / decisions
 
