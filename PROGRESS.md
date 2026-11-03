@@ -26,9 +26,9 @@ and the MHD parts of tests/test_refresh_hardening.py.
       (production path, week 2026-10-20..26; see "Verification" below).
 - [x] Tests extended in tests/test_mhd_buckets.py (+ tests/fixtures/mhd/),
       suite 315 green.
-- [ ] (D) LIVE RUNS: --mode test --cities fortbend arapahoe douglas cuyahoga
-      richmond; bounded window run; per-jurisdiction detail volumes.
-- [ ] Final cleanup + StructuredOutput.
+- [x] (D) LIVE RUNS done (test mode 200 records 209 s; 14-day fortbend+douglas
+      169 records 120 s); per-jurisdiction detail volumes in the verification table.
+- [x] Final cleanup: suite 324 green, relay 24 PASS, py_compile ok, tree clean.
 
 ## Audit results (A): what the production MHD read has been losing
 
@@ -97,9 +97,10 @@ windows, repeats guard) re-reading the same weeks: 0 rows missing and 0 extra
 in all 32 jurisdiction-weeks, at 7-15 searches per jurisdiction-week (before:
 2-20, the 20 being Dallas's cap bisection).
 
-Third completed week (2026-10-26..11-01, run 2026-11-03 03:40Z): the OLD
-unsorted 7-day read (one query, no bisection) against a sorted single-day
-truth read, and the committed production path:
+Third completed week (2026-10-26..11-01, run 2026-11-03 03:40-03:52Z), all 16
+jurisdictions: the OLD unsorted 7-day read (one query, no bisection) against
+a sorted single-day truth read, and the committed production path. 1059
+rows, old read missing 95 (9.0%), production path missing 0.
 
 | jurisdiction | rows | old read missing | old read repeats | production path missing |
 |---|---|---|---|---|
@@ -110,9 +111,12 @@ truth read, and the committed production path:
 | frisco | 51 | 4 | 4 | 0 |
 | gwinnett | 161 | 0 | 0 | 0 |
 | multco-eh | 0 | 0 | 0 | 0 |
+| or-clackamas-county | 0 | 0 | 0 | 0 |
+| larimer-county-health | 48 | 1 | 1 | 0 |
+| weldcounty | 49 | 0 | 0 | 0 |
 
-(Multnomah: 0 rows — the county publishes about two weeks late, as its
-lag_days 21 expects.)
+(Multnomah, Washington OR and Clackamas: 0 rows — the Oregon counties publish
+about two weeks late, as their lag_days 21 expects.)
 
 
 ## Verification of the new jurisdictions (C) — live, production code path
@@ -223,9 +227,27 @@ its official score):
 {"name": "Restaurant Adarra", "address": "501 S Pine St", "city": "Richmond", "state": "VA", "zip": "23220", "latitude": 37.539087125651, "longitude": -77.450388792773, "inspection_date": "2026-01-02", "original_score": null, "risk_score": 95, "priority_violations": 1, "priority_foundation_violations": 0, "core_violations": 0, "total_violations": 1, "violations": [["cross_contamination", "priority", "15: 12VAC5-421-470.A.1.a-c Observed raw shell eggs stored over ready to eat foods cheeses, commercially cured meats in w"]], "inspection_type": "Full Service Restaurant", "purpose": "Routine", "results": "", "source": "VDH Richmond City Health Dept", "source_url": "https://inspections.myhealthdepartment.com/va-richmond/inspection/?inspectionID=BC3CEA96-7459-4C48-A881-6E2FA665EFCD", "source_id": "BC3CEA96-7459-4C48-A881-6E2FA665EFCD", "metro": "Richmond", "_id": "ff642ad9db8ff80c", "_inspecti
 
 
-### 14-day bounded run
+### 14-day bounded run: `python3 dinescores_pipeline.py --mode full --since-date 2026-10-20 --cities fortbend douglas --output /tmp/mhd_14d.json`
 
-(in progress)
+2026-11-03 03:49:16Z -> 03:51:16Z (120 s wall). Fort Bend 120 inspections
+over 15 one-day windows (16 search POSTs), Douglas County CO 49 (14 POSTs);
+30 search POSTs + 169 detail GETs in all, 169/169 detail pages parsed, no
+403/429, no ban, group 'ok', rc 0, 0 errors. Census batch geocoded 151/169;
+165 restaurants saved (148 with coordinates = 90%; the rest retry next run).
+Grades: Fort Bend A 94 / B 18 / C 2 / F 3 (official 70-100, median 96; the
+F's are text-forced on its official score), Douglas A 33 / B 13 / C 2
+(demerit totals 0-55 recomputed to risk 71-100 from the detail pages).
+
+165 restaurant records in /tmp/mhd_14d.json
+  Douglas County CO Health Dept        n= 48 coords= 48 with_violations= 34 grades={'A': 33, 'B': 13, 'C': 2} risk min/med/max=71/97/100 official=48 out_of_range=[] results=[('', 48)]
+  Fort Bend County Health Dept         n=117 coords=100 with_violations=103 grades={'A': 94, 'B': 18, 'C': 2, 'F': 3} risk min/med/max=70/96/100 official=117 out_of_range=[] results=[('', 117)]
+   details: 03 03:50:02,798 INFO Fort Bend County: 120/120 inspections had violation details
+   details: -03 03:50:34,186 INFO Douglas County CO: 49/49 inspections had violation details
+   search POSTs (windows logged): 30 ; geocode lines: ['2026-11-03 03:50:37,188 INFO Geocoding 169 records missing coordinates (Census batch)...', '2026-11-03 03:51:16,257 INFO Geocoded 151/169 records']
+   total records line: ['Total inspections collected: 169']
+{"name": "Sushi Hana Fusion Resturaunt", "address": "5610 W Grand Pkwy S Ste 300", "city": "Richmond", "state": "TX", "zip": "77406-5805", "latitude": 29.702662333323, "longitude": -95.776467347094, "inspection_date": "2026-10-26", "original_score": 70, "risk_score": 70, "priority_violations": 13, "priority_foundation_violations": 3, "core_violations": 2, "total_violations": 18, "violations": [["cross_contamination", "priority", "8: 2-301.12(C) To avoid re-contaminating their hands or surrogate prosthetic devices, food employees may use disposable "], ["temperature_control", "priority", "10: 5-202.12(A-B) A handwashing sink shall be equipped to provide water at a temperature of at least 100\u00b0F (38\u00b0C) throug"]], "inspection_type": "Food Safety Inspection", "purpose": "Food Borne Illness", "results": "", "source": "Fort Bend County Health Dept", "source_url": "https://inspections.
+{"name": "Roxborough Valero - Krispy Krunchy Chicken", "address": "7887 N Rampart Range Rd", "city": "Littleton", "state": "CO", "zip": "80125-9342", "latitude": 39.476555210089, "longitude": -105.073329158192, "inspection_date": "2026-10-20", "original_score": 35, "risk_score": 91, "priority_violations": 1, "priority_foundation_violations": 2, "core_violations": 0, "total_violations": 3, "violations": [["equipment_utensils", "priority_foundation", "16: 4-501.114(A)-(E),(F)(1)-(2) The chlorine based sanitizer did not test at 50-200ppm at time of inspection. Corrective"], ["temperature_control", "priority", "20: 3-501.14 Cooked fried chicken (43\u00baF-45\u00baF) stored in the walk-in that was prepared 24 and 48 hours prior to time of i"]], "inspection_type": "Retail Food", "purpose": "Routine", "results": "", "source": "Douglas County CO Health Dept", "source_url": "https://inspections.m
+
 
 
 ## Notes for the integrator
