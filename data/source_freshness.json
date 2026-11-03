@@ -70,6 +70,16 @@
    },
    "latest": "2026-10-21"
   },
+  "Denton": {
+   "last_run": {
+    "at": "2026-11-03",
+    "detail": "",
+    "latest": "2026-10-28",
+    "records": 2570,
+    "status": "ok"
+   },
+   "latest": "2026-10-28"
+  },
   "Detroit": {
    "last_run": {
     "at": "2026-11-01",
@@ -120,6 +130,16 @@
    },
    "latest": "2026-10-31"
   },
+  "Lewisville": {
+   "last_run": {
+    "at": "2026-11-03",
+    "detail": "",
+    "latest": "2026-11-02",
+    "records": 1042,
+    "status": "ok"
+   },
+   "latest": "2026-11-02"
+  },
   "Louisville": {
    "last_run": {
     "at": "2026-11-01",
@@ -139,6 +159,16 @@
     "status": "ok"
    },
    "latest": "2026-11-01"
+  },
+  "McKinney": {
+   "last_run": {
+    "at": "2026-11-03",
+    "detail": "",
+    "latest": "2026-10-30",
+    "records": 15222,
+    "status": "ok"
+   },
+   "latest": "2026-10-30"
   },
   "Minneapolis": {
    "last_run": {
@@ -311,61 +341,6 @@
    "latest": "2026-10-29"
   }
  },
- "jev": {
-  "cache_file": "jev_20261101T174934Z_weekly.jsonl.gz",
-  "decide": [
-   "hazard",
-   "summary"
-  ],
-  "decisions": {
-   "category": {
-    "jev": 0,
-    "regex": 0
-   },
-   "hazard": {
-    "jev": 19053,
-    "regex": 3455
-   },
-   "summary": {
-    "jev": 19499,
-    "regex": 3009
-   }
-  },
-  "distinct_texts": 13147,
-  "elapsed_s": 91.4,
-  "f_vs_regex": {
-   "agree": 6004,
-   "jev_only": 24,
-   "regex_only": 70
-  },
-  "lines": 22508,
-  "lines_with_judgment": 22508,
-  "mode": "decide",
-  "model": "jev-1.13.0",
-  "question_set": "qs3",
-  "reader": {
-   "fallback_reasons": {},
-   "hazard_changed_on_verify": 11,
-   "hazard_verified_alone": 345,
-   "input_tokens": 27806436,
-   "latency_max": 1.0380067825317383,
-   "latency_total": 218.62102270126343,
-   "lines_asked": 7933,
-   "lines_cached": 5214,
-   "lines_fallback": 0,
-   "lines_judged": 7933,
-   "mode": "decide",
-   "output_tokens": 4688544,
-   "request_failures": 0,
-   "requests": 1007
-  },
-  "record_errors": 0,
-  "records": 14846,
-  "records_with_violations": 6098,
-  "rescored_records": 0,
-  "retiered_lines": 0,
-  "status": "ok"
- },
  "sources": {
   "Adams County Health Dept": {
    "group": "MHD metros",
@@ -421,6 +396,10 @@
    "group": "Delaware",
    "latest": "2026-10-21"
   },
+  "Denton Open Data": {
+   "group": "Denton",
+   "latest": "2026-10-28"
+  },
   "Detroit Open Data": {
    "group": "Detroit",
    "latest": "2026-10-15"
@@ -475,9 +454,17 @@
    "group": "MHD metros",
    "latest": "2026-10-30"
   },
+  "Lewisville Environmental Health": {
+   "group": "Lewisville",
+   "latest": "2026-11-02"
+  },
   "Louisville Metro Open Data": {
    "group": "Louisville",
    "latest": "2026-10-23"
+  },
+  "McKinney Health Inspections": {
+   "group": "McKinney",
+   "latest": "2026-10-30"
   },
   "Minneapolis Open Data": {
    "group": "Minneapolis",
@@ -582,5 +569,5 @@
    "latest": "2026-10-30"
   }
  },
- "updated": "2026-11-01"
+ "updated": "2026-11-03"
 }
