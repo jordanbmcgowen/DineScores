@@ -5,9 +5,9 @@ Branch `feat/maricopa`, worktree `/home/user/wt-maricopa`. Section header in
 
 ## Status
 - [x] Recon read (contract, wiring, tests, probe report, capture NOTES.md).
-- [ ] Fetcher code (constants, pacer, transport, parsers, fetch_maricopa).
-- [ ] Parsers verified against the captured pages.
-- [ ] Live test-mode run (25 records).
+- [x] Fetcher code (constants, pacer, transport, parsers, fetch_maricopa) — commit 6ab4483.
+- [x] Parsers verified against every captured page (4 permit pages, 5 detail pages, not-available page).
+- [x] Live test-mode run (25 records): see Live results.
 - [ ] Live 14-day bounded run (weekly-equivalent cost measurement).
 - [ ] Fixtures + tests/test_maricopa.py; whole suite green.
 - [ ] Final cleanup + report.
@@ -30,7 +30,18 @@ Branch `feat/maricopa`, worktree `/home/user/wt-maricopa`. Section header in
   (MCESD_MIN_FOOD_PERMITS) catches a catastrophic inventory instead.
 
 ## Live results
-(none yet)
+- 2026-11-03 01:03 test mode (`--mode test --cities maricopa`): 25 records in
+  45 s wall, 53 portal requests (8 zip searches -> 907 food permits; 20 permit
+  pages in 3 s; 25 detail pages in 39 s with 2 workers), 25/25 with ArcGIS
+  coordinates, 0 unread. Grades over the 17 restaurants: 17 A (scores 95-100);
+  results: Grade A 9, Not Participating 4, blank (advisory) 2, Grade B 1,
+  Re-inspection 1. Violation texts carry title + observation, none trips the
+  pest/sewage regex.
+- 2026-11-03 01:04 started the 14-day weekly-equivalent run in the background:
+  `--mode full --since-date 2026-10-20 --cities maricopa --output /tmp/maricopa_14d.json`,
+  log at /tmp/claude-0/-home-user/7e1d0e8e-72d4-5821-aacd-ab7518c42dd1/scratchpad/live/maricopa_14d.log
+  (pid 1081). If this file says nothing more about it, the machine restarted:
+  check the log, re-run if needed.
 
 ## Open questions
 (none yet)
