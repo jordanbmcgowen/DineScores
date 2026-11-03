@@ -310,6 +310,16 @@
    },
    "latest": "2026-10-29"
   },
+  "Williamson County": {
+   "last_run": {
+    "at": "2026-11-03",
+    "detail": "",
+    "latest": "2026-10-28",
+    "records": 5343,
+    "status": "ok"
+   },
+   "latest": "2026-10-28"
+  },
   "dc": {
    "last_run": {
     "at": "2026-11-01",
@@ -563,6 +573,10 @@
   "Weld County Health Dept": {
    "group": "MHD metros",
    "latest": "2026-10-30"
+  },
+  "Williamson County and Cities Health District": {
+   "group": "Williamson County",
+   "latest": "2026-10-28"
   },
   "Yolo County Health Dept": {
    "group": "MHD metros",
