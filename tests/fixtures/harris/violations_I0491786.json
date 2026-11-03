@@ -1,0 +1,90 @@
+[
+ {
+  "inspectionNumber": "I0491786",
+  "violationNumber": 2,
+  "violationDescription": "Certified Food Protection Manager / Food Handler Certificates",
+  "complianceResult": "Out",
+  "numberOfDemerits": 2,
+  "violationId": "6cc437ec-2ebe-43d7-88e2-ac91290dfcf7",
+  "violationGroup": "C",
+  "department": "General",
+  "shortDescription": "Trained Employees"
+ },
+ {
+  "inspectionNumber": "I0491786",
+  "violationNumber": 21,
+  "violationDescription": "Proper hot holding temperatures (135\u00b0F)",
+  "complianceResult": "Out",
+  "numberOfDemerits": 3,
+  "violationId": "8cf1f2c2-5491-4deb-91f1-583650c8fbef",
+  "violationGroup": "P",
+  "department": "General",
+  "shortDescription": "TCS Food Hot Holding"
+ },
+ {
+  "inspectionNumber": "I0491786",
+  "violationNumber": 24,
+  "violationDescription": "Time as a public health control: procedures and records",
+  "complianceResult": "Out",
+  "numberOfDemerits": 2,
+  "violationId": "9bac4044-a693-4aa2-a451-57a2d16cf227",
+  "violationGroup": "P",
+  "department": "General",
+  "shortDescription": "TPHC \u2013 Procedures, Marking, and Compliance"
+ },
+ {
+  "inspectionNumber": "I0491786",
+  "violationNumber": 43,
+  "violationDescription": "In-use utensils; properly stored",
+  "complianceResult": "Out",
+  "numberOfDemerits": 1,
+  "violationId": "98574f23-c50e-409d-9cb1-2a1f04779b6a",
+  "violationGroup": "C",
+  "department": "General",
+  "shortDescription": "Proper storage of in-use utensils during operations"
+ },
+ {
+  "inspectionNumber": "I0491786",
+  "violationNumber": 49,
+  "violationDescription": "Non-food contact surfaces clean",
+  "complianceResult": "Out",
+  "numberOfDemerits": 1,
+  "violationId": "ffb8d6cd-b3b6-4efc-8164-3de368dcba11",
+  "violationGroup": "C",
+  "department": "General",
+  "shortDescription": "Cleanliness and maintenance of non-food-contact surfaces"
+ },
+ {
+  "inspectionNumber": "I0491786",
+  "violationNumber": 51,
+  "violationDescription": "Plumbing installed; proper backflow devices",
+  "complianceResult": "Out",
+  "numberOfDemerits": 1,
+  "violationId": "1ab8e857-0ab6-42e7-817e-c7667b8ccb04",
+  "violationGroup": "C",
+  "department": "General",
+  "shortDescription": "Approved plumbing installed and protected against contamination"
+ },
+ {
+  "inspectionNumber": "I0491786",
+  "violationNumber": 55,
+  "violationDescription": "Physical facilities installed, maintained, and clean",
+  "complianceResult": "Out",
+  "numberOfDemerits": 1,
+  "violationId": "12c5d004-1df4-4f4b-b95c-6be8ffbc0bf0",
+  "violationGroup": "C",
+  "department": "General",
+  "shortDescription": "Physical facilities installed, maintained, and clean."
+ },
+ {
+  "inspectionNumber": "I0491786",
+  "violationNumber": 56,
+  "violationDescription": "Adequate ventilation and lighting; designated areas used",
+  "complianceResult": "Out",
+  "numberOfDemerits": 1,
+  "violationId": "147594e3-69c3-4f2b-95e0-dc68bc9a9105",
+  "violationGroup": "C",
+  "department": "General",
+  "shortDescription": "Ventilation, lighting, and employee area compliance."
+ }
+]

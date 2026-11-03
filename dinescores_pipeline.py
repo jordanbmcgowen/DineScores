@@ -8070,10 +8070,10 @@ def _harris_record(est, insp, items, counts):
         risk = min(risk, HARRIS_CLOSURE_CAP)
     if closure:
         results = 'Closure required'
-    elif _harris_flag(insp.get('isFollowUpRequired')):
-        results = 'Follow-up required'
     elif insp['type'] in HARRIS_PERMIT_TYPES and str(insp.get('isPermitApproval') or '').strip().lower() == 'no':
         results = 'Permit not approved'
+    elif _harris_flag(insp.get('isFollowUpRequired')):
+        results = 'Follow-up required'
     else:
         results = ''
     try:
@@ -8240,12 +8240,12 @@ def fetch_harris(since_date=None, limit=None):
     # the newest tail. A score of 100 has no items (HARRIS_READ_CLEAN_ITEMS).
     def read_items(cand):
         date, number, est, insp = cand
+        if insp.get('score') == 100 and not HARRIS_READ_CLEAN_ITEMS:
+            return cand, []                 # nothing to read, so a cut never drops it
         if _past_deadline():
             return cand, 'deadline'
         if _HARRIS_BLOCKED:
             return cand, 'blocked'
-        if insp.get('score') == 100 and not HARRIS_READ_CLEAN_ITEMS:
-            return cand, []
         data = _harris_request(get_session(), HARRIS_VIOLATIONS_URL, params={'id': number})
         time.sleep(HARRIS_DELAY)
         if isinstance(data, list):

@@ -1,0 +1,57 @@
+[
+ {
+  "inspectionNumber": "I0493043",
+  "violationNumber": 44,
+  "violationDescription": "Utensils, equipment, and linens; properly stored, dried, and handled",
+  "complianceResult": "Out",
+  "numberOfDemerits": 1,
+  "violationId": "a94e7efc-a5b9-4e38-8878-7ac85371f366",
+  "violationGroup": "C",
+  "department": "General",
+  "shortDescription": "Proper storage and air-drying of clean equipment and linens"
+ },
+ {
+  "inspectionNumber": "I0493043",
+  "violationNumber": 47,
+  "violationDescription": "Food and nonfood-contact surfaces cleanable, properly designed, constructed, and used",
+  "complianceResult": "Out",
+  "numberOfDemerits": 1,
+  "violationId": "74368f5a-31ed-407d-a16e-aed062d31f7a",
+  "violationGroup": "C",
+  "department": "General",
+  "shortDescription": "Cleanable, properly designed, and maintained food and nonfood-contact surfaces"
+ },
+ {
+  "inspectionNumber": "I0493043",
+  "violationNumber": 48,
+  "violationDescription": "Warewashing facilities, installed, maintained, used, test strips",
+  "complianceResult": "Out",
+  "numberOfDemerits": 1,
+  "violationId": "f6b7af8c-df9f-483e-876d-944f0a22e9d3",
+  "violationGroup": "C",
+  "department": "General",
+  "shortDescription": "Warewashing operations: equipment, procedures, and sanitizer testing"
+ },
+ {
+  "inspectionNumber": "I0493043",
+  "violationNumber": 53,
+  "violationDescription": "Toilet facilities: properly constructed, supplied, cleaned",
+  "complianceResult": "Out",
+  "numberOfDemerits": 1,
+  "violationId": "b29e6404-0d29-4042-a315-6f7222f7b9fb",
+  "violationGroup": "C",
+  "department": "General",
+  "shortDescription": "Toilet facilities properly constructed, enclosed, supplied, and cleaned."
+ },
+ {
+  "inspectionNumber": "I0493043",
+  "violationNumber": 56,
+  "violationDescription": "Adequate ventilation and lighting; designated areas used",
+  "complianceResult": "Out",
+  "numberOfDemerits": 1,
+  "violationId": "147594e3-69c3-4f2b-95e0-dc68bc9a9105",
+  "violationGroup": "C",
+  "department": "General",
+  "shortDescription": "Ventilation, lighting, and employee area compliance."
+ }
+]

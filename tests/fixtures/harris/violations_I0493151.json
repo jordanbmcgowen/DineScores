@@ -1,0 +1,13 @@
+[
+ {
+  "inspectionNumber": "I0493151",
+  "violationNumber": 40,
+  "violationDescription": "Personal cleanliness",
+  "complianceResult": "Out",
+  "numberOfDemerits": 1,
+  "violationId": "77a99fd0-0781-4ea3-b12e-24d5ea87e551",
+  "violationGroup": "C",
+  "department": "General",
+  "shortDescription": "Personal hygiene practices to prevent contamination"
+ }
+]
