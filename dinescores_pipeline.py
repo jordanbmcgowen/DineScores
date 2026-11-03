@@ -7803,7 +7803,10 @@ HH_SKIP_TYPES = frozenset({'TF15 Temporary Food', 'School'})   # Lubbock's vocab
 HH_PERMANENT_STATUSES = frozenset({400, 404, 410})   # that record's own problem; every other status is the portal's
 HH_BREAKER_TRIP = 3          # requests in a row that exhaust their retries -> the portal is blocked this run
 HH_MASS_FAILURE_MIN = 10     # unread (held) lists/checklists that report the group 'error' when they are also
-HH_MASS_FAILURE_FRACTION = 0.1   # ...more than this share of the reads
+HH_MASS_FAILURE_FRACTION = 0.1   # ...more than this share of the reads (fetch failures: 5xx, timeouts, blocks)
+HH_MASS_UNPUBLISHED_FRACTION = 0.5   # ...or, for checklists the county never filled in, more than this share
+#                                      of the checklists read (Pima's 2019-2023 history runs ~20% unpublished;
+#                                      a vendor renaming the result field makes it 100%)
 # A checklist item's possible answers; an item outside this vocabulary (a
 # renamed field, a new result) is neither a citation nor a clean answer.
 HH_ANSWERED_RESULTS = HH_VIOLATION_RESULTS | {'In Compliance', 'Not Applicable', 'Not Observed'}
@@ -8463,7 +8466,11 @@ def _fetch_hedgehog(slug, since_date=None, limit=None):
         time.sleep(HH_DELAY)
         return data
 
-    results, read_cands, unread_checklists = [], set(), []
+    # `unread_checklists` could not be fetched or parsed (held, counted);
+    # `unpublished` came back without a cited item although the inspection
+    # row says there were infractions (held and counted too: the county may
+    # still fill the form in, and after three runs it is given up).
+    results, read_cands, unread_checklists, unpublished = [], set(), [], []
     with ThreadPoolExecutor(max_workers=HH_WORKERS) as pool:
         for chunk in _hh_chunks(candidates, HH_WORKERS):
             if _past_deadline() or _hh_blocked(slug):
@@ -8481,12 +8488,16 @@ def _fetch_hedgehog(slug, since_date=None, limit=None):
                     continue
                 try:
                     violations = _hh_violations(got)
-                    if not violations and not _hh_clean_is_believable(cfg, cand, got):
-                        raise ValueError('no cited item on a checklist the inspection row says has infractions')
                 except ValueError as e:
                     log.debug(f"  {group}: inspection {cand['id']} ({cand['date']}): {e}")
                     dropped['checklist unread'] += 1
                     unread_checklists.append(cand)
+                    continue
+                if not violations and not _hh_clean_is_believable(cfg, cand, got):
+                    log.debug(f"  {group}: inspection {cand['id']} ({cand['date']}): no cited item on a "
+                              f"checklist the inspection row says has infractions — not shipped as clean")
+                    dropped['checklist unpublished'] += 1
+                    unpublished.append(cand)
                     continue
                 rec = _hh_record(cfg, cand['fac'], cand, violations)
                 if rec is None:
@@ -8494,7 +8505,7 @@ def _fetch_hedgehog(slug, since_date=None, limit=None):
                     continue
                 results.append(rec)
     blocked = bool(_hh_blocked(slug))
-    for cand in unread_checklists:
+    for cand in unread_checklists + unpublished:
         _hold_freshness(source, cand['date'], counted=not blocked, key=cand['id'])
     pending = [c for c in candidates if c['id'] not in read_cands]
     if pending:
@@ -8505,15 +8516,21 @@ def _fetch_hedgehog(slug, since_date=None, limit=None):
 
     # The group's status, worst first: a tripped breaker, too many unread
     # records, a deadline cut, a window the portal has not published yet.
-    held = len(unread_lists) + len(unread_checklists)
+    failed = len(unread_lists) + len(unread_checklists)
     tried = len(read) + len(read_cands)
     not_read = sum(n for why, n in dropped.items() if 'not read' in why)
     if blocked:
         _set_group_status(group, 'blocked', f"{_hh_blocked(slug)}; {not_read} facility lists/checklists not "
-                                            f"read and {held} unread, all held for the next run")
-    elif held >= HH_MASS_FAILURE_MIN and held > HH_MASS_FAILURE_FRACTION * tried:
-        _set_group_status(group, 'error', f"{held} of {tried} facility lists/checklists could not be read "
+                                            f"read and {failed + len(unpublished)} unread, all held for the "
+                                            f"next run")
+    elif failed >= HH_MASS_FAILURE_MIN and failed > HH_MASS_FAILURE_FRACTION * tried:
+        _set_group_status(group, 'error', f"{failed} of {tried} facility lists/checklists could not be read "
                                           f"(held for the next run)")
+    elif (len(unpublished) >= HH_MASS_FAILURE_MIN
+            and len(unpublished) > HH_MASS_UNPUBLISHED_FRACTION * len(read_cands)):
+        _set_group_status(group, 'error', f"{len(unpublished)} of {len(read_cands)} checklists show no cited "
+                                          f"item although their inspection rows say there were infractions "
+                                          f"(held); a portal change?")
     elif cut:
         _set_group_status(group, 'skipped', f"fetch deadline reached; {not_read} facility lists/checklists "
                                             f"not read (held for the next run)")

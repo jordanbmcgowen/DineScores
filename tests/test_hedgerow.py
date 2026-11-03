@@ -805,6 +805,33 @@ class PimaFetchTests(_Base):
         self.assertEqual(status, 'error')
         self.assertIn('12 of 48', detail)                   # 24 facility lists + 24 checklists read
 
+    def test_unpublished_checklists_go_red_only_when_they_are_most_of_the_read(self):
+        # the county never filled in the form on some visits (2019-2023 history runs ~20%): held,
+        # not red; a vendor change that empties every checklist is red
+        unanswered = [dict(item, result='No Answer Selected', cannedComments=None)
+                      for item in _load('pima_results_clean.json')]
+        cited = _load('pima_results_needs_improvement.json')
+
+        def portal(n_unpublished, n_total=20):
+            rows = [_pima_row(f'f{i:02d}', f'Cafe {i:02d}', f'{i + 1} E Main St, Tucson AZ 85701',
+                              '2026-10-10T10:00:00.0000000-07:00') for i in range(n_total)]
+            inspections = {f'f{i:02d}': [_insp(f'i{i:02d}', '2026-10-10T10:00:00.0000000-07:00',
+                                               infractions=True)] for i in range(n_total)}
+            checklists = {f'i{i:02d}': (unanswered if i < n_unpublished else cited) for i in range(n_total)}
+            return Portal(PIMA, {'pageNumber': 0, 'pageSize': 0, 'totalNumberOfRecords': 0, 'result': rows},
+                          inspections, checklists)
+        records = _run(portal(4), dp.fetch_pima, since='2026-10-01')
+        self.assertEqual(len(records), 16)
+        self.assertEqual(len(dp._FRESHNESS_HOLDS[PIMA_SRC]), 4)
+        self.assertNotIn('Pima County', dp._GROUP_STATUS)       # 4 of 20: the county's gaps, held quietly
+        dp._FRESHNESS_HOLDS.clear()
+        records = _run(portal(12), dp.fetch_pima, since='2026-10-01')
+        self.assertEqual(len(records), 8)
+        self.assertEqual(len(dp._FRESHNESS_HOLDS[PIMA_SRC]), 12)
+        status, detail = dp._GROUP_STATUS['Pima County']
+        self.assertEqual(status, 'error')
+        self.assertIn('12 of 20 checklists', detail)
+
     def test_a_checklist_with_no_cited_item_is_clean_only_when_the_row_agrees(self):
         unanswered = [dict(item, result='No Answer Selected', cannedComments=None)
                       for item in _load('pima_results_clean.json')]
