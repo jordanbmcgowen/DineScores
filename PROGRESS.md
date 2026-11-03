@@ -30,25 +30,30 @@ when resuming; never start over.
 - [ ] final cleanup + structured report
 
 ## FIX PASS (2026-11-03, after two adversarial reviews) — state
-Findings accepted (fix in progress unless ticked):
-- [ ] A1/B1 listing-completeness check dead with the weekly limit (50000):
+Findings accepted — ALL FIXED in commit 9361e60 (suite 340 tests green,
+relay passes, py_compile ok; live test mode re-run 2026-11-03 04:34 UTC:
+exit 0, 14 s, 25 records / 21 establishments / 40 requests, 23/25 geocoded,
+group ok, no contradiction warning fired). 14-day re-run with the fixed code
+started 04:35 UTC (log: scratchpad harris_fix/run_14d.log) — results below
+once done. Remaining: fold the 14-day numbers in here, final commit, report.
+- [x] A1/B1 listing-completeness check dead with the weekly limit (50000):
       key it on `bounded = limit reached`, not on limit being set
-- [ ] A2 a score<100 inspection whose item list read as [] (or rows with no
+- [x] A2 a score<100 inspection whose item list read as [] (or rows with no
       title/OUT) ships clean: treat as unread -> drop + counted hold; mass
       (>=20 scored reads, >50% empty) -> RuntimeError
-- [ ] A3 every list [] -> green 'empty': lists must hold a row within
+- [x] A3 every list [] -> green 'empty': lists must hold a row within
       HARRIS_LIST_AGREE_DAYS (30) of the search field (live probe 2026-11-03:
       200 establishments, gap -1..2 days, 0 empty); contradicting ones held,
       mass (>=20 checked, >50%) -> RuntimeError
-- [ ] A4 search paging unbounded if the server stops honouring skip: raise on
+- [x] A4 search paging unbounded if the server stops honouring skip: raise on
       a page that adds no establishment and on paging a page past totalCount
-- [ ] A-nit deadline inside the phase-1 retry ladder -> 'skipped' not 'error'
-- [ ] B2 state[:2] turns 'Texas' into 'TE': only an exact 2-letter code is
+- [x] A-nit deadline inside the phase-1 retry ladder -> 'skipped' not 'error'
+- [x] B2 state[:2] turns 'Texas' into 'TE': only an exact 2-letter code is
       kept, anything else is 'TX'
-- [ ] B3 one exhausted inspection list fails the whole window every week:
+- [x] B3 one exhausted inspection list fails the whole window every week:
       skip + counted hold (key=documentId) like the 404 path; more than
       HARRIS_LIST_FAILURES_MAX (5) in a run raises
-- [ ] B4 jev FORM_TITLE_PHRASES: add the five Harris TFER titles whose regex
+- [x] B4 jev FORM_TITLE_PHRASES: add the five Harris TFER titles whose regex
       fallback is wrong (5, 29, 39, 47, 56); sewage 52 and pest 38 stay out
       (policy) — edit outside the region, listed in the report
 Rejected: A5/B 'runner reachability' (not verifiable here; fails to a red
