@@ -7705,13 +7705,18 @@ def fetch_arlington(since_date=None, limit=None):
 # then records an error and ships nothing rather than a partial window. The
 # date filter is on the facility's last inspection, so every listed facility
 # costs one inspectionsData call (oldest-listed first, TP_WORKERS workers)
-# and ships every inspection dated on or after the window start, deduped by
+# and ships every inspection dated from TP_REREAD_MARGIN_DAYS before the
+# window start (a dropped facility is re-listed under its newest day only;
+# the margin recovers the older in-window inspections behind it), deduped by
 # inspection id. A facility whose history could not be read drops its
 # inspections and holds the source's freshness at the day it was listed
 # under (key = its numeric id), so the next lookback re-reads it; deadline
-# cuts hold without counting and report the group 'skipped'. since_date=None
-# (test mode) is one open window from the portal's history floor, newest
-# first, stopped by `limit`. Measured 2026-11-03 on a 15-day window: Georgia
+# cuts hold without counting and report the group 'skipped'; an inspection
+# whose entry is inconsistent or unreadable holds instead of shipping clean;
+# TP_MASS_FAILURE_MIN unreadable histories make the run red, more than half
+# abandon it. since_date=None (test mode) is one open window from the
+# portal's history floor, newest first, stopped by `limit`. Measured
+# 2026-11-03 on a 15-day window: Georgia
 # 2,215 facilities -> 1,882 inspections, 2,685 requests, 9 min wall; Louisiana
 # 1,434 facilities (LDH posts ~7 days late, so ~8 days of data) -> 1,392
 # inspections, 3,127 requests, 66 min wall, 47 of them on the 1,084 printable

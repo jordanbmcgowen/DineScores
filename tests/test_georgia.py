@@ -48,16 +48,24 @@ def _mmddyyyy(day):
 
 
 def _redated(rows, histories, day):
-    """Copies of the fixture rows and histories with the listed day (and
-    each facility's newest inspection) moved to `day`."""
+    """Copies of the fixture rows and histories with the listed day moved to
+    `day` and every inspection shifted by the same number of days, so the
+    gaps between a facility's inspections (Fin Sushi Thai's routine ten days
+    before its follow-up) stay what they were live."""
+    delta = datetime.strptime(day, '%Y-%m-%d') - datetime.strptime(DAY, '%Y-%m-%d')
     rows = copy.deepcopy(rows)
     histories = copy.deepcopy(histories)
     for r in rows:
         r['columns']['5'] = f'Last Inspection Date: {_mmddyyyy(day)}'
     for hist in histories.values():
-        if hist:
-            hist[0]['columns']['0'] = f'Date: {_mmddyyyy(day)}'
+        for insp in hist:
+            moved = datetime.strptime(dp._tp_date(insp['columns']['0']), '%Y-%m-%d') + delta
+            insp['columns']['0'] = f'Date: {moved:%m-%d-%Y}'
     return rows, histories
+
+
+def _days_before(day, n):
+    return (datetime.strptime(day, '%Y-%m-%d') - timedelta(days=n)).strftime('%Y-%m-%d')
 
 
 class _Resp:
@@ -87,6 +95,7 @@ class FakePortal:
         self.calls = []
         self.searches = []                     # (filters, page)
         self.list_fail = None                  # status to answer every search page with
+        self.county_fail = None                # status to answer the GNR county checks with
 
     def get(self, url, headers=None, timeout=None):
         self.calls.append(url)
@@ -99,8 +108,8 @@ class FakePortal:
             filters = {k: base64.b64decode(v).decode('utf-8') if v else '' for k, v in raw.items()}
             page = int(page)
             self.searches.append((filters, page))
-            if self.list_fail:
-                return _Resp(None, status=self.list_fail, text='<html>down</html>')
+            if self.list_fail or (self.county_fail and filters.get('county')):
+                return _Resp(None, status=self.list_fail or self.county_fail, text='<html>down</html>')
             rows = self._rows_for(filters)
             return _Resp(rows[page * dp.TP_PAGE_SIZE:(page + 1) * dp.TP_PAGE_SIZE])
         if path.startswith('inspectionsData/'):
@@ -205,7 +214,7 @@ class RequestShapeTests(GeorgiaTestCase):
         day_searches = [(f['from'], p) for f, p in portal.searches if not f.get('county')]
         # yesterday: pages 0, 1 (5 + 2 rows) then the [] page 2; today: page 0 is already []
         self.assertEqual(day_searches, [(YESTERDAY, 0), (YESTERDAY, 1), (YESTERDAY, 2), (TODAY, 0)])
-        self.assertEqual(len(records), 5)
+        self.assertEqual(len(records), 6)      # five listed-day inspections + Fin Sushi Thai's routine (see below)
         # one inspectionsData call per listed facility, oldest-listed first (all the same day: id order)
         details = [u.rsplit('/', 1)[1] for u in portal.calls if 'inspectionsData/' in u]
         self.assertEqual(details, [CHEROKEE, SENIOR, MARGARITAS, DUNKIN, SCHOOL, FIN, KADHAI])
@@ -213,9 +222,17 @@ class RequestShapeTests(GeorgiaTestCase):
     def test_since_date_in_both_formats_and_rows_before_it_are_excluded(self):
         for since in (YESTERDAY, f'{YESTERDAY}T00:00:00'):
             records = _fetch(_portal(day=YESTERDAY), since=since)
-            self.assertEqual(sorted(_by_id(records)),
-                             ['ga_57560231', 'ga_57560247', 'ga_57560275', 'ga_57560333', 'ga_57560379'], since)
-            self.assertTrue(all(r['inspection_date'] == YESTERDAY for r in records))
+            by_id = _by_id(records)
+            self.assertEqual(sorted(by_id), ['ga_57558159', 'ga_57560231', 'ga_57560247', 'ga_57560275',
+                                             'ga_57560333', 'ga_57560379'], since)
+            # the five inspections listed under the day, plus the re-read margin: Fin Sushi
+            # Thai's routine (76, a C) ten days before its follow-up ships with it, so a
+            # facility a failed or cut run dropped loses nothing when it is re-read
+            self.assertEqual(sum(r['inspection_date'] == YESTERDAY for r in records), 5)
+            self.assertEqual(by_id['ga_57558159']['inspection_date'], _days_before(YESTERDAY, 10))
+            self.assertTrue(all(r['inspection_date'] >= _days_before(YESTERDAY, dp.TP_REREAD_MARGIN_DAYS)
+                                for r in records))
+            self.assertNotIn('ga_57513167', by_id)                 # Fin's February routine stays out
 
     def test_no_since_means_one_open_window_from_the_history_floor_newest_first(self):
         portal = _portal()
@@ -235,6 +252,8 @@ class RequestShapeTests(GeorgiaTestCase):
         self.assertEqual([p for f, p in portal.searches if not f.get('county')], [0])  # 5 rows >= 2
         self.assertFalse(any(u.endswith('facilities/0') for u in portal.calls))
         self.assertNotIn('Georgia', dp._GROUP_NOTES)
+        # the records dropped by the limit hold the window (uncounted) at the newest dropped date
+        self.assertEqual(dp._FRESHNESS_HOLDS, {'Georgia DPH': {f'{DAY}|': (False, False)}})
 
     def test_the_gnr_counties_are_checked_and_their_facilities_dropped(self):
         rows = _load('search_day_p0.json')
@@ -357,6 +376,13 @@ class RecordTests(GeorgiaTestCase):
                          'Observed no hand soap at hand sink')
         self.assertEqual(dp._ga_observation('Inspector Notes:'), '')
         self.assertEqual(dp._ga_observation(None), '')
+        self.assertEqual(dp._ga_observation('Inspector Notes: Observed no certified food safety manager. '
+                                            '511-6-1-.03(1)(c) - Food Safety Manager Certification (Pf) The PIC shall'),
+                         'Observed no certified food safety manager')
+        # inspectors' contact details never ship (8 of 3,045 live lines carried an e-mail)
+        self.assertEqual(dp._ga_observation('Inspector Notes: Observed no CFSM certificate. Email verification to '
+                                            'Bernotta.Linder@dph.ga.gov or call (404) 555-0199 within 30 days.'),
+                         'Observed no CFSM certificate. Email verification to [email] or call [phone] within 30 days')
         # the pasted rule's pest wording must never read as evidence; a real sighting still does
         self.assertFalse(dp.has_active_pest_or_sewage(dp._ga_observation(
             'Inspector Notes: CA: The premises shall be kept free of insects and rodents by routinely '
@@ -438,7 +464,7 @@ class FailureTests(GeorgiaTestCase):
     def test_a_day_whose_pages_shifted_is_re_read_and_then_raises(self):
         portal = _portal(day=YESTERDAY, shift_once=[YESTERDAY])
         records = _fetch(portal, since=YESTERDAY)
-        self.assertEqual(len(records), 5)
+        self.assertEqual(len(records), 6)
         reads = [p for f, p in portal.searches if f.get('from') == YESTERDAY and not f.get('county')]
         self.assertEqual(reads, [0, 1, 2, 0, 1, 2])                 # the reversed read, then the good one
         rows = _load('search_day_p0.json') + _load('search_day_p1.json')
@@ -456,7 +482,7 @@ class FailureTests(GeorgiaTestCase):
         portal.histories[MARGARITAS] = 503
         portal.histories[DUNKIN] = dp.requests.ConnectionError('reset')
         records = _fetch(portal, since=YESTERDAY)
-        self.assertEqual(sorted(_by_id(records)), ['ga_57560247', 'ga_57560333', 'ga_57560379'])
+        self.assertEqual(sorted(_by_id(records)), ['ga_57558159', 'ga_57560247', 'ga_57560333', 'ga_57560379'])
         self.assertEqual(portal.calls.count(f'{dp.GA_API}inspectionsData/{MARGARITAS}'), dp.TP_RETRIES)
         self.assertEqual(dp._FRESHNESS_HOLDS, {'Georgia DPH': {f'{YESTERDAY}|883992': (True, False),
                                                                 f'{YESTERDAY}|3164155': (True, False)}})
@@ -470,6 +496,115 @@ class FailureTests(GeorgiaTestCase):
         self.assertEqual(holds, [DAY])
         recs, holds = dp._ga_build(_load('search_day_p1.json')[1], hist[1:], None, DAY)
         self.assertEqual(holds, [DAY])                              # the list promised a 10-30 inspection
+        # one entry that is not the 6-string list (a layout change) holds the inspection,
+        # it never ships with the readable lines only or with violations []
+        hist = copy.deepcopy(_load('histories.json')[KADHAI])
+        hist[0]['violations']['1'] = {'item': '6-1A - cold holding', 'notes': 'Observed roaches'}
+        recs, holds = dp._ga_build(_load('search_day_p1.json')[1], hist, None, DAY)
+        self.assertEqual(([r['source_id'] for r in recs], holds), (['ga_57527667', 'ga_57478980'], [DAY]))
+
+    def test_an_inconsistent_history_entry_is_held_not_shipped(self):
+        """Live 2026-10-20: the portal served 'Main Banquet Kitchen @ Omni' a hybrid
+        entry — the new date, score 87 and printable under the 2024 inspection's id with
+        violations {} — and it shipped as a B with no violation text under a colliding
+        id. A deduction with no items, an inspectionId that is not an int or disagrees
+        with the printable's fsimID, all hold instead."""
+        row = _load('search_day_p1.json')[1]
+        base = _load('histories.json')[KADHAI]
+        hybrid = copy.deepcopy(base)
+        hybrid[0]['violations'] = {}                                 # score 88, no items
+        recs, holds = dp._ga_build(row, hybrid, None, DAY)
+        self.assertEqual(([r['source_id'] for r in recs], holds), (['ga_57527667', 'ga_57478980'], [DAY]))
+        mismatch = copy.deepcopy(base)
+        mismatch[0]['printablePath'] = mismatch[0]['printablePath'].replace('fsimID=57560333', 'fsimID=57441668')
+        self.assertEqual(dp._ga_build(row, mismatch, None, DAY)[1], [DAY])
+        for bad_id in (None, '57560333', True):
+            no_id = copy.deepcopy(base)
+            no_id[0]['inspectionId'] = bad_id
+            recs, holds = dp._ga_build(row, no_id, None, DAY)
+            self.assertEqual(holds, [DAY], bad_id)
+            self.assertFalse(any(r['source_id'] in ('ga_None', 'ga_True') for r in recs))
+        # a 100 with no items is a clean inspection, and a printable without an fsimID is no mismatch
+        self.assertEqual([r['source_id'] for r in dp._ga_build(row, base, None, DAY)[0]],
+                         ['ga_57560333', 'ga_57527667', 'ga_57478980'])
+        no_path = copy.deepcopy(base)
+        no_path[0]['printablePath'] = ''
+        self.assertEqual(dp._ga_build(row, no_path, None, DAY)[1], [])
+
+    def test_a_read_facility_ships_its_inspections_back_to_the_re_read_margin(self):
+        """The list filter is on a facility's LAST inspection, so a facility a failed
+        or cut run dropped is re-listed under its newest day only; shipping back to
+        TP_REREAD_MARGIN_DAYS before the window start recovers the older in-window
+        inspections (the C behind a clean follow-up) when it is re-read."""
+        row, hist = _load('search_day_p1.json')[0], _load('histories.json')[FIN]
+        ids = lambda ship_from: [r['source_id'] for r in dp._ga_build(row, hist, ship_from, DAY)[0]]
+        self.assertEqual(ids(None), ['ga_57560379', 'ga_57558159', 'ga_57513167'])
+        self.assertEqual(ids('2026-10-20'), ['ga_57560379', 'ga_57558159'])   # inclusive
+        self.assertEqual(ids('2026-10-21'), ['ga_57560379'])
+        portal = _portal(day=YESTERDAY)
+        portal.histories[FIN] = 503                                  # week 1: Fin's history fails
+        self.assertNotIn('ga_57558159', _by_id(_fetch(portal, since=YESTERDAY)))
+        self.assertEqual(dp._FRESHNESS_HOLDS, {'Georgia DPH': {f'{YESTERDAY}|12986128': (True, False)}})
+        portal = _portal(day=YESTERDAY)                              # week 2: re-read from the held day
+        records = _fetch(portal, since=_days_before(YESTERDAY, 2))
+        self.assertEqual(_by_id(records)['ga_57558159']['risk_score'], 76)
+
+    def test_many_unreadable_histories_make_the_run_red_or_abandon_it(self):
+        """A portal that stops answering fails facility after facility: that is not a
+        per-record problem for the three-run give-up to write off. TP_MASS_FAILURE_MIN
+        unreadable histories report the group 'error' (records ship, holds count);
+        more than half raise and nothing ships or counts."""
+        with mock.patch.object(dp, 'TP_MASS_FAILURE_MIN', 2):
+            portal = _portal(day=YESTERDAY)
+            portal.histories[MARGARITAS] = 503
+            portal.histories[DUNKIN] = 503
+            records = _fetch(portal, since=YESTERDAY)
+            self.assertEqual(len(records), 4)
+            self.assertEqual(dp._GROUP_STATUS['Georgia'][0], 'error')
+            self.assertIn('2 of 7 facility histories', dp._GROUP_STATUS['Georgia'][1])
+            self.assertEqual(len(dp._FRESHNESS_HOLDS['Georgia DPH']), 2)
+            dp._GROUP_STATUS.clear()
+            dp._FRESHNESS_HOLDS.clear()
+            portal = _portal(day=YESTERDAY)
+            for fid in (CHEROKEE, MARGARITAS, DUNKIN, KADHAI):
+                portal.histories[fid] = 503
+            with self.assertRaises(RuntimeError) as cm:
+                _fetch(portal, since=YESTERDAY)
+            self.assertIn('4 of 7 facility histories', str(cm.exception))
+            self.assertEqual(dp._FRESHNESS_HOLDS, {})
+            self.assertNotIn('Georgia', dp._GROUP_STATUS)
+
+    def test_the_deadline_inside_the_retry_ladder_is_a_cut_not_a_failure(self):
+        # the deadline passes while a facility's history is being retried: an uncounted
+        # hold and a 'skipped' group, not a counted failure (and no further retries)
+        portal = _portal(day=YESTERDAY)
+        portal.histories[CHEROKEE] = 503
+        gate = mock.Mock(side_effect=[False, False, False] + [True] * 40)   # two days, work() starts, then past
+        with mock.patch.object(dp, '_past_deadline', gate):
+            records = _fetch(portal, since=YESTERDAY, workers=1)
+        self.assertEqual(records, [])
+        self.assertEqual(portal.calls.count(f'{dp.GA_API}inspectionsData/{CHEROKEE}'), 1)
+        self.assertEqual(dp._GROUP_STATUS['Georgia'][0], 'skipped')
+        self.assertEqual(dp._FRESHNESS_HOLDS['Georgia DPH'][f'{YESTERDAY}|875017'], (False, False))
+        self.assertEqual(set(dp._FRESHNESS_HOLDS['Georgia DPH'].values()), {(False, False)})
+        # the deadline passes while a day's list page is being retried: that day is held,
+        # the group is 'skipped', nothing is listed further — no RuntimeError
+        portal = _portal(day=YESTERDAY)
+        portal.list_fail = 503
+        dp._GROUP_STATUS.clear()
+        dp._FRESHNESS_HOLDS.clear()
+        with mock.patch.object(dp, '_past_deadline', mock.Mock(side_effect=[False] + [True] * 40)):
+            records = _fetch(portal, since=YESTERDAY)
+        self.assertEqual(records, [])
+        self.assertEqual(len([u for u in portal.calls if 'search/' in u]), 1)
+        self.assertEqual(dp._GROUP_STATUS['Georgia'][0], 'skipped')
+        self.assertEqual(dp._FRESHNESS_HOLDS, {'Georgia DPH': {f'{YESTERDAY}|': (False, False)}})
+
+    def test_the_gnr_county_check_fails_closed(self):
+        portal = _portal(day=YESTERDAY)
+        portal.county_fail = 503
+        with self.assertRaises(RuntimeError):
+            _fetch(portal, since=YESTERDAY)
 
     def test_the_deadline_cuts_the_detail_phase_with_uncounted_holds_and_a_skipped_status(self):
         portal = _portal(day=YESTERDAY)
@@ -523,6 +658,20 @@ class HelperTests(unittest.TestCase):
         self.assertIsNone(dp._tp_parse_address('no second line', 'GA'))
         self.assertEqual(dp._tp_parse_address('1 MAIN ST GA 30301', 'GA', 'ATLANTA'), ('1 Main St', 'Atlanta', '30301'))
         self.assertIsNone(dp._tp_parse_address('1 MAIN ST \r\nMOBILE, AL 36602', 'GA'))
+        # three-line rows: the last line is the city line, the middle one is street (a
+        # PO Box is a mailing address and is dropped) — two live restaurants had the
+        # city 'Po Box 125 Waynesboro' / 'Po Box 4564 Eatonton' before this
+        self.assertEqual(dp._tp_parse_address('261 S LIBERTY ST \r\nPO BOX 125 \r\nWAYNESBORO, GA 30830', 'GA'),
+                         ('261 S Liberty St', 'Waynesboro', '30830'))
+        self.assertEqual(dp._tp_parse_address('123 MAIN ST\r\nSUITE 4\r\nATLANTA, GA 30303', 'GA'),
+                         ('123 Main St Suite 4', 'Atlanta', '30303'))
+        self.assertEqual(dp._tp_parse_address('P.O. BOX 4564 \r\nEATONTON, GA 31024', 'GA'),
+                         ('P.O. Box 4564', 'Eatonton', '31024'))
+        self.assertIsNone(dp._tp_parse_address('', 'GA'))
+        self.assertIsNone(dp._tp_parse_address('\r\n', 'GA'))
+        self.assertEqual(dp._tp_strip_contacts('mail jane.doe@dph.ga.gov, call 404-555-0100 or (404) 555-0101; '
+                                               'rule 511-6-1.05 at 41 F on 10-30-2026'),
+                         'mail [email], call [phone] or [phone]; rule 511-6-1.05 at 41 F on 10-30-2026')
         self.assertEqual(dp._tp_title("JOE'S  DINER"), "Joe's Diner")
         self.assertEqual(dp._tp_title('Publix Falcons activation  10/31'), 'Publix Falcons activation 10/31')
         self.assertEqual(dp._tp_date('Date: 10-30-2026'), '2026-10-30')
