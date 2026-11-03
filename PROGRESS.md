@@ -120,10 +120,22 @@ section region plus tests/test_maricopa.py (no edits outside).
   the same 17 source_ids as the pre-fix run; grades 17 A (scores 90-100);
   results Grade A 9, Not Participating 4, Grade B 2, Grade C 1,
   Re-inspection 1; 9 violation lines, max 495 chars, no newlines, no
-  email/phone, 0 pest-regex trips. Detail-page sample (383 pages: every 5th
-  restaurant of the 14-day output + every B/C/F + every re-inspection +
-  every pest line) re-fetched 04:36 UTC for an offline re-parse: PENDING at
-  this checkpoint (see the next entry).
+  email/phone, 0 pest-regex trips.
+- LIVE detail-page sample (04:36-04:46 UTC): 383 pages (every 5th restaurant
+  of the 14-day output + every B/C/F + every re-inspection + every pest
+  line) re-fetched in 576 s (2 workers, 0.66 pages/s, 383 requests, 0
+  failures) and re-parsed offline: NEW parser 0 unread, 372 identical to the
+  14-day output, 11 (2.9%) gain a PF/Core line the pre-fix parser lost
+  (the multi-citation fix of the previous pass; scores move -1/-2), 0 lose a
+  line; the only flag paragraph text on any page is 'Repeat Violation' (37),
+  0 empty-comments entries, 0 tally-below pages. Plus 300 random live permit
+  pages (43 s): 0 unread, 1,994 rows. Live request total for the fix pass:
+  403 zip searches + 300 permit pages + 383 detail pages + the 53 of the
+  test-mode run = 1,139 portal requests, no 429/403/5xx.
+- Backfill note for the integrator: a --since-date backfill should run WITHOUT
+  --freshness-file (an unread permit page would otherwise pin the next
+  weeklies' window at the backfill start for up to 3 runs); the first
+  weekly then starts from data.js's recorded latest with the 21-day margin.
 
 ## Design decisions (so a successor does not re-derive them)
 - Group 'Maricopa County', source 'Maricopa County Environmental Services',
