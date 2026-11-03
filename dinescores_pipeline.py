@@ -7788,7 +7788,9 @@ WM_OUT_OF_SCOPE = (
     ('sewage/sanitation permit', re.compile(r'-SAN$')),
     ('school kitchen', re.compile(r'-ISD$|-SFEC$|-FFES(?:-|$)|^[A-Z]{2}S-\d')),
 )
-WM_TEST_NAME_RE = re.compile(r'^\s*test\b', re.I)   # the district's own test permits
+# The district's own test permits ('TEST', 'Test Project Name', 'TEST Preopen
+# Assignment', all at its 355 Texas Ave office); a real "Test Kitchen" stays.
+WM_TEST_NAME_RE = re.compile(r'^\s*test(?:\s*$|\s+(?:project|preopen|permit|record|account)\b)', re.I)
 _WM_XLSX_NS = '{http://schemas.openxmlformats.org/spreadsheetml/2006/main}'
 # Tokens .title() must not lower-case: Texas road codes and compass points
 # in addresses ('FM 1105', 'IH 35', 'NE Inner Loop'), company codes in names.

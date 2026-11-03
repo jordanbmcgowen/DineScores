@@ -561,12 +561,13 @@ class CsvEdgeTests(_Base):
             "2026-7-FFE,Testa's Pizza,1 Main St,ROUND ROCK,TX",
             '2026-8-FFE,,2 Main St,ROUND ROCK,TX',
             '2026-9-FFE,Bagdad Grill,3 Main St,301 w bagdad ave,TX',
+            '2026-10-FFE,TEST KITCHEN AUSTIN,4 Main St,ROUND ROCK,TX',
         ])
         permits = [row.split(',')[0] for row in businesses.decode().split('\r\n')[1:-1]]
         inspections = _csv(INS_HDR, [f'{p},20260601,90,Pass,Routine' for p in permits])
         with self.assertLogs('dinescores', level='WARNING') as logs:
             records, _, _ = _fetch(zip_bytes=_zip(businesses=businesses, inspections=inspections))
-        self.assertEqual([r['name'] for r in records], ["Testa's Pizza"])
+        self.assertEqual([r['name'] for r in records], ['Test Kitchen Austin', "Testa's Pizza"])
         text = '\n'.join(logs.output)
         self.assertIn('1 no name', text)
         self.assertIn('1 no usable city', text)
