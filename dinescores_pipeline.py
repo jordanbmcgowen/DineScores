@@ -7705,11 +7705,11 @@ def fetch_maricopa(since_date=None, limit=None):
 # There is no cross-establishment inspection list by date (probed
 # 2026-11-02: every guessed route answers 405 or the SPA shell), so a window
 # is read in three phases:
-#   1. the establishments whose lastCompletedInspectionDate >= since. That
-#      field is the date of the permit's newest inspection, so every
-#      establishment with an inspection in the window is in the answer;
-#   2. each one's inspection list, kept to the window and the visit types
-#      below;
+#   1. the establishments whose lastCompletedInspectionDate >= the window
+#      start less HARRIS_LC_LAG_DAYS (that field trails the inspection
+#      list, see the constant);
+#   2. each one's inspection list, kept to the widened window and the visit
+#      types below;
 #   3. each kept inspection's items, oldest first.
 # A search page or inspection list that cannot be read raises (never a
 # partial window); an unreadable item list drops that inspection and holds
@@ -7751,6 +7751,20 @@ HARRIS_DELAY = 0.4           # seconds after every request, per worker
 HARRIS_BREAKER_TRIP = 3      # exhausted requests in a row -> _HARRIS_BLOCKED
 HARRIS_CLOSURE_CAP = 55      # risk_score ceiling when the county ordered a closure
 HARRIS_LATE_ENTRY_DAYS = 2   # an inspection entered this long after its date is counted as late
+# The search filter field trails the inspection list. lastCompletedInspectionDate
+# equalled the newest listed inspection on 97-98% of the establishments probed
+# on 2026-11-03 (454 of 467 inspected in the previous 14 days; 231 of 240
+# whose field was 1.5-5.5 months old); on the rest an inspection 5-11 days
+# NEWER than the field — a Follow-up, Consultation, Permitting or Food Borne
+# Illness visit shortly after a reflected one, Approved and Complete — had
+# still not moved it weeks or months later. So a window is read from this
+# many days before its start: the search still finds an establishment whose
+# field is stuck on the earlier visit, and the later visit, dated inside the
+# widened window, ships; inspections already shipped from the margin are
+# upserted again (idempotent). Every observed gap was 5-11 days; an
+# unreflected visit more than this margin after the previous reflected one
+# is missed until the establishment's next reflected inspection.
+HARRIS_LC_LAG_DAYS = 28
 # A score of 100 means no OUT item (every OUT item costs at least one
 # demerit); the live check of 2026-11-03 read the items of 40 score-100
 # inspections and every list was empty, so their item call is skipped.
@@ -8161,15 +8175,23 @@ def fetch_harris(since_date=None, limit=None):
     score, county-stated P/F/C severity, item titles as the violation text.
 
     since_date is 'YYYY-MM-DD[T00:00:00]' or None (the whole published
-    record: the per-establishment lists go back to 2022). limit bounds the
-    read: at most `limit` establishments are listed (newest first) and the
-    newest `limit` of their inspections are read, and such a bounded read
-    leaves no lag note. Only inspections whose item list was read (or whose
-    score of 100 means there is none) ship.
+    record: the per-establishment lists go back to 2024). A window is read
+    from HARRIS_LC_LAG_DAYS before since_date, search filter and kept
+    inspections alike, because the search field trails the inspection list
+    (see the constant); a cut still holds the window at since_date itself.
+    limit bounds the read: at most `limit` establishments are listed (newest
+    first) and the newest `limit` of their inspections are read, and such a
+    bounded read leaves no lag note. Only inspections whose item list was
+    read (or whose score of 100 means there is none) ship.
     """
     global _HARRIS_FAILURES_LOGGED, _HARRIS_BLOCKED, _HARRIS_EXHAUSTED_STREAK, _HARRIS_LAST_ERROR
     log.info(f"Fetching Harris County data (since={since_date}, limit={limit})")
     since = str(since_date)[:10] if since_date else None
+    read_from = since
+    if since and HARRIS_LC_LAG_DAYS:
+        read_from = (datetime.strptime(since, '%Y-%m-%d') - timedelta(days=HARRIS_LC_LAG_DAYS)).strftime('%Y-%m-%d')
+        log.info(f"  Harris County: reading from {read_from}, {HARRIS_LC_LAG_DAYS} days before {since} "
+                 f"(lastCompletedInspectionDate trails the inspection list)")
     _HARRIS_FAILURES_LOGGED = 0
     with _HARRIS_LOCK:
         _HARRIS_STATS.clear()
@@ -8194,7 +8216,7 @@ def fetch_harris(since_date=None, limit=None):
     # Phase 1: the establishments inspected in the window.
     skipped_est = defaultdict(int)
     try:
-        listed = _harris_list_establishments(get_session(), since, limit)
+        listed = _harris_list_establishments(get_session(), read_from, limit)
     except _HarrisCut as c:
         return cut(c.status, c.detail)
     truncated = bool(limit) and len(listed) >= limit      # a bounded read never saw the end
@@ -8237,7 +8259,7 @@ def fetch_harris(since_date=None, limit=None):
     if gone:
         by_id = {e.get('documentId'): e for e in ests}
         for did in gone:
-            day = sane_inspection_date(by_id[did].get('lastCompletedInspectionDate')) or since
+            day = sane_inspection_date(by_id[did].get('lastCompletedInspectionDate')) or read_from
             _hold_freshness(HARRIS_SOURCE, day, counted=True, key=did)
         log.warning(f"  Harris County: {len(gone)} establishments answered 404/410 to their inspection "
                     f"list (deactivated since the search?); skipped and held for a re-read")
@@ -8255,7 +8277,7 @@ def fetch_harris(since_date=None, limit=None):
     dropped = defaultdict(int)
     candidates, seen = [], set()
     for est in ests:
-        for insp in _harris_select_inspections(lists.get(est.get('documentId')) or [], since, dropped):
+        for insp in _harris_select_inspections(lists.get(est.get('documentId')) or [], read_from, dropped):
             if insp['number'] in seen:
                 continue
             seen.add(insp['number'])

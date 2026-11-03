@@ -207,7 +207,8 @@ class HarrisTestCase(unittest.TestCase):
     """Saves, clears and restores every pipeline global the fetcher touches
     (discovery runs all test modules in one process)."""
     GLOBALS = ('_HARRIS_BLOCKED', '_HARRIS_EXHAUSTED_STREAK', '_HARRIS_FAILURES_LOGGED', '_HARRIS_LAST_ERROR',
-               '_FETCH_DEADLINE', '_FRESHNESS', 'HARRIS_WORKERS', 'HARRIS_DELAY', 'HARRIS_PAGE')
+               '_FETCH_DEADLINE', '_FRESHNESS', 'HARRIS_WORKERS', 'HARRIS_DELAY', 'HARRIS_PAGE',
+               'HARRIS_LC_LAG_DAYS')
     DICTS = ('_GROUP_NOTES', '_FRESHNESS_HOLDS', '_GROUP_STATUS', '_HARRIS_STATS')
 
     def setUp(self):
@@ -220,6 +221,9 @@ class HarrisTestCase(unittest.TestCase):
         # One worker: the stand-in is not thread-safe, and the oldest-first
         # item order is then exact.
         dp.HARRIS_WORKERS, dp.HARRIS_DELAY = 1, 0
+        # No lookback margin unless a test asks for it, so the window tests
+        # read exactly as their since-date says (see test_window_is_widened_...).
+        dp.HARRIS_LC_LAG_DAYS = 0
         self._level = dp.log.level
         dp.log.setLevel(logging.WARNING)
         self.rows, self.lists, self.items = load_fixtures()
@@ -606,6 +610,35 @@ class WindowAndLimitTests(HarrisTestCase):
     def test_window_filter_is_inclusive_of_its_first_day(self):
         records, _, _ = self.fetch(since_date='2026-10-26')
         self.assertIn('hcph_I0492917', by_id(records))             # dated exactly 2026-10-26
+
+    def test_window_is_widened_because_the_search_field_trails_the_list(self):
+        dp.HARRIS_LC_LAG_DAYS = 28
+        records, portal, _ = self.fetch(since_date=SINCE + 'T00:00:00')
+        self.assertEqual(portal.search_bodies()[0]['filter'],
+                         [['lastCompletedInspectionDate', '>=', '2026-09-22T00:00:00']])
+        ids = set(by_id(records))
+        self.assertTrue(IN_WINDOW <= ids)
+        self.assertIn('hcph_I0491281', ids)                 # TMG Permitting 2026-09-25: inside the margin
+        self.assertIn('hcph_I0491786', ids)                 # TMG Follow-up 2026-10-05
+        self.assertNotIn('hcph_I0490742', ids)              # 2026-09-16: before the margin
+        self.assertNotIn('hcph_I0490361', ids)              # 2026-09-11
+        self.assertTrue(all(r['inspection_date'] >= '2026-09-22' for r in records))
+        # a stuck field: an establishment whose newest listed inspection is in
+        # the window while its field stayed on the visit before it
+        self.row(TMG)['lastCompletedInspectionDate'] = '2026-10-05'
+        records, _, _ = self.fetch(since_date=SINCE)
+        self.assertTrue({'hcph_I0493073', 'hcph_I0493159'} <= set(by_id(records)))
+        dp.HARRIS_LC_LAG_DAYS = 0
+        records, _, _ = self.fetch(since_date=SINCE)
+        self.assertFalse({'hcph_I0493073', 'hcph_I0493159'} & set(by_id(records)))   # what the margin is for
+
+    def test_a_cut_holds_the_window_at_its_own_start_not_the_widened_one(self):
+        dp.HARRIS_LC_LAG_DAYS = 28
+        portal = self.portal()
+        portal.fail_all.add('list')
+        records, _, _ = self.fetch(portal=portal)
+        self.assertEqual(records, [])
+        self.assertEqual(list(dp._FRESHNESS_HOLDS[SRC]), ['2026-10-22|window'])
 
 
 # ── paging ────────────────────────────────────────────────────────────────

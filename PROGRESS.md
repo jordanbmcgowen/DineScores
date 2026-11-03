@@ -21,9 +21,12 @@ when resuming; never start over.
 - [x] fixtures captured + scrubbed under tests/fixtures/harris/ (39 files; the
       11 older item lists captured 2026-11-03 03:05 for the since=None tests)
 - [x] tests/test_harris.py: 53 tests green (python3 -m unittest tests.test_harris)
-- [ ] DECISION PENDING: lastCompletedInspectionDate lags the inspection list
-      (see "Completeness" below); band probe running (band_probe.log)
-- [ ] whole suite green under 3.11 + 3.13, node tests/test_relay.mjs
+- [x] DECIDED: HARRIS_LC_LAG_DAYS = 28 lookback margin on both the search
+      filter and the kept inspections (evidence under "Completeness"); a cut
+      still holds at the original since. 55 tests.
+- [x] whole suite green under 3.11 + 3.13 (329 tests), node tests/test_relay.mjs
+- [ ] FINAL live re-run with the margin (run_live2.sh -> live_chain2.log,
+      test_run2.log, run_14d2.log); then final PROGRESS + structured report
 - [ ] final cleanup + structured report
 
 ## Design decisions (so a successor does not re-litigate them)
@@ -107,7 +110,19 @@ when resuming; never start over.
   the window (Routine 2026-10-26 with field 10-19; Food Borne Illness
   2026-10-22 with field 10-15), both still not reflected 8-12 days later.
   So the search filter alone misses ~1% of recently-active establishments'
-  newest visits -> a lookback margin is needed (decision after band probe).
+  newest visits. Band probe (band_probe.log): of 240 establishments whose
+  field is 1.5-5.5 months old, 5 (2%) hold a Complete, Approved inspection
+  5-11 days NEWER than the field, still unreflected months later -> the
+  field can stay stuck on the earlier visit until the next one. All 9
+  unreflected visits seen (Follow-up, Consultation, Permitting x2, Food
+  Borne Illness x2, Routine, Follow-Up Inspection, Pre-opening) came 5-11
+  days after a reflected visit. Fix: read every window from
+  HARRIS_LC_LAG_DAYS (28) before its start, search filter and kept
+  inspections alike; the stuck establishment is found via its earlier visit
+  and the later one ships; re-shipped inspections are idempotent upserts.
+  Residual: an unreflected visit more than ~28 days after the previous
+  reflected one is missed until the next reflected inspection. Weekly cost
+  roughly triples (~1,200 lists + ~1,100 item lists per run).
 - dateUtc - date = 0 days on all 501 (entered the day of the visit).
 - Host answers plain python requests from this container (every call 200;
   no 429/403 in ~2,300 requests this session). GitHub-runner reachability
