@@ -834,6 +834,14 @@ STATE_BOUNDS = {  # generous per-state boxes for the states we cover
     'IL': (36.90, 42.55, -91.60, -87.00),
     'DC': (38.75, 39.05, -77.15, -76.85),
     'FL': (24.35, 31.05, -87.70, -79.95),
+    # 2026-11 expansion states (Georgia, Louisiana, Arizona, Virginia, Ohio,
+    # Colorado). Mirrored in src/grading.js — change both together.
+    'GA': (30.35, 35.00, -85.65, -80.80),
+    'LA': (28.90, 33.05, -94.05, -88.80),
+    'AZ': (31.30, 37.00, -114.85, -109.00),
+    'VA': (36.50, 39.50, -83.70, -75.20),
+    'OH': (38.40, 42.00, -84.85, -80.50),
+    'CO': (36.95, 41.05, -109.10, -102.00),
 }
 COORD_MARGIN = 0.6  # ° of slack around state boxes (metro suburbs, borders)
 
@@ -7658,6 +7666,66 @@ def fetch_arlington(since_date=None, limit=None):
     return results
 
 
+# ─── 2026-11 EXPANSION: NEW SOURCES ─────────────────────────────────────────
+# Each section below is one fetch group of the November 2026 expansion
+# (Georgia, Louisiana, Maricopa County, Harris County, the Hedgerow portals,
+# Williamson County and the uncovered DFW cities). They follow the API-fetcher
+# contract (see fetch_wake / fetch_omaha): fetch_<x>(since_date=None, limit=None)
+# returns per-inspection dicts; main() runs each in the pool under its group
+# name and geocodes the records the source published without coordinates.
+# A fetcher that cannot read its whole window raises or reports the group
+# partial (_set_group_status) — it never returns a silently truncated list.
+
+# ─── GEORGIA + LOUISIANA (Tyler "publicportals" JSON APIs) ──────────────────
+def fetch_georgia(since_date=None, limit=None):
+    raise NotImplementedError('fetch_georgia: implemented on the tyler-portals branch')
+
+
+def fetch_louisiana(since_date=None, limit=None):
+    raise NotImplementedError('fetch_louisiana: implemented on the tyler-portals branch')
+
+
+# ─── PHOENIX / MARICOPA COUNTY, AZ (envapp.maricopa.gov + county ArcGIS) ────
+def fetch_maricopa(since_date=None, limit=None):
+    raise NotImplementedError('fetch_maricopa: implemented on the maricopa branch')
+
+
+# ─── HARRIS COUNTY, TX (Harris County Public Health food safety API) ────────
+def fetch_harris(since_date=None, limit=None):
+    raise NotImplementedError('fetch_harris: implemented on the harris branch')
+
+
+# ─── HEDGEROW PORTALS: PIMA COUNTY AZ, LUBBOCK TX, MESQUITE TX ───────────────
+def fetch_pima(since_date=None, limit=None):
+    raise NotImplementedError('fetch_pima: implemented on the hedgerow branch')
+
+
+def fetch_lubbock(since_date=None, limit=None):
+    raise NotImplementedError('fetch_lubbock: implemented on the hedgerow branch')
+
+
+def fetch_mesquite(since_date=None, limit=None):
+    raise NotImplementedError('fetch_mesquite: implemented on the hedgerow branch')
+
+
+# ─── WILLIAMSON COUNTY, TX (WCCHD inspection-scores zip snapshot) ───────────
+def fetch_williamson(since_date=None, limit=None):
+    raise NotImplementedError('fetch_williamson: implemented on the williamson branch')
+
+
+# ─── DFW CITIES WITHOUT A PORTAL ON MHD: IRVING, McKINNEY, LEWISVILLE ───────
+def fetch_irving(since_date=None, limit=None):
+    raise NotImplementedError('fetch_irving: implemented on the dfw-holes branch')
+
+
+def fetch_mckinney(since_date=None, limit=None):
+    raise NotImplementedError('fetch_mckinney: implemented on the dfw-holes branch')
+
+
+def fetch_lewisville(since_date=None, limit=None):
+    raise NotImplementedError('fetch_lewisville: implemented on the dfw-holes branch')
+
+
 def geocode_census_batch(records, benchmark='Public_AR_Current'):
     """
     Batch-geocode US street addresses with the free Census Bureau geocoder
@@ -8121,6 +8189,7 @@ CREATE TABLE IF NOT EXISTS restaurants (
 CREATE INDEX IF NOT EXISTS idx_restaurants_city ON restaurants(city);
 CREATE INDEX IF NOT EXISTS idx_restaurants_geo ON restaurants(lat, lng);
 CREATE INDEX IF NOT EXISTS idx_restaurants_name ON restaurants(name);
+CREATE INDEX IF NOT EXISTS idx_restaurants_metro ON restaurants(metro);
 CREATE TABLE IF NOT EXISTS inspections (
   id TEXT PRIMARY KEY,
   restaurant_id TEXT NOT NULL,
@@ -8879,6 +8948,31 @@ def main():
     if 'vegas' in args.cities or 'lasvegas' in args.cities:
         socrata_jobs['Las Vegas'] = lambda: fetch_vegas(
             since_date=api_since('Las Vegas'), limit=record_limit)
+
+    # 2026-11 expansion: every new place is its own fetch group in the pool
+    # (the group name is the report row and the freshness key). Records the
+    # source published without coordinates are geocoded the usual way; a
+    # source whose rows all carry coordinates has nothing to fill.
+    def _expansion_job(group, fetcher):
+        def run():
+            data = fetcher(since_date=api_since(group), limit=record_limit)
+            geocode_missing_coords(data)
+            return data
+        return run
+    for slugs, group, fetcher in (
+            (('georgia', 'atlanta'), 'Georgia', fetch_georgia),
+            (('louisiana', 'neworleans'), 'Louisiana', fetch_louisiana),
+            (('maricopa', 'phoenix'), 'Maricopa County', fetch_maricopa),
+            (('harris',), 'Harris County', fetch_harris),
+            (('pima', 'tucson'), 'Pima County', fetch_pima),
+            (('lubbock',), 'Lubbock', fetch_lubbock),
+            (('mesquite', 'dfw'), 'Mesquite', fetch_mesquite),
+            (('williamson',), 'Williamson County', fetch_williamson),
+            (('irving', 'dfw'), 'Irving', fetch_irving),
+            (('mckinney', 'dfw'), 'McKinney', fetch_mckinney),
+            (('lewisville', 'dfw'), 'Lewisville', fetch_lewisville)):
+        if any(s in args.cities for s in slugs):
+            socrata_jobs[group] = _expansion_job(group, fetcher)
 
     if socrata_jobs:
         with ThreadPoolExecutor(max_workers=len(socrata_jobs)) as pool:

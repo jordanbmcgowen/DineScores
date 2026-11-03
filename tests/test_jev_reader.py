@@ -903,9 +903,17 @@ class PipelinePassTests(unittest.TestCase):
         self.assertEqual(jr.tier_policy('Houston Health Dept'), 'free')
         # tiers the county states: never re-tiered, never re-scored
         for src in ('Douglas County Health Dept', 'Santa Clara County Open Data', 'San Diego County DEH',
-                    'Orange County Health Care Agency'):
+                    'Orange County Health Care Agency', 'Georgia DPH', 'Harris County Public Health',
+                    'Lubbock Environmental Health', 'Mesquite Environmental Health'):
             self.assertEqual(jr.tier_policy(src), 'fixed', src)
             self.assertEqual(jr.score_policy(src, None), 'official', src)
+        # 2026-11 sources with no official score: computed from the tiers the
+        # source states, so the score follows the stored tiers but Jev's
+        # category never moves them.
+        for src in ('Louisiana LDH', 'Maricopa County Environmental Services',
+                    'Pima County Health Department'):
+            self.assertEqual(jr.tier_policy(src), 'fixed', src)
+            self.assertEqual(jr.score_policy(src, None), 'source_tiers', src)
         self.assertEqual(jr.bounded_tier('core', 'priority'), 'core')
         self.assertEqual(jr.bounded_tier('priority_foundation', 'core'), 'priority_foundation')
         self.assertEqual(jr.bounded_tier('priority', 'priority_foundation'), 'priority_foundation')

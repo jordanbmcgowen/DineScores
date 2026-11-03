@@ -44,7 +44,7 @@ export async function fetchAreaFromApi({ city, metro }, limit = 30000) {
  * false if the sync aborted mid-way (a later retry can start over — the
  * client dedups by id, so re-fetched pages are cheap).
  */
-export async function fetchAllFromApi(onBatch, { pageSize = 30000, maxPages = 12 } = {}) {
+export async function fetchAllFromApi(onBatch, { pageSize = 30000, maxPages = 20 } = {}) {
   let cursor = '';
   for (let page = 0; page < maxPages; page++) {
     let rows;

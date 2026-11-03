@@ -1671,7 +1671,14 @@ SCORE_FROM_TIERS_SOURCES = frozenset({
 })
 # Computed from tiers the SOURCE stated (levels, demerit bands): the score is
 # a function of the stored tiers, but Jev's category must not move them.
-SOURCE_TIER_SCORE_SOURCES = frozenset({'Boston Open Data', 'Detroit Open Data'})
+SOURCE_TIER_SCORE_SOURCES = frozenset({
+    'Boston Open Data', 'Detroit Open Data',
+    # 2026-11 expansion: no official score, risk computed from the tiers the
+    # source states per line (LDH Critical/Non-Critical, Maricopa's and
+    # Pima's Priority / Priority Foundation / Core tags).
+    'Louisiana LDH', 'Maricopa County Environmental Services',
+    'Pima County Health Department',
+})
 # Sources whose per-line tier is stated by the source (a level, points, a
 # demerit band, a critical flag).
 SOURCE_TIER_SOURCES = frozenset({
@@ -1687,6 +1694,14 @@ SOURCE_TIER_SOURCES = frozenset({
     # The county's critical (Santa Clara) and major (San Diego) flags anchor
     # every line's tier (_scc_violation, _sd_violation).
     'Santa Clara County Open Data', 'San Diego County DEH',
+    # 2026-11 expansion sources that state each line's tier: Georgia's
+    # (p)/(pf)/(c) citation suffixes, Louisiana's Critical / Non-Critical
+    # items, Maricopa's and Harris County's Priority / Priority Foundation /
+    # Core tags, the Hedgerow portals' per-citation severity (Pima County,
+    # Lubbock, Mesquite).
+    'Georgia DPH', 'Louisiana LDH', 'Maricopa County Environmental Services',
+    'Harris County Public Health', 'Pima County Health Department',
+    'Lubbock Environmental Health', 'Mesquite Environmental Health',
 })
 # Sources whose tier was bounded by a per-item rule the stored row no longer
 # carries (Chicago's item number, NYC's critical flag): a stored core line
