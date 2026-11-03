@@ -426,7 +426,7 @@ def _fixture_html(name):
 
 
 def _guid(n, head='00000000'):
-    """A GUID whose SQL Server order is decided by `n` (the last group)."""
+    """A distinct GUID-shaped inspectionID for row `n`."""
     return f'{head}-0000-0000-0000-{n:012d}'
 
 
@@ -526,49 +526,29 @@ class SortThreadingTests(unittest.TestCase):
 
 
 class SortGuardTests(unittest.TestCase):
-    """Sorted pages must fit together as one stable sequence; a repeated row
-    or a key out of order fails the query (None) instead of shipping short."""
-
-    def test_guid_order_is_sql_server_uniqueidentifier_order(self):
-        a, b = 'FFFFFFFF-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000002'
-        self.assertLess(dp._mhd_guid_sort_key(a), dp._mhd_guid_sort_key(b))
-        self.assertGreater(a, b, 'string order says the opposite — the key must not use it')
-        # groups are compared from the last to the first: the last group
-        # decides, the fourth group only breaks a tie on it
-        self.assertLess(dp._mhd_guid_sort_key('00000000-0000-0000-0002-000000000004'),
-                        dp._mhd_guid_sort_key('00000000-0000-0000-0001-000000000005'))
-        self.assertLess(dp._mhd_guid_sort_key('00000000-0000-0000-0001-000000000005'),
-                        dp._mhd_guid_sort_key('00000000-0000-0000-0002-000000000005'))
-        # a non-GUID sorts after every GUID, as text
-        self.assertGreater(dp._mhd_guid_sort_key('X7'), dp._mhd_guid_sort_key(b))
-        self.assertEqual(dp._mhd_guid_sort_key(None), dp._mhd_guid_sort_key(''))
+    """Sorted pages must fit together as one stable sequence; a row repeated
+    across pages fails the query (None) instead of shipping the window
+    short. The order of the keys is deliberately NOT checked: Gwinnett's
+    sorted pages are disjoint and complete but not in GUID order (its first
+    page runs 45-60 rows), so an order check would fail a correct read."""
 
     def test_pages_in_order_are_consistent(self):
         pages = [[{'inspectionID': _guid(i)} for i in range(1, 26)],
                  [{'inspectionID': _guid(i)} for i in range(26, 30)]]
         self.assertEqual(dp._mhd_pages_consistent(pages, dp.MHD_SORT_INSPECTION_ID), '')
-        desc = [list(reversed(p)) for p in reversed(pages)]
-        self.assertEqual(dp._mhd_pages_consistent(desc, {'field': 'inspectionID',
-                                                         'direction': 'desc'}), '')
+
+    def test_disjoint_pages_out_of_key_order_are_still_consistent(self):
+        # Gwinnett: a long first page and no key order, yet complete
+        pages = [[{'inspectionID': _guid(i)} for i in (7, 3, 9, 1)],
+                 [{'inspectionID': _guid(i)} for i in (2, 8)]]
+        self.assertEqual(dp._mhd_pages_consistent(pages, dp.MHD_SORT_INSPECTION_ID), '')
 
     def test_a_row_repeated_across_pages_is_a_repeat(self):
         pages = [[{'inspectionID': _guid(i)} for i in range(1, 26)],
                  [{'inspectionID': _guid(25)}, {'inspectionID': _guid(26)}]]
         self.assertEqual(dp._mhd_pages_consistent(pages, dp.MHD_SORT_INSPECTION_ID), 'repeat')
-        # the repeat check does not need a known order
         self.assertEqual(dp._mhd_pages_consistent(pages, {'field': 'establishmentName',
                                                           'direction': 'asc'}), 'repeat')
-
-    def test_a_key_out_of_order_fails_the_inspection_id_sort_only(self):
-        pages = [[{'inspectionID': _guid(1)}, {'inspectionID': _guid(3)}],
-                 [{'inspectionID': _guid(2)}]]
-        self.assertEqual(dp._mhd_pages_consistent(pages, dp.MHD_SORT_INSPECTION_ID), 'order')
-        self.assertEqual(dp._mhd_pages_consistent(pages, {'field': 'establishmentName',
-                                                          'direction': 'asc'}), '')
-        # string order is not the server's order: these are in GUID order
-        in_guid_order = [[{'inspectionID': 'FFFFFFFF-0000-0000-0000-000000000001'}],
-                         [{'inspectionID': '00000000-0000-0000-0000-000000000002'}]]
-        self.assertEqual(dp._mhd_pages_consistent(in_guid_order, dp.MHD_SORT_INSPECTION_ID), '')
 
     def test_rows_without_an_id_are_ignored(self):
         pages = [[{'inspectionID': _guid(1)}, {'permitID': 'P'}], [{'inspectionID': _guid(2)}]]
@@ -591,14 +571,6 @@ class SortGuardTests(unittest.TestCase):
         self.assertIsNone(out)
         self.assertTrue(any('repeat' in line and 'Fort Bend County' in line for line in logs.output))
 
-    def test_search_all_pages_fails_on_an_out_of_order_page_when_sorted(self):
-        pages = [[_row(_guid(i)) for i in range(1, 26)], [_row(_guid(0))]]
-        with mock.patch.object(dp, '_mhd_search_page', side_effect=self._paged(pages)), \
-             mock.patch.object(dp.time, 'sleep'):
-            out = dp._mhd_search_all_pages(None, 'fbceh', '2026-10-20 to 2026-10-20',
-                                           sort=dp.MHD_SORT_INSPECTION_ID)
-        self.assertIsNone(out)
-
     def test_search_all_pages_without_a_sort_keeps_the_old_contract(self):
         # Unsorted callers dedupe by inspectionID themselves; the guard is off.
         pages = [[_row(_guid(i)) for i in range(1, 26)], [_row(_guid(25)), _row(_guid(26))]]
@@ -614,6 +586,14 @@ class SortGuardTests(unittest.TestCase):
             out = dp._mhd_search_all_pages(None, 'fbceh', '2026-10-20 to 2026-10-20',
                                            sort=dp.MHD_SORT_INSPECTION_ID)
         self.assertEqual(len(out), 27)
+
+    def test_a_single_sorted_page_needs_no_guard(self):
+        pages = [[_row(_guid(i)) for i in range(1, 10)]]
+        with mock.patch.object(dp, '_mhd_search_page', side_effect=self._paged(pages)), \
+             mock.patch.object(dp.time, 'sleep'):
+            out = dp._mhd_search_all_pages(None, 'fbceh', '2026-10-20 to 2026-10-20',
+                                           sort=dp.MHD_SORT_INSPECTION_ID)
+        self.assertEqual(len(out), 9)
 
 
 class WindowFailureTests(unittest.TestCase):

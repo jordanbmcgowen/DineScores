@@ -5962,38 +5962,30 @@ def _mhd_exclude_patterns(config):
 # completed weeks each: the weekly unsorted 7-day read lost 3-13% of the
 # rows a day-by-day read found (Dallas 20 of 154, Frisco 5 of 56, El Paso
 # County 9 of 77, Adams County 5 of 59), while sorting on the unique
-# inspectionID served disjoint, complete pages on every read — in SQL
-# Server uniqueidentifier order, which _mhd_pages_consistent checks so a
-# page sequence the portal did not keep stable is refused rather than
-# shipped short. Orange County's newest-225 poll must NOT sort (any sort
-# turns its query into a whole-database one, see fetch_orange_county), so
-# the default lives in the jurisdiction fetch, not in _mhd_search_page.
+# inspectionID served disjoint, complete pages on every read. Every lossy
+# unsorted read showed its loss as rows REPEATED across pages (as many
+# repeats as rows lost), so _mhd_pages_consistent refuses a sorted page
+# sequence with a repeat rather than shipping it short. It does NOT check
+# the order of the keys: most portals serve the sort in SQL Server
+# uniqueidentifier order, but Gwinnett's pages — disjoint and complete,
+# first page 45-60 rows long — are not in that order, so an order check
+# would fail a correct read. Orange County's newest-225 poll must NOT sort
+# (any sort turns its query into a whole-database one, see
+# fetch_orange_county), so the default lives in the jurisdiction fetch, not
+# in _mhd_search_page.
 MHD_SORT_INSPECTION_ID = {'field': 'inspectionID', 'direction': 'asc'}
 MHD_DEFAULT_SORT = MHD_SORT_INSPECTION_ID
 
 
-def _mhd_guid_sort_key(value):
-    """The order the portal serves inspectionID-sorted pages in: SQL Server
-    uniqueidentifier order, i.e. the GUID's hyphenated groups compared from
-    the LAST to the first (byte groups 10-15, 8-9, 6-7, 4-5, 0-3). Plain
-    string order is not it (verified: every sorted page sequence was strictly
-    increasing in this order and not in string order). A value that is not a
-    GUID sorts after every GUID, as its text."""
-    parts = str(value or '').strip().upper().split('-')
-    if len(parts) != 5:
-        return (1, str(value or '').strip().upper())
-    return (0, parts[4], parts[3], parts[2], parts[1], parts[0])
-
-
 def _mhd_pages_consistent(pages, sort):
     """'' when a sorted query's pages fit together as one stable sequence,
-    else why not: 'repeat' when an inspectionID appears on two pages, 'order'
-    when the rows are not strictly in the sort's order (checked for the
-    inspectionID sort, whose server order is known; other sort fields get
-    the repeat check only). Either means the portal did not page the query
-    stably, so the rows are not a complete read of the window."""
+    else 'repeat': an inspectionID appeared on two pages, which means the
+    portal did not page the query stably (the unstable default order
+    re-serves rows from an earlier page in place of rows it never serves),
+    so the rows are not a complete read of the window. `sort` is the
+    payload sort the pages were read with (kept for the log and for a
+    field-specific check, should one ever prove universal)."""
     seen_on = {}
-    ids = []
     for page_no, page in enumerate(pages):
         for row in page:
             iid = str(row.get('inspectionID') or '').strip()
@@ -6002,14 +5994,6 @@ def _mhd_pages_consistent(pages, sort):
             if seen_on.get(iid, page_no) != page_no:
                 return 'repeat'
             seen_on[iid] = page_no
-            ids.append(iid)
-    sort = sort or {}
-    if str(sort.get('field') or '') == 'inspectionID':
-        keys = [_mhd_guid_sort_key(i) for i in ids]
-        if str(sort.get('direction') or 'asc').lower() == 'desc':
-            keys.reverse()
-        if any(a >= b for a, b in zip(keys, keys[1:])):
-            return 'order'
     return ''
 
 
@@ -6128,10 +6112,10 @@ def _mhd_search_all_pages(session, path, date_range, search_str='', purpose='',
     past the cap (the portal rejects them).
 
     With a `sort` the pages must fit together (_mhd_pages_consistent): a row
-    repeated across pages or a sort key out of order means the portal did
-    not page the query stably and the window is NOT complete — the query
-    then fails (None, as a 403 exhaustion does) so the caller re-reads the
-    window instead of shipping it short.
+    repeated across pages means the portal did not page the query stably
+    and the window is NOT complete — the query then fails (None, as a 403
+    exhaustion does) so the caller re-reads the window instead of shipping
+    it short.
 
     Returns the raw rows (len >= MHD_QUERY_CAP means the cap was hit), or
     None on permanent failure.
