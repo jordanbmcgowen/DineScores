@@ -454,9 +454,9 @@ people covered per unit of work:
   (logged). Grades are the county's voluntary cards, so `results` says 'Not
   Participating' for ~a third of inspections while risk_score is computed.
   Freshness has no per-permit scope: an unread permit page in a backfill run
-  holds the window at the backfill's start, so backfills run without
-  `--freshness-file` (the absorb step copies only a hold-free, forward-moving
-  group entry).
+  holds the window at the backfill's start; `scripts/backfill/freshness_copy.py`
+  reports such a pinned entry, and for an existing group refuses to move it
+  backwards.
 - **Tyler publicportals (Georgia, Louisiana) filter on the FACILITY's last
   inspection.** Every listed facility costs one `inspectionsData` call, a
   facility inspected twice in the window is listed once and its earlier
@@ -509,14 +509,22 @@ people covered per unit of work:
   metro is '' like `fetch_houston`'s records: set both to 'Houston' together
   or neither.
 - **Backfills are chunked and absorbed, not refetched.** `--output-records`
-  dumps a run's inspection records (Jev reading included) and
-  `--input-records` feeds such files into a later run's data.js merge and D1
-  SQL with nothing fetched (`--cities` defaults to nothing then); absorbed
-  records are not re-read by Jev and never touch the freshness file. The
-  2026-11 backfills ran per source in detached worktrees
-  (`docs/expansion-2026-11/`), each chunk its own `data/d1_seed_<date>_<tag>_
-  <since>.sql.gz`; seeds in one push load in path order, so a chunk that
-  must win (Louisiana's narratives over the titles-only history) sorts last.
+  dumps a run's inspection records and `--input-records` feeds such files
+  into a later run's data.js merge and D1 SQL with nothing fetched
+  (`--cities` defaults to nothing then); a record that already carries a
+  decided Jev reading keeps it, the rest are read in the absorbing run, and
+  absorbed records never touch the freshness file. `scripts/backfill/`
+  (README there) is the tooling: `chunk.sh` runs one window in a detached
+  worktree and hands the records to `absorb.sh`, which re-merges data.js
+  (to a scratch path, moved into place after the seed and size checks), lets
+  Jev read the lines, writes `data/d1_seed_<date>_<tag>_<since>.sql.gz` from
+  the same records and copies the chunk's freshness entries
+  (`freshness_copy.py`: an existing group never moves backwards or picks up
+  a backfill hold; a new group keeps its hold and the first weekly runs
+  re-read from it). The 2026-11 backfills ran this way, one worktree per
+  vendor family (`docs/expansion-2026-11/`). Seeds in one push load in path
+  order, so a chunk that must win (Louisiana's narratives over the
+  titles-only history) needs a tag that sorts last.
 
 ## Jev violation reader
 
