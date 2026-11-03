@@ -5893,6 +5893,15 @@ MHD_DETAIL_DELAY = float(os.environ.get('MHD_DETAIL_DELAY', '0.4'))
 # must not spend them re-fetching inspections it already has. Loaded from
 # --skip-known-inspections; the merge keeps the skipped records' existing data.
 SKIP_KNOWN_INSPECTIONS = set()
+# display name -> the newest inspection date among the rows a jurisdiction's
+# searches returned this run, recorded only by a COMPLETE read whose window
+# reached today (not cut by the deadline, a failed window or the record
+# limit). _mhd_group_lag_note turns the group's newest into the freshness
+# report's source-lag note, so a STALE flag on a group whose portal is
+# behind (VDH ran a week late on 2026-11-02) reads as the source's lag, not
+# a broken fetch. The self-healing lookback makes this work: a quiet source
+# is re-read from its last shipped day, so the rows it still holds are seen.
+_MHD_NEWEST_SEEN = {}
 
 
 def _mhd_session():
@@ -6515,6 +6524,22 @@ def fetch_dfw(jurisdictions=None, since_date=None, limit_per_jurisdiction=None,
     return all_results
 
 
+def _mhd_group_lag_note(group, jurisdictions, not_fetched=()):
+    """Leave the fetch group's source-lag note (_note_source_lag) once, after
+    a complete read: the newest inspection date any of its jurisdictions'
+    searches returned this run (_MHD_NEWEST_SEEN). The note only shows when
+    that date is older than SOURCE_LAG_NOTE_DAYS, i.e. when the whole group
+    is behind because the portal is. No note when a jurisdiction was not
+    fetched (the report's detail already says which) or none completed a
+    read that reached today."""
+    if not_fetched:
+        return
+    newest = max((_MHD_NEWEST_SEEN.get(c['display_name'], '') for c in jurisdictions.values()),
+                 default='')
+    if newest:
+        _note_source_lag(group, newest)
+
+
 def _fetch_mhd_jurisdiction_api(session, slug, config, since_date=None, limit=None,
                                  fetch_violations=True, until_date=None):
     """
@@ -6593,6 +6618,7 @@ def _fetch_mhd_jurisdiction_api(session, slug, config, since_date=None, limit=No
     stopped_early = False
     capped_queries = 0
     dropped_by_program = dropped_by_city = dropped_by_exclude = 0
+    newest_seen = ''   # newest inspection date among ALL rows returned
 
     for win_idx, (win_start, win_end) in enumerate(windows):
         if limit and len(all_records) >= limit:
@@ -6642,6 +6668,7 @@ def _fetch_mhd_jurisdiction_api(session, slug, config, since_date=None, limit=No
 
         new_count = win_program = win_city = win_excluded = 0
         for rec in raw_records:
+            newest_seen = max(newest_seen, _mhd_row_date(rec))
             why = _mhd_row_rejection(rec, programs, city_allow, exclude)
             if why == 'program':
                 win_program += 1
@@ -6684,6 +6711,13 @@ def _fetch_mhd_jurisdiction_api(session, slug, config, since_date=None, limit=No
         log.warning(f"{display_name}: {capped_queries} search queries hit the "
                     f"{MHD_QUERY_CAP} record cap — their buckets are incomplete and "
                     f"some inspections are missing this run")
+
+    # A complete read that reached today tells what the source itself holds
+    # (see _MHD_NEWEST_SEEN); a read the limit, the deadline or a failed
+    # window cut short does not.
+    limit_cut = bool(limit) and len(all_records) >= limit
+    if not stopped_early and not limit_cut and range_end.date() >= datetime.now().date():
+        _MHD_NEWEST_SEEN[display_name] = newest_seen
 
     if limit:
         all_records = all_records[:limit]
@@ -6764,6 +6798,25 @@ def _mhd_is_food_record(rec):
     return True
 
 
+def _mhd_row_date(rec):
+    """A raw search row's inspection date as 'YYYY-MM-DD' ('' if none): ISO
+    ('2026-10-20T00:00:00.000Z'), MM/DD/YYYY (the VDH districts) or an epoch
+    in milliseconds, each through sane_inspection_date."""
+    raw_date = rec.get('inspectionDate') or rec.get('date') or ''
+    date_str = sane_inspection_date(raw_date) or ''
+    if not date_str and raw_date:
+        m = re.match(r'^(\d{2})/(\d{2})/(\d{4})', str(raw_date))
+        if m:
+            date_str = sane_inspection_date(f'{m.group(3)}-{m.group(1)}-{m.group(2)}') or ''
+    if not date_str and raw_date:
+        try:
+            date_str = sane_inspection_date(
+                datetime.fromtimestamp(int(raw_date) / 1000).strftime('%Y-%m-%d')) or ''
+        except Exception:
+            date_str = ''
+    return date_str
+
+
 def _parse_mhd_record(rec, path, display_name, default_city, default_state,
                       score_scale='100', metro='DFW'):
     """Parse a single inspection record from the MyHealthDepartment API JSON
@@ -6785,19 +6838,7 @@ def _parse_mhd_record(rec, path, display_name, default_city, default_state,
         zip_code = (rec.get('zip') or '').strip()
 
         # Inspection date — may be ISO string, MM/DD/YYYY (Virginia), or timestamp
-        raw_date = rec.get('inspectionDate') or rec.get('date') or ''
-        date_str = sane_inspection_date(raw_date) or ''
-        if not date_str and raw_date:
-            m = re.match(r'^(\d{2})/(\d{2})/(\d{4})', str(raw_date))
-            if m:
-                date_str = sane_inspection_date(
-                    f'{m.group(3)}-{m.group(1)}-{m.group(2)}') or ''
-        if not date_str and raw_date:
-            try:
-                date_str = sane_inspection_date(
-                    datetime.fromtimestamp(int(raw_date) / 1000).strftime('%Y-%m-%d')) or ''
-            except Exception:
-                date_str = ''
+        date_str = _mhd_row_date(rec)
         if not date_str:
             return None
 
@@ -9442,6 +9483,7 @@ def main():
                 status, detail = None, ''
             if not_fetched:
                 detail = f"{detail}: not fetched — {', '.join(not_fetched)}"
+            _mhd_group_lag_note(group, jurisdictions, not_fetched)
             _record_group(group, mhd_data, status, detail)
         except Exception as e:
             log.error(f"{group} fetch failed: {e}")

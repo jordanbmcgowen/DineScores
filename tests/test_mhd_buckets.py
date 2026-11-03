@@ -919,3 +919,102 @@ class ExpansionParseTests(unittest.TestCase):
         self.assertEqual(pv + pfv + cv, 6)
         self.assertTrue(all(v[1] in ('priority', 'priority_foundation', 'core') for v in violations))
         self.assertTrue(0 <= score <= 100)
+
+
+class LagNoteTests(unittest.TestCase):
+    """The group's source-lag note comes from the newest row any of its
+    jurisdictions' searches returned, after a complete read."""
+
+    def setUp(self):
+        self.saved = (dict(dp._MHD_NEWEST_SEEN), dict(dp._GROUP_NOTES))
+        dp._MHD_NEWEST_SEEN.clear()
+        dp._GROUP_NOTES.clear()
+        self.cfg = dp.MHD_METRO_JURISDICTIONS['gwinnett']
+        self.old = '2026-01-15 to 2026-01-15'
+        self.table = {(self.old, '', ''): [_row('G1', city='Duluth', state='GA', program='Food',
+                                                date='2026-01-15T00:00:00.000Z'),
+                                           _row('P1', city='Duluth', state='GA', program='Pools',
+                                                date='2026-01-16T00:00:00.000Z')]}
+        # a pool row counts for "what the source holds" even though it is
+        # not shipped; to make it land on its own day move it into the table
+        self.table[('2026-01-16 to 2026-01-16', '', '')] = [self.table[(self.old, '', '')].pop()]
+
+    def tearDown(self):
+        seen, notes = self.saved
+        dp._MHD_NEWEST_SEEN.clear()
+        dp._MHD_NEWEST_SEEN.update(seen)
+        dp._GROUP_NOTES.clear()
+        dp._GROUP_NOTES.update(notes)
+
+    def test_a_complete_read_records_the_newest_row_and_the_group_is_noted(self):
+        records = _run('gwinnett', self.cfg, FakeSearch(self.table), since_date='2026-01-15')
+        self.assertEqual([r['source_id'] for r in records], ['G1'])
+        self.assertEqual(dp._MHD_NEWEST_SEEN['Gwinnett County'], '2026-01-16')
+        dp._mhd_group_lag_note('MHD metros', {'gwinnett': self.cfg}, [])
+        self.assertIn('MHD metros', dp._GROUP_NOTES)
+        self.assertIn('2026-01-16', dp._GROUP_NOTES['MHD metros'])
+
+    def test_a_group_with_a_jurisdiction_not_fetched_leaves_no_note(self):
+        dp._MHD_NEWEST_SEEN['Gwinnett County'] = '2026-01-16'
+        dp._mhd_group_lag_note('MHD metros', {'gwinnett': self.cfg}, ['Plano (deadline)'])
+        self.assertEqual(dp._GROUP_NOTES, {})
+
+    def test_the_group_note_uses_the_newest_jurisdiction(self):
+        dp._MHD_NEWEST_SEEN['Gwinnett County'] = '2026-01-16'
+        dp._MHD_NEWEST_SEEN['Multnomah County'] = (dp.datetime.now()).strftime('%Y-%m-%d')
+        dp._mhd_group_lag_note('MHD metros', {'gwinnett': self.cfg,
+                                              'multco-eh': dp.MHD_METRO_JURISDICTIONS['multco-eh']}, [])
+        self.assertEqual(dp._GROUP_NOTES, {}, 'one current jurisdiction: the group is not lagging')
+
+    def test_a_bounded_read_leaves_no_newest(self):
+        _run('gwinnett', self.cfg, FakeSearch(self.table), since_date='2026-01-15', limit=1)
+        self.assertNotIn('Gwinnett County', dp._MHD_NEWEST_SEEN)
+        _run('gwinnett', self.cfg, FakeSearch(self.table), since_date='2026-01-15',
+             until_date='2026-01-20')
+        self.assertNotIn('Gwinnett County', dp._MHD_NEWEST_SEEN, 'the window did not reach today')
+        dp._mhd_group_lag_note('MHD metros', {'gwinnett': self.cfg}, [])
+        self.assertEqual(dp._GROUP_NOTES, {})
+
+    def test_row_dates(self):
+        self.assertEqual(dp._mhd_row_date({'inspectionDate': '2026-10-20T00:00:00.000Z'}), '2026-10-20')
+        self.assertEqual(dp._mhd_row_date({'inspectionDate': '10/20/2026'}), '2026-10-20')
+        self.assertEqual(dp._mhd_row_date({'inspectionDate': 1760918400000}), '2025-10-20')
+        self.assertEqual(dp._mhd_row_date({'inspectionDate': None}), '')
+        self.assertEqual(dp._mhd_row_date({}), '')
+
+
+class LimitAndHoldTests(unittest.TestCase):
+    def setUp(self):
+        self.saved_holds = dict(dp._FRESHNESS_HOLDS)
+        dp._FRESHNESS_HOLDS.clear()
+
+    def tearDown(self):
+        dp._FRESHNESS_HOLDS.clear()
+        dp._FRESHNESS_HOLDS.update(self.saved_holds)
+
+    def test_limit_stops_the_search_after_enough_records(self):
+        cfg = dp.MHD_METRO_JURISDICTIONS['gwinnett']
+        d1, d2 = '2026-10-05 to 2026-10-05', '2026-10-06 to 2026-10-06'
+        fake = FakeSearch({(d1, '', ''): [_row('G1', city='Duluth', state='GA', program='Food'),
+                                          _row('G2', city='Duluth', state='GA', program='Food')],
+                           (d2, '', ''): [_row('G3', city='Duluth', state='GA', program='Food')]})
+        records = _run('gwinnett', cfg, fake, since_date='2026-10-05', until_date='2026-10-06',
+                       limit=1)
+        self.assertEqual(len(records), 1)
+        self.assertEqual({c['date'] for c in fake.calls}, {d1}, 'no search past the limit')
+
+    def test_an_unreadable_detail_page_drops_and_holds_that_inspection(self):
+        cfg = dp.MHD_METRO_JURISDICTIONS['fbceh']
+        day = '2026-10-20 to 2026-10-20'
+        rows = [_row('F1', city='Katy', state='TX', program='Food', date='2026-10-20T00:00:00.000Z'),
+                _row('F2', city='Katy', state='TX', program='Food', date='2026-10-20T00:00:00.000Z')]
+        fake = FakeSearch({(day, '', ''): rows})
+
+        def fake_bulk(path, records, trust_official_score=True, label=None):
+            return 1, [records[1]]
+        with mock.patch.object(dp, '_mhd_fetch_details_bulk', side_effect=fake_bulk):
+            records = _run('fbceh', cfg, fake, fetch_violations=True,
+                           since_date='2026-10-20', until_date='2026-10-20')
+        self.assertEqual([r['source_id'] for r in records], ['F1'])
+        self.assertEqual(dp._FRESHNESS_HOLDS, {'Fort Bend County Health Dept': {'2026-10-20|F2': (True, False)}},
+                         'the dropped inspection holds the source, counted (it was tried)')
