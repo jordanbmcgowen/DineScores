@@ -79,8 +79,13 @@ LUBBOCK TX, MESQUITE TX". Scaffold commit 75d73d8.
 - Suite: 326 tests OK (exit code checked), node tests/test_relay.mjs PASS,
   py_compile OK.
 
-## Next
-- Mesquite re-run numbers; final structured report.
+- Mesquite window re-run (final code, 2026-11-03): 136 records / 689
+  facility lists / 826 requests / 289 s fetch, 303 s wall incl. geocoding;
+  136/136 with coordinates (Census filled the 39% the portal lacks); every
+  city parsed as Mesquite; 0 text-forced F's (was 8 with the raw title);
+  A 127 / B 9 by score. Suite also green under python3.11 (CI's version).
+
+## Status: DONE — branch feat/hedgerow, not pushed; integrator squash-merges.
 
 ## Open questions
 - Pima 'Needs Improvement' computes to a B (e.g. 93 for P+C+C); only Fail /
