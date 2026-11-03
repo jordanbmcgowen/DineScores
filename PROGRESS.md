@@ -62,12 +62,30 @@ LUBBOCK TX, MESQUITE TX". Scaffold commit 75d73d8.
   citation (10 false F's in 72 records: fly tape, door gaps, ceiling tiles).
   The negation is now stripped (_HH_NEGATED_TITLE_RE); re-running Lubbock.
 
+- Fix shipped: the Texas pest criterion now ships as 'Pest control:
+  <observation>' (_HH_PEST_TITLE_RE): the form title 'No evidence of Insect
+  Contamination, Rodent, Other Animals' tripped the regex text-F on its own
+  and, with 'Rodent' left in a heading, across the '|||' line join. Lubbock
+  window re-run (final code): 72 records, grades by score == by score+text
+  (A 52 B 16 C 4), 0 false F's (was 10). jev_reader edit reverted (no longer
+  needed; zero edits outside the section).
+- Address fixes from Mesquite data: a 2-letter state in the city slot
+  ('3220 Gus Thomasson Mesquite 101, TX 75150') and a street suffix before
+  the comma ('1700 Rodeo Dr, TX 75149') both mean "no city given".
+- Mesquite window (first run, pre-fix code): 136 records / 689 facility
+  lists / 826 requests / 296 s fetch, 310 s wall incl. Census geocoding;
+  135/136 with coordinates afterwards (1 unresolved); scores 84-100
+  (A 127 B 9 by score). Re-running on the final code.
+- Suite: 326 tests OK (exit code checked), node tests/test_relay.mjs PASS,
+  py_compile OK.
+
 ## Next
-- Mesquite window run (689 facility lists; running); Lubbock re-run; scan
-  Mesquite titles for its bare pest wording (no observations there) and
-  decide on a jev_reader VERMIN_TITLE_RE / CITED_PEST_ITEM_TITLES addition.
-- Final cleanup, full suite, commit, structured report.
+- Mesquite re-run numbers; final structured report.
 
 ## Open questions
 - Pima 'Needs Improvement' computes to a B (e.g. 93 for P+C+C); only Fail /
   IHH / Probation cap the score. Owner policy call.
+- The shared regex misses 'Accumulation of rodent feces' (evidence word after
+  the pest word); Jev's hazard decision covers it in the weekly run.
+- Mobile units dropped (Pima 630, Lubbock 146) — pinned at commissaries
+  otherwise; flip HH_MOBILE_TYPE_RE if the owner wants them.
