@@ -1,0 +1,198 @@
+{
+ "displayFieldName": "inspection_cycle",
+ "fieldAliases": {
+  "link_number": "link_number",
+  "description": "description",
+  "ADDRESS_LINE1": "ADDRESS_LINE1",
+  "WORK_CLASS": "WORK_CLASS",
+  "PERMIT_STATUS": "PERMIT_STATUS",
+  "POINT_X": "POINT_X",
+  "POINT_Y": "POINT_Y"
+ },
+ "geometryType": "esriGeometryPoint",
+ "spatialReference": {
+  "wkid": 4326,
+  "latestWkid": 4326
+ },
+ "fields": [
+  {
+   "name": "link_number",
+   "type": "esriFieldTypeString",
+   "alias": "link_number",
+   "length": 50
+  },
+  {
+   "name": "description",
+   "type": "esriFieldTypeString",
+   "alias": "description",
+   "length": 1073741822
+  },
+  {
+   "name": "ADDRESS_LINE1",
+   "type": "esriFieldTypeString",
+   "alias": "ADDRESS_LINE1",
+   "length": 736
+  },
+  {
+   "name": "WORK_CLASS",
+   "type": "esriFieldTypeString",
+   "alias": "WORK_CLASS",
+   "length": 50
+  },
+  {
+   "name": "PERMIT_STATUS",
+   "type": "esriFieldTypeString",
+   "alias": "PERMIT_STATUS",
+   "length": 50
+  },
+  {
+   "name": "POINT_X",
+   "type": "esriFieldTypeString",
+   "alias": "POINT_X",
+   "length": 20
+  },
+  {
+   "name": "POINT_Y",
+   "type": "esriFieldTypeString",
+   "alias": "POINT_Y",
+   "length": 20
+  }
+ ],
+ "features": [
+  {
+   "attributes": {
+    "link_number": "HEALTH2026-00136",
+    "description": "ANEJO",
+    "ADDRESS_LINE1": "4150 ELDORADO PKWY 500",
+    "WORK_CLASS": "Food Establishment",
+    "PERMIT_STATUS": "Issued",
+    "POINT_X": "-96.67087261",
+    "POINT_Y": "33.16890243"
+   },
+   "geometry": {
+    "x": -96.67088013093124,
+    "y": 33.16890824166786
+   }
+  },
+  {
+   "attributes": {
+    "link_number": "HEALTH2024-01214",
+    "description": "Arby's #5387",
+    "ADDRESS_LINE1": "1706 W UNIVERSITY DR",
+    "WORK_CLASS": "Food Establishment",
+    "PERMIT_STATUS": "Issued",
+    "POINT_X": "-96.63243652",
+    "POINT_Y": "33.21703795"
+   },
+   "geometry": {
+    "x": -96.63244403387223,
+    "y": 33.2170437802161
+   }
+  },
+  {
+   "attributes": {
+    "link_number": "HEALTH2024-00794",
+    "description": "STARBUCK'S COFFEE #6416",
+    "ADDRESS_LINE1": "1787 N CENTRAL EXPY",
+    "WORK_CLASS": "Food Establishment",
+    "PERMIT_STATUS": "Issued",
+    "POINT_X": "-96.63838794",
+    "POINT_Y": "33.21546419"
+   },
+   "geometry": {
+    "x": -96.63839545106617,
+    "y": 33.215470012702504
+   }
+  },
+  {
+   "attributes": {
+    "link_number": "HEALTH2024-00646",
+    "description": "ASIAN BUFFET\n\nASIAN BUFFET\n\nASIAN BUFFET\n\nASIAN BUFFET\nASIAN BUFFET",
+    "ADDRESS_LINE1": "920 N CENTRAL EXPY",
+    "WORK_CLASS": "Food Establishment",
+    "PERMIT_STATUS": "Issued",
+    "POINT_X": "-96.63725834",
+    "POINT_Y": "33.20680962"
+   },
+   "geometry": {
+    "x": -96.637265852607,
+    "y": 33.20681544009031
+   }
+  },
+  {
+   "attributes": {
+    "link_number": "HEALTH2024-00514",
+    "description": "JIM'S PIZZA",
+    "ADDRESS_LINE1": "2107 ELDORADO PKWY 110",
+    "WORK_CLASS": "Food Establishment",
+    "PERMIT_STATUS": "Issued",
+    "POINT_X": "-96.64471565",
+    "POINT_Y": "33.17122451"
+   },
+   "geometry": {
+    "x": -96.64472316222385,
+    "y": 33.17123032307991
+   }
+  },
+  {
+   "attributes": {
+    "link_number": "HEALTH2024-00301",
+    "description": "SQUARE BURGER",
+    "ADDRESS_LINE1": "115 N KENTUCKY ST",
+    "WORK_CLASS": "Food Establishment",
+    "PERMIT_STATUS": "Issued",
+    "POINT_X": "-96.61598342",
+    "POINT_Y": "33.19785348"
+   },
+   "geometry": {
+    "x": -96.61599092159656,
+    "y": 33.197859303327235
+   }
+  },
+  {
+   "attributes": {
+    "link_number": "HEALTH2024-00064",
+    "description": "ZAZA THAI",
+    "ADDRESS_LINE1": "7551 ELDORADO PKWY 200",
+    "WORK_CLASS": "Food Establishment",
+    "PERMIT_STATUS": "Issued",
+    "POINT_X": "-96.71628488",
+    "POINT_Y": "33.17377215"
+   },
+   "geometry": {
+    "x": -96.7162924124419,
+    "y": 33.17377796905853
+   }
+  },
+  {
+   "attributes": {
+    "link_number": "HEALTH2024-00019",
+    "description": "KING KUP TRUCK #1",
+    "ADDRESS_LINE1": "202 N CENTRAL EXPY",
+    "WORK_CLASS": "Mobile Food Establishment",
+    "PERMIT_STATUS": "Issued",
+    "POINT_X": "-96.63789219",
+    "POINT_Y": "33.19879725"
+   },
+   "geometry": {
+    "x": -96.63789969895906,
+    "y": 33.19880307493405
+   }
+  },
+  {
+   "attributes": {
+    "link_number": "HEALTH2020-00188",
+    "description": "GREENHAVEN POOL SPLASH PAD",
+    "ADDRESS_LINE1": "8690 VIRGINIA PKWY",
+    "WORK_CLASS": "Public Interactive Water Feature",
+    "PERMIT_STATUS": "Issued",
+    "POINT_X": "-96.72842890",
+    "POINT_Y": "33.20454210"
+   },
+   "geometry": {
+    "x": -96.7284364349978,
+    "y": 33.204547923956135
+   }
+  }
+ ]
+}

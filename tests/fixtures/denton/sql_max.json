@@ -1,0 +1,18 @@
+{
+ "help": "https://data.cityofdenton.com/api/3/action/help_show?name=datastore_search_sql",
+ "success": true,
+ "result": {
+  "sql": "SELECT MAX(\"HealthScoreDate\") AS mx FROM \"b596e52a-0f84-4766-b376-be9e3ee0b6df\"",
+  "records": [
+   {
+    "mx": "20261028000000"
+   }
+  ],
+  "fields": [
+   {
+    "id": "mx",
+    "type": "text"
+   }
+  ]
+ }
+}

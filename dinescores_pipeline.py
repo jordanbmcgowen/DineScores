@@ -7950,7 +7950,7 @@ def _mck_violation_blocks(comments):
     def close():
         nonlocal current
         if current and any(p for p in current[1]):
-            blocks[current[0]].append(' '.join(p for p in current[1] if p))
+            blocks[current[0]].append(' '.join(' '.join(p.split()) for p in current[1] if p.strip()))
         current = None
 
     for line, section in zip(lines, sections):
@@ -8158,8 +8158,11 @@ def fetch_mckinney(since_date=None, limit=None):
                  if limit else MCK_HISTORY_START)
     where = f"actual_end_date >= DATE '{since}'"
     expected = _mck_count(where)
-    rows = _arcgis_query_all(MCK_INSPECTIONS_LAYER, where=where,
-                             out_fields=MCK_OUT_FIELDS, page_size=MCK_PAGE)
+    try:
+        rows = _arcgis_query_all(MCK_INSPECTIONS_LAYER, where=where,
+                                 out_fields=MCK_OUT_FIELDS, page_size=MCK_PAGE)
+    except Exception as e:
+        raise RuntimeError(f'McKinney: inspections layer unreadable ({e}); nothing shipped') from e
     if len(rows) < expected:
         raise RuntimeError(f'McKinney: read {len(rows)} of {expected} inspections since {since}; '
                            f'not shipping a partial window')
