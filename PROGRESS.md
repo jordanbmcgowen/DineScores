@@ -55,6 +55,76 @@ Branch `feat/maricopa`, worktree `/home/user/wt-maricopa`. Section header in
 - [x] Final cleanup + report (worktree clean, suite 326 OK, relay PASS,
       py_compile OK on 3.13 and 3.11).
 
+## Fix pass (2026-11-03 04:10-04:45 UTC, after two adversarial reviews)
+Reviewer findings reproduced against the code before each fix; all in the
+section region plus tests/test_maricopa.py (no edits outside).
+- FIXED A1/B2 (blocking): the inventory floor and the lag note were gated on
+  `not limit`, but main() passes limit=50000 in weekly mode, so both were
+  dead in CI (an all-empty inventory returned [] -> green 'empty').
+  `_mcesd_inventory` now returns (permits, bounded); the floor applies to
+  every scan the limit did not stop and the lag note is left whenever every
+  permit page was read. Tests: limit=50000 vs an empty inventory raises;
+  limit=50000 still leaves the lag note; limit=2 is bounded.
+- FIXED A2/B1 (blocking): `_mcesd_violation` read "no <p class='mb-1'>
+  matched" as the county's empty-comments entry, so a renamed paragraph
+  class shipped every PF/Core-only page as a clean 100 (verified by
+  mutation). Now an entry adds nothing only when its comments paragraph is
+  PRESENT and empty, the entry must have a number and a description, its
+  visible text outside the comments and 'Repeat Violation' flag paragraphs
+  must be exactly the labels + number + title, and a flag carrying a
+  citation/tier marker is not a flag. Every mutation the reviewers listed
+  (class added/renamed/changed, <div> for <p>, a second mb-0 paragraph with
+  text, an unknown paragraph, a missing Description) is UNREAD.
+- FIXED A3 (blocking): '1825 N central AVE Phoenix, AZ AZ 85004' split to
+  city 'Az'. The splitter strips a repeated trailing state and trailing
+  punctuation from the city and street. The FULL live inventory (403 zips,
+  25,831 rows, 21,724 food rows captured 04:17-04:19 UTC) was run through
+  the old and new splitters: exactly 10 permits change, the double-state
+  row plus NINE rows whose zip is nine digits without a hyphen ('850222301')
+  or a cut +4 ('85043-22') that the old tail regex rejected outright (the
+  whole concat shipped as the street and 'Maricopa County' as the city) —
+  MCESD_CONCAT_RE now accepts those tails. No other permit's identity moves.
+  Two truly city-less rows remain (city '' -> 'Maricopa County').
+- FIXED A4 (should_fix): div#Violations was captured to the FIRST </div>; an
+  inner div could truncate the block to nothing (= clean). Now read to its
+  own closing tag with nesting counted (`_mcesd_violations_block`), and a
+  block headed <h2>Violations</h2> with no entry is unread; non-entry text
+  must be exactly '' or 'Violations'.
+- FIXED A (bounded) row dates: a permit page row whose date is not M/D/YYYY
+  now makes the page unread (a date-format change was a green empty run);
+  a well-formed implausible date is skipped and counted (implausible_dates).
+  300 random live permit pages re-fetched: 0 unread, 1,994 rows, four
+  date shapes (d/d/dddd .. dd/dd/dddd) all parse.
+- FIXED B3 / A (bounded) unread details never red: 'unread' + 'unavailable'
+  pages (answered, no inspection) count toward the breaker streak (they
+  reset it before) and from MCESD_UNREAD_ERROR_MIN (5) in one run the group
+  is 'error'; every dropped id of the three counted outcomes is logged (was
+  5 per reason). Statuses now merge (listing error + detail skipped/blocked
+  both appear in the detail string).
+- FIXED B nit: permit pages a listing block ate are held counted=False.
+- REJECTED B4 (unread permit page holds at requested_start): correct given
+  per-source freshness (an unread permit's rows could be anywhere in the
+  window); free in weekly mode (hold inside the 21-day window); costs up to
+  3 re-details of the backfill window ONLY for a --since-date backfill run
+  WITH --freshness-file, so the recommendation is to run backfills without
+  it. Documented in the section comment.
+- NOT CHANGED (integrator's region, noted as risks): the ~54-minute listing
+  sits in the ungated API pool (MHD groups wait for it); the portal has not
+  been probed from a GitHub runner; the slug is not in refresh-data.yml;
+  per-record holds/give-ups are not rendered by the report step.
+- Regression: old vs new parsers identical on all 23 saved detail pages (15
+  live unread pages + 8 fixtures) and 8 permit pages. Suite 328 OK on 3.13
+  and 3.11, relay 24 PASS, py_compile OK.
+- LIVE test mode after the fix (04:30 UTC): 25 records / 17 restaurants in
+  46.6 s, 53 portal requests, 0 retries, 0 unread, 25/25 ArcGIS coordinates,
+  the same 17 source_ids as the pre-fix run; grades 17 A (scores 90-100);
+  results Grade A 9, Not Participating 4, Grade B 2, Grade C 1,
+  Re-inspection 1; 9 violation lines, max 495 chars, no newlines, no
+  email/phone, 0 pest-regex trips. Detail-page sample (383 pages: every 5th
+  restaurant of the 14-day output + every B/C/F + every re-inspection +
+  every pest line) re-fetched 04:36 UTC for an offline re-parse: PENDING at
+  this checkpoint (see the next entry).
+
 ## Design decisions (so a successor does not re-derive them)
 - Group 'Maricopa County', source 'Maricopa County Environmental Services',
   source_id 'mcesd_<permitId>_<inspectionId>', metro 'Phoenix', state 'AZ'.
