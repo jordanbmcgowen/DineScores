@@ -198,7 +198,32 @@ Georgia (fetch_georgia) + Louisiana (fetch_louisiana) on one shared Tyler
   geocoded; grades A10/B1/C4/F1 (risk 18-100; the F is Fausto's Fried Chicken
   10-26: 12 critical + 22 non-critical rows), 105 lines all with narratives,
   risk == calc_risk_score over the shipped lines on every record, 0 problems.
-- Bounded windows: see the next section (appended when the runs finished).
+- `--mode full --since-date 2026-10-30 --cities georgia` (10-30..11-03; Georgia
+  publishes within ~3 days, so mostly Friday 10-30): 180 facilities listed,
+  152 inspections shipped (142 restaurants in the review file), 227 requests,
+  19 s in requests, 52 s wall (79 s with geocoding), 1 transient 500 recovered
+  on the first retry, 0 drops/holds; Census geocoded 146/152; grades A 131 /
+  B 9 / C 2 (risk 74-100); metro Atlanta 61 / none 81; types Routine 119,
+  Initial 17, Followup 6; 192 lines, 0 e-mails/phones, 0 PO-box or suite
+  cities, 0 fsimID/inspectionId mismatches, 0 `{}` under a deducted score; the
+  one pest-regex hit is a real roach carcass (Fin Sushi Thai's follow-up).
+- `--mode full --since-date 2026-10-24 --cities louisiana` (the published days
+  10-24..10-26): 313 facilities listed, 328 inspections (243 restaurants in the
+  review file), 685 requests, 303 s in requests, 858 s wall = 14.3 min (15.5
+  with geocoding; listing 2.3 min, histories 2 min, 233 notices 10 min at one
+  worker), 232 notices read, 0 failed, 1 'no rows' (see below), 0 holds; Census
+  geocoded 307/328; grades A 184 / B 34 / C 17 / F 8 (risk 18-100; the F's are
+  12 critical + 22 non-critical rows and the like); metro New Orleans 49 /
+  Baton Rouge 38 / none 156; 904 lines, 902 with a narrative, 33 records with
+  an item cited more than once (the rebuild from the notice rows at work), 0
+  contact details, risk == 5/1 formula over the shipped lines on every record.
+  The 'no rows' notice was a layout variant: rows printed as '<item#> -
+  <narrative>' with no LAC code segment (an older school-kitchen form), which
+  the row regex rejected, so the record shipped on its two bare titles
+  ('Sewage disposal', 'Toilet rooms'); the code segment is now optional in
+  `_LA_PRINTABLE_DESC_RE` (unit-tested on that row shape).
+- Weekly estimates after the fix pass are unchanged: Georgia ~6 min; Louisiana
+  ~65 min (notices ~50 min), bounded at LA_PRINTABLE_MAX_MINUTES=90.
 
 ## Live results, implementation (2026-11-03, before the fix pass)
 - georgia --mode full --since-date 2026-10-20 (15 day windows): 2,215 facilities

@@ -525,6 +525,21 @@ class NoticeTests(LouisianaTestCase):
                                                          'Call Jane at (225) 555-0100 or jane.doe@la.gov')
         self.assertEqual(dp._la_parse_printable(contact)['rows'][0][3],
                          'Food meets the definition of adulterated. Call Jane at [phone] or [email]')
+        # one live form prints '<item#> - <narrative>' with no LAC code segment (seen 2026-10-26:
+        # '12 - Sewage disposal is not in compliance ... Tree growing out of system.'); a
+        # narrative that starts with a number is not a code
+        no_code = _text('printable_single.html').replace(
+            '1 - 1101 - Food meets the definition of adulterated. Dented can of vegetables',
+            '12 - Sewage disposal is not in compliance with the provisions of Parts XIII. Sewage system not working.')
+        self.assertEqual(dp._la_parse_printable(no_code)['rows'],
+                         [('priority', 12, 'FOOD - CONDITION, SOURCE, LABELING',
+                           'Sewage disposal is not in compliance with the provisions of Parts XIII. Sewage system not working.',
+                           False)])
+        numbered = _text('printable_single.html').replace(
+            '1 - 1101 - Food meets the definition of adulterated. Dented can of vegetables',
+            '30 - 3 compartment sink is not used in proper sequence. [Repeat]')
+        self.assertEqual(dp._la_parse_printable(numbered)['rows'][0][1:],
+                         (30, 'FOOD - CONDITION, SOURCE, LABELING', '3 compartment sink is not used in proper sequence.', True))
 
     def test_a_503_is_retried_after_the_hint_and_a_dead_notice_keeps_the_titles(self):
         printables = {PRINTABLE.format(151712897): [503, _text('printable_violations.html')],

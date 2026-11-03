@@ -7890,7 +7890,9 @@ LA_PRINTABLE_RETRY_WAIT = 3.5      # when the 503 carries no usable Retry-After
 _LA_ITEM_RE = re.compile(r'^\s*(\d+)\s*-\s*(.*?)\s*$', re.S)
 _LA_PRINTABLE_ROW_RE = re.compile(
     r'<tr>\s*<td>(?P<cat>[^<]*)</td>\s*<td>(?P<code>[^<]*)</td>\s*<td>(?P<desc>.*?)</td>\s*</tr>', re.S)
-_LA_PRINTABLE_DESC_RE = re.compile(r'^(\d+)\s*-\s*[\d.]+\s*-\s*(.*)$', re.S)
+# '<item#> - <LAC code> - <narrative>'; one live form (an older school-kitchen
+# notice, 2026-10-26) prints '<item#> - <narrative>' with no code segment.
+_LA_PRINTABLE_DESC_RE = re.compile(r'^(\d+)\s*-\s*(?:\d[\d.]*\s*-\s*)?(.*)$', re.S)
 _LA_PRINTABLE_DATE_RE = re.compile(r'Date<br>\s*(\d{2})/(\d{2})/(\d{4})')
 _LA_TAG_RE = re.compile(r'\s*\[(?:Repeat|Corrected)\]\s*', re.I)
 _LA_REPEAT_TAG_RE = re.compile(r'\[Repeat\]', re.I)
