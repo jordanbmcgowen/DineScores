@@ -1,0 +1,163 @@
+[
+ {
+  "id": "8a2cb416-c0fc-4faa-a11f-a117dea2ac0c",
+  "description": "Proper date marking and disposition",
+  "result": "Corrected During Inspection",
+  "isCritical": false,
+  "writtenComment": null,
+  "responseComment": null,
+  "category": {
+   "id": "188f53cc-3ced-418a-9d9c-795f18f2d27d",
+   "description": "Time Temperature Control for Safety Food (TCS Food) "
+  },
+  "cannedComments": [
+   {
+    "id": "dcaf5922-8463-42ed-947f-ab828efe95b2",
+    "description": "3-501.17 (A) Except when PACKAGING FOOD using a REDUCED OXYGEN PACKAGING method as specified under § 3-502.12, and except as specified in  (E) and (F) of this section, refrigerated, READY-TO -EAT, TIME/TEMPERATURE CONTROL FOR SAFETY FOOD prepared and held in a FOOD ESTABLISHMENT for more than 24 hours shall be clearly marked to indicate the date or day by which the FOOD shall be consumed on the PREMISES, sold, or discarded when held at a temperature of 5ºC (41ºF) or less for a maximum of 7 days. The day of preparation shall be counted as Day 1.",
+    "severity": "Priority Foundation",
+    "locationComment": null,
+    "observationComment": "Two pans of hot dog type products in reach in refrigerator on cook line with expiration days of 10/12 and 10/11; per FDA regulations, product expired 10.15.26",
+    "responseComment": null,
+    "readings": null
+   }
+  ]
+ },
+ {
+  "id": "c771d664-4402-48c6-9159-5f86ae53598f",
+  "description": "Food and non-food-contact surfaces cleanable, properly designed, constructed and used ",
+  "result": "Out of Compliance",
+  "isCritical": false,
+  "writtenComment": null,
+  "responseComment": null,
+  "category": {
+   "id": "d04316e1-8439-49c5-931e-c987d357f492",
+   "description": "Utensils, Equipment and Vending"
+  },
+  "cannedComments": [
+   {
+    "id": "08b7c94c-5741-46c7-922f-32840d450f38",
+    "description": "4-501.11 (B) EQUIPMENT components such as doors, seals, hinges, fasteners, and kick plates shall be kept intact, tight, and adjusted in accordance with manufacturer's specifications.",
+    "severity": "Core",
+    "locationComment": "Employee restroom door",
+    "observationComment": "No violation observed.",
+    "responseComment": null,
+    "readings": null
+   }
+  ]
+ },
+ {
+  "id": "b066089f-47ff-442a-b804-595cc8e1de9f",
+  "description": "Non-food-contact surfaces clean ",
+  "result": "Out of Compliance",
+  "isCritical": false,
+  "writtenComment": null,
+  "responseComment": null,
+  "category": {
+   "id": "d04316e1-8439-49c5-931e-c987d357f492",
+   "description": "Utensils, Equipment and Vending"
+  },
+  "cannedComments": [
+   {
+    "id": "17c6cfac-2d56-46d2-b3df-998bc02c68a7",
+    "description": "4-601.11 (B) The FOOD-CONTACT SURFACES of cooking EQUIPMENT and pans shall be kept free of encrusted grease deposits and other soil accumulations.",
+    "severity": "Core",
+    "locationComment": null,
+    "observationComment": "Cookline equipment, hoods, hot holdingPrince Castle, prep tables and lower shelves splattered/encrusted with aged food product and grease.  Handsink up front and three compartment sink have scale/grime build up.  Caulk in disrepair at three compartment sink.  Wire shelves which hold dry storage items have grease build up on them, mop sink faucet grime coated. ",
+    "responseComment": null,
+    "readings": null
+   }
+  ]
+ },
+ {
+  "id": "ac4d8729-7293-408f-9966-99e563868c8d",
+  "description": "Toilet facilities: properly constructed, supplied, clean ",
+  "result": "Out of Compliance",
+  "isCritical": false,
+  "writtenComment": null,
+  "responseComment": null,
+  "category": {
+   "id": "e1890cbd-4c48-4333-bc97-a39d1c610f53",
+   "description": "Physical Facilities"
+  },
+  "cannedComments": [
+   {
+    "id": "abac5e06-94af-4aac-b2cb-8d73e357002e",
+    "description": "6-202.14 Except where a toilet room is located outside a FOOD ESTABLISHMENT and does not open directly into the FOOD ESTABLISHMENT such as a toilet room that is provided by the management of a shopping mall, a toilet room located on the PREMISES shall be completely enclosed and provided with a tight-fitting and self-closing door.",
+    "severity": "Core",
+    "locationComment": null,
+    "observationComment": "Door does not self close.  Soap product and grime on floor. ",
+    "responseComment": null,
+    "readings": null
+   }
+  ]
+ },
+ {
+  "id": "50474248-41ad-46aa-8131-0a2725540cbd",
+  "description": "Garbage/refuse properly disposed; facilities maintained ",
+  "result": "Out of Compliance",
+  "isCritical": false,
+  "writtenComment": null,
+  "responseComment": null,
+  "category": {
+   "id": "e1890cbd-4c48-4333-bc97-a39d1c610f53",
+   "description": "Physical Facilities"
+  },
+  "cannedComments": [
+   {
+    "id": "8c26f63b-d6af-4674-884d-f550fda3b2a6",
+    "description": "5-501.15 (B) Receptacles and waste handling units for REFUSE and recyclables such as an on-site compactor shall be installed so that accumulation of debris and insect and rodent attraction and harborage are minimized and effective cleaning is facilitated around and, if the unit is not installed flush with the base pad, under the unit.",
+    "severity": "Core",
+    "locationComment": null,
+    "observationComment": "Trash area shared with tallow collection bin. Large accumulation of trash on ground, tallow bin thickly coated in grease. ",
+    "responseComment": null,
+    "readings": null
+   }
+  ]
+ },
+ {
+  "id": "fd06aa76-8aa5-4af1-b3c0-984b614bef17",
+  "description": "Physical facilities installed, maintained, and clean",
+  "result": "Out of Compliance",
+  "isCritical": false,
+  "writtenComment": null,
+  "responseComment": null,
+  "category": {
+   "id": "e1890cbd-4c48-4333-bc97-a39d1c610f53",
+   "description": "Physical Facilities"
+  },
+  "cannedComments": [
+   {
+    "id": "14035cb2-750b-4e83-9bf3-c3984a7f6ce5",
+    "description": "6-501.12 (A) PHYSICAL FACILITIES shall be cleaned as often as necessary to keep them clean.",
+    "severity": "Core",
+    "locationComment": null,
+    "observationComment": "Cleaning vents, ceiling panels, walls, floors have dust, grime, black grease and food splattered on them.  Back door crash bar is coated with grime. ",
+    "responseComment": null,
+    "readings": null
+   }
+  ]
+ },
+ {
+  "id": "0ede4735-64fc-4854-a33e-4712c8df78e7",
+  "description": "Adequate ventilation and lighting; designated areas used",
+  "result": "Out of Compliance",
+  "isCritical": false,
+  "writtenComment": null,
+  "responseComment": null,
+  "category": {
+   "id": "e1890cbd-4c48-4333-bc97-a39d1c610f53",
+   "description": "Physical Facilities"
+  },
+  "cannedComments": [
+   {
+    "id": "72ae774a-c3ba-4ccd-a2b9-a059743f110a",
+    "description": "6-303.11 The light intensity shall be: (A) At least 108 lux (10 foot candles) at a distance of 75 cm (30 inches) above the floor, in walk-in refrigeration units and dry FOOD storage areas and in other areas and rooms during periods of cleaning;",
+    "severity": "Core",
+    "locationComment": null,
+    "observationComment": "Walk in refrigerator and freezer have light intensity 22-70 lux. ",
+    "responseComment": null,
+    "readings": null
+   }
+  ]
+ }
+]

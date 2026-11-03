@@ -1,0 +1,97 @@
+[
+ {
+  "id": "e6aad039-a04f-4012-8c73-000a84cb89b7",
+  "description": "Compliance with variance, specialized process, reduced oxygen packaging criteria or HACCP plan",
+  "result": "Out of Compliance",
+  "isCritical": true,
+  "writtenComment": null,
+  "responseComment": null,
+  "category": {
+   "id": "77f12118-bf5f-4a8b-ba11-81cd56c7c17e",
+   "description": "Conformance with Approved Procedures"
+  },
+  "cannedComments": [
+   {
+    "id": "0a481925-0b7a-4d40-bc24-bf855a5002c8",
+    "description": "8-103.12 If the REGULATORY AUTHORITY grants a VARIANCE as specified in § 8-103.10, or a HACCP PLAN is otherwise required as specified under § 8-201.13, the PERMIT HOLDER shall: (A) Comply with the HACCP PLANs and procedures that are submitted as specified under § 8-201.14 and APPROVED as a basis for the modification or waiver;  T",
+    "severity": "Priority",
+    "locationComment": null,
+    "observationComment": "PIC is not aware of the pizza sauce at room temperature variance.  Variance could not be located at store.  PIC states sauce is prepped at 10 am, held until end of shift (12 or 1am) and then put back in walk in refrigerator.  ",
+    "responseComment": null,
+    "readings": null
+   }
+  ]
+ },
+ {
+  "id": "0ede4735-64fc-4854-a33e-4712c8df78e7",
+  "description": "Adequate ventilation and lighting; designated areas used",
+  "result": "Out of Compliance",
+  "isCritical": false,
+  "writtenComment": null,
+  "responseComment": null,
+  "category": {
+   "id": "e1890cbd-4c48-4333-bc97-a39d1c610f53",
+   "description": "Physical Facilities"
+  },
+  "cannedComments": [
+   {
+    "id": "c5f09db2-1a2d-4db5-926a-35761975a81a",
+    "description": "6-303.11 The light intensity shall be: (B) At least 215 lux (20 foot candles): (1) At a surface where FOOD is provided for CONSUMER self-service such as buffets and salad bars or where fresh produce or PACKAGED FOODS are sold or offered for consumption, (2) Inside EQUIPMENT such as reach-in and under-counter refrigerators; and (3) At a distance of 75 cm (30 inches) above the floor in areas used for handwashing, WAREWASHING, and EQUIPMENT and UTENSIL storage, and in toilet rooms; and",
+    "severity": "Core",
+    "locationComment": null,
+    "observationComment": "Light intensity at ware washing sink is 150 lux. ",
+    "responseComment": null,
+    "readings": null
+   }
+  ]
+ },
+ {
+  "id": "0ede4735-64fc-4854-a33e-4712c8df78e7",
+  "description": "Adequate ventilation and lighting; designated areas used",
+  "result": "Out of Compliance",
+  "isCritical": false,
+  "writtenComment": null,
+  "responseComment": null,
+  "category": {
+   "id": "e1890cbd-4c48-4333-bc97-a39d1c610f53",
+   "description": "Physical Facilities"
+  },
+  "cannedComments": [
+   {
+    "id": "1b81fc81-9932-4203-92d7-54a334672c83",
+    "description": "6-303.11 The light intensity shall be: (C) At least 540 lux (50 foot candles) at a surface where a FOOD EMPLOYEE is working with FOOD or working with UTENSILS or EQUIPMENT such as knives, slicers, grinders, or saws where EMPLOYEE safety is a factor.",
+    "severity": "Core",
+    "locationComment": null,
+    "observationComment": "Light at pizza make station has 160 lux intensity. ",
+    "responseComment": null,
+    "readings": null
+   }
+  ]
+ },
+ {
+  "id": "9110e517-4622-4075-b579-921262330b0f",
+  "description": "PIC present, demonstrates knowledge, and performs duties",
+  "result": "In Compliance",
+  "isCritical": true,
+  "writtenComment": null,
+  "responseComment": null,
+  "category": {
+   "id": "afd224a6-337f-4345-ad18-3f5f5433d588",
+   "description": "Supervision"
+  },
+  "cannedComments": null
+ },
+ {
+  "id": "737ca9ab-b432-4816-bba8-8e0ade6ec5b4",
+  "description": "Certified Food Protection Manager",
+  "result": "In Compliance",
+  "isCritical": false,
+  "writtenComment": null,
+  "responseComment": null,
+  "category": {
+   "id": "afd224a6-337f-4345-ad18-3f5f5433d588",
+   "description": "Supervision"
+  },
+  "cannedComments": null
+ }
+]

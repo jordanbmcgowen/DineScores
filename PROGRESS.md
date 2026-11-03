@@ -28,10 +28,23 @@ LUBBOCK TX, MESQUITE TX". Scaffold commit 75d73d8.
   unread inspectionResults -> _hold_freshness(source, date, key=iid);
   deadline cuts counted=False + _set_group_status(group, 'skipped').
 
+- Live Mesquite (2026-11-03): list = all 689 rows in one response (paging
+  ignored), facilityType + lastInspectionDate hidden, hazardScore official
+  70-100 (6 null), 268/689 without coordinates, inspectionResults 200 (the
+  capture's 500 was not universal), observationComment always null (titles +
+  short rule names only), inspection/{id}/details fully redacted. The server
+  does NOT honour a sort on the hidden lastInspectionDate (newest dates rise
+  and fall down the list) -> every facility's inspection list is read per run.
+- Code: shared client + fetch_pima/fetch_lubbock/fetch_mesquite spliced into
+  the pipeline section (compiles). Fixtures built: tests/fixtures/hedgerow/
+  (16 files, 67 KB, trimmed from the 2026-11-02/03 captures).
+
 ## Next
-- Verify Mesquite shapes live (lastInspectionDate hidden? inspectionResults 500?)
-- Write client + fetchers, fixtures, tests; test-mode and 14-day live runs.
+- tests/test_hedgerow.py; run the suite; live test-mode + 14-day runs.
+- Mesquite source_url host: the SPA is not on the API host (root is the
+  vendor's "Hedgehog Server" page, /portal/ 404) — find the public SPA host
+  or document the URL as unverified.
 
 ## Open questions
-- Mesquite: facility list hides facilityType/lastInspectionDate (capture); if
-  so every facility's inspection list must be read each run (689 facilities).
+- Pima 'Needs Improvement' computes to a B (e.g. 93 for P+C+C); only Fail /
+  IHH / Probation cap the score. Owner policy call.
