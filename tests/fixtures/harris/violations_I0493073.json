@@ -1,0 +1,13 @@
+[
+ {
+  "inspectionNumber": "I0493073",
+  "violationNumber": 49,
+  "violationDescription": "Non-food contact surfaces clean",
+  "complianceResult": "Out",
+  "numberOfDemerits": 1,
+  "violationId": "ffb8d6cd-b3b6-4efc-8164-3de368dcba11",
+  "violationGroup": "C",
+  "department": "General",
+  "shortDescription": "Cleanliness and maintenance of non-food-contact surfaces"
+ }
+]

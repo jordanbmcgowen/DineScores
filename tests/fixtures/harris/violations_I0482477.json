@@ -1,0 +1,178 @@
+[
+ {
+  "inspectionNumber": "I0482477",
+  "violationNumber": 1,
+  "violationDescription": "Person in charge present, demonstrates knowledge, and performs duties",
+  "complianceResult": "Out",
+  "numberOfDemerits": 2,
+  "violationId": "787c82c3-0910-4f9a-bda9-55365b904ae4",
+  "violationGroup": "F",
+  "department": "General",
+  "shortDescription": "Person in Charge Responsibilities"
+ },
+ {
+  "inspectionNumber": "I0482477",
+  "violationNumber": 2,
+  "violationDescription": "Certified Food Protection Manager / Food Handler Certificates",
+  "complianceResult": "Out",
+  "numberOfDemerits": 2,
+  "violationId": "6cc437ec-2ebe-43d7-88e2-ac91290dfcf7",
+  "violationGroup": "C",
+  "department": "General",
+  "shortDescription": "Trained Employees"
+ },
+ {
+  "inspectionNumber": "I0482477",
+  "violationNumber": 8,
+  "violationDescription": "Hands clean and properly washed",
+  "complianceResult": "Out",
+  "numberOfDemerits": 3,
+  "violationId": "f3ed802f-060b-45b6-b6ee-30e327a66c91",
+  "violationGroup": "P",
+  "department": "General",
+  "shortDescription": "Preventing Contamination by Hands"
+ },
+ {
+  "inspectionNumber": "I0482477",
+  "violationNumber": 15,
+  "violationDescription": "Food separated and protected",
+  "complianceResult": "Out",
+  "numberOfDemerits": 2,
+  "violationId": "722ffebb-38f1-41f9-8bbf-ec6c7e81c6f4",
+  "violationGroup": "P",
+  "department": "General",
+  "shortDescription": "Cross-contamination prevented"
+ },
+ {
+  "inspectionNumber": "I0482477",
+  "violationNumber": 16,
+  "violationDescription": "Food-contact surfaces: cleaned & sanitized",
+  "complianceResult": "Out",
+  "numberOfDemerits": 3,
+  "violationId": "83b6adf7-0aeb-4e82-9800-7b35924dde5b",
+  "violationGroup": "P",
+  "department": "General",
+  "shortDescription": "Food-Contact Surfaces – Cleaned and Sanitized"
+ },
+ {
+  "inspectionNumber": "I0482477",
+  "violationNumber": 22,
+  "violationDescription": "Proper cold holding temperatures (41°F/45°F)",
+  "complianceResult": "Out",
+  "numberOfDemerits": 3,
+  "violationId": "427a7fd9-e69e-496b-a278-67301f61d3f2",
+  "violationGroup": "F",
+  "department": "General",
+  "shortDescription": "TCS Food Cold Holding"
+ },
+ {
+  "inspectionNumber": "I0482477",
+  "violationNumber": 23,
+  "violationDescription": "Proper date marking and disposition",
+  "complianceResult": "Out",
+  "numberOfDemerits": 3,
+  "violationId": "ff3e29b4-0670-40c1-b689-d4f0bed2b778",
+  "violationGroup": "F",
+  "department": "General",
+  "shortDescription": "Proper Date Marking and Food Disposition"
+ },
+ {
+  "inspectionNumber": "I0482477",
+  "violationNumber": 36,
+  "violationDescription": "Thermometers are provided and accurate",
+  "complianceResult": "Out",
+  "numberOfDemerits": 1,
+  "violationId": "750ad717-fcdd-419b-b42c-6126bca23ae7",
+  "violationGroup": "C",
+  "department": "General",
+  "shortDescription": "Thermometers available and properly calibrated"
+ },
+ {
+  "inspectionNumber": "I0482477",
+  "violationNumber": 37,
+  "violationDescription": "Food properly labeled; original container",
+  "complianceResult": "Out",
+  "numberOfDemerits": 1,
+  "violationId": "8f84baf7-42e2-4dbd-96bf-357ff0bd6248",
+  "violationGroup": "C",
+  "department": "General",
+  "shortDescription": "Proper food labeling & Original container use"
+ },
+ {
+  "inspectionNumber": "I0482477",
+  "violationNumber": 38,
+  "violationDescription": "Insects, rodents, and animals not present",
+  "complianceResult": "Out",
+  "numberOfDemerits": 2,
+  "violationId": "ee6f178d-de49-4ce8-b6e5-2d360b188f9e",
+  "violationGroup": "C",
+  "department": "General",
+  "shortDescription": "Effective pest control & Animals Prohibited"
+ },
+ {
+  "inspectionNumber": "I0482477",
+  "violationNumber": 41,
+  "violationDescription": "Wiping cloths; properly used and stored",
+  "complianceResult": "Out",
+  "numberOfDemerits": 1,
+  "violationId": "89400ab6-1424-4eb3-a19a-1e66e0827d4a",
+  "violationGroup": "C",
+  "department": "General",
+  "shortDescription": "Proper use and storage of wiping cloths"
+ },
+ {
+  "inspectionNumber": "I0482477",
+  "violationNumber": 43,
+  "violationDescription": "In-use utensils; properly stored",
+  "complianceResult": "Out",
+  "numberOfDemerits": 1,
+  "violationId": "98574f23-c50e-409d-9cb1-2a1f04779b6a",
+  "violationGroup": "C",
+  "department": "General",
+  "shortDescription": "Proper storage of in-use utensils during operations"
+ },
+ {
+  "inspectionNumber": "I0482477",
+  "violationNumber": 47,
+  "violationDescription": "Food and nonfood-contact surfaces cleanable, properly designed, constructed, and used",
+  "complianceResult": "Out",
+  "numberOfDemerits": 1,
+  "violationId": "74368f5a-31ed-407d-a16e-aed062d31f7a",
+  "violationGroup": "C",
+  "department": "General",
+  "shortDescription": "Cleanable, properly designed, and maintained food and nonfood-contact surfaces"
+ },
+ {
+  "inspectionNumber": "I0482477",
+  "violationNumber": 49,
+  "violationDescription": "Non-food contact surfaces clean",
+  "complianceResult": "Out",
+  "numberOfDemerits": 1,
+  "violationId": "ffb8d6cd-b3b6-4efc-8164-3de368dcba11",
+  "violationGroup": "C",
+  "department": "General",
+  "shortDescription": "Cleanliness and maintenance of non-food-contact surfaces"
+ },
+ {
+  "inspectionNumber": "I0482477",
+  "violationNumber": 51,
+  "violationDescription": "Plumbing installed; proper backflow devices",
+  "complianceResult": "Out",
+  "numberOfDemerits": 1,
+  "violationId": "1ab8e857-0ab6-42e7-817e-c7667b8ccb04",
+  "violationGroup": "C",
+  "department": "General",
+  "shortDescription": "Approved plumbing installed and protected against contamination"
+ },
+ {
+  "inspectionNumber": "I0482477",
+  "violationNumber": 56,
+  "violationDescription": "Adequate ventilation and lighting; designated areas used",
+  "complianceResult": "Out",
+  "numberOfDemerits": 1,
+  "violationId": "147594e3-69c3-4f2b-95e0-dc68bc9a9105",
+  "violationGroup": "C",
+  "department": "General",
+  "shortDescription": "Ventilation, lighting, and employee area compliance."
+ }
+]

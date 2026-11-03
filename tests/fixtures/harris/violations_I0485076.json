@@ -1,0 +1,178 @@
+[
+ {
+  "inspectionNumber": "I0485076",
+  "violationNumber": 1,
+  "violationDescription": "Person in charge present, demonstrates knowledge, and performs duties",
+  "complianceResult": "Out",
+  "numberOfDemerits": 2,
+  "violationId": "787c82c3-0910-4f9a-bda9-55365b904ae4",
+  "violationGroup": "F",
+  "department": "General",
+  "shortDescription": "Person in Charge Responsibilities"
+ },
+ {
+  "inspectionNumber": "I0485076",
+  "violationNumber": 6,
+  "violationDescription": "Proper eating, tasting, drinking, or tobacco use",
+  "complianceResult": "Out",
+  "numberOfDemerits": 2,
+  "violationId": "56bffb66-a2ee-40a7-b875-7d9cd73c8f49",
+  "violationGroup": "P",
+  "department": "General",
+  "shortDescription": "Employee Eating, Drinking, and Tobacco Use"
+ },
+ {
+  "inspectionNumber": "I0485076",
+  "violationNumber": 8,
+  "violationDescription": "Hands clean and properly washed",
+  "complianceResult": "Out",
+  "numberOfDemerits": 3,
+  "violationId": "f3ed802f-060b-45b6-b6ee-30e327a66c91",
+  "violationGroup": "P",
+  "department": "General",
+  "shortDescription": "Preventing Contamination by Hands"
+ },
+ {
+  "inspectionNumber": "I0485076",
+  "violationNumber": 10,
+  "violationDescription": "Adequate handwashing facilities supplied & accessible",
+  "complianceResult": "Out",
+  "numberOfDemerits": 2,
+  "violationId": "5ce899cc-8680-4ee1-b1cd-5c5d39132343",
+  "violationGroup": "P",
+  "department": "General",
+  "shortDescription": "Handwashing Facilities – Supplied and Accessible"
+ },
+ {
+  "inspectionNumber": "I0485076",
+  "violationNumber": 15,
+  "violationDescription": "Food separated and protected",
+  "complianceResult": "Out",
+  "numberOfDemerits": 2,
+  "violationId": "722ffebb-38f1-41f9-8bbf-ec6c7e81c6f4",
+  "violationGroup": "P",
+  "department": "General",
+  "shortDescription": "Cross-contamination prevented"
+ },
+ {
+  "inspectionNumber": "I0485076",
+  "violationNumber": 16,
+  "violationDescription": "Food-contact surfaces: cleaned & sanitized",
+  "complianceResult": "Out",
+  "numberOfDemerits": 3,
+  "violationId": "83b6adf7-0aeb-4e82-9800-7b35924dde5b",
+  "violationGroup": "P",
+  "department": "General",
+  "shortDescription": "Food-Contact Surfaces – Cleaned and Sanitized"
+ },
+ {
+  "inspectionNumber": "I0485076",
+  "violationNumber": 20,
+  "violationDescription": "Proper cooling time and temperatures",
+  "complianceResult": "Out",
+  "numberOfDemerits": 3,
+  "violationId": "8629aa62-6cd0-4929-a96f-b6c4fcba135a",
+  "violationGroup": "P",
+  "department": "General",
+  "shortDescription": "Cooling Compliance – Time and Temperature"
+ },
+ {
+  "inspectionNumber": "I0485076",
+  "violationNumber": 28,
+  "violationDescription": "Toxic substances properly identified, stored, and used",
+  "complianceResult": "Out",
+  "numberOfDemerits": 2,
+  "violationId": "dffedf56-35a9-41f0-9b7e-22441d67e955",
+  "violationGroup": "F",
+  "department": "General",
+  "shortDescription": "Toxic Substances – Labeling, Storage, and Use"
+ },
+ {
+  "inspectionNumber": "I0485076",
+  "violationNumber": 33,
+  "violationDescription": "Proper cooling methods used, adequate equipment for temperature control",
+  "complianceResult": "Out",
+  "numberOfDemerits": 1,
+  "violationId": "98aa383d-978e-4fb9-b3aa-0accbbdf3d55",
+  "violationGroup": "C",
+  "department": "General",
+  "shortDescription": "Effective cooling methods & Equipment capacity"
+ },
+ {
+  "inspectionNumber": "I0485076",
+  "violationNumber": 37,
+  "violationDescription": "Food properly labeled; original container",
+  "complianceResult": "Out",
+  "numberOfDemerits": 1,
+  "violationId": "8f84baf7-42e2-4dbd-96bf-357ff0bd6248",
+  "violationGroup": "C",
+  "department": "General",
+  "shortDescription": "Proper food labeling & Original container use"
+ },
+ {
+  "inspectionNumber": "I0485076",
+  "violationNumber": 38,
+  "violationDescription": "Insects, rodents, and animals not present",
+  "complianceResult": "Out",
+  "numberOfDemerits": 2,
+  "violationId": "ee6f178d-de49-4ce8-b6e5-2d360b188f9e",
+  "violationGroup": "C",
+  "department": "General",
+  "shortDescription": "Effective pest control & Animals Prohibited"
+ },
+ {
+  "inspectionNumber": "I0485076",
+  "violationNumber": 39,
+  "violationDescription": "Contamination prevented during food preparation, storage, and display",
+  "complianceResult": "Out",
+  "numberOfDemerits": 1,
+  "violationId": "8e14b84b-6cab-4865-b933-32ca13cc78a5",
+  "violationGroup": "C",
+  "department": "General",
+  "shortDescription": "Protection of food from contamination throughout handling"
+ },
+ {
+  "inspectionNumber": "I0485076",
+  "violationNumber": 40,
+  "violationDescription": "Personal cleanliness",
+  "complianceResult": "Out",
+  "numberOfDemerits": 1,
+  "violationId": "77a99fd0-0781-4ea3-b12e-24d5ea87e551",
+  "violationGroup": "C",
+  "department": "General",
+  "shortDescription": "Personal hygiene practices to prevent contamination"
+ },
+ {
+  "inspectionNumber": "I0485076",
+  "violationNumber": 47,
+  "violationDescription": "Food and nonfood-contact surfaces cleanable, properly designed, constructed, and used",
+  "complianceResult": "Out",
+  "numberOfDemerits": 1,
+  "violationId": "74368f5a-31ed-407d-a16e-aed062d31f7a",
+  "violationGroup": "C",
+  "department": "General",
+  "shortDescription": "Cleanable, properly designed, and maintained food and nonfood-contact surfaces"
+ },
+ {
+  "inspectionNumber": "I0485076",
+  "violationNumber": 49,
+  "violationDescription": "Non-food contact surfaces clean",
+  "complianceResult": "Out",
+  "numberOfDemerits": 1,
+  "violationId": "ffb8d6cd-b3b6-4efc-8164-3de368dcba11",
+  "violationGroup": "C",
+  "department": "General",
+  "shortDescription": "Cleanliness and maintenance of non-food-contact surfaces"
+ },
+ {
+  "inspectionNumber": "I0485076",
+  "violationNumber": 56,
+  "violationDescription": "Adequate ventilation and lighting; designated areas used",
+  "complianceResult": "Out",
+  "numberOfDemerits": 1,
+  "violationId": "147594e3-69c3-4f2b-95e0-dc68bc9a9105",
+  "violationGroup": "C",
+  "department": "General",
+  "shortDescription": "Ventilation, lighting, and employee area compliance."
+ }
+]

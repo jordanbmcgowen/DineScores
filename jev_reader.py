@@ -270,6 +270,10 @@ SUMMARY_LEVEL_BY_PHRASE = {
     'Food not kept cold enough': RISK,
     'Food not kept hot enough': RISK,
     'Food held at unsafe temperature': RISK,      # FORM_TITLE_PHRASES only
+    'Food not protected from contamination': RISK,   # FORM_TITLE_PHRASES only
+    'No vomit/diarrhea cleanup plan': DOCS,          # FORM_TITLE_PHRASES only
+    'Surfaces not cleanable or in disrepair': MAINT,  # FORM_TITLE_PHRASES only
+    'Ventilation or lighting inadequate': MAINT,     # FORM_TITLE_PHRASES only
     'Pests found': ACTIVE,                        # cited pest items only
     'Dented/Damaged cans': RISK,
     'Missing thermometers': RISK,
@@ -585,6 +589,19 @@ FORM_TITLE_PHRASES = {
     'signs posted; last inspection report available': 'Permit not posted',
     'grade card, signs, last inspection report available': 'Permit not posted',
     'grade card, signs, last inspection report available; written operational procedures available and followed; restroom letter of agreement': 'Permit not posted',
+    # Harris County's TFER form, cited bare (the feed carries no observation).
+    # Only the titles today's regex paraphrases WRONGLY are here: "vomiting &
+    # diarrheal events" and "contamination prevented" read as a vent hood,
+    # "ventilation and lighting" as grease buildup, "surfaces cleanable,
+    # properly designed" as dirty surfaces, "thermometers ...; chemical/
+    # thermal test strips" as chemicals. The sewage (52) and pest (38) titles
+    # stay out as the rule above says; a title the regex leaves verbatim is
+    # fine as it is.
+    'procedures for responding to vomiting & diarrheal events': 'No vomit/diarrhea cleanup plan',
+    'thermometers provided, accurate, and calibrated; chemical/ thermal test strips': 'Missing thermometers',
+    'contamination prevented during food preparation, storage, and display': 'Food not protected from contamination',
+    'food and nonfood-contact surfaces cleanable, properly designed, constructed, and used': 'Surfaces not cleanable or in disrepair',
+    'adequate ventilation and lighting; designated areas used': 'Ventilation or lighting inadequate',
 }
 
 

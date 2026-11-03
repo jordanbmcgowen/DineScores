@@ -1,0 +1,112 @@
+[
+ {
+  "inspectionNumber": "I0453873",
+  "violationNumber": 5,
+  "violationDescription": "Proper reheating procedure for hot holding",
+  "complianceResult": "Out",
+  "numberOfDemerits": 3,
+  "violationId": "5720092e-3f1d-477c-a065-a6343780c886",
+  "violationGroup": "P",
+  "department": "General",
+  "shortDescription": "Vomit and Fecal Clean-up Procedures"
+ },
+ {
+  "inspectionNumber": "I0453873",
+  "violationNumber": 9,
+  "violationDescription": "Food separated & protected, prevented during food preparation, storage, display, and tasting",
+  "complianceResult": "Out",
+  "numberOfDemerits": 3,
+  "violationId": "b5e68166-ec67-4c6f-9219-b033b2e1a587",
+  "violationGroup": "P",
+  "department": "General",
+  "shortDescription": "No Bare Hand Contact with Ready-to-Eat Foods"
+ },
+ {
+  "inspectionNumber": "I0453873",
+  "violationNumber": 14,
+  "violationDescription": "Hands cleaned and properly washed/ Gloves used properly",
+  "complianceResult": "Out",
+  "numberOfDemerits": 3,
+  "violationId": "374747a9-dbc7-429b-a006-d575a7597abe",
+  "violationGroup": "P",
+  "department": "General",
+  "shortDescription": "Shellfish and Parasite Destruction Records"
+ },
+ {
+  "inspectionNumber": "I0453873",
+  "violationNumber": 21,
+  "violationDescription": "Person in charge present, demonstration of knowledge, and perform duties/ Certified Food Manager (CFM)",
+  "complianceResult": "Out",
+  "numberOfDemerits": 2,
+  "violationId": "8cf1f2c2-5491-4deb-91f1-583650c8fbef",
+  "violationGroup": "F",
+  "department": "General",
+  "shortDescription": "TCS Food Hot Holding"
+ },
+ {
+  "inspectionNumber": "I0453873",
+  "violationNumber": 28,
+  "violationDescription": "Proper Date Marking and disposition",
+  "complianceResult": "Out",
+  "numberOfDemerits": 2,
+  "violationId": "dffedf56-35a9-41f0-9b7e-22441d67e955",
+  "violationGroup": "F",
+  "department": "General",
+  "shortDescription": "Toxic Substances – Labeling, Storage, and Use"
+ },
+ {
+  "inspectionNumber": "I0453873",
+  "violationNumber": 29,
+  "violationDescription": "Thermometers provided, accurate, and calibrated; Chemical/ Thermal test strips",
+  "complianceResult": "Out",
+  "numberOfDemerits": 2,
+  "violationId": "97f02abb-3612-4b96-9ae3-00cc780fe6d9",
+  "violationGroup": "F",
+  "department": "General",
+  "shortDescription": "Specialized Process and HACCP Plan Approval"
+ },
+ {
+  "inspectionNumber": "I0453873",
+  "violationNumber": 31,
+  "violationDescription": "Adequate handwashing facilities: Accessible and properly supplied",
+  "complianceResult": "Out",
+  "numberOfDemerits": 2,
+  "violationId": "9806b801-e4d2-4001-b58d-f7b15774a518",
+  "violationGroup": "F",
+  "department": "General",
+  "shortDescription": "Safe Water & Ice/Approved System"
+ },
+ {
+  "inspectionNumber": "I0453873",
+  "violationNumber": 37,
+  "violationDescription": "Environmental contamination",
+  "complianceResult": "Out",
+  "numberOfDemerits": 1,
+  "violationId": "8f84baf7-42e2-4dbd-96bf-357ff0bd6248",
+  "violationGroup": "C",
+  "department": "General",
+  "shortDescription": "Proper food labeling & Original container use"
+ },
+ {
+  "inspectionNumber": "I0453873",
+  "violationNumber": 39,
+  "violationDescription": "Utensils, equipment, & linens; properly used, stored, dried, & handled/ In use utensils; properly used",
+  "complianceResult": "Out",
+  "numberOfDemerits": 1,
+  "violationId": "8e14b84b-6cab-4865-b933-32ca13cc78a5",
+  "violationGroup": "C",
+  "department": "General",
+  "shortDescription": "Protection of food from contamination throughout handling"
+ },
+ {
+  "inspectionNumber": "I0453873",
+  "violationNumber": 42,
+  "violationDescription": "Non-Food Contact surfaces clean",
+  "complianceResult": "Out",
+  "numberOfDemerits": 1,
+  "violationId": "602dd313-2647-4e9e-99bf-d7111d8e6746",
+  "violationGroup": "C",
+  "department": "General",
+  "shortDescription": "Washing fruits and vegetables before preparation or service"
+ }
+]
