@@ -7709,8 +7709,397 @@ def fetch_mesquite(since_date=None, limit=None):
 
 
 # ─── WILLIAMSON COUNTY, TX (WCCHD inspection-scores zip snapshot) ───────────
+# The Williamson County and Cities Health District (Round Rock, Georgetown,
+# Cedar Park, Leander, Hutto, Taylor, Liberty Hill, Jarrell and the
+# Williamson-county parts of Austin and Pflugerville) publishes its scores
+# as a Yelp-LIVES-style zip on Google Cloud Storage: businesses.csv
+# (business_id,name,address,city,state), inspections.csv (business_id,date
+# YYYYMMDD,score,result,type) and feed_info.xlsx (feed_date). The one
+# ~260 KB object IS the whole history (2021-12 on; 12,145 permits and 6,734
+# inspections in the 2026-10-29 snapshot), so a run is a single GET and the
+# weekly window is a client-side filter on the date column. A snapshot that
+# arrives truncated or reshaped (a missing member, no feed_date, too few
+# rows, more than WM_MAX_BAD_ROW_SHARE unparseable rows) is REFUSED with a
+# RuntimeError rather than shipped as "fewer inspections": the merge keeps
+# last week's records and the run goes red. The feed carries no violation
+# text, no coordinates and no zip: records ship with violations [] and
+# main() geocodes them (Census batch, as for Austin).
+#
+# Scoring: `score` is the county's official 100-point Inspection Score
+# (100 - demerits on its form; < 70 is a Fail, which holds for every Fail
+# row in the feed). It is copied to original_score and risk_score
+# (clamped to 0..100); a score <= 0 is an arithmetic artefact (eight rows
+# from 2022-23 run to -532) and is dropped with a warning, not shipped as
+# unscored. 'IHH' (Imminent Health Hazard: a closure "not score-related",
+# two thirds of them with a passing score) caps risk_score at
+# WM_IHH_RISK_CAP so the grade is F, the way Orange County's and San
+# Diego's closures are capped; original_score keeps the published number.
+#
+# Scope: the permit number encodes the program, so temporary event booths
+# (-TFP), mobile units (-MF: a truck's row carries its commissary or base
+# address), on-site sewage permits (-SAN) and school kitchens (-ISD,
+# -SFEC, -FFES..., and the <city>S- prefixes the ISDs' contract kitchens
+# use: RRS-, GES-, LES-, HUS-, TAS-...) are dropped, as the Tennessee and
+# Omaha fetchers drop theirs; -FFEC (a commissary/shared kitchen) is food
+# and stays. The district's own test permits ('TEST', 'Test Project Name'
+# at its office) are dropped by name. Rows whose business_id has no
+# businesses.csv row, no name or no usable city are dropped with a WARNING
+# count: 22 permits (0.3% of rows) were missing from the 2026-10-29 file.
+#
+# Identity: 'ROUND ROCK' / 'Round rock' / 'round rock' are one city, so
+# name, address and city are normalised (whitespace collapsed, a stray
+# trailing comma or glued zip code removed, ALL CAPS title-cased) before
+# make_restaurant_id. Suite/unit tails stay exactly as published. A same-
+# day exact duplicate row is the same inspection listed twice and is
+# emitted once; distinct same-day rows (a failed routine and a passed
+# follow-up) are each emitted, worst first, the later ones with a '_2',
+# '_3' suffix on source_id so the ids stay distinct (D1 keeps the worst of
+# the day either way). Output is newest-first, so `limit` keeps the newest
+# records (test mode).
+import csv
+import io
+import zipfile
+import xml.etree.ElementTree as ET
+
+WM_ZIP_URL = 'https://storage.googleapis.com/ehyelp/WCCHD%20Food%20Inspections.zip'
+WM_SOURCE_PAGE = 'https://www.wcchd.org/healthy_spaces/inspection_scores.php'
+WM_SOURCE = 'Williamson County and Cities Health District'
+WM_GROUP = 'Williamson County'
+WM_MEMBERS = ('feed_info.xlsx', 'businesses.csv', 'inspections.csv')
+WM_BUSINESS_FIELDS = ('business_id', 'name', 'address', 'city', 'state')
+WM_INSPECTION_FIELDS = ('business_id', 'date', 'score', 'result', 'type')
+# Request pacing (module globals so tests can patch them).
+WM_TIMEOUT = 120              # seconds for the one GET (a ~260 KB object)
+WM_RETRIES = 3                # attempts: connection errors, timeouts, 429 and 5xx retry
+WM_RETRY_DELAY = 10           # seconds before the second attempt, doubled each time
+# Snapshot sanity. The 2026-10-29 feed held 6,734 inspections and 12,145
+# permits with 0 unparseable rows; a file far below that is a truncated
+# upload or a changed layout, not a quiet month.
+WM_MIN_INSPECTION_ROWS = 1000
+WM_MIN_BUSINESS_ROWS = 2000
+WM_MAX_BAD_ROW_SHARE = 0.01
+WM_IHH_RISK_CAP = 55          # a closure grades F (the Orange County / San Diego rule)
+WM_RESULTS = {'Pass': 'Pass', 'Fail': 'Fail', 'IHH': 'Imminent Health Hazard - closed'}
+WM_TYPES = {'Routine': 'Routine', 'Followup': 'Follow-up'}
+# Programs that are not fixed food establishments, by permit-number code.
+WM_OUT_OF_SCOPE = (
+    ('temporary event booth', re.compile(r'-TFP$')),
+    ('mobile unit', re.compile(r'-MF$')),
+    ('sewage/sanitation permit', re.compile(r'-SAN$')),
+    ('school kitchen', re.compile(r'-ISD$|-SFEC$|-FFES(?:-|$)|^[A-Z]{2}S-\d')),
+)
+WM_TEST_NAME_RE = re.compile(r'^\s*test\b', re.I)   # the district's own test permits
+_WM_XLSX_NS = '{http://schemas.openxmlformats.org/spreadsheetml/2006/main}'
+# Tokens .title() must not lower-case: Texas road codes and compass points
+# in addresses ('FM 1105', 'IH 35', 'NE Inner Loop'), company codes in names.
+_WM_ROAD_CODES = re.compile(r'\b(Fm|Rm|Rr|Cr|Sh|Ih|Us|Tx|Ne|Nw|Se|Sw)\b')
+_WM_NAME_CODES = re.compile(r'\b(Llc|Inc|Dba|Bbq|Atx|Heb|Tx|Usa|Ii|Iii|Iv)\b')
+
+
+class _WmDeadlineCut(RuntimeError):
+    """The fetch deadline stopped the download's retries (reported 'skipped')."""
+
+
+def _wm_title(s, road_codes=False):
+    """.title() for an ALL-CAPS source string; mixed case is kept as
+    published. Possessives stay possessive ("Joe's", "Joe’s"), ordinals
+    stay ordinal ("8th St") and the code tokens stay upper."""
+    s = ' '.join((s or '').split())
+    if not s.isupper():
+        return s
+    t = s.title()
+    t = re.sub(r"(['’])S\b", r"\1s", t)
+    t = re.sub(r'\b(\d+)(St|Nd|Rd|Th)\b', lambda m: m.group(1) + m.group(2).lower(), t)
+    codes = _WM_ROAD_CODES if road_codes else _WM_NAME_CODES
+    return codes.sub(lambda m: m.group(1).upper(), t)
+
+
+def _wm_city(raw):
+    """'ROUND ROCK' / 'Round rock' / 'round rock' -> 'Round Rock'. A stray
+    trailing comma ('TAYLOR,'), quote or glued zip ('Leander 78641') goes;
+    '' when nothing usable is left (the caller then drops the row)."""
+    c = ' '.join((raw or '').split())
+    c = re.sub(r'\s*\d{5}(?:-\d{4})?$', '', c)
+    c = ' '.join(c.strip(' ,.;:`"\'').split())
+    if not c or c[0].isdigit():
+        return ''
+    return c.title()
+
+
+def _wm_address(raw):
+    """Whitespace collapsed, a trailing comma dropped ('445 E Morrow St,'),
+    ALL CAPS title-cased with the road codes kept; suites stay as published."""
+    a = ' '.join((raw or '').split()).strip(' ,;')
+    a = re.sub(r'\s+,', ',', a)
+    return _wm_title(a, road_codes=True)
+
+
+def _wm_out_of_scope(business_id):
+    """The scope label a permit number falls under, or None for a fixed
+    food establishment."""
+    for label, pattern in WM_OUT_OF_SCOPE:
+        if pattern.search(business_id):
+            return label
+    return None
+
+
+def _wm_read_feed_info(xlsx_bytes):
+    """feed_info.xlsx (one sheet: a header row and a value row) -> dict of
+    column -> value, read with zipfile + xml.etree. feed_date comes back as
+    'YYYY-MM-DD'. Raises ValueError when there is no sheet, no value row or
+    no parseable feed_date."""
+    with zipfile.ZipFile(io.BytesIO(xlsx_bytes)) as x:
+        names = x.namelist()
+        sheets = sorted(n for n in names if re.fullmatch(r'xl/worksheets/sheet\d+\.xml', n))
+        if not sheets:
+            raise ValueError('feed_info.xlsx has no worksheet')
+        shared = []
+        if 'xl/sharedStrings.xml' in names:
+            for si in ET.fromstring(x.read('xl/sharedStrings.xml')).iter(f'{_WM_XLSX_NS}si'):
+                shared.append(''.join(t.text or '' for t in si.iter(f'{_WM_XLSX_NS}t')))
+        sheet = ET.fromstring(x.read(sheets[0]))
+    cells = {}
+    for c in sheet.iter(f'{_WM_XLSX_NS}c'):
+        m = re.fullmatch(r'([A-Z]+)(\d+)', c.get('r') or '')
+        if not m:
+            continue
+        kind = c.get('t')
+        if kind == 'inlineStr':
+            val = ''.join(t.text or '' for t in c.iter(f'{_WM_XLSX_NS}t'))
+        else:
+            v = c.find(f'{_WM_XLSX_NS}v')
+            val = (v.text or '') if v is not None else ''
+            if kind == 's':
+                try:
+                    val = shared[int(val)]
+                except (ValueError, IndexError):
+                    raise ValueError(f'feed_info.xlsx cell {c.get("r")} points at a missing shared string')
+        cells.setdefault(int(m.group(2)), {})[m.group(1)] = val.strip()
+    filled = sorted(r for r, cols in cells.items() if any(cols.values()))
+    if len(filled) < 2:
+        raise ValueError('feed_info.xlsx has no value row under its header')
+    header, values = cells[filled[0]], cells[filled[1]]
+    info = {key.lower(): values.get(col, '') for col, key in header.items() if key}
+    m = re.fullmatch(r'(\d{4})(\d{2})(\d{2})(?:\.0+)?', info.get('feed_date', ''))
+    if not m:
+        raise ValueError(f"feed_info.xlsx has no parseable feed_date ({info.get('feed_date')!r})")
+    iso = f'{m.group(1)}-{m.group(2)}-{m.group(3)}'
+    datetime.strptime(iso, '%Y-%m-%d')          # ValueError when not a date
+    info['feed_date'] = iso
+    return info
+
+
+def _wm_download(url=None):
+    """GET the snapshot. Connection errors, timeouts, 429 and 5xx are retried
+    WM_RETRIES times with a growing delay, never past the fetch deadline
+    (_WmDeadlineCut); any other status raises at once: the district's page
+    has linked the object under a wrong name before ('.zip1' -> 403), so a
+    403/404 means the feed moved or went private, not that it is empty.
+    Returns (bytes, response headers)."""
+    url = url or WM_ZIP_URL
+    delay, last = WM_RETRY_DELAY, ''
+    for attempt in range(1, WM_RETRIES + 1):
+        try:
+            r = requests.get(url, headers={'User-Agent': CHROME_UA, 'Accept': 'application/zip,*/*'},
+                             timeout=WM_TIMEOUT)
+        except requests.RequestException as e:
+            last = f'{type(e).__name__}: {e}'
+        else:
+            if r.status_code == 200:
+                return r.content, r.headers
+            if r.status_code != 429 and r.status_code < 500:
+                raise RuntimeError(f'Williamson County: HTTP {r.status_code} for {url} — the snapshot '
+                                   f'object has moved or is no longer public')
+            last = f'HTTP {r.status_code}'
+        if attempt < WM_RETRIES:
+            if _past_deadline():
+                raise _WmDeadlineCut(f'fetch deadline reached while retrying the snapshot download ({last})')
+            log.warning(f"Williamson County: snapshot download failed ({last}); retry {attempt} in {delay}s")
+            time.sleep(delay)
+            delay *= 2
+    raise RuntimeError(f'Williamson County: could not download the snapshot after {WM_RETRIES} attempts ({last})')
+
+
+def _wm_unzip(content):
+    """The three LIVES members by basename (a folder inside the zip would be
+    tolerated); raises RuntimeError on a non-zip or a missing member."""
+    try:
+        with zipfile.ZipFile(io.BytesIO(content)) as z:
+            by_base = {}
+            for name in sorted(z.namelist()):
+                by_base.setdefault(os.path.basename(name), name)
+            missing = [m for m in WM_MEMBERS if m not in by_base]
+            if missing:
+                raise RuntimeError(f'Williamson County: snapshot zip lacks {missing} (members: {sorted(by_base.values())})')
+            return {m: z.read(by_base[m]) for m in WM_MEMBERS}
+    except zipfile.BadZipFile as e:
+        raise RuntimeError(f'Williamson County: the download is not a zip ({e}; {len(content)} bytes)')
+
+
+def _wm_rows(data, fields, member):
+    """csv.DictReader over a UTF-8 (BOM) CSV member -> list of dicts with
+    lower-cased keys and '' for missing values; raises RuntimeError when the
+    header lacks a LIVES column."""
+    reader = csv.DictReader(io.StringIO(data.decode('utf-8-sig', errors='replace')))
+    header = [(h or '').strip().lower() for h in (reader.fieldnames or [])]
+    missing = [f for f in fields if f not in header]
+    if missing:
+        raise RuntimeError(f'Williamson County: {member} lacks column(s) {missing} (header: {reader.fieldnames})')
+    rows = []
+    for row in reader:
+        rows.append({(k or '').strip().lower(): (v or '').strip() for k, v in row.items()
+                     if k is not None and not isinstance(v, list)})
+    return rows
+
+
 def fetch_williamson(since_date=None, limit=None):
-    raise NotImplementedError('fetch_williamson: implemented on the williamson branch')
+    since = str(since_date)[:10] if since_date else None
+    log.info(f"Fetching Williamson County (WCCHD) snapshot (since={since}, limit={limit})")
+    if _past_deadline():
+        _set_group_status(WM_GROUP, 'skipped', 'fetch deadline reached before the snapshot was read')
+        return []
+    try:
+        content, headers = _wm_download()
+    except _WmDeadlineCut as e:
+        log.warning(f"Williamson County: {e}")
+        _set_group_status(WM_GROUP, 'skipped', str(e))
+        return []
+    members = _wm_unzip(content)
+    try:
+        info = _wm_read_feed_info(members['feed_info.xlsx'])
+    except (ValueError, ET.ParseError, zipfile.BadZipFile) as e:
+        raise RuntimeError(f'Williamson County: unreadable feed_info.xlsx ({e})')
+    businesses = _wm_rows(members['businesses.csv'], WM_BUSINESS_FIELDS, 'businesses.csv')
+    inspections = _wm_rows(members['inspections.csv'], WM_INSPECTION_FIELDS, 'inspections.csv')
+    if len(inspections) < WM_MIN_INSPECTION_ROWS or len(businesses) < WM_MIN_BUSINESS_ROWS:
+        raise RuntimeError(f'Williamson County: snapshot has only {len(inspections)} inspection rows and '
+                           f'{len(businesses)} business rows (expect >= {WM_MIN_INSPECTION_ROWS} / '
+                           f'{WM_MIN_BUSINESS_ROWS}); refusing a truncated feed')
+
+    parsed, bad = [], 0
+    for row in inspections:
+        bid = row['business_id']
+        m = re.fullmatch(r'(\d{4})(\d{2})(\d{2})', row['date'])
+        day = sane_inspection_date(f'{m.group(1)}-{m.group(2)}-{m.group(3)}') if m else None
+        try:
+            score = int(float(row['score']))
+        except (ValueError, OverflowError):
+            score = None
+        if not bid or not day or score is None:
+            bad += 1
+            continue
+        parsed.append((bid, day, score, row['result'], row['type']))
+    if bad > WM_MAX_BAD_ROW_SHARE * len(inspections):
+        raise RuntimeError(f'Williamson County: {bad} of {len(inspections)} inspection rows unparseable '
+                           f'(> {WM_MAX_BAD_ROW_SHARE:.0%}); refusing a reshaped feed')
+    newest = max(p[1] for p in parsed)
+    window = [p for p in parsed if since is None or p[1] >= since]
+    log.info(f"  Williamson County: feed_date {info['feed_date']}, newest inspection {newest}; "
+             f"{len(inspections)} inspection rows ({bad} unparseable), {len(businesses)} permits, "
+             f"{len(window)} rows since {since or 'the start of the file'}; "
+             f"{len(content)} bytes, etag {headers.get('ETag')}, last-modified {headers.get('Last-Modified')}")
+
+    by_id = {}
+    for b in businesses:
+        if b['business_id']:
+            by_id.setdefault(b['business_id'], b)
+
+    quality, scope, unknown_results = defaultdict(int), defaultdict(int), defaultdict(int)
+    built, seen = [], set()
+    for bid, day, score, result, kind in window:
+        biz = by_id.get(bid)
+        if biz is None:
+            quality['no businesses.csv row'] += 1
+            continue
+        label = _wm_out_of_scope(bid)
+        if label:
+            scope[label] += 1
+            continue
+        name = _wm_title(biz['name'])
+        if not name:
+            quality['no name'] += 1
+            continue
+        if WM_TEST_NAME_RE.match(name):
+            scope["the district's test permit"] += 1
+            continue
+        city = _wm_city(biz['city'])
+        if not city:
+            quality['no usable city'] += 1
+            continue
+        if score <= 0:
+            quality['score <= 0 (unscored artefact)'] += 1
+            continue
+        dup_key = (bid, day, score, result, kind)
+        if dup_key in seen:
+            scope['exact duplicate row'] += 1
+            continue
+        seen.add(dup_key)
+        results = WM_RESULTS.get(result)
+        if results is None:
+            unknown_results[result] += 1
+            results = result
+        risk = max(0, min(100, score))
+        if result == 'IHH':
+            risk = min(risk, WM_IHH_RISK_CAP)
+        itype = WM_TYPES.get(kind, kind)
+        rec = {
+            'name': name,
+            'address': _wm_address(biz['address']),
+            'city': city,
+            'state': (biz['state'] or 'TX').upper()[:2] or 'TX',
+            'zip': '',
+            'latitude': None,
+            'longitude': None,
+            'inspection_date': day,
+            'original_score': score,
+            'risk_score': risk,
+            'priority_violations': 0,
+            'priority_foundation_violations': 0,
+            'core_violations': 0,
+            'total_violations': 0,
+            'violations': [],
+            'inspection_type': itype,
+            'results': results,
+            'source': WM_SOURCE,
+            'source_url': WM_SOURCE_PAGE,
+            'source_id': f"wcchd_{bid}_{day.replace('-', '')}",
+            'metro': '',
+        }
+        # Worst first within a business-day: a closure, then the lowest
+        # score, then the routine visit before its follow-up.
+        rank = (0 if result == 'IHH' else 1, risk, 0 if itype == 'Routine' else 1)
+        built.append((bid, day, rank, rec))
+
+    same_day = defaultdict(list)
+    for item in built:
+        same_day[(item[0], item[1])].append(item)
+    ordered = []
+    for (bid, day), items in same_day.items():
+        items.sort(key=lambda it: it[2])
+        for n, (_, _, rank, rec) in enumerate(items):
+            if n:
+                rec['source_id'] += f'_{n + 1}'
+            ordered.append((-int(day.replace('-', '')), bid, rank, rec))
+    ordered.sort(key=lambda it: it[:3])
+    records = [it[3] for it in ordered]
+
+    if quality:
+        log.warning(f"Williamson County: dropped {sum(quality.values())} rows in the window — "
+                    + ', '.join(f'{n} {why}' for why, n in sorted(quality.items())))
+    if unknown_results:
+        log.warning(f"Williamson County: {sum(unknown_results.values())} rows carry a result the "
+                    f"fetcher does not know ({dict(unknown_results)}); shipped with the score alone")
+    if scope:
+        log.info(f"  Williamson County: skipped {sum(scope.values())} rows — "
+                 + ', '.join(f'{n} {why}' for why, n in sorted(scope.items())))
+    truncated = bool(limit) and len(records) > limit
+    if truncated:
+        records = records[:limit]
+    else:
+        _note_source_lag(WM_GROUP, newest)
+    log.info(f"Williamson County: {len(records)} inspections"
+             + (f' (limit {limit})' if truncated else ''))
+    return records
 
 
 # ─── DFW CITIES WITHOUT A PORTAL ON MHD: IRVING, McKINNEY, LEWISVILLE ───────
