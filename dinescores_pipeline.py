@@ -7686,8 +7686,712 @@ def fetch_louisiana(since_date=None, limit=None):
 
 
 # ─── PHOENIX / MARICOPA COUNTY, AZ (envapp.maricopa.gov + county ArcGIS) ────
+# Maricopa County Environmental Services (MCESD) publishes food inspections
+# only through its ASP.NET "Restaurant Ratings Tool" at envapp.maricopa.gov.
+# There is no open-data copy and no server-side date filter on any
+# captcha-free endpoint (the one date-filtered report, /Report/WeeklyReport,
+# sits behind reCAPTCHA and is never used), so the fetcher is a three-phase
+# scrape with structural completeness checks, measured 2026-11-02/03:
+#   1. INVENTORY  POST /Search/Results once per 5-digit zip (the county
+#      ArcGIS layer's zip list unioned with the static 85001-85399 range):
+#      every permit in a zip comes back in one JSON body. Every response
+#      must be 200 with a JSON 'data' list or the group raises before
+#      anything ships (a missed zip would silently hide its permits). Only
+#      MCESD_FOOD_PERMIT_TYPES are kept (mobile units have no fixed address).
+#   2. LISTING    GET /Permit/PermitResults/{permitId} for every food permit:
+#      a server-rendered table of the permit's inspections for a rolling
+#      ~3 years (date, purpose, grade, status, priority count, detail link).
+#      A page counts as read only when it is 200 AND carries the
+#      'N Inspections Retrieved' marker AND the table has exactly N rows;
+#      anything else is unread (one re-fetch, then the window is held with
+#      the permit as key and the group goes red). Rows dated inside the
+#      window whose (restaurant, date) is not already stored go on.
+#   3. DETAIL     GET /Inspection/{permitId}/{inspectionId}, oldest first:
+#      the header labels plus div#Violations, whose 'Comments:' text states
+#      each line's tier in two generations of wording (2024+ ' - Priority:' /
+#      ' - Priority Foundation:' / ' - Core:' with the observation after
+#      'Addl Notes:'; legacy ', P:' / ', Pf:' / ', C:' with it after '>>>').
+#      A page without the markers, with a line whose tier cannot be read, or
+#      whose Priority count disagrees with the header is UNREAD (dropped and
+#      held), never clean; a present-but-empty div#Violations is a real
+#      clean inspection (verified on live pages).
+# The county publishes no numeric score: original_score is None and
+# risk_score = 100 - 5P - 2PF - C from the source-stated tiers (the label is
+# in jev_reader's SOURCE_TIER_SCORE_SOURCES / SOURCE_TIER_SOURCES, so Jev
+# never moves a tier). The county's letter grade (A/B/C/D, 'Cutting Edge
+# A+', 'Not Participating', 'R' = re-inspection, blank = advisory) goes to
+# results. Coordinates come from the county's public ArcGIS facilities layer
+# joined on LicenseNumber == permitId (rows duplicated ~4x with identical
+# geometry); permits without a point ship with None and main() geocodes.
+# Identity (make_restaurant_id) comes from the search row's businessName and
+# its 'STREET CITY AZ ZIP' concat split with MCESD_MULTIWORD_CITIES — never
+# from the ArcGIS City field, which carries typos (AONVDALE, PHEONIX).
+# No run-to-run inventory count comparison: a fetcher has no sane place to
+# persist last week's count (the freshness file belongs to _record_group),
+# so MCESD_MIN_FOOD_PERMITS catches a collapsed inventory instead.
+
+MCESD_BASE = 'https://envapp.maricopa.gov'
+MCESD_SEARCH_URL = MCESD_BASE + '/Search/Results'
+MCESD_PERMIT_URL = MCESD_BASE + '/Permit/PermitResults/{permit}'
+MCESD_INSPECTION_URL = MCESD_BASE + '/Inspection/{permit}/{inspection}'
+MCESD_ARCGIS_LAYER = ('https://services.arcgis.com/ykpntM6e3tHvzKRJ/arcgis/rest/services/'
+                      'Restaurant_(External)/FeatureServer/0')
+MCESD_SOURCE = 'Maricopa County Environmental Services'
+MCESD_GROUP = 'Maricopa County'
+MCESD_METRO = 'Phoenix'
+# Food establishments that belong on a restaurant map. Of the 25,828 permits
+# on 2026-11-02: Eating & Drinking 16,039, Retail Food 2,791, Micro Market
+# 908, Meat Market 738, Food Catering 649, Bakery 598 (= 21,723). Dropped:
+# every 'Mobile Food Annual' type (MF- permits, no fixed location), Daycare
+# Food Service (child care), Food Production / Commissary / Food Jobber /
+# Refrigerated Warehouse / Ice Manufacturing / Bottled Water and Beverage
+# Plant (not open to the public), Boarding Home, Food Bank, Damaged Food
+# and Adventure Food Service.
+MCESD_FOOD_PERMIT_TYPES = frozenset({
+    'Food Establishment - Eating & Drinking',
+    'Food Establishment - Retail Food',
+    'Food Establishment - Micro Market',
+    'Food Establishment - Meat Market',
+    'Food Establishment - Food Catering',
+    'Food Establishment - Bakery',
+})
+MCESD_ZIP_RANGE = (85001, 85399)     # every Maricopa County zip; unioned with ArcGIS's list
+MCESD_MIN_FOOD_PERMITS = 15000       # 21,723 on 2026-11-02; fewer means the inventory broke
+MCESD_HISTORY_DAYS = 3 * 366         # the portal's rolling window (oldest row seen: 1,096 days)
+MCESD_SEARCH_WORKERS = 2
+MCESD_SEARCH_RATE = 4.0              # zip searches per second, all workers together
+MCESD_LISTING_WORKERS = int(os.environ.get('MCESD_LISTING_WORKERS', '4'))
+MCESD_LISTING_RATE = float(os.environ.get('MCESD_LISTING_RATE', '7'))   # permit pages/s in total
+MCESD_DETAIL_WORKERS = int(os.environ.get('MCESD_DETAIL_WORKERS', '2'))
+MCESD_DETAIL_DELAY = float(os.environ.get('MCESD_DETAIL_DELAY', '0.5'))  # per worker, after a page
+MCESD_TIMEOUT = 60
+MCESD_ATTEMPTS = 3                   # tries per request on 429/5xx/transport errors
+MCESD_BACKOFF = (3, 8)               # seconds between those tries
+MCESD_BREAKER_TRIP = 25              # consecutive unreadable pages = the portal is blocking
+MCESD_ARCGIS_CHUNK = 150             # permit ids per ArcGIS 'LicenseNumber IN (...)' query
+# Multi-word place names the county prints in 'STREET CITY AZ ZIP'; a
+# single-word city needs no entry (the last word before 'AZ' is the city).
+# Longest first so 'SUN CITY WEST' wins over 'SUN CITY'.
+MCESD_MULTIWORD_CITIES = tuple(sorted((
+    'APACHE JUNCTION', 'CASA GRANDE', 'CAVE CREEK', 'EL MIRAGE', 'FORT MCDOWELL',
+    'FOUNTAIN HILLS', 'GILA BEND', 'GOLD CANYON', 'LITCHFIELD PARK',
+    'LUKE AIR FORCE BASE', 'LUKE AFB', 'NEW RIVER', 'PARADISE VALLEY', 'QUEEN CREEK',
+    'RIO VERDE', 'SAN TAN VALLEY', 'SUN CITY WEST', 'SUN CITY', 'SUN LAKES',
+    'TORTILLA FLAT',
+), key=len, reverse=True))
+MCESD_CONCAT_RE = re.compile(r'^(?P<body>.*?)\s+AZ\s+(?P<zip>\d{5})(?:-\d{4})?\s*$', re.I)
+MCESD_RETRIEVED_RE = re.compile(r'(\d+)\s+Inspections?\s+Retrieved')
+MCESD_TBODY_RE = re.compile(r'<tbody>(.*?)</tbody>', re.S)
+MCESD_TR_RE = re.compile(r'<tr>(.*?)</tr>', re.S)
+MCESD_TD_RE = re.compile(r'<td[^>]*>(.*?)</td>', re.S)
+MCESD_LINK_RE = re.compile(r'href="/Inspection/([^/"]+)/([^/"]+)"')
+MCESD_TAG_RE = re.compile(r'<[^>]+>')
+MCESD_HEADER_RE = re.compile(
+    r'<span class="fw-bold">([^<]+)</span><br\s*/?>\s*(?:<span>)?(.*?)(?:</span>)?\s*</div>', re.S)
+MCESD_VIOLATIONS_DIV_RE = re.compile(r'<div[^>]*\bid="Violations"[^>]*>(.*?)</div>', re.S)
+MCESD_VIOLATION_NUM_RE = re.compile(r'<span class="fw-bold">Violation #:</span>\s*([^<]*?)\s*</p>')
+MCESD_DESC_RE = re.compile(r'<span class="fw-bold">Description:</span>(.*?)</p>', re.S)
+MCESD_PARA_RE = re.compile(r'<p class=[\'"]mb-1[\'"]>(.*?)</p>', re.S)
+MCESD_TIER_NEW_RE = re.compile(r'\s-\s(Priority Foundation|Priority|Core):', re.I)
+MCESD_TIER_OLD_RE = re.compile(r',\s*(Pf|P|C):\s', re.I)
+MCESD_TIER = {'priority': 'priority', 'p': 'priority',
+              'priority foundation': 'priority_foundation', 'pf': 'priority_foundation',
+              'core': 'core', 'c': 'core'}
+MCESD_UNAVAILABLE = 'Inspection Not Available'
+_MCESD_LAST_STATS = {}               # the last fetch_maricopa run's counters (for measurement)
+
+
+class _McesdPacer:
+    """Shared request pacing across worker threads: at most `rate` requests
+    per second in total, each caller sleeping once for its slot (no spin)."""
+
+    def __init__(self, rate):
+        self.interval = 1.0 / float(rate) if rate and rate > 0 else 0.0
+        self.lock = threading.Lock()
+        self.next_at = 0.0
+
+    def wait(self):
+        if not self.interval:
+            return
+        with self.lock:
+            now = time.time()
+            slot = max(now, self.next_at)
+            self.next_at = slot + self.interval
+        if slot > now:
+            time.sleep(slot - now)
+
+
+class _McesdStats:
+    def __init__(self):
+        self.lock = threading.Lock()
+        self.counts = defaultdict(int)
+
+    def bump(self, key, n=1):
+        with self.lock:
+            self.counts[key] += n
+
+
+def _mcesd_clean(text):
+    """Collapse whitespace; title-case an ALL CAPS value (mixed case kept)."""
+    s = ' '.join(str(text or '').split())
+    return s.title() if s.isupper() else s
+
+
+def _mcesd_text(fragment):
+    """Visible text of an HTML fragment, whitespace collapsed."""
+    return ' '.join(html_lib.unescape(MCESD_TAG_RE.sub(' ', fragment or '')).split())
+
+
+def _mcesd_split_address(concat):
+    """'12223 N CAVE CREEK RD PHOENIX AZ 85022' -> ('12223 N CAVE CREEK RD',
+    'PHOENIX', '85022'). A concat without the 'AZ ZIP' tail is all street."""
+    s = ' '.join(str(concat or '').split())
+    m = MCESD_CONCAT_RE.match(s)
+    if not m:
+        return s, '', ''
+    body, zip5 = m.group('body').strip(), m.group('zip')
+    upper = body.upper()
+    for city in MCESD_MULTIWORD_CITIES:
+        if upper.endswith(' ' + city):
+            return body[:-len(city)].strip(), body[-len(city):], zip5
+    parts = body.rsplit(' ', 1)
+    if len(parts) == 2:
+        return parts[0], parts[1], zip5
+    return body, '', zip5
+
+
+def _mcesd_date(text):
+    """'8/18/2026' -> '2026-08-18' (sane), else None."""
+    try:
+        return sane_inspection_date(datetime.strptime(str(text or '').strip(), '%m/%d/%Y').strftime('%Y-%m-%d'))
+    except ValueError:
+        return None
+
+
+def _mcesd_results(grade, status):
+    """The county's grade card text for `results`, plus a re-inspection flag."""
+    g = ' '.join(str(grade or '').split())
+    gl = g.lower()
+    if gl in ('a', 'b', 'c', 'd'):
+        out = f'Grade {g.upper()}'
+    elif gl == 'cutting edge a+':
+        out = 'Grade A+ (Cutting Edge)'
+    elif gl == 'not participating':
+        out = 'Not Participating'
+    elif gl == 'r':
+        out = 'Re-inspection'
+    elif gl in ('', 'na', 'n/a'):
+        out = ''
+    else:
+        out = g                         # an unexpected value stays visible, never drops the row
+    st = ' '.join(str(status or '').split())
+    if st.lower() == 're-inspection required':
+        out = f'{out}; re-inspection required' if out else 'Re-inspection required'
+    return out
+
+
+def _mcesd_request(session, method, url, data=None, pacer=None, stats=None):
+    """One portal request with retries and backoff on 429/5xx/transport
+    errors, stopping at the fetch deadline. Returns the final response, or
+    None when no attempt got an answer; the caller decides what a non-200
+    means. A 400/404/410 is final at once (that id's own problem)."""
+    headers = {'User-Agent': CHROME_UA,
+               'Accept': 'text/html,application/json;q=0.9,*/*;q=0.8'}
+    if method == 'POST':
+        headers['X-Requested-With'] = 'XMLHttpRequest'
+    last = None
+    for attempt in range(MCESD_ATTEMPTS):
+        if attempt and _past_deadline():
+            break
+        if pacer is not None:
+            pacer.wait()
+        if stats is not None:
+            stats.bump('requests')
+        try:
+            if method == 'POST':
+                last = session.post(url, data=data, headers=headers, timeout=MCESD_TIMEOUT)
+            else:
+                last = session.get(url, headers=headers, timeout=MCESD_TIMEOUT)
+        except requests.RequestException as e:
+            log.debug(f"  Maricopa: {method} {url}: {e}")
+            last = None
+        if last is not None and (last.status_code < 400 or last.status_code in (400, 404, 410)):
+            return last
+        if stats is not None:
+            stats.bump('retries')
+        if attempt < MCESD_ATTEMPTS - 1 and not _past_deadline():
+            time.sleep(MCESD_BACKOFF[min(attempt, len(MCESD_BACKOFF) - 1)])
+    return last
+
+
+def _mcesd_zip_list():
+    """5-digit zips to enumerate: the static county range unioned with the
+    ArcGIS layer's distinct zips (stripped of +4), so a permit in an
+    unexpected zip is still found. The static range alone if ArcGIS fails."""
+    zips = {f'{z:05d}' for z in range(MCESD_ZIP_RANGE[0], MCESD_ZIP_RANGE[1] + 1)}
+    try:
+        r = requests.get(MCESD_ARCGIS_LAYER + '/query', params={
+            'where': '1=1', 'outFields': 'Zip', 'returnGeometry': 'false',
+            'returnDistinctValues': 'true', 'f': 'json'},
+            headers={'User-Agent': CHROME_UA}, timeout=120)
+        r.raise_for_status()
+        for f in (r.json().get('features') or []):
+            m = re.match(r'\s*(\d{5})', str((f.get('attributes') or {}).get('Zip') or ''))
+            if m:
+                zips.add(m.group(1))
+    except Exception as e:  # noqa: BLE001 - the static range still covers the county
+        log.warning(f"  Maricopa: ArcGIS zip list unavailable ({e}); using the static range only")
+    return sorted(zips)
+
+
+def _mcesd_search_zip(session, zip5, pacer, stats):
+    """Every permit row in a zip. Raises when the search cannot be read
+    completely: a missed zip must fail the group, not hide its permits."""
+    r = _mcesd_request(session, 'POST', MCESD_SEARCH_URL,
+                       data={'licenseSearchParams[Zip]': zip5}, pacer=pacer, stats=stats)
+    if r is None or r.status_code != 200:
+        raise RuntimeError(f"Maricopa inventory: zip {zip5} search answered "
+                           f"{'nothing' if r is None else r.status_code}")
+    try:
+        body = r.json()
+    except ValueError:
+        raise RuntimeError(f"Maricopa inventory: zip {zip5} search returned non-JSON")
+    rows = body.get('data') if isinstance(body, dict) else None
+    if not isinstance(rows, list):
+        raise RuntimeError(f"Maricopa inventory: zip {zip5} search has no 'data' list")
+    return rows
+
+
+def _mcesd_permit(row):
+    """A food permit dict from a search row, or None for anything that does
+    not belong on the map (mobile units, non-food types, junk rows)."""
+    pid = ' '.join(str(row.get('permitId') or '').split())
+    ptype = ' '.join(str(row.get('permitType') or '').split())
+    if not pid or ptype not in MCESD_FOOD_PERMIT_TYPES or pid.upper().startswith('MF'):
+        return None
+    street, city, zip5 = _mcesd_split_address(row.get('businessAddressConcat'))
+    name = _mcesd_clean(row.get('businessName'))
+    if not name or not street:
+        return None
+    return {'permit': pid, 'type': ptype, 'name': name, 'address': _mcesd_clean(street),
+            'city': ' '.join(city.split()).title() if city else '', 'zip': zip5}
+
+
+def _mcesd_inventory(session_for, zips, limit, stats):
+    """permitId -> permit dict over `zips` (deterministic order). Raises on a
+    search that cannot be read; returns None when the deadline cut the scan.
+    With `limit` (test mode) the scan stops once that many food permits are
+    known: a bounded read, never checked against MCESD_MIN_FOOD_PERMITS."""
+    pacer = _McesdPacer(MCESD_SEARCH_RATE)
+    permits, rows_seen, scanned = {}, 0, 0
+    batch = max(1, MCESD_SEARCH_WORKERS) * 4
+    with ThreadPoolExecutor(max_workers=max(1, MCESD_SEARCH_WORKERS)) as pool:
+        for i in range(0, len(zips), batch):
+            if _past_deadline():
+                return None
+            if limit and len(permits) >= limit:
+                break
+            chunk = zips[i:i + batch]
+            for rows in pool.map(lambda z: _mcesd_search_zip(session_for(), z, pacer, stats), chunk):
+                scanned += 1
+                rows_seen += len(rows)
+                for row in rows:
+                    p = _mcesd_permit(row if isinstance(row, dict) else {})
+                    if p and p['permit'] not in permits:
+                        permits[p['permit']] = p
+    stats.bump('zips_scanned', scanned)
+    stats.bump('permit_rows', rows_seen)
+    return permits
+
+
+def _mcesd_parse_permit_page(text):
+    """The inspection rows of a permit page, or None when the page is not a
+    complete permit page: no 'N Inspections Retrieved' marker, no table, a
+    row without its seven cells and detail link, or a row count that
+    disagrees with the marker (a layout change must read as unread)."""
+    m = MCESD_RETRIEVED_RE.search(text or '')
+    if not m:
+        return None
+    expected = int(m.group(1))
+    body = MCESD_TBODY_RE.search(text)
+    if not body:
+        return None
+    rows = []
+    for tr in MCESD_TR_RE.findall(body.group(1)):
+        cells = MCESD_TD_RE.findall(tr)
+        link = MCESD_LINK_RE.search(tr)
+        if len(cells) < 6 or not link:
+            return None
+        rows.append({'date': _mcesd_text(cells[0]), 'purpose': _mcesd_text(cells[1]),
+                     'grade': _mcesd_text(cells[2]), 'status': _mcesd_text(cells[3]),
+                     'priority': _mcesd_text(cells[4]),
+                     'permit': html_lib.unescape(link.group(1)),
+                     'inspection': html_lib.unescape(link.group(2))})
+    if len(rows) != expected:
+        return None
+    return rows
+
+
+def _mcesd_fetch_permit_page(session, permit, pacer, stats):
+    """Rows of one permit page, or None when it could not be read completely
+    (one re-fetch of a 200 without the markers, as of any other failure)."""
+    url = MCESD_PERMIT_URL.format(permit=quote(permit, safe=''))
+    rows = None
+    for _ in range(2):
+        r = _mcesd_request(session, 'GET', url, pacer=pacer, stats=stats)
+        if r is not None and r.status_code == 200:
+            rows = _mcesd_parse_permit_page(r.text)
+            if rows is not None:
+                return rows
+        stats.bump('permit_refetches')
+    return None
+
+
+def _mcesd_violation(chunk):
+    """(number, title, severity, text) for one 'Violation #:' block, or None
+    when its tier cannot be read (then the whole page is unread)."""
+    num_m = MCESD_VIOLATION_NUM_RE.search(chunk)
+    desc_m = MCESD_DESC_RE.search(chunk)
+    paras = [_mcesd_text(p) for p in MCESD_PARA_RE.findall(chunk)]
+    paras = [p for p in paras if p]
+    title = _mcesd_text(desc_m.group(1)) if desc_m else ''
+    number = _mcesd_text(num_m.group(1)) if num_m else ''
+    comments = ' '.join(paras)
+    # The tier sits in the code citation that opens the comments, before the
+    # observation ('Addl Notes:' 2024+, '>>>' legacy).
+    head = re.split(r'Addl Notes:|>>>', comments, maxsplit=1)[0]
+    tier_m = MCESD_TIER_NEW_RE.search(head) or MCESD_TIER_OLD_RE.search(head)
+    if not tier_m:
+        return None
+    severity = MCESD_TIER[tier_m.group(1).lower()]
+    # The code phrase after the tier ('Cooling.', 'Sanitizers, Criteria-
+    # Chemicals') up to the county's AMC-toolbox marketing sentence.
+    phrase = re.split(r'\s+For a permanent fix|https?://', head[tier_m.end():], maxsplit=1)[0]
+    phrase = ' '.join(phrase.split()).strip(' .,;:-')
+    obs_m = re.search(r'Addl Notes:\s*(.*)', comments, re.S)
+    if obs_m:
+        observation = obs_m.group(1)
+    else:
+        i = comments.find('>>>')
+        observation = comments[i + 3:] if i >= 0 else ''
+    observation = re.split(r'Predefined Comment:|Corrective Action:|Correct By:',
+                           observation, maxsplit=1)[0]
+    observation = ' '.join(observation.split()).strip()
+    detail = observation or phrase
+    text = f'{title}: {detail}' if title and detail else (title or detail)
+    return number, title, severity, text[:500]
+
+
+def _mcesd_parse_detail(text):
+    """{'header': {...}, 'violations': [(num, title, severity, text), ...]}
+    for an inspection detail page, or None when the page is not a complete
+    one: missing header labels or div#Violations (the 'Inspection Not
+    Available' page, an error page), a violation whose tier cannot be read,
+    or a Priority tally that disagrees with the header. An empty
+    div#Violations with the header present is a real clean inspection."""
+    header = {_mcesd_text(k): _mcesd_text(v) for k, v in MCESD_HEADER_RE.findall(text or '')}
+    if 'Inspection Date' not in header or 'Inspection Status' not in header:
+        return None
+    m = MCESD_VIOLATIONS_DIV_RE.search(text)
+    if not m:
+        return None
+    block = m.group(1)
+    chunks = re.split(r'(?=<p[^>]*>\s*<span class="fw-bold">Violation #:</span>)', block)
+    violations = []
+    for chunk in chunks:
+        if 'Violation #:' not in chunk:
+            if _mcesd_text(chunk).replace('Violations', '').strip():
+                return None                 # text in the block that is not a violation
+            continue
+        v = _mcesd_violation(chunk)
+        if v is None:
+            return None
+        violations.append(v)
+    stated = header.get('Priority Violation', '')
+    if stated.isdigit() and int(stated) != sum(1 for v in violations if v[2] == 'priority'):
+        return None
+    return {'header': header, 'violations': violations}
+
+
+def _mcesd_points(permit_ids, stats=None):
+    """permitId -> (lat, lng) from the ArcGIS facilities layer, one point per
+    license (the layer repeats each ~4x). A failed query leaves its permits
+    without a point; main() geocodes those and the merge coalesces."""
+    points = {}
+    ids = sorted(set(permit_ids))
+    for i in range(0, len(ids), MCESD_ARCGIS_CHUNK):
+        chunk = ids[i:i + MCESD_ARCGIS_CHUNK]
+        where = 'LicenseNumber IN (' + ','.join(
+            "'" + p.replace("'", "''") + "'" for p in chunk) + ')'
+        if stats is not None:
+            stats.bump('arcgis_queries')
+        try:
+            feats = _arcgis_query_all(MCESD_ARCGIS_LAYER, where=where, out_fields='LicenseNumber')
+        except Exception as e:  # noqa: BLE001 - coordinates are supplementary; geocoded downstream
+            log.warning(f"  Maricopa: ArcGIS points query failed for {len(chunk)} permits ({e})")
+            continue
+        for f in feats:
+            lic = ' '.join(str((f.get('attributes') or {}).get('LicenseNumber') or '').split())
+            g = f.get('geometry') or {}
+            lat, lng = g.get('y'), g.get('x')
+            if (lic and lic not in points and isinstance(lat, (int, float))
+                    and isinstance(lng, (int, float)) and 31.0 < lat < 37.5 and -115.0 < lng < -108.5):
+                points[lic] = (float(lat), float(lng))
+    return points
+
+
 def fetch_maricopa(since_date=None, limit=None):
-    raise NotImplementedError('fetch_maricopa: implemented on the maricopa branch')
+    """
+    Fetch Phoenix / Maricopa County, AZ inspections from the county's
+    Restaurant Ratings Tool (see the section comment): zip inventory ->
+    permit pages -> inspection detail pages, plus ArcGIS coordinates.
+    original_score is None (no number is published); risk_score is
+    100 - 5P - 2PF - C from the tiers the county states on every line.
+    """
+    log.info(f"Fetching Maricopa County data (since={since_date}, limit={limit})")
+    since = str(since_date)[:10] if since_date else None
+    window_start = since or (datetime.now() - timedelta(days=MCESD_HISTORY_DAYS)).strftime('%Y-%m-%d')
+    stats = _McesdStats()
+    started = time.time()
+    local = threading.local()
+
+    def session_for():
+        if not hasattr(local, 's'):
+            local.s = requests.Session()
+        return local.s
+
+    # 1. Inventory: every food permit, or raise.
+    zips = _mcesd_zip_list()
+    permits = _mcesd_inventory(session_for, zips, limit, stats)
+    if permits is None:
+        _set_group_status(MCESD_GROUP, 'skipped', 'fetch deadline reached during the permit inventory')
+        log.warning("  Maricopa: fetch deadline reached during the permit inventory; nothing shipped")
+        return []
+    if not limit and len(permits) < MCESD_MIN_FOOD_PERMITS:
+        raise RuntimeError(f"Maricopa inventory implausibly small: {len(permits)} food permits "
+                           f"from {stats.counts['zips_scanned']} zips (floor {MCESD_MIN_FOOD_PERMITS})")
+    t_inventory = time.time() - started
+    log.info(f"  Maricopa: {len(permits)} food permits ({stats.counts['permit_rows']} rows, "
+             f"{stats.counts['zips_scanned']} zips) in {t_inventory:.0f}s")
+
+    # 2. Listing: one permit page per food permit, oldest permit ids first
+    # (deterministic); rows inside the window become detail candidates.
+    pacer = _McesdPacer(MCESD_LISTING_RATE)
+    ordered = sorted(permits.values(), key=lambda p: (p['zip'], p['permit']))
+    candidates, seen = [], set()
+    unread, newest, read_pages, cut = [], '', 0, None
+    last_logged = 0
+    skipped_known = 0
+    streak = 0
+    t0 = time.time()
+    batch = max(1, MCESD_LISTING_WORKERS) * 5
+    with ThreadPoolExecutor(max_workers=max(1, MCESD_LISTING_WORKERS)) as pool:
+        for i in range(0, len(ordered), batch):
+            if _past_deadline():
+                cut = 'deadline'
+            elif streak >= MCESD_BREAKER_TRIP:
+                cut = 'blocked'
+            elif limit and len(candidates) >= limit:
+                cut = 'limit'
+            if cut:
+                not_read = len(ordered) - i
+                break
+            chunk = ordered[i:i + batch]
+            for permit, rows in zip(chunk, pool.map(
+                    lambda p: _mcesd_fetch_permit_page(session_for(), p['permit'], pacer, stats), chunk)):
+                if rows is None:
+                    unread.append(permit['permit'])
+                    streak += 1
+                    continue
+                streak = 0
+                read_pages += 1
+                for row in rows:
+                    d = _mcesd_date(row['date'])
+                    if not d:
+                        continue
+                    if d > newest:
+                        newest = d
+                    if d < window_start:
+                        continue
+                    key = (row['permit'], row['inspection'])
+                    if key in seen:
+                        continue
+                    seen.add(key)
+                    if SKIP_KNOWN_INSPECTIONS and (
+                            make_restaurant_id(permit['name'], permit['address'], permit['city']),
+                            d) in SKIP_KNOWN_INSPECTIONS:
+                        skipped_known += 1
+                        continue
+                    candidates.append((d, permit, row))
+            if read_pages - last_logged >= 2000:
+                last_logged = read_pages
+                log.info(f"  Maricopa: {read_pages} permit pages read, {len(candidates)} inspections "
+                         f"in the window so far ({time.time() - t0:.0f}s)")
+        else:
+            not_read = 0
+    t_listing = time.time() - t0
+    log.info(f"  Maricopa: {read_pages} permit pages read ({len(unread)} unread) in {t_listing:.0f}s; "
+             f"{len(candidates)} inspections since {window_start}"
+             + (f", {skipped_known} already stored" if skipped_known else '')
+             + (f"; newest row {newest}" if newest else ''))
+    if unread:
+        # Tried twice and still not a complete permit page: that permit's
+        # window is unknown. Hold the window on the permit so next run
+        # re-reads it (given up after FRESHNESS_HOLD_GIVE_UP_RUNS runs) and
+        # go red: a silently missing permit is how coverage gaps hide.
+        for pid in unread:
+            _hold_window_start(MCESD_SOURCE, window_start, counted=True, key=pid)
+        log.warning(f"  Maricopa: {len(unread)} permit pages could not be read: "
+                    + ', '.join(unread[:10]) + (' ...' if len(unread) > 10 else ''))
+    if cut in ('deadline', 'blocked'):
+        _hold_window_start(MCESD_SOURCE, window_start, counted=False)
+        reason = ('fetch deadline reached' if cut == 'deadline'
+                  else f'portal blocked ({MCESD_BREAKER_TRIP} permit pages in a row unreadable)')
+        _set_group_status(MCESD_GROUP, 'skipped' if cut == 'deadline' else 'blocked',
+                          f"{reason}; {not_read} of {len(ordered)} permit pages not read")
+        log.warning(f"  Maricopa: {reason}; nothing shipped this run")
+        _MCESD_LAST_STATS.clear()
+        _MCESD_LAST_STATS.update(stats.counts, permits=len(permits), listing_s=round(t_listing),
+                                 inventory_s=round(t_inventory), cut=cut)
+        return []
+    if unread:
+        _set_group_status(MCESD_GROUP, 'error',
+                          f"{len(unread)} of {len(ordered)} permit pages unreadable; "
+                          f"their window is held and re-read next run")
+    if cut is None and not limit:
+        _note_source_lag(MCESD_GROUP, newest)
+
+    # 3. Details, oldest first so a deadline cut drops the newest tail.
+    candidates.sort(key=lambda c: (c[0], c[1]['permit'], c[2]['inspection']), reverse=True)
+    if limit:
+        candidates = candidates[:limit]
+    candidates.sort(key=lambda c: (c[0], c[1]['permit'], c[2]['inspection']))
+    details = {}
+    failures = defaultdict(int)
+    blocked = threading.Event()
+    streak_lock = threading.Lock()
+    streak_box = [0]
+    t0 = time.time()
+
+    def work(cand):
+        d, permit, row = cand
+        if _past_deadline():
+            return cand, 'deadline'
+        if blocked.is_set():
+            return cand, 'blocked'
+        url = MCESD_INSPECTION_URL.format(permit=quote(row['permit'], safe=''),
+                                          inspection=quote(row['inspection'], safe=''))
+        r = _mcesd_request(session_for(), 'GET', url, stats=stats)
+        time.sleep(MCESD_DETAIL_DELAY)
+        if r is None or r.status_code != 200:
+            outcome = 'download'
+        elif MCESD_UNAVAILABLE in r.text:
+            outcome = 'unavailable'     # the app no longer serves this (old) inspection
+        else:
+            parsed = _mcesd_parse_detail(r.text)
+            outcome = parsed if parsed is not None else 'unread'
+        with streak_lock:
+            if outcome in ('download', 'unread'):
+                streak_box[0] += 1
+                if streak_box[0] >= MCESD_BREAKER_TRIP:
+                    blocked.set()
+            else:
+                streak_box[0] = 0
+        return cand, outcome
+
+    with ThreadPoolExecutor(max_workers=max(1, MCESD_DETAIL_WORKERS)) as pool:
+        for cand, outcome in pool.map(work, candidates):
+            d, permit, row = cand
+            if isinstance(outcome, dict):
+                details[(row['permit'], row['inspection'])] = outcome
+                continue
+            failures[outcome] += 1
+            # Dropped, never shipped clean. Tried-and-failed drops count
+            # toward the per-record give-up; a deadline or block cut does not.
+            _hold_freshness(MCESD_SOURCE, d, counted=outcome in ('download', 'unread', 'unavailable'),
+                            key=row['inspection'])
+    t_details = time.time() - t0
+    log.info(f"  Maricopa: {len(details)} detail pages read in {t_details:.0f}s "
+             f"({MCESD_DETAIL_WORKERS} workers)")
+    if failures.get('deadline'):
+        _set_group_status(MCESD_GROUP, 'skipped',
+                          f"fetch deadline reached; {failures['deadline']} detail pages not read")
+    elif failures.get('blocked'):
+        _set_group_status(MCESD_GROUP, 'blocked',
+                          f"portal blocked ({MCESD_BREAKER_TRIP} detail pages in a row unreadable); "
+                          f"{failures['blocked']} detail pages not read")
+    if failures:
+        log.warning("  Maricopa: dropped " + ', '.join(
+            f"{n} ({why})" for why, n in sorted(failures.items())) +
+            " inspections whose detail page could not be read (held for the next run)")
+
+    # Coordinates for the permits that ship.
+    shipped = [(permit, row) for (_, permit, row) in candidates
+               if (row['permit'], row['inspection']) in details]
+    points = _mcesd_points([permit['permit'] for permit, _ in shipped] +
+                           [row['permit'] for _, row in shipped], stats)
+
+    results = []
+    date_mismatch = 0
+    for d, permit, row in candidates:
+        parsed = details.get((row['permit'], row['inspection']))
+        if parsed is None:
+            continue
+        header = parsed['header']
+        page_date = _mcesd_date(header.get('Inspection Date'))
+        if page_date and page_date != d:
+            date_mismatch += 1
+        insp_date = page_date or d
+        violations = []
+        for _num, _title, severity, text in parsed['violations']:
+            cat, _, _ = classify_violation(text)
+            violations.append([cat, severity, text])
+        risk, pv, pfv, cv = calc_risk_score(violations)
+        point = points.get(permit['permit']) or points.get(row['permit'])
+        results.append({
+            'name': permit['name'],
+            'address': permit['address'],
+            'city': permit['city'] or 'Maricopa County',
+            'state': 'AZ',
+            'zip': permit['zip'],
+            'latitude': point[0] if point else None,
+            'longitude': point[1] if point else None,
+            'inspection_date': insp_date,
+            'original_score': None,         # the county publishes a grade card, not a number
+            'risk_score': risk,
+            'priority_violations': pv,
+            'priority_foundation_violations': pfv,
+            'core_violations': cv,
+            'total_violations': pv + pfv + cv,
+            'violations': violations,
+            'inspection_type': header.get('Inspection Purpose') or row['purpose'],
+            'results': _mcesd_results(header.get('Grade') or row['grade'],
+                                      header.get('Inspection Status') or row['status']),
+            'source': MCESD_SOURCE,
+            'source_url': MCESD_INSPECTION_URL.format(permit=quote(row['permit'], safe=''),
+                                                      inspection=quote(row['inspection'], safe='')),
+            'source_id': f"mcesd_{row['permit']}_{row['inspection']}",
+            'metro': MCESD_METRO,
+        })
+    if date_mismatch:
+        log.warning(f"  Maricopa: {date_mismatch} detail pages print a different inspection "
+                    f"date than the permit page row (the detail page's date shipped)")
+    # Newest day first; within a day the worst visit first (an F, then the
+    # lowest score), so same-day picks are deterministic.
+    results.sort(key=lambda r: (r['inspection_date'], -r['risk_score'], r['priority_violations'],
+                                r['total_violations'], r['source_id']), reverse=True)
+    with_point = sum(1 for r in results if r['latitude'] is not None)
+    _MCESD_LAST_STATS.clear()
+    _MCESD_LAST_STATS.update(stats.counts, permits=len(permits), permit_pages_read=read_pages,
+                             permit_pages_unread=len(unread), candidates=len(candidates),
+                             skipped_known=skipped_known, details_read=len(details),
+                             dropped=dict(failures), records=len(results), with_point=with_point,
+                             newest=newest, inventory_s=round(t_inventory),
+                             listing_s=round(t_listing), details_s=round(t_details),
+                             total_s=round(time.time() - started), cut=cut)
+    log.info(f"Maricopa County: {len(results)} inspections ({with_point} with ArcGIS coordinates) "
+             f"in {time.time() - started:.0f}s, {stats.counts['requests']} portal requests")
+    return results
 
 
 # ─── HARRIS COUNTY, TX (Harris County Public Health food safety API) ────────
