@@ -49,10 +49,24 @@ LUBBOCK TX, MESQUITE TX". Scaffold commit 75d73d8.
 - Live test mode Lubbock: 25 records / 18 facilities / 48 requests / 30 s,
   25/25 with coordinates (oldest-first from the 2023-11 floor).
 
+- Live test mode (2026-11-03): Pima 25 records / 9 facilities / 35 requests
+  / 25 s (5,177 listed; 630 mobile + 109 never-inspected skipped); Mesquite
+  25 / 6 facilities / 32 requests / 17 s; all with coordinates.
+- Live window runs: Lubbock since 2026-10-20: 72 records / 72 facilities /
+  145 requests / 60 s, 72/72 coords, scores 73-100 (A 52 B 16 C 4 by score).
+  Pima since 2026-10-10 (portal newest 2026-10-17): 113 records / 112
+  facilities / 99 s, 113/113 coords, A 98 B 11 F 3 by score (two Fail caps,
+  one Probation), 4 genuine text F's (dead roaches, rodent droppings).
+- FOUND + FIXED: Lubbock's TFER item title 'No evidence of Insect
+  Contamination, Rodent, Other Animals' tripped the regex text-F on every
+  citation (10 false F's in 72 records: fly tape, door gaps, ceiling tiles).
+  The negation is now stripped (_HH_NEGATED_TITLE_RE); re-running Lubbock.
+
 ## Next
-- Live test mode Pima + Mesquite (running); 14-day window runs
-  (Lubbock/Mesquite --since-date 2026-10-20; Pima 2026-10-10 because the
-  portal publishes ~16 days late); write results here; final cleanup.
+- Mesquite window run (689 facility lists; running); Lubbock re-run; scan
+  Mesquite titles for its bare pest wording (no observations there) and
+  decide on a jev_reader VERMIN_TITLE_RE / CITED_PEST_ITEM_TITLES addition.
+- Final cleanup, full suite, commit, structured report.
 
 ## Open questions
 - Pima 'Needs Improvement' computes to a B (e.g. 93 for P+C+C); only Fail /

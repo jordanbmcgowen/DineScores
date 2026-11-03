@@ -7832,6 +7832,12 @@ _HH_ADDR_NOSTATE_RE = re.compile(
     r'^(?P<street>.*?),\s*(?P<city>[^,]+?)\s+(?P<zip>\d{5})(?:-?\d{4})?\s*$')
 _HH_ORDINAL_RE = re.compile(r'(\d)(St|Nd|Rd|Th)\b')
 _HH_PLACEHOLDER_RE = re.compile(r'\s*@?\s*_{2,}\s*(?:PPM|°F|F\b)?', re.I)
+# The Texas form's pest item is titled 'No evidence of Insect Contamination,
+# Rodent, Other Animals': the title alone trips the text-forced F (an
+# evidence word before a pest word), so the negation is dropped and the line
+# reads 'Insect Contamination, Rodent, Other Animals: <observation>' — a
+# sticky fly trap stays a Core line, 'Observed live roaches' still forces F.
+_HH_NEGATED_TITLE_RE = re.compile(r'^no\s+evidence\s+of\s+', re.I)
 _HH_CODE_PREFIX_RE = re.compile(r'^\s*(?:§\s*)?[\d][\w.()§-]*\s*(?:-|–|:)\s*')
 _HH_REQUESTS = defaultdict(int)       # portal slug -> requests this run (for the log)
 _HH_REQUESTS_LOCK = threading.Lock()
@@ -8043,7 +8049,7 @@ def _hh_violations(items):
             continue
         if ' '.join(str(item.get('result') or '').split()) not in HH_VIOLATION_RESULTS:
             continue
-        title = _hh_clean(item.get('description')).rstrip(' .:;')
+        title = _HH_NEGATED_TITLE_RE.sub('', _hh_clean(item.get('description')).rstrip(' .:;'))
         comments = item.get('cannedComments')
         if not isinstance(comments, list) or not comments:
             comments = [{}]
@@ -8179,13 +8185,14 @@ def _fetch_hedgehog(slug, since_date=None, limit=None):
     skipped = defaultdict(int)
     facilities, newest, seen = [], '', set()
     for row in rows:
+        if isinstance(row, dict):        # the source's own newest row, in scope or not
+            newest = max(newest, str(row.get('lastInspectionDate') or '')[:10])
         fac = _hh_facility(cfg, row, skipped)
         if fac is None:
             continue
         if fac['id'] in seen:
             continue                     # a page-boundary shift repeated the row
         seen.add(fac['id'])
-        newest = max(newest, fac['last'])
         if cfg['dated_list']:
             if not fac['last']:
                 skipped['never inspected'] += 1
@@ -8196,7 +8203,8 @@ def _fetch_hedgehog(slug, since_date=None, limit=None):
     # Oldest-inspected facilities first, so a deadline cut drops the newest
     # tail (Mesquite shows no dates: its list order, by id, is used as is).
     facilities.sort(key=lambda f: (f['last'], f['id']))
-    log.info(f"  {group}: {len(rows)} facilities listed, {len(facilities)} inspected since {since}"
+    log.info(f"  {group}: {len(rows)} facilities listed, {len(facilities)} "
+             + (f"inspected since {since}" if cfg['dated_list'] else 'to read (the list shows no dates)')
              + (f"; skipped {dict(skipped)}" if skipped else ''))
 
     # Phase 1 — each selected facility's inspection list, HH_WORKERS at a

@@ -380,6 +380,25 @@ class ViolationTests(unittest.TestCase):
         self.assertEqual(cat, 'pest_control')
         self.assertFalse(dp.has_active_pest_or_sewage(lines[0][2]))   # a bare title is not evidence
 
+    def test_the_texas_pest_title_loses_its_negation_so_only_a_real_finding_forces_f(self):
+        def item(obs):
+            return [{'description': 'No evidence of Insect Contamination, Rodent, Other Animals',
+                     'result': 'Out of Compliance', 'isCritical': False,
+                     'cannedComments': [{'description': '228.186(k) - Pest control', 'severity': 'Core',
+                                         'observationComment': obs, 'locationComment': 'Ceiling'}]}]
+        # the bare title trips the regex ('evidence of' before 'Insect'); the shipped line must not
+        self.assertTrue(dp.has_active_pest_or_sewage('No evidence of Insect Contamination, Rodent, Other Animals'))
+        trap = dp._hh_violations(item('Sticky fly trap stored over prep table located in center of kitchen'))
+        self.assertEqual(trap[0][2], 'Insect Contamination, Rodent, Other Animals: Sticky fly trap stored '
+                                     'over prep table located in center of kitchen (Ceiling)')
+        self.assertEqual(trap[0][:2], ['pest_control', 'core'])
+        self.assertFalse(dp.has_active_pest_or_sewage(trap[0][2]))
+        roaches = dp._hh_violations(item('Observed live roaches under the prep sink'))
+        self.assertTrue(dp.has_active_pest_or_sewage(roaches[0][2]))
+        bare = dp._hh_violations(item(None))          # Mesquite prints no observation
+        self.assertEqual(bare[0][2], 'Insect Contamination, Rodent, Other Animals: Pest control (Ceiling)')
+        self.assertFalse(dp.has_active_pest_or_sewage(bare[0][2]))
+
     def test_clean_checklist_is_empty_and_junk_raises(self):
         self.assertEqual(dp._hh_violations(_load('pima_results_clean.json')), [])
         self.assertEqual(dp._hh_violations([]), [])
