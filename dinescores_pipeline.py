@@ -13622,29 +13622,45 @@ def _apply_grades(rec):
 
 
 def _embed_trim(final, by_city, drop_count):
-    """Drop up to drop_count records from final: each time the oldest record
-    of the (city, state) with the most records still embedded, never below
-    EMBED_CITY_FLOOR for any city (then the trim stops short). by_city maps
-    each city to its records newest-first; final is the embedded subset.
-    Returns the kept records in their current order."""
-    import heapq
+    """Drop about drop_count records from final so that every (city, state)
+    keeps the same FRACTION of its newest records, never fewer than
+    EMBED_CITY_FLOOR (or all of them for a town below the floor). by_city
+    maps each city to its records newest-first; final is the embedded
+    subset. Returns the kept records in their current order.
+
+    A common fraction keeps the embedded map an unbiased sample of every
+    city's true density: Houston keeps ~60% of its 1,000 and a 30-restaurant
+    town its floor. Levelling every city to the same COUNT instead gave each
+    metro ~158 records once 3,900 towns were in the file, and dropping the
+    globally oldest records gave them even less (measured 2026-11-03)."""
     keep_ids = {id(r) for r in final}
     pools = {}
     for key, city_recs in by_city.items():
         recs = [r for r in city_recs if id(r) in keep_ids]
         if recs:
             pools[key] = recs
-    heap = [(-len(recs), i, key) for i, (key, recs) in enumerate(pools.items())]
-    heapq.heapify(heap)
+    sizes = [len(recs) for recs in pools.values()]
+    target = len(final) - drop_count
+
+    def kept(fraction):
+        return sum(max(min(n, EMBED_CITY_FLOOR), int(n * fraction)) for n in sizes)
+
+    if kept(0.0) >= target:
+        fraction = 0.0           # the floors alone fill the budget
+    else:
+        lo, hi = 0.0, 1.0        # kept() is monotonic in the fraction
+        for _ in range(40):
+            mid = (lo + hi) / 2
+            if kept(mid) > target:
+                hi = mid
+            else:
+                lo = mid
+        fraction = lo
     dropped = set()
-    while drop_count > 0 and heap:
-        neg, i, key = heapq.heappop(heap)
-        recs = pools[key]
-        if len(recs) <= EMBED_CITY_FLOOR:
-            break
-        dropped.add(id(recs.pop()))   # the city's oldest
-        drop_count -= 1
-        heapq.heappush(heap, (-len(recs), i, key))
+    for recs in pools.values():
+        allow = max(min(len(recs), EMBED_CITY_FLOOR), int(len(recs) * fraction))
+        for r in recs[allow:]:
+            dropped.add(id(r))
     if not dropped:
         return final
     return [r for r in final if id(r) not in dropped]
@@ -13772,10 +13788,9 @@ def write_data_js(all_inspections, output_path, top_per_city=1000,
 
     # Global budget on top of the per-city cap: with statewide sources the
     # long tail of small towns dominates, and Cloudflare Pages rejects any
-    # asset over 25 MiB. The budget is taken from the DEEPEST cities (the
-    # oldest record of whichever city has the most embedded records, over
-    # and over) and never below EMBED_CITY_FLOOR per city, so every town
-    # keeps instant first paint and the big metros keep an even depth.
+    # asset over 25 MiB. Every city keeps the same fraction of its newest
+    # records (`_embed_trim`), never below EMBED_CITY_FLOOR, so every town
+    # keeps instant first paint and the metros keep their relative density.
     # Dropping the globally oldest records instead let a few hundred small
     # towns' newest inspections push the metros out one record at a time
     # (measured 2026-11-03: Dallas would have kept ~150 of 1,000). The full
@@ -13816,8 +13831,8 @@ def write_data_js(all_inspections, output_path, top_per_city=1000,
     js_content = header + 'window.DATA = ' + json.dumps(final, separators=(',', ':'), default=str) + ';\n'
 
     if len(js_content) > DATA_JS_MAX_BYTES:
-        # Over the byte cap: take records from the deepest cities (never
-        # below the per-city floor) until it fits; D1 still serves them.
+        # Over the byte cap: shrink every city's share (never below the
+        # per-city floor) until it fits; D1 still serves them.
         # json.dumps escapes to ASCII, so characters are bytes. The drop
         # count is estimated from the average record and re-measured, a few
         # rounds at most.
@@ -13833,7 +13848,7 @@ def write_data_js(all_inspections, output_path, top_per_city=1000,
             final = trimmed
             js_content = header + 'window.DATA = ' + json.dumps(final, separators=(',', ':'), default=str) + ';\n'
         log.warning(f"data.js over {DATA_JS_MAX_BYTES:,} bytes: dropped {before - len(final)} records "
-                    f"from the deepest cities (they live in D1); now {len(js_content):,} bytes")
+                    f"(each city keeps the same share of its newest; they live in D1); now {len(js_content):,} bytes")
         if len(js_content) > DATA_JS_MAX_BYTES:
             log.error(f"data.js is still {len(js_content):,} bytes with only the per-city floors "
                       f"left — lower EMBED_CITY_FLOOR before the next deploy")

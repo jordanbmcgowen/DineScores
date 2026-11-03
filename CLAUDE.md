@@ -313,11 +313,13 @@ people covered per unit of work:
   is the asset that grows. `write_data_js` bounds it (EMBED_BUDGET global
   cap + EMBED_CITY_FLOOR per-city floor, cities keyed by (name, state))
   and then enforces a hard `DATA_JS_MAX_BYTES` (24,000,000); both trims
-  take the oldest record of the DEEPEST city, over and over, never below
-  the floor (`_embed_trim`) — dropping the globally oldest records let a
-  few hundred small towns' newest inspections push the metros out one
-  record at a time (2026-11-03: Dallas would have kept ~150 of 1,000), and
-  the record budget alone let the file creep to 24.8 MB as new towns added
+  keep the same FRACTION of every city's newest records, never below the
+  floor (`_embed_trim`; measured 2026-11-03 on 3,872 cities: metros keep
+  ~59% of their 1,000, Houston 594, Dallas 558). Dropping the globally
+  oldest records instead let a few hundred small towns' newest inspections
+  push the metros out one record at a time (Dallas would have kept ~150),
+  levelling every city to the same COUNT gave each metro ~158, and the
+  record budget alone let the file creep to 24.8 MB as new towns added
   floors. A deploy that fails with no error on the commit is usually this.
   The full dataset lives in D1.
 - **D1 rejects any SQL statement over 100KB** (`SQLITE_TOOBIG`), and its

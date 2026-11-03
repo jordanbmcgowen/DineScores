@@ -24,7 +24,7 @@ class EmbedTrimTests(unittest.TestCase):
         return [{'i': f'{city}{state}{k}', 'c': city, 's': state, 'd': f'2026-{12 - k // 28:02d}-{28 - k % 28:02d}'}
                 for k in range(n)]
 
-    def test_drops_from_the_deepest_cities_never_below_the_floor(self):
+    def test_every_city_keeps_the_same_share_never_below_the_floor(self):
         big = self._compact('Dallas', 'TX', 300)
         mid = self._compact('Plano', 'TX', 100)
         town = self._compact('Rome', 'GA', 25)
@@ -34,18 +34,22 @@ class EmbedTrimTests(unittest.TestCase):
         counts = {}
         for r in kept:
             counts[r['c']] = counts.get(r['c'], 0) + 1
-        self.assertEqual(len(kept), 425 - 250)
-        # water-filling: Dallas and Plano level out at the same depth, Rome untouched
-        self.assertEqual(counts['Rome'], 25)
-        self.assertLessEqual(abs(counts['Dallas'] - counts['Plano']), 1)
+        self.assertLessEqual(abs(len(kept) - (425 - 250)), 2)
+        # a common fraction: Dallas keeps ~3x Plano; Rome, below the share, keeps its floor
+        self.assertEqual(counts['Rome'], dp.EMBED_CITY_FLOOR)
+        self.assertLessEqual(abs(counts['Dallas'] - 3 * counts['Plano']), 3)
         # the newest records of every city survive
         for city, recs in (('Dallas', big), ('Plano', mid)):
             kept_ids = {r['i'] for r in kept if r['c'] == city}
             self.assertTrue(all(r['i'] in kept_ids for r in recs[:counts[city]]))
-        # asking for more than the floors allow stops at the floor
+        # asking for more than the floors allow stops at the floors
         kept = dp._embed_trim(final, by_city, 10_000)
         self.assertEqual({r['c'] for r in kept}, {'Dallas', 'Plano', 'Rome'})
         self.assertTrue(all(sum(1 for r in kept if r['c'] == c) == dp.EMBED_CITY_FLOOR for c in ('Dallas', 'Plano', 'Rome')))
+        # a town smaller than the floor keeps everything
+        tiny = self._compact('Ty Ty', 'GA', 3)
+        kept = dp._embed_trim(big + tiny, {('Dallas', 'TX'): list(big), ('Ty Ty', 'GA'): list(tiny)}, 100)
+        self.assertEqual(sum(1 for r in kept if r['c'] == 'Ty Ty'), 3)
 
     def test_same_named_towns_in_two_states_have_their_own_floor(self):
         dallas_tx = self._compact('Dallas', 'TX', 200)
