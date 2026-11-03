@@ -174,7 +174,7 @@ middleware.
     - The cooldown budget `MHD_BAN_COOLDOWNS` defaults to 16 (was 3): a
       normal week of every MHD jurisdiction is well over 1,000 detail pages,
       five or more 15-minute ban windows, which the old budget could never
-      finish. The job's 270-minute fetch deadline (350-minute job) is what
+      finish. The job's 300-minute fetch deadline (350-minute job) is what
       bounds a CI run; both crons fire at 09:17 UTC (Sunday, Wednesday), so
       the hours are free.
     - SNHD is rate-limited, not IP-blocked: a 401/429 pauses every SNHD

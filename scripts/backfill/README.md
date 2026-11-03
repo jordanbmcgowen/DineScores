@@ -31,8 +31,10 @@ Environment: `BACKFILL_DIR` (where chunk outputs and logs go, default
 per chunk, default 300), `EXTRA_ARGS` (extra pipeline flags, e.g.
 `--skip-known-inspections FILE`), `NO_FRESHNESS_COPY=1` (absorb the records
 but leave the freshness file alone — for a re-read of sources whose
-freshness is already right), `JEV_BUDGET_MINUTES` (default 90), `PUSH=1`
-(push after the absorb commit), plus any fetcher knobs
+freshness is already right), `JEV_BUDGET_MINUTES` (default 90), `GEOCODE_CAP`
+(Nominatim lookups the absorb step spends on restaurants the Census batch
+could not place, default 2000, 0 = skip), `PUSH=1` (push after the absorb
+commit), plus any fetcher knobs
 (`MCESD_DETAIL_WORKERS`, `LA_PRINTABLE_MAX_PER_RUN`, ...).
 
 Rules the scripts enforce: a seed statement stays under D1's 100 KB cap;

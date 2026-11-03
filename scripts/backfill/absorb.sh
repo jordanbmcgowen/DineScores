@@ -21,9 +21,21 @@ SEED="data/d1_seed_${TODAY}_${TAG}_${SINCE}.sql.gz"
 SQLJ="$OUT/absorb_${TAG}.sql"; rm -f "$SQLJ"
 DJS="$OUT/absorb_${TAG}.data.js"; rm -f "$DJS"
 ALOG="$OUT/absorb_${TAG}.log"
+# One more geocoding pass (Nominatim, one request a second) over the
+# restaurants the chunk's Census batch could not place; GEOCODE_CAP=0 skips it.
+REC_IN="$REC"
+if [ "${GEOCODE_CAP:-2000}" -gt 0 ]; then
+  GEO="$OUT/absorb_${TAG}.geocoded.records.json.gz"
+  if python3 "$HERE/geocode_backlog.py" --patch "$GEO" "${GEOCODE_CAP:-2000}" "$REC" > "$OUT/absorb_${TAG}.geocode.log" 2>&1; then
+    grep -E "restaurants without|placed" "$OUT/absorb_${TAG}.geocode.log" | tail -2
+    REC_IN="$GEO"
+  else
+    echo "geocoding pass failed; absorbing the records as fetched"; tail -5 "$OUT/absorb_${TAG}.geocode.log"
+  fi
+fi
 BEFORE=$(python3 -c "import sys;s=open('public/data.js').read();print(s.count('\"i\":'))")
 JEV_MODE=${JEV_MODE:-decide} JEV_DECIDE=${JEV_DECIDE:-hazard,summary} \
-python3 dinescores_pipeline.py --mode full --input-records "$REC" --output "$OUT/absorb_${TAG}.json" \
+python3 dinescores_pipeline.py --mode full --input-records "$REC_IN" --output "$OUT/absorb_${TAG}.json" \
   --output-data-js "$DJS" --merge-existing-data-js public/data.js --output-d1-sql "$SQLJ" \
   --jev-deadline-minutes "${JEV_BUDGET_MINUTES:-90}" > "$ALOG" 2>&1 \
   || { echo "absorb merge FAILED"; tail -20 "$ALOG"; exit 1; }

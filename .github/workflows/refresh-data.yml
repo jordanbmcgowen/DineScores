@@ -140,11 +140,14 @@ jobs:
             --output-d1-sql /tmp/dinescores_weekly.sql \
             --freshness-file data/source_freshness.json \
             --skip-known-inspections /tmp/known_inspections.tsv \
-            --deadline-minutes 270 \
+            --deadline-minutes 300 \
             --jev-deadline-minutes 20
         # --jev-deadline-minutes bounds the Jev reading pass that runs after
-        # the fetch phase (270 + 20 + outputs and the D1 upload stay inside
-        # the 350-minute job; GitHub caps a job at 360). Lines not read by
+        # the fetch phase (300 + 20 + outputs and the D1 upload, measured at a
+        # few minutes, stay inside the 350-minute job; GitHub caps a job at
+        # 360). The API pool (Maricopa ~2.5 h, Louisiana ~1 h) runs alongside
+        # the scraped-portal phases since 2026-11, so the MHD groups no longer
+        # wait for it; 300 leaves a bad week of detail-page bans room. Lines not read by
         # then fall back to the regex;
         # the pass can never fail the run or drop a record.
         # --merge-existing-data-js is essential: weekly mode only pulls the
