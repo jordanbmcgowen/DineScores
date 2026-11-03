@@ -911,9 +911,15 @@ class PipelinePassTests(unittest.TestCase):
         # source states, so the score follows the stored tiers but Jev's
         # category never moves them.
         for src in ('Louisiana LDH', 'Maricopa County Environmental Services',
-                    'Pima County Health Department'):
+                    'Pima County Health Department', 'McKinney Health Inspections'):
             self.assertEqual(jr.tier_policy(src), 'fixed', src)
             self.assertEqual(jr.score_policy(src, None), 'source_tiers', src)
+        # McKinney's original_score is a demerit total, never a 0-100 score:
+        # the policy must not read it as official.
+        self.assertEqual(jr.score_policy('McKinney Health Inspections', 13), 'source_tiers')
+        # Lewisville and Denton publish an official 0-100 score and no lines.
+        self.assertEqual(jr.score_policy('Lewisville Environmental Health', 93), 'official')
+        self.assertEqual(jr.score_policy('Denton Open Data', 90), 'official')
         self.assertEqual(jr.bounded_tier('core', 'priority'), 'core')
         self.assertEqual(jr.bounded_tier('priority_foundation', 'core'), 'priority_foundation')
         self.assertEqual(jr.bounded_tier('priority', 'priority_foundation'), 'priority_foundation')
