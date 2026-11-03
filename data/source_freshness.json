@@ -160,6 +160,16 @@
    },
    "latest": "2026-11-02"
   },
+  "Louisiana": {
+   "last_run": {
+    "at": "2026-11-03",
+    "detail": "",
+    "latest": "2026-10-27",
+    "records": 8506,
+    "status": "ok"
+   },
+   "latest": "2026-09-28"
+  },
   "Louisville": {
    "last_run": {
     "at": "2026-11-01",
@@ -610,6 +620,22 @@
   "Lewisville Environmental Health": {
    "group": "Lewisville",
    "latest": "2026-11-02"
+  },
+  "Louisiana LDH": {
+   "group": "Louisiana",
+   "hold": {
+    "date": "2026-09-29",
+    "failures": {
+     "2026-09-29|10531351": 1,
+     "2026-10-12|11271113": 1,
+     "2026-10-15|11501321": 1,
+     "2026-10-16|56461": 1,
+     "2026-10-16|59142": 1,
+     "2026-10-20|52293": 1,
+     "2026-10-22|11514233": 1
+    }
+   },
+   "latest": "2026-09-28"
   },
   "Louisville Metro Open Data": {
    "group": "Louisville",
