@@ -114,6 +114,7 @@ class FakePortal:
         self.fail, self.fail_all = {}, set()
         self.total_override = None
         self.clamp = None               # a server that caps `take`
+        self.ignore_skip = False        # a server that answers every page with the first rows
         self.after_page = None          # callback(portal, page_no, rows_served)
         self.on_list = self.on_items = None   # callback(id) once that answer was served
         self.pages_served = 0
@@ -146,7 +147,7 @@ class FakePortal:
         assert sort and sort[0]['selector'] == 'lastCompletedInspectionDate', sort
         rows.sort(key=lambda r: r['documentId'])
         rows.sort(key=lambda r: r.get('lastCompletedInspectionDate') or '', reverse=bool(sort[0].get('desc')))
-        skip, take = body.get('skip', 0), body['take']
+        skip, take = (0 if self.ignore_skip else body.get('skip', 0)), body['take']
         if self.clamp:
             take = min(take, self.clamp)
         page = rows[skip:skip + take]
@@ -208,7 +209,8 @@ class HarrisTestCase(unittest.TestCase):
     (discovery runs all test modules in one process)."""
     GLOBALS = ('_HARRIS_BLOCKED', '_HARRIS_EXHAUSTED_STREAK', '_HARRIS_FAILURES_LOGGED', '_HARRIS_LAST_ERROR',
                '_FETCH_DEADLINE', '_FRESHNESS', 'HARRIS_WORKERS', 'HARRIS_DELAY', 'HARRIS_PAGE',
-               'HARRIS_LC_LAG_DAYS')
+               'HARRIS_LC_LAG_DAYS', 'HARRIS_BREAKER_TRIP', 'HARRIS_LIST_FAILURES_MAX', 'HARRIS_LIST_AGREE_DAYS',
+               'HARRIS_MASS_FAILURE_MIN')
     DICTS = ('_GROUP_NOTES', '_FRESHNESS_HOLDS', '_GROUP_STATUS', '_HARRIS_STATS')
 
     def setUp(self):
@@ -249,6 +251,24 @@ class HarrisTestCase(unittest.TestCase):
 
     def inspection(self, did, number):
         return next(i for i in self.lists[did] if i['number'] == number)
+
+    def clone_establishments(self, n, base=HANKS):
+        """Append `n` copies of `base` (its search row, inspection list and
+        item lists) under new ids, so the mass checks have enough to judge.
+        Hank's clones each bring a Permitting of 2026-10-30 scored 71."""
+        clones = []
+        for i in range(n):
+            did = f'clone-{i:04d}-{base[:8]}'
+            self.rows.append(dict(self.row(base), documentId=did, name=f'Clone {i} of {self.row(base)["name"]}'))
+            insps = copy.deepcopy(self.lists[base])
+            for insp in insps:
+                number = f"{insp['number']}C{i:03d}"
+                if insp['number'] in self.items:
+                    self.items[number] = [dict(it, inspectionNumber=number) for it in self.items[insp['number']]]
+                insp['number'], insp['establishmentDocumentId'] = number, did
+            self.lists[did] = insps
+            clones.append(did)
+        return clones
 
 
 # ── request shape ─────────────────────────────────────────────────────────
@@ -446,6 +466,15 @@ class RecordTests(HarrisTestCase):
         r = by_id(records)['hcph_I0493169']
         self.assertEqual((r['city'], r['state']), ('Houston', 'TX'))
 
+    def test_a_spelled_out_state_is_the_two_letter_code(self):
+        # one live row (Whataburger #750, Spring) carries 'Texas'; [:2] made it 'TE'
+        for raw, want in (('Texas', 'TX'), (' texas ', 'TX'), ('TX', 'TX'), ('tx', 'TX'), ('', 'TX'), (None, 'TX'),
+                          ('T', 'TX'), ('TEX', 'TX'), ('LA', 'LA')):
+            self.row(HANKS)['state'] = raw
+            records, _, _ = self.fetch()
+            self.assertEqual(by_id(records)['hcph_I0493169']['state'], want, repr(raw))
+        self.assertIn('TX', dp.STATE_BOUNDS)
+
     def test_ids_are_stable_run_to_run(self):
         again, _, _ = self.fetch()
         key = lambda r: (r['source_id'], dp.make_restaurant_id(r['name'], r['address'], r['city']))
@@ -545,6 +574,34 @@ class PolicyTests(HarrisTestCase):
         self.assertEqual(dp._harris_violation({'violationNumber': 38, 'violationGroup': 'c',
                                                'violationDescription': ' Insects, rodents, and animals not present '}),
                          ['pest_control', 'core', '38. Insects, rodents, and animals not present'])
+
+    def test_bare_tfer_titles_have_plain_phrases_when_jev_declines(self):
+        # Harris prints bare TFER titles; these five today's regex paraphrases
+        # wrongly on the fail-open path ("vomiting & diarrheal events" and
+        # "contamination prevented" as a vent hood, ...), so jev_reader's
+        # exact-title table answers them when Jev declines or fails.
+        for title, phrase in (
+                ('5. Procedures for responding to vomiting & diarrheal events', 'No vomit/diarrhea cleanup plan'),
+                ('29. Thermometers provided, accurate, and calibrated; Chemical/ Thermal test strips',
+                 'Missing thermometers'),
+                ('39. Contamination prevented during food preparation, storage, and display',
+                 'Food not protected from contamination'),
+                ('47. Food and nonfood-contact surfaces cleanable, properly designed, constructed, and used',
+                 'Surfaces not cleanable or in disrepair'),
+                ('56. Adequate ventilation and lighting; designated areas used', 'Ventilation or lighting inadequate')):
+            self.assertEqual(jr.form_title_phrase(title), phrase, title)
+            d = jr.decide(title, None)                       # Jev failed on the line: the table answers
+            self.assertEqual((d['summary'], d['used']['summary']), (phrase, 'form_title'), title)
+            self.assertIn(phrase, jr.SUMMARY_LEVEL_BY_PHRASE)
+            self.assertNotIn(phrase, jr.HAZARD_REQUIRED_BY_PHRASE)
+            if phrase != 'Missing thermometers':
+                self.assertNotIn(phrase, jr.SUMMARY_PHRASES)  # table-only: Jev's option list and cache stay as they are
+        # the pest and sewage titles stay out of the table (policy); a title
+        # the regex leaves verbatim needs no entry
+        for title in ('38. Insects, rodents, and animals not present', '52. Sewage and Wastewater properly disposed',
+                      '23. Proper date marking and disposition'):
+            self.assertIsNone(jr.form_title_phrase(title), title)
+        self.assertEqual(jr.question_set_fingerprint(), jr.PINNED_QUESTION_SET_FINGERPRINT)
 
     def test_a_cited_pest_item_title_does_not_force_an_f(self):
         self.items['I0493073'].append(dict(self.items['I0493073'][0], violationNumber=38, violationGroup='C',
@@ -688,6 +745,50 @@ class PagingTests(HarrisTestCase):
         with self.assertRaises(RuntimeError):
             self.fetch(portal=portal)
 
+    def test_the_completeness_check_runs_with_the_weekly_limit(self):
+        # main() passes limit=50000 in weekly mode; the check keys on the
+        # limit having been REACHED, not on one being set
+        dp.HARRIS_PAGE = 4
+        portal = self.portal()
+
+        def bump(p, page_no, served):
+            if page_no == 1:
+                unread = [r for r in p.rows if r not in served]
+                unread[-1]['lastCompletedInspectionDate'] = '2026-10-31'
+        portal.after_page = bump
+        with self.assertRaises(RuntimeError) as cm:
+            self.fetch(since_date=None, limit=50000, portal=portal)
+        self.assertIn('incomplete (10 of 11', str(cm.exception))
+        self.assertEqual(portal.gets(dp.HARRIS_INSPECTIONS_URL), [])
+        portal = self.portal()
+        portal.total_override = 12
+        with self.assertRaises(RuntimeError):
+            self.fetch(limit=50000, portal=portal)
+        # a read that stopped at its limit is short on purpose
+        portal = self.portal()
+        portal.total_override = 12
+        records, _, _ = self.fetch(since_date=None, limit=5, portal=portal)
+        self.assertEqual(len(records), 5)
+
+    def test_a_server_that_ignores_skip_fails_closed_at_once(self):
+        dp.HARRIS_PAGE = 4
+        portal = self.portal()
+        portal.ignore_skip = True
+        with self.assertRaises(RuntimeError) as cm:
+            self.fetch(since_date=None, portal=portal)
+        self.assertIn('not paging', str(cm.exception))
+        self.assertEqual([b['skip'] for b in portal.search_bodies()], [0, 4])     # no third page, no spin
+        self.assertEqual(portal.gets(dp.HARRIS_INSPECTIONS_URL), [])
+
+    def test_rows_still_coming_a_page_past_the_total_count_fail_closed(self):
+        dp.HARRIS_PAGE = 4
+        portal = self.portal()
+        portal.total_override = 1                       # the count says one row; full pages keep coming
+        with self.assertRaises(RuntimeError) as cm:
+            self.fetch(since_date=None, portal=portal)
+        self.assertIn('past a totalCount', str(cm.exception))
+        self.assertEqual([b['skip'] for b in portal.search_bodies()], [0, 4])
+
     def test_a_page_without_total_count_fails_closed(self):
         portal = self.portal()
         portal.fail[('search', 0)] = [FakeResponse({'data': list(self.rows)})]
@@ -736,14 +837,77 @@ class FailureTests(HarrisTestCase):
         self.assertEqual(set(by_id(records)), IN_WINDOW)
         self.assertIn(20, sleeps)
 
-    def test_an_unreadable_inspection_list_raises(self):
+    def test_an_unreadable_inspection_list_is_skipped_and_held(self):
+        # one permit whose list always fails must not fail the county every
+        # week: it is held on its own and given up after three tried runs
         portal = self.portal()
         portal.fail[('list', HANKS)] = [dp.requests.ConnectionError('reset')] * dp.HARRIS_RETRIES
+        with self.assertLogs('dinescores', level='WARNING') as logs:
+            records, portal, _ = self.fetch(portal=portal)
+        self.assertEqual(set(by_id(records)), IN_WINDOW - {'hcph_I0493169'})
+        self.assertEqual(len(portal.gets(dp.HARRIS_INSPECTIONS_URL, HANKS)), dp.HARRIS_RETRIES)
+        self.assertEqual(dp._FRESHNESS_HOLDS, {SRC: {f'2026-10-30|{HANKS}': (True, False)}})
+        self.assertEqual(dp._GROUP_STATUS, {})
+        self.assertFalse(dp._HARRIS_BLOCKED)
+        self.assertTrue(any('could not be read through every retry' in m and HANKS in m for m in logs.output))
+
+    def test_widespread_list_failures_raise(self):
+        dp.HARRIS_LIST_FAILURES_MAX, dp.HARRIS_BREAKER_TRIP = 2, 10
+        portal = self.portal()
+        for did in (HANKS, TMG, PADDOCK):
+            portal.fail[('list', did)] = [dp.requests.ConnectionError('reset')] * dp.HARRIS_RETRIES
         with self.assertRaises(RuntimeError) as cm:
             self.fetch(portal=portal)
-        self.assertIn('inspection lists could not be read', str(cm.exception))
-        self.assertEqual(len(portal.gets(dp.HARRIS_INSPECTIONS_URL, HANKS)), dp.HARRIS_RETRIES)
+        self.assertIn('3 of 9 inspection lists could not be read', str(cm.exception))
+        self.assertEqual(portal.gets(dp.HARRIS_VIOLATIONS_URL), [])
         self.assertEqual(dp._FRESHNESS_HOLDS, {})
+        self.assertFalse(dp._HARRIS_BLOCKED)
+
+    def test_an_inspection_list_that_contradicts_the_search_is_held(self):
+        # TMG's search field says 2026-10-30; its list ends in September
+        self.lists[TMG] = [i for i in self.lists[TMG] if i['date'] < '2026-10-01']
+        with self.assertLogs('dinescores', level='WARNING') as logs:
+            records, _, _ = self.fetch()
+        self.assertEqual(set(by_id(records)), IN_WINDOW - {'hcph_I0493073', 'hcph_I0493159'})
+        self.assertEqual(dp._FRESHNESS_HOLDS, {SRC: {f'2026-10-30|{TMG}': (True, False)}})
+        self.assertEqual(dp._GROUP_STATUS, {})
+        self.assertTrue(any('hold nothing within' in m for m in logs.output))
+        # a field a day or two ahead of the list (Marble Slab, as live) is no contradiction
+        self.rows, self.lists, self.items = load_fixtures()
+        dp._FRESHNESS_HOLDS.clear()
+        records, _, _ = self.fetch()
+        self.assertIn('hcph_I0492917', by_id(records))
+        self.assertEqual(dp._FRESHNESS_HOLDS, {})
+
+    def test_inspection_lists_that_contradict_the_search_for_most_establishments_fail_closed(self):
+        # the list endpoint answering [] to everyone must not be a green 'empty'
+        self.clone_establishments(20)
+        for did in list(self.lists):
+            self.lists[did] = []
+        with self.assertRaises(RuntimeError) as cm:
+            self.fetch()
+        self.assertIn('hold no inspection near the date', str(cm.exception))
+        self.assertEqual(dp._FRESHNESS_HOLDS, {})
+        self.assertEqual(dp._GROUP_STATUS, {})
+        # below HARRIS_MASS_FAILURE_MIN establishments the same answer holds each one instead
+        self.rows, self.lists, self.items = load_fixtures()
+        for did in list(self.lists):
+            self.lists[did] = []
+        records, portal, _ = self.fetch()
+        self.assertEqual(records, [])
+        in_scope = (CHARGE_UP, TMG, HANKS, MARBLE_SLAB, MCDONALDS, PADDOCK, EL_KIOSKO, TITOS, TOKYO)
+        self.assertEqual(dp._FRESHNESS_HOLDS, {SRC: {
+            f"{self.row(did)['lastCompletedInspectionDate'][:10]}|{did}": (True, False) for did in in_scope}})
+        self.assertEqual(portal.gets(dp.HARRIS_VIOLATIONS_URL), [])
+
+    def test_a_deadline_inside_the_search_retry_ladder_is_a_skip_not_an_error(self):
+        portal = self.portal()
+        portal.fail_all.add('search')
+        records, portal, _ = self.fetch(portal=portal, past_deadline=lambda: len(portal.calls) > 0)
+        self.assertEqual(records, [])
+        self.assertEqual(len(portal.search_bodies()), 1)              # no retry past the deadline
+        self.assertEqual(dp._GROUP_STATUS[GROUP][0], 'skipped')
+        self.assertEqual(list(dp._FRESHNESS_HOLDS[SRC]), ['2026-10-22|window'])
 
     def test_an_establishment_the_api_no_longer_knows_is_skipped_and_held(self):
         portal = self.portal()
@@ -765,6 +929,44 @@ class FailureTests(HarrisTestCase):
         self.assertEqual(dp._FRESHNESS_HOLDS, {SRC: {'2026-10-30|I0493169': (True, False)}})
         self.assertEqual(dp._GROUP_STATUS, {})
         self.assertFalse(dp._HARRIS_BLOCKED)
+
+    def test_a_scored_inspection_whose_item_list_reads_as_clean_is_unread(self):
+        # Hank's Permitting: score 71, 18 live OUT items; an empty answer is
+        # not a clean inspection but a list that was not read
+        self.items['I0493169'] = []
+        with self.assertLogs('dinescores', level='WARNING') as logs:
+            records, portal, _ = self.fetch()
+        self.assertEqual(set(by_id(records)), IN_WINDOW - {'hcph_I0493169'})
+        self.assertEqual(len(portal.gets(dp.HARRIS_VIOLATIONS_URL, 'I0493169')), 1)
+        self.assertEqual(dp._FRESHNESS_HOLDS, {SRC: {'2026-10-30|I0493169': (True, False)}})
+        self.assertEqual(dp._GROUP_STATUS, {})
+        self.assertTrue(any('no OUT item' in m for m in logs.output))
+        # a renamed title field or a reworded compliance result reads the same
+        live = load_fixtures()[2]['I0493169']
+        for broken in ([dict(i, violationDescription=None, description=i['violationDescription']) for i in live],
+                       [dict(i, complianceResult='Out of Compliance') for i in live]):
+            self.items['I0493169'] = broken
+            records, _, _ = self.fetch()
+            self.assertNotIn('hcph_I0493169', by_id(records))
+            self.assertIn('2026-10-30|I0493169', dp._FRESHNESS_HOLDS[SRC])
+        # a score of 100 and an unscored visit are not contradictions
+        self.assertFalse(dp._harris_items_unread({'score': 100}, []))
+        self.assertFalse(dp._harris_items_unread({'score': None}, []))
+        self.assertFalse(dp._harris_items_unread({'score': 0}, []))
+        self.assertTrue(dp._harris_items_unread({'score': 99}, []))
+        self.assertTrue(dp._harris_items_unread({'score': '99'}, ['junk', {'violationDescription': ''}]))
+        self.assertFalse(dp._harris_items_unread({'score': 99}, [{'violationDescription': 'x', 'complianceResult': 'Out'}]))
+
+    def test_item_lists_that_read_as_clean_for_most_scored_inspections_fail_closed(self):
+        self.clone_establishments(20)
+        for number in list(self.items):
+            self.items[number] = []
+        with self.assertRaises(RuntimeError) as cm:
+            self.fetch()
+        self.assertIn('no OUT item', str(cm.exception))
+        self.assertIn('27 of 27', str(cm.exception))
+        self.assertEqual(dp._FRESHNESS_HOLDS, {})
+        self.assertEqual(dp._GROUP_STATUS, {})
 
     def test_a_404_item_list_is_a_counted_drop(self):
         portal = self.portal()

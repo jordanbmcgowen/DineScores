@@ -7714,9 +7714,13 @@ def fetch_maricopa(since_date=None, limit=None):
 #   2. each one's inspection list, kept to the widened window and the visit
 #      types below;
 #   3. each kept inspection's items, oldest first.
-# A search page or inspection list that cannot be read raises (never a
-# partial window); an unreadable item list drops that inspection and holds
-# the window on it; HARRIS_BREAKER_TRIP exhausted requests in a row trip a
+# A search page that cannot be read raises (never a partial window); an
+# unreadable inspection list or item list drops that establishment or
+# inspection and holds the window on it, and more than
+# HARRIS_LIST_FAILURES_MAX unreadable lists in one run raise; two
+# contradiction checks (HARRIS_LIST_AGREE_DAYS, _harris_items_unread) keep
+# an endpoint that answers [] from reading as a clean week;
+# HARRIS_BREAKER_TRIP exhausted requests in a row trip a
 # breaker so a blocked host cannot eat the fetch deadline one timeout at a
 # time (the group is then reported 'blocked', with holds).
 # Score: the county's 'score' is 100 minus the sum of the items' demerits
@@ -7754,6 +7758,24 @@ HARRIS_DELAY = 0.4           # seconds after every request, per worker
 HARRIS_BREAKER_TRIP = 3      # exhausted requests in a row -> _HARRIS_BLOCKED
 HARRIS_CLOSURE_CAP = 55      # risk_score ceiling when the county ordered a closure
 HARRIS_LATE_ENTRY_DAYS = 2   # an inspection entered this long after its date is counted as late
+# A per-record failure (an inspection list or item list that cannot be read)
+# is skipped and held on its own (key = documentId / inspection number) so
+# FRESHNESS_HOLD_GIVE_UP_RUNS tried-and-failed runs give a permanently bad
+# record up (Omaha has two such records) instead of failing the county every
+# week; more than this many inspection lists failing in one run is an outage
+# and the window is not shipped.
+HARRIS_LIST_FAILURES_MAX = 5
+# Two contradiction checks guard the two JSON answers that would read as
+# "nothing here" if the endpoint stopped answering anonymous callers or
+# renamed a field. An establishment's inspection list must hold a row dated
+# within HARRIS_LIST_AGREE_DAYS of the lastCompletedInspectionDate the search
+# listed it for (200 live establishments on 2026-11-03: the gap was -1 to 2
+# days and no list was empty), and an inspection scored below 100 must come
+# with an OUT item (_harris_items_unread). Either contradiction drops and
+# holds that record; once HARRIS_MASS_FAILURE_MIN were checked and more than
+# half contradict, nothing ships and the group is an error.
+HARRIS_LIST_AGREE_DAYS = 30
+HARRIS_MASS_FAILURE_MIN = 20
 # The search filter field trails the inspection list. lastCompletedInspectionDate
 # equalled the newest listed inspection on 97-98% of the establishments probed
 # on 2026-11-03 (454 of 467 inspected in the previous 14 days; 231 of 240
@@ -7769,8 +7791,11 @@ HARRIS_LATE_ENTRY_DAYS = 2   # an inspection entered this long after its date is
 # is missed until the establishment's next reflected inspection.
 HARRIS_LC_LAG_DAYS = 28
 # A score of 100 means no OUT item (every OUT item costs at least one
-# demerit); the live check of 2026-11-03 read the items of 40 score-100
-# inspections and every list was empty, so their item call is skipped.
+# demerit); the live checks of 2026-11-03 read the items of 105 score-100
+# inspections and every list was empty, so their item call is skipped. (On
+# ~1% of inspections the county's score sits exactly 2 above 100 minus the
+# demerits, so a 100 with one 2-demerit item is conceivable; it would ship
+# as the clean A it grades as either way, missing only that item's chip.)
 HARRIS_READ_CLEAN_ITEMS = False
 HARRIS_HEADERS = {
     'User-Agent': CHROME_UA,
@@ -7796,6 +7821,12 @@ HARRIS_GROUP_SEVERITY = {'P': 'priority', 'F': 'priority_foundation', 'C': 'core
 # only once the permit has an operating-type inspection on record: a
 # 'Follow-up' right after a 'Pre-opening' is the pre-opening re-check. Any
 # other type is dropped with a warning so a new one gets a decision.
+# A Complete inspection ships whatever its approvalStatus (the supervisor's
+# review of the report: 'Approved', 'Pending' on about half of the newest
+# reports, 'Rejected' on ~7%; a rejected report keeps its items and its
+# follow-up). A report revised after review keeps its number and date, and
+# the HARRIS_LC_LAG_DAYS re-read upserts the revision over the first
+# version; a withdrawn one stays, as for every source (no delete path).
 HARRIS_OPERATING_TYPES = frozenset({'Routine Inspection', 'Complaint', 'Food Borne Illness', 'Permitting'})
 HARRIS_FOLLOW_UP_TYPES = frozenset({'Follow-up', 'Follow-Up Inspection', 'SV Follow-up'})
 HARRIS_DROP_TYPES = frozenset({'Pre-opening', 'Non-permitted', 'Consultation',
@@ -7803,9 +7834,11 @@ HARRIS_DROP_TYPES = frozenset({'Pre-opening', 'Non-permitted', 'Consultation',
 HARRIS_PERMIT_TYPES = frozenset({'Permitting'})      # a 'No' approval is worth a results note
 HARRIS_TYPE_DISPLAY = {'Routine Inspection': 'Routine', 'Follow-Up Inspection': 'Follow-up'}
 # Scope: food businesses the public walks into. Institutional kitchens,
-# child care, schools, pantries/warehouses, commissaries and the mobile-unit
-# entries (whose address is the commissary or the owner) are skipped, as is
-# any establishment whose type is not 'Fixed' (Mobile, FarmersMarket).
+# child care, schools, pantries/warehouses, the mobile units' commissaries
+# (MFU Central Prep Facility) and the mobile-unit entries (whose address is
+# the commissary or the owner) are skipped, as is any establishment whose
+# type is not 'Fixed' (Mobile, FarmersMarket). A caterer with a fixed
+# kitchen is a food business and ships.
 HARRIS_SKIP_SERVICE_TYPES = frozenset({
     'Public School', 'School', 'Day Care Facility', 'Long Term Care', 'Hospital',
     'Detention Facility', 'Residential Shelter', 'Food Pantry/Food Storage Warehouse',
@@ -7948,23 +7981,31 @@ def _harris_list_establishments(session, since, limit):
     and is missed — so pages are followed until a short page reaches the
     server's totalCount or an empty page comes back (a server that clamped
     `take` must not end a window early) and the UNIQUE count is checked
-    against totalCount: such a run fails closed and the self-healing
-    lookback re-reads the window next week. A weekly window fits one page,
-    so the exposure is the seconds between two pages. Raises RuntimeError
-    when a page cannot be read or the listing came up short; _HarrisCut on
-    the deadline or the breaker."""
+    against totalCount unless the read stopped at `limit`: such a run fails
+    closed and the self-healing lookback re-reads the window next week. (A
+    weekly window fits one page, so the exposure is the seconds between two
+    pages.) A server that stops paging — the same rows again, or rows still
+    coming a whole page past its own totalCount — fails closed too instead
+    of spinning until the fetch deadline. Raises RuntimeError when a page
+    cannot be read or the listing came up short; _HarrisCut on the deadline
+    or the breaker."""
     take = min(HARRIS_PAGE, max(int(limit), 1)) if limit else HARRIS_PAGE
     ests, skip, total, pages = {}, 0, 0, 0
     while True:
         if _past_deadline():
             raise _HarrisCut('skipped', f'fetch deadline reached while listing establishments '
                                         f'({len(ests)} read)')
-        page = _harris_request(session, HARRIS_SEARCH_URL, body=_harris_search_body(since, skip, take))
+        info = {}
+        page = _harris_request(session, HARRIS_SEARCH_URL, body=_harris_search_body(since, skip, take),
+                               info=info)
         rows = page.get('data') if isinstance(page, dict) else None
         if not isinstance(rows, list):
             if _HARRIS_BLOCKED:
                 raise _HarrisCut('blocked', f'HCPH stopped answering while listing establishments '
                                             f'({_HARRIS_LAST_ERROR})')
+            if info.get('deadline') or _past_deadline():
+                raise _HarrisCut('skipped', f'fetch deadline reached while listing establishments '
+                                            f'({len(ests)} read, the page at skip={skip} not read)')
             raise RuntimeError(f'Harris County: establishment search page at skip={skip} could not '
                                f'be read ({_HARRIS_LAST_ERROR}); not shipping a partial window')
         try:
@@ -7973,15 +8014,29 @@ def _harris_list_establishments(session, since, limit):
             raise RuntimeError(f'Harris County: establishment search answered without a totalCount '
                                f'(skip={skip}); not shipping a partial window')
         pages += 1
+        new = 0
         for row in rows:
             did = row.get('documentId') if isinstance(row, dict) else None
             if did and did not in ests:
                 ests[did] = row
+                new += 1
         time.sleep(HARRIS_DELAY)
         skip += len(rows)
         if not rows or (limit and len(ests) >= limit) or (len(rows) < take and skip >= total):
             break
-    if not limit and len(ests) < total:
+        if not new:
+            raise RuntimeError(f'Harris County: establishment search is not paging (the page at '
+                               f'skip={skip - len(rows)} added none of its {len(rows)} rows); not shipping '
+                               f'a partial window')
+        if skip >= total + take:
+            raise RuntimeError(f'Harris County: establishment search paged {skip} rows past a totalCount '
+                               f'of {total}; not shipping a partial window')
+    # Stopping at `limit` is the only short listing that is intended; any
+    # other count below totalCount is a page boundary that moved under the
+    # read. (main() passes limit=50000 in weekly mode, so the check keys on
+    # the limit having been reached, not on one being set.)
+    bounded = bool(limit) and len(ests) >= limit
+    if not bounded and len(ests) < total:
         raise RuntimeError(f'Harris County: establishment listing incomplete ({len(ests)} of {total} '
                            f'establishments in {pages} pages); not shipping a partial window')
     log.info(f"  Harris County: {len(ests)} establishments with an inspection since "
@@ -8077,15 +8132,32 @@ def _harris_demerits(items):
     return total
 
 
+def _harris_score(insp):
+    """The county's score as an int, or None when absent or not a number."""
+    try:
+        return int(insp.get('score'))
+    except (TypeError, ValueError, AttributeError):
+        return None
+
+
+def _harris_items_unread(insp, items):
+    """True when an inspection's item list was not really read: the county
+    scored it below 100 — so at least one OUT item cost a demerit — yet no
+    row of the answer is an OUT item with a title (an empty answer, a
+    renamed field, a reworded compliance result). None of the 1,933 scored
+    inspections read live on 2026-11-03 looked like this, so it is a layout
+    change or a dead endpoint and never a clean inspection: the caller drops
+    and holds it rather than ship the county's score with no violations."""
+    score = _harris_score(insp)
+    return score is not None and 0 < score < 100 and not any(_harris_violation(i) for i in items)
+
+
 def _harris_record(est, insp, items, counts):
     """One record dict from an establishment row, one of its inspections and
     the inspection's OUT items; None for an unscored visit with no items."""
     violations = [v for v in (_harris_violation(i) for i in items) if v]
     demerits = _harris_demerits(items)
-    try:
-        score = int(insp.get('score'))
-    except (TypeError, ValueError):
-        score = None
+    score = _harris_score(insp)
     if score is None or score <= 0:
         if not violations:
             counts['unscored'] += 1
@@ -8113,7 +8185,11 @@ def _harris_record(est, insp, items, counts):
     except ValueError:
         pass
     _, pv, pfv, cv = calc_risk_score(violations)
-    state = ' '.join(str(est.get('state') or '').split()).upper()[:2] or 'TX'
+    # Only an exact two-letter code is kept: one live row spells out 'Texas'
+    # (which a [:2] slice turned into 'TE'), and every permit is in Texas.
+    state = ' '.join(str(est.get('state') or '').split()).upper()
+    if not re.fullmatch(r'[A-Z]{2}', state):
+        state = 'TX'
     return {
         'name': _harris_clean(est.get('name')),
         'address': _harris_clean(est.get('address')),
@@ -8229,11 +8305,11 @@ def fetch_harris(since_date=None, limit=None):
             f"{n} {why}" for why, n in sorted(skipped_est.items(), key=lambda kv: -kv[1]))
             + " establishments (not public food businesses)")
 
-    # Phase 2: each establishment's inspection list. The window is complete
-    # only when every list was read, so one unreadable list fails the run;
-    # a breaker trip or the deadline stops the phase and holds the window.
-    # An establishment the API no longer knows (404/410 — deactivated since
-    # the search) is skipped and held on its own, like any bad record.
+    # Phase 2: each establishment's inspection list. A breaker trip or the
+    # deadline stops the phase and holds the window; a list that could not
+    # be read (through every retry, or a 404/410 for an establishment
+    # deactivated since the search) is that establishment's problem and is
+    # skipped and held on its own below, like any bad record.
     def list_inspections(est):
         did = est.get('documentId')
         if _past_deadline():
@@ -8247,7 +8323,7 @@ def fetch_harris(since_date=None, limit=None):
             return did, data
         return did, _harris_outcome(info)
 
-    lists, outcomes, gone = {}, defaultdict(int), []
+    lists, outcomes, unread = {}, defaultdict(int), {}      # unread: documentId -> 'gone' | 'failed'
     if ests:
         log.info(f"  Harris County: reading {len(ests)} inspection lists ({HARRIS_WORKERS} workers)...")
         with ThreadPoolExecutor(max_workers=HARRIS_WORKERS) as pool:
@@ -8255,27 +8331,66 @@ def fetch_harris(since_date=None, limit=None):
                 did, data = future.result()
                 if isinstance(data, list):
                     lists[did] = data
-                elif data == 'gone':
-                    gone.append(did)
+                elif data in ('gone', 'failed'):
+                    unread[did] = data
                 else:
                     outcomes[data] += 1
-    if gone:
-        by_id = {e.get('documentId'): e for e in ests}
-        for did in gone:
-            day = sane_inspection_date(by_id[did].get('lastCompletedInspectionDate')) or read_from
-            _hold_freshness(HARRIS_SOURCE, day, counted=True, key=did)
-        log.warning(f"  Harris County: {len(gone)} establishments answered 404/410 to their inspection "
-                    f"list (deactivated since the search?); skipped and held for a re-read")
-        ests = [e for e in ests if e.get('documentId') not in set(gone)]
     if outcomes.get('blocked'):
         return cut('blocked', f'HCPH stopped answering ({_HARRIS_LAST_ERROR}); '
                               f'{sum(outcomes.values())} of {len(ests)} inspection lists not read')
     if outcomes.get('deadline'):
         return cut('skipped', f'fetch deadline reached; {sum(outcomes.values())} of {len(ests)} '
                               f'inspection lists not read')
-    if outcomes.get('failed'):
-        raise RuntimeError(f"Harris County: {outcomes['failed']} of {len(ests)} inspection lists could "
-                           f"not be read ({_HARRIS_LAST_ERROR}); not shipping a partial window")
+    # A list that could not be read is skipped and held on its own (key =
+    # documentId): the next lookback re-reads it and FRESHNESS_HOLD_GIVE_UP_RUNS
+    # tried-and-failed runs give it up, so one permit the server always 500s
+    # cannot fail the whole county every week. Many such lists are an outage.
+    failed = sorted(did for did, why in unread.items() if why == 'failed')
+    if len(failed) > HARRIS_LIST_FAILURES_MAX:
+        raise RuntimeError(f"Harris County: {len(failed)} of {len(ests)} inspection lists could not be read "
+                           f"({_HARRIS_LAST_ERROR}); not shipping a partial window")
+    if unread:
+        by_id = {e.get('documentId'): e for e in ests}
+        for did in unread:
+            day = sane_inspection_date(by_id[did].get('lastCompletedInspectionDate')) or read_from
+            _hold_freshness(HARRIS_SOURCE, day, counted=True, key=did)
+        gone = len(unread) - len(failed)
+        if gone:
+            log.warning(f"  Harris County: {gone} establishments answered 404/410 to their inspection "
+                        f"list (deactivated since the search?); skipped and held for a re-read")
+        if failed:
+            log.warning(f"  Harris County: {len(failed)} inspection lists could not be read through every "
+                        f"retry ({_HARRIS_LAST_ERROR}): {', '.join(failed[:5])}; skipped and held for a re-read")
+        ests = [e for e in ests if e.get('documentId') not in unread]
+
+    # The lists must agree with the search that chose them: an establishment
+    # listed for lastCompletedInspectionDate holds a row dated within
+    # HARRIS_LIST_AGREE_DAYS of it. One that does not (an empty list, or one
+    # ending weeks before the field) was not read, whatever the server said,
+    # and is held on its own; when most of them contradict — the list
+    # endpoint answering [] to everyone — nothing ships, so a green run can
+    # never be a dead endpoint's empty answer.
+    checked, contradicted = 0, []
+    for est in ests:
+        field = sane_inspection_date(est.get('lastCompletedInspectionDate'))
+        if not field:
+            continue
+        checked += 1
+        newest = max((sane_inspection_date(r.get('date')) or ''
+                      for r in (lists.get(est.get('documentId')) or []) if isinstance(r, dict)), default='')
+        floor = (datetime.strptime(field, '%Y-%m-%d') - timedelta(days=HARRIS_LIST_AGREE_DAYS)).strftime('%Y-%m-%d')
+        if newest < floor:
+            contradicted.append((field, est.get('documentId')))
+    if checked >= HARRIS_MASS_FAILURE_MIN and len(contradicted) > checked / 2:
+        raise RuntimeError(f"Harris County: {len(contradicted)} of {checked} inspection lists hold no inspection "
+                           f"near the date the search listed the establishment for; the lists are not being "
+                           f"read, not shipping")
+    for field, did in contradicted:
+        _hold_freshness(HARRIS_SOURCE, field, counted=True, key=did)
+    if contradicted:
+        log.warning(f"  Harris County: {len(contradicted)} inspection lists hold nothing within "
+                    f"{HARRIS_LIST_AGREE_DAYS} days of the establishment's lastCompletedInspectionDate; "
+                    f"held for a re-read")
 
     dropped = defaultdict(int)
     candidates, seen = [], set()
@@ -8349,13 +8464,31 @@ def fetch_harris(since_date=None, limit=None):
             " inspections whose items could not be read")
 
     counts = defaultdict(int)
-    results = []
+    results, unread_items, scored_read = [], [], 0
     for date, number, est, insp in candidates:
         if number not in items:
             continue
+        score = _harris_score(insp)
+        if score is not None and 0 < score < 100:
+            scored_read += 1
+            if _harris_items_unread(insp, items[number]):
+                unread_items.append((date, number))
+                continue
         rec = _harris_record(est, insp, items[number], counts)
         if rec:
             results.append(rec)
+    # A score below 100 with no OUT item read is an item list that was not
+    # read (see _harris_items_unread): dropped and held like an unreadable
+    # one, never shipped as clean; when most scored inspections look like
+    # that, the item endpoint is not answering and nothing ships.
+    if scored_read >= HARRIS_MASS_FAILURE_MIN and len(unread_items) > scored_read / 2:
+        raise RuntimeError(f"Harris County: {len(unread_items)} of {scored_read} inspections scored below 100 "
+                           f"came back with no OUT item; the item lists are not being read, not shipping")
+    for date, number in unread_items:
+        _hold_freshness(HARRIS_SOURCE, date, counted=True, key=number)
+    if unread_items:
+        log.warning(f"  Harris County: {len(unread_items)} inspections scored below 100 came back with no "
+                    f"OUT item; dropped and held for a re-read (an item list that reads as clean was not read)")
     if counts.get('unscored'):
         log.info(f"  Harris County: {counts['unscored']} unscored visits without items left out")
     if counts.get('score != 100 - demerits'):
