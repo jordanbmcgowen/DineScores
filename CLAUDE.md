@@ -1,15 +1,21 @@
 # DineScores
 
 Restaurant health-inspection scores on a map: https://dinescores.com
-~63k restaurants embedded client-side, ~243k in the database, covering ~40
-metros (NYC, Chicago, LA County, SF, Seattle, Boston, Austin, Houston, DC,
-DFW, Las Vegas, Raleigh, Miami/Tampa/Orlando, Louisville, Minneapolis,
-Cincinnati, Montgomery County MD, Detroit, Sacramento, Fairfax County,
-Portland OR metro incl. Clark County WA, Colorado Springs/Fort Collins/
-Greeley/Adams County CO, Provo/Orem, Yolo County, San Jose/Santa Clara
-County, San Diego County, Omaha/Douglas County, Orange County CA, San
-Antonio, Nashville/Memphis/Knoxville/Chattanooga, Gwinnett County GA) plus
-all of Florida, New York State, Delaware, and South Carolina.
+~69k restaurants embedded client-side (the 24 MB cap), ~300k in the
+database, covering ~50 metros (NYC, Chicago, LA County, SF, Seattle, Boston,
+Austin, Houston, DC, DFW incl. McKinney/Lewisville/Denton, Las Vegas,
+Raleigh, Miami/Tampa/Orlando, Louisville, Minneapolis, Cincinnati,
+Montgomery County MD, Detroit, Sacramento, Fairfax County, Portland OR
+metro incl. Clark County WA, Colorado Springs/Fort Collins/Greeley/Adams
+County CO, Arapahoe/Douglas County CO, Provo/Orem, Yolo County, San Jose/
+Santa Clara County, San Diego County, Omaha/Douglas County, Orange County
+CA, San Antonio, Williamson County TX, Fort Bend County TX, Nashville/
+Memphis/Knoxville/Chattanooga, Phoenix/Maricopa County AZ, Cuyahoga County
+OH) plus all of Florida, New York State, Delaware, South Carolina, Georgia
+(Atlanta: Fulton/DeKalb/Cobb and the other 153 counties; Gwinnett/Newton/
+Rockdale on the MHD `gwinnett` slug), Louisiana (New Orleans, Baton Rouge,
+Shreveport, Lafayette) and Virginia (33 VDH districts; Fairfax County is
+its own source).
 
 ## Architecture
 
@@ -74,10 +80,17 @@ middleware.
 
 ## Workflows (.github/workflows/)
 
-- `refresh-data.yml` — cron, Sundays 09:17 UTC. Pulls the recent window from
-  all sources, merges data.js, applies incremental SQL to D1, commits, and
-  then FAILS the run if any fetch group was blocked, errored or skipped (the
-  last step, after the commit, so a red run never costs data). Fetchers are
+- `refresh-data.yml` — two crons, both 09:17 UTC: Sundays run every source
+  but the midweek group; Wednesdays run `cuyahoga virginia` alone (the
+  `MHD metros (midweek)` fetch group: Cuyahoga County and the 33 Virginia
+  VDH districts, ~1,200 detail pages = ~5 fifteen-minute ban windows, which
+  would not fit next to DFW on Sunday). The "Pick the sources for this run"
+  step sets `--cities` from the weekday (a manual run takes a `cities`
+  input); both runs share the same merge/commit flow and freshness file.
+  Pulls the recent window from the chosen sources, merges data.js, applies
+  incremental SQL to D1, commits, and then FAILS the run if any fetch group
+  was blocked, errored or skipped (the last step, after the commit, so a red
+  run never costs data). Fetchers are
   failure-tolerant and skip rather than ship partial data (the merge
   preserves existing records). Two guards keep a blocked portal from timing
   out the whole job (which ships nothing): a run-wide MHD circuit breaker
@@ -257,10 +270,13 @@ people covered per unit of work:
   0-100 score only, latest inspection per establishment, no violations, no
   coordinates, no history; Tallapoosa County 500s.
 - **Akron/Summit County OH ('scph'), Placer County CA ('pchd', Roseville) and
-  Amarillo ('aaphd')** on MHD: all three need the MHD search `sort`
-  parameter and one-day windows (see the MHD invariant on pagination), and
-  Akron/Placer need an inspection-purpose filter (Pre-licensing and
-  Consultation rows have no observations). Toledo ('oh_toledolucas') is
+  Amarillo ('aaphd')** on MHD: config-only entries now that every plain
+  jurisdiction searches sorted one-day windows (see the MHD invariant on
+  pagination); Akron/Placer still need an inspection-purpose filter
+  (Pre-licensing and Consultation rows have no observations). The statewide
+  'virginia' slug is NOT usable (capped, unstable paging, bucket mode lossy);
+  the 33 `va-*` district sub-sites are ordinary uncapped jurisdictions and
+  are what ships. Toledo ('oh_toledolucas') is
   NOT buildable: its date filter is ignored, observations are hidden and the
   printable endpoint times out.
 - **Oklahoma City (816k)**: Inspect2Go, every inspection a 600 KB PDF
@@ -272,7 +288,9 @@ people covered per unit of work:
   Columbus Public Health's PressAgent portal was down (522) during the
   survey and Franklin County's Accela carries PDFs only; **Reno/Washoe**:
   Accela, ~4,000 permit pages per run; **Columbia MO**: Tyler publicportals
-  with severity only in PDFs.
+  with severity only in PDFs (the publicportals search does have a
+  server-side last-inspection-date filter at the facility level, as Georgia
+  and Louisiana use; only coordinates are missing).
 - **Blocked or empty**: Kansas statewide (KDA portal behind reCAPTCHA v3 —
   never work around it; ask KDA for an extract), Irving TX (two abandoned
   ArcGIS snapshots; the live page is behind a Cloudflare challenge),
@@ -399,6 +417,61 @@ people covered per unit of work:
   against `data/certs/lewisville_ca_bundle.pem` (certifi plus that public
   intermediate, provenance in the file header) for that host only, and a
   chain change makes the group red, never insecure.
+- **MHD searches are one-day windows sorted on inspectionID.** Measured
+  2026-11-03 over 16 jurisdictions x 3 weeks: the portal's default order
+  (`'sort': {}`) pages unstably on inspectionDate ties — the weekly unsorted
+  7-day read lost 6-9% of each week's rows (Dallas 28/256, Fort Worth
+  22/192, Tarrant 27/190), always as rows repeated across pages — and ANY
+  multi-day window returns one row per permit (its latest inspection), so a
+  permit's Routine that earned a Follow-Up vanished (Plano 11/week).
+  `MHD_WINDOW_DAYS` is 1 and `MHD_DEFAULT_SORT` is inspectionID asc for every
+  plain jurisdiction (bucket entries keep the portal order; Orange County's
+  newest-225 poll must stay unsorted). `_mhd_pages_consistent` fails a sorted
+  query whose pages repeat a row (after one re-read) and the window then
+  RAISES so the group goes red — do not check key order: Gwinnett's sorted
+  pages are disjoint and complete but not in GUID order. Per-config `group`
+  puts heavy jurisdictions in 'MHD metros (midweek)' (one fetch group per
+  name, `_mhd_metro_groups`); per-config `exclude` drops rows by field regex;
+  `_mhd_group_lag_note` leaves the group's source-lag note. The 2026-11-03
+  backfill re-read the existing jurisdictions' last 90 days to recover the
+  lost rows.
+- **Maricopa County has no date filter outside a reCAPTCHA-gated report,
+  which is never used or worked around.** Every run re-lists all ~21.7k
+  permit pages (~52 min at `MCESD_LISTING_RATE`=7/s) before any detail page:
+  a listing cut ships nothing (held, 'skipped'), a detail cut drops the
+  newest tail (held). The county posts ~5 days late: `MCESD_POSTING_LAG_DAYS`
+  (21) widens every window and `--skip-known-inspections` keeps the re-read
+  cheap for embedded restaurants. One county item can cite several Food Code
+  sections, each its own violation line; a header Priority tally above the
+  citations read means a missed citation (page unread), below means a
+  suspension/re-inspection/corrected-on-site item the county does not tally
+  (logged). Grades are the county's voluntary cards, so `results` says 'Not
+  Participating' for ~a third of inspections while risk_score is computed.
+  Freshness has no per-permit scope: an unread permit page in a backfill run
+  holds the window at the backfill's start, so backfills run without
+  `--freshness-file` (the absorb step copies only a hold-free, forward-moving
+  group entry).
+- **Tyler publicportals (Georgia, Louisiana) filter on the FACILITY's last
+  inspection.** Every listed facility costs one `inspectionsData` call, a
+  facility inspected twice in the window is listed once and its earlier
+  visit comes from the history, which is why windows are single days and
+  inspections are deduped by id. Louisiana's search answers 500 without the
+  `keyword` key and treats both date bounds as strictly exclusive (one day =
+  from day-1, to day+1); its printable notices are a ~4-request token bucket
+  (one worker, Retry-After, `LA_PRINTABLE_MAX_PER_RUN`; a failed printable
+  ships the item titles, never a hold). A Georgia row has no county: the
+  county EH phone (`GA_ATLANTA_EH_PHONES`) is the only 'Atlanta' signal, and
+  Gwinnett/Newton/Rockdale are re-checked by county filter every run so they
+  stay on the MHD `gwinnett` slug.
+- **Backfills are chunked and absorbed, not refetched.** `--output-records`
+  dumps a run's inspection records (Jev reading included) and
+  `--input-records` feeds such files into a later run's data.js merge and D1
+  SQL with nothing fetched (`--cities` defaults to nothing then); absorbed
+  records are not re-read by Jev and never touch the freshness file. The
+  2026-11 backfills ran per source in detached worktrees
+  (`docs/expansion-2026-11/`), each chunk its own `data/d1_seed_<date>_<tag>_
+  <since>.sql.gz`; seeds in one push load in path order, so a chunk that
+  must win (Louisiana's narratives over the titles-only history) sorts last.
 
 ## Jev violation reader
 
@@ -429,9 +502,13 @@ impact and the open policy decisions; `scripts/jev_shadow.py` reproduces it.
   not `pests_unspecified`), `SCORE_FROM_TIERS_SOURCES` / `SOURCE_TIER_SOURCES`
   / `BOUNDED_TIER_SOURCES` (which sources may be re-scored or re-tiered), the
   chip and summary-severity maps. A source-stated tier never moves (Omaha,
-  Santa Clara, San Diego, Orange County and McKinney included: their
-  counties state it; McKinney's TX-form item points are the city's tiers and
-  its `risk_score` is the form score 100 − demerits, never recomputed).
+  Santa Clara, San Diego, Orange County, McKinney, Georgia, Louisiana and
+  Maricopa County included: their agencies state it; McKinney's TX-form item
+  points are the city's tiers and its `risk_score` is the form score 100 −
+  demerits, never recomputed; Georgia's (p)/(pf)/(c) designations carry its
+  official score; Louisiana's Critical/Non-Critical and Maricopa's
+  Priority/Priority Foundation/Core citations are scored `100 − 5P − 2PF − C`
+  by the fetcher, never re-tiered).
 - **An F needs a named vermin and a firm answer.** A `vermin_observed` answer
   counts only when the line names one (`NAMED_VERMIN_RE`, after removing the
   negated titles counties print on every pest item and generic code-title
