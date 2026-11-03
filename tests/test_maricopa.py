@@ -12,7 +12,9 @@ rows and ArcGIS features are verbatim). inspection_INSP-143596-2026.html
 (one item citing two Food Code sections with different tiers) and
 inspection_INSP-195554-2026.html (a re-inspection listing a re-checked item
 with empty comments) are two of the 15 pages the 2026-11-03 live run could
-not read, captured the same day."""
+not read, captured the same day. The odd address concats in the splitter
+tests are verbatim from the 2026-11-03 inventory of every zip (21,724 food
+permit rows): one with the state twice, nine with a nine-digit or cut zip."""
 import json
 import logging
 import os
@@ -143,6 +145,14 @@ def _by_id(records):
     return {r['source_id']: r for r in records}
 
 
+def _tempe_only_portal():
+    """A portal whose only food permits are Tempe's (newest row 9/26/2024)."""
+    portal = FakePortal()
+    portal.searches['85004'] = 'search_empty.json'
+    portal.searches['85022'] = 'search_empty.json'
+    return portal
+
+
 def _hold_keys():
     return sorted(dp._FRESHNESS_HOLDS.get(SOURCE, {}))
 
@@ -211,6 +221,12 @@ class PermitPageParserTests(unittest.TestCase):
         self.assertIsNone(dp._mcesd_parse_permit_page(page.replace('6 Inspections Retrieved',
                                                                    '7 Inspections Retrieved')))
         self.assertIsNone(dp._mcesd_parse_permit_page(page.replace('<tbody>', '<tbody><tr><td>x</td></tr>')))
+        # a date cell in a format the parser does not know is a layout change
+        # (the listing once skipped such rows silently: a green empty run)
+        for other in ('2026-10-19', '19/10/2026', 'Oct 19, 2026', ''):
+            self.assertIsNone(dp._mcesd_parse_permit_page(page.replace('10/19/2026', other)), other)
+        # a well-formed date out of range is that row's typo, not a layout change
+        self.assertEqual(len(dp._mcesd_parse_permit_page(page.replace('10/19/2026', '10/19/2031'))), 6)
 
 
 class DetailPageParserTests(unittest.TestCase):
@@ -265,6 +281,55 @@ class DetailPageParserTests(unittest.TestCase):
         # text inside the block that is not a violation is a layout change
         self.assertIsNone(dp._mcesd_parse_detail(page.replace('<h2>Violations</h2>', '<h2>Violations</h2><p>Some new block</p>')))
 
+    def test_comment_markup_changes_are_unread_not_clean(self):
+        # 1 PF + 2 Core, header tally 0: the page the Priority tally cannot
+        # protect. Every way the comments paragraph could stop matching must
+        # make the page unread; the old rule read an unmatched paragraph as
+        # the county's 'empty comments' entry and shipped a clean 100.
+        page = _load('inspection_INSP-067508-2026.html')
+        self.assertEqual(len(dp._mcesd_parse_detail(page)['violations']), 3)
+        for label, mutated in (
+                ('class added', page.replace("class='mb-1'", "class='mb-1 text-break'")),
+                ('class renamed', page.replace("<p class='mb-1'>", '<p class="comment-line">')),
+                ('class changed', page.replace("<p class='mb-1'>", '<p class="mb-2">')),
+                ('div instead of p', page.replace("<p class='mb-1'>", "<div class='mb-1'>")),
+                ('unknown paragraph in an entry', page.replace(
+                    '<p class="commentBlock mb-0">', '<p class="mb-0 text-warning">Corrected on site</p>'
+                    '<p class="commentBlock mb-0">', 1)),
+                ('description paragraph gone', page.replace(
+                    '<p class="mb-0"><span class="fw-bold">Description:</span> Adequate Handwashing Sinks, '
+                    'Properly Supplied and Accessible </p>', '', 1)),
+                ('heading but no entries', page[:page.index('<h2>Violations</h2>') + len('<h2>Violations</h2>')]
+                 + page[page.index('    </div>\n    <div class="row">'):]),
+                ('inner div with text', page.replace('<h2>Violations</h2>',
+                                                     '<div class="alert">Maintenance notice</div><h2>Violations</h2>')),
+                ('div#Violations never closed', page.replace('</p>    </div>\n    <div class="row">',
+                                                             '</p>\n    <div class="row">'))):
+            self.assertIsNone(dp._mcesd_parse_detail(mutated), label)
+        # the Priority page under the same class change is unread as well
+        prio = _load('inspection_INSP-026626-2024.html')
+        self.assertIsNone(dp._mcesd_parse_detail(prio.replace("class='mb-1'", "class='mb-1 text-break'")))
+        # a flag paragraph is the only other element an entry may carry, and
+        # a citation printed in one is not a flag
+        empty = _load('inspection_INSP-195554-2026.html')
+        self.assertIsNone(dp._mcesd_parse_detail(empty.replace(
+            '<p class="mb-0 text-danger">Repeat Violation</p>',
+            '<p class="mb-0 text-danger">3-501.16 - Priority: Cold holding</p>')))
+        # the block runs to its own closing tag: an inner div cannot cut it
+        # short (the first-</div> regex made an empty wrapper read as clean)
+        wrapped = page.replace('<h2>Violations</h2>', '<div class="alert"></div><h2>Violations</h2>')
+        self.assertEqual(len(dp._mcesd_parse_detail(wrapped)['violations']), 3)
+        wrapped = page.replace('<h2>Violations</h2>', '<h2>Violations</h2><div class="entries">').replace(
+            '</p>    </div>\n    <div class="row">', '</p></div>    </div>\n    <div class="row">')
+        self.assertEqual(len(dp._mcesd_parse_detail(wrapped)['violations']), 3)
+        clean = _load('inspection_zero_violations.html')
+        self.assertEqual(dp._mcesd_parse_detail(clean.replace('id="Violations">', 'id="Violations"><div></div>'))['violations'], [])
+        self.assertIsNone(dp._mcesd_parse_detail(clean.replace('id="Violations">', 'id="Violations"><h2>Violations</h2>')))
+        self.assertEqual(dp._mcesd_violations_block('<div id="Violations"><div>a</div><p>b</p></div><div>c</div>'),
+                         '<div>a</div><p>b</p>')
+        self.assertIsNone(dp._mcesd_violations_block('<div id="Violations"><div>a</div>'))
+        self.assertIsNone(dp._mcesd_violations_block('<div id="Other"></div>'))
+
     def test_violation_without_observation_keeps_the_code_phrase(self):
         chunk = ('<p class="mb-0 mt-3"><span class="fw-bold">Violation #:</span> 20</p>'
                  '<p class="mb-0"><span class="fw-bold">Description:</span> Proper Cooling Time and Temperatures </p>'
@@ -275,6 +340,15 @@ class DetailPageParserTests(unittest.TestCase):
                          [('20', 'Proper Cooling Time and Temperatures', 'priority',
                            'Proper Cooling Time and Temperatures: Cooling')])
         self.assertIsNone(dp._mcesd_violation(chunk.replace(' - Priority:', ' - Major:')))
+        # an entry adds nothing only when its comments paragraph is present
+        # and empty; no comments paragraph at all is a layout change
+        empty_para = chunk[:chunk.index("<p class='mb-1'>")] + "<p class='mb-1'></p>"
+        self.assertEqual(dp._mcesd_violation(empty_para), [])
+        self.assertEqual(dp._mcesd_violation(empty_para.replace(
+            '<p class="mb-0"><span', '<p class="mb-0 text-danger">Repeat Violation</p><p class="mb-0"><span')), [])
+        self.assertIsNone(dp._mcesd_violation(chunk[:chunk.index("<p class='mb-1'>")]))
+        self.assertIsNone(dp._mcesd_violation(empty_para.replace("<p class='mb-1'>", "<p class='mb-1 x'>")))
+        self.assertIsNone(dp._mcesd_violation(empty_para + '<p class="mb-0">Observed gravy at 95F.</p>'))
         # a code phrase that only repeats the item title is not repeated
         same = chunk.replace('Priority: Cooling.', 'Priority: Proper Cooling Time and Temperatures.')
         self.assertEqual(dp._mcesd_violation(same)[0][3], 'Proper Cooling Time and Temperatures')
@@ -352,9 +426,26 @@ class HelperTests(unittest.TestCase):
             '26602 W MC 85 BUCKEYE AZ 85326': ('26602 W MC 85', 'BUCKEYE', '85326'),
             '123 E VIA LINDA SCOTTSDALE AZ 85258': ('123 E VIA LINDA', 'SCOTTSDALE', '85258'),
             '': ('', '', ''),
+            # live quirks (2026-11-03 inventory): the state twice with the
+            # city's comma, a nine-digit zip, a cut +4, a comma in the
+            # street, a highway number; the first two must give the plain
+            # form's street and city (both are id inputs)
+            '1825 N central AVE Phoenix, AZ AZ 85004': ('1825 N central AVE', 'Phoenix', '85004'),
+            '100 N 1ST ST PHOENIX, AZ 85004': ('100 N 1ST ST', 'PHOENIX', '85004'),
+            '100 N 1ST ST, PHOENIX AZ 85004': ('100 N 1ST ST', 'PHOENIX', '85004'),
+            '1 W MAIN ST SUN CITY, AZ AZ 85351': ('1 W MAIN ST', 'SUN CITY', '85351'),
+            'PHOENIX, AZ AZ 85004': ('', 'PHOENIX', '85004'),
+            '1155 W OCOTILLO RD, AZ 85240': ('1155 W OCOTILLO RD', '', '85240'),
+            '475 E Bell RD Phoenix AZ 850222301': ('475 E Bell RD', 'Phoenix', '85022'),
+            '6675 W Lower Buckeye RD Phoenix AZ 85043-22': ('6675 W Lower Buckeye RD', 'Phoenix', '85043'),
+            '2050 E Williams Field RD Gilbert AZ 85295-727': ('2050 E Williams Field RD', 'Gilbert', '85295'),
+            '176 Wickenburg, Way Wickenburg AZ 85390': ('176 Wickenburg, Way', 'Wickenburg', '85390'),
+            '16752 AZ-74 Peoria AZ 85383': ('16752 AZ-74', 'Peoria', '85383'),
         }
         for concat, expected in cases.items():
             self.assertEqual(dp._mcesd_split_address(concat), expected, concat)
+        # 'AZ' is never a city
+        self.assertNotIn('AZ', [dp._mcesd_split_address(c)[1].upper() for c in cases])
 
     def test_permit_filter(self):
         row = {'permitId': 'FD-00570', 'permitType': 'Food Establishment - Eating & Drinking',
@@ -376,6 +467,19 @@ class HelperTests(unittest.TestCase):
         self.assertIsNone(dp._mcesd_permit({}))
         no_city = dp._mcesd_permit(dict(row, businessAddressConcat='1155 W OCOTILLO RD AZ 85240'))
         self.assertEqual((no_city['address'], no_city['city'], no_city['zip']), ('1155 W Ocotillo Rd', '', '85240'))
+        # the live row with the state twice (FD2602157) gets the same id as
+        # the plain form would, not city 'Az' and a street ending in 'Phoenix,'
+        twice = dp._mcesd_permit({'permitId': 'FD2602157', 'permitType': 'Food Establishment - Eating & Drinking',
+                                  'businessName': 'The Phoenix Theatre Company',
+                                  'businessAddressConcat': '1825 N central AVE Phoenix, AZ AZ 85004'})
+        self.assertEqual((twice['address'], twice['city'], twice['zip']), ('1825 N central AVE', 'Phoenix', '85004'))
+        plain = dp._mcesd_permit({'permitId': 'FD2602157', 'permitType': 'Food Establishment - Eating & Drinking',
+                                  'businessName': 'The Phoenix Theatre Company',
+                                  'businessAddressConcat': '1825 N central AVE Phoenix AZ 85004'})
+        self.assertEqual(dp.make_restaurant_id(twice['name'], twice['address'], twice['city']),
+                         dp.make_restaurant_id(plain['name'], plain['address'], plain['city']))
+        nine = dp._mcesd_permit(dict(row, businessAddressConcat='475 E Bell RD Phoenix AZ 850222301'))
+        self.assertEqual((nine['address'], nine['city'], nine['zip']), ('475 E Bell RD', 'Phoenix', '85022'))
 
     def test_skipped_purposes(self):
         for purpose in ('Food Advisory Inspection', 'Food AMC Trainings', 'Food Review Inspection'):
@@ -674,7 +778,12 @@ class WindowAndLimitTests(MaricopaTestCase):
         self.assertEqual(len(holds), 13)
         self.assertIn('2026-04-07|INSP-179467-2025', holds)
         self.assertTrue(all(counted for counted, _ in holds.values()))    # tried and failed: counted
-        self.assertNotIn(GROUP, dp._GROUP_STATUS)                           # per-record drops are not red
+        # 13 pages the portal answered without an inspection is well past
+        # MCESD_UNREAD_ERROR_MIN: red, so a blind spot cannot drain quietly
+        status, detail = dp._GROUP_STATUS[GROUP]
+        self.assertEqual(status, 'error')
+        self.assertIn("13 detail pages answered but gave no inspection (0 not readable, 13 'Inspection Not Available')", detail)
+        self.assertEqual(dp._MCESD_LAST_STATS['inventory_bounded'], False)
         legacy = _by_id(records)['mcesd_FD-12738_5663423-MCESD']
         self.assertEqual((legacy['priority_violations'], legacy['priority_foundation_violations'],
                           legacy['core_violations'], legacy['risk_score']), (1, 1, 1, 92))
@@ -702,6 +811,24 @@ class WindowAndLimitTests(MaricopaTestCase):
         self.assertEqual(len(records), 2)
         self.assertIn(GROUP, dp._GROUP_NOTES)
         self.assertIn('2024-09-26', dp._GROUP_NOTES[GROUP])
+        # the weekly run passes limit=50000: a limit that stopped nothing is
+        # not a bounded read, so the note is still left
+        dp._GROUP_NOTES.clear()
+        with mock.patch.object(dp, 'MCESD_MIN_FOOD_PERMITS', 1):
+            records, _ = run_fetch(_tempe_only_portal(), since='2024-01-01', limit=50000)
+        self.assertEqual(len(records), 2)
+        self.assertIn('2024-09-26', dp._GROUP_NOTES[GROUP])
+
+    def test_implausible_row_dates_are_skipped_and_counted(self):
+        portal = FakePortal()
+        portal.permits['FD-00408'] = FakeResponse(_load('permit_FD-00408.html').replace('10/19/2026', '10/19/2031'))
+        records, portal = run_fetch(portal, since='2026-08-01')
+        self.assertEqual(sorted(_by_id(records)), ['mcesd_FD-00570_INSP-067508-2026', 'mcesd_FD-00571_INSP-900001-2026',
+                                                   'mcesd_FD2602160_INSP-900002-2026'])
+        self.assertEqual(portal.detail_requests('FD-00408'), 0)
+        self.assertEqual(dp._MCESD_LAST_STATS['implausible_dates'], 1)
+        self.assertEqual(dp._MCESD_LAST_STATS['permit_pages_unread'], 0)
+        self.assertNotIn(GROUP, dp._GROUP_STATUS)
 
     def test_skip_known_inspections_are_not_detailed(self):
         rid = dp.make_restaurant_id('Renaissance Phoenix Downtown', '100 N 1St St', 'Phoenix')
@@ -753,12 +880,31 @@ class FailureTests(MaricopaTestCase):
             run_fetch(portal, since='2026-08-01')
         self.assertEqual(sum(1 for m, u in portal.calls if m == 'POST' and u.endswith('#85004')), dp.MCESD_ATTEMPTS)
 
-    def test_an_implausibly_small_inventory_raises_but_not_in_test_mode(self):
+    def test_inventory_floor_applies_to_every_scan_the_limit_did_not_stop(self):
         with mock.patch.object(dp, 'MCESD_MIN_FOOD_PERMITS', 50):
             with self.assertRaises(RuntimeError):
                 run_fetch(since='2026-08-01')
+            # test mode: the scan stopped at its limit, so the count says nothing
             records, _ = run_fetch(limit=2)
             self.assertEqual(len(records), 2)
+            self.assertEqual(dp._MCESD_LAST_STATS['inventory_bounded'], True)
+            # the weekly run's limit of 50,000 stops nothing: the floor applies
+            with self.assertRaises(RuntimeError) as ctx:
+                run_fetch(since='2026-08-01', limit=50000)
+            self.assertIn('7 food permits', str(ctx.exception))
+        # the failure the floor exists for: a renamed search field answers
+        # 200 with an empty list for every zip; weekly, that must be red,
+        # never a green 'empty' run
+        portal = FakePortal()
+        for z in ('85003', '85004', '85005', '85022', '85281', '95040'):
+            portal.searches[z] = 'search_empty.json'
+        with self.assertRaises(RuntimeError) as ctx:
+            run_fetch(portal, since='2026-10-20T00:00:00', limit=50000)
+        self.assertIn('0 food permits', str(ctx.exception))
+        self.assertEqual(portal.detail_requests(), 0)
+        self.assertNotIn(GROUP, dp._GROUP_STATUS)
+        with self.assertRaises(RuntimeError):
+            run_fetch(portal, limit=25)                       # test mode too: 0 < 25, nothing stopped the scan
 
     def test_arcgis_zip_list_failure_falls_back_to_the_static_range(self):
         def boom(url, params=None, headers=None, timeout=None):
@@ -799,8 +945,21 @@ class FailureTests(MaricopaTestCase):
             '2026-08-18|INSP-067508-2026': (True, False),
             '2026-08-18|INSP-900001-2026': (True, False),
         })
-        self.assertNotIn(GROUP, dp._GROUP_STATUS)
+        self.assertNotIn(GROUP, dp._GROUP_STATUS)                     # two answered-but-unread pages: below the floor
         self.assertEqual(dp._MCESD_LAST_STATS['dropped'], {'download': 1, 'unread': 1, 'unavailable': 1})
+        # every dropped id is in the log (a blind spot is diagnosed from it),
+        # and from MCESD_UNREAD_ERROR_MIN answered-but-unread pages the group is red
+        dp._FRESHNESS_HOLDS.clear()
+        with mock.patch.object(dp, 'MCESD_UNREAD_ERROR_MIN', 2), self.assertLogs(dp.log, level='WARNING') as logs:
+            records, portal = run_fetch(portal, since='2026-08-01')
+        self.assertEqual([r['source_id'] for r in records], ['mcesd_FD2602160_INSP-900002-2026'])
+        status, detail = dp._GROUP_STATUS[GROUP]
+        self.assertEqual(status, 'error')
+        self.assertIn("2 detail pages answered but gave no inspection (1 not readable, 1 'Inspection Not Available')", detail)
+        joined = '\n'.join(logs.output)
+        for dropped in ('download: FD-00408/INSP-026373-2026', 'unread: FD-00570/INSP-067508-2026',
+                        'unavailable: FD-00571/INSP-900001-2026'):
+            self.assertIn(dropped, joined)
 
     def test_deadline_before_the_inventory_ships_nothing_and_reports_skipped(self):
         dp._FETCH_DEADLINE = time.time() - 1
@@ -857,7 +1016,11 @@ class FailureTests(MaricopaTestCase):
         self.assertEqual(len({u for m, u in portal.calls if '/Permit/' in u}), 5)
         self.assertEqual(dp._GROUP_STATUS[GROUP][0], 'blocked')
         self.assertIn('2026-08-03|', dp._FRESHNESS_HOLDS[SOURCE])
-        self.assertEqual(dp._FRESHNESS_HOLDS[SOURCE]['2026-08-03|'], (False, False))
+        # the window hold and the five permits the block ate: held, none counted
+        # against the permit (the block, not the page, failed)
+        self.assertEqual(len(dp._FRESHNESS_HOLDS[SOURCE]), 6)
+        self.assertTrue(all(v == (False, False) for v in dp._FRESHNESS_HOLDS[SOURCE].values()),
+                        dp._FRESHNESS_HOLDS[SOURCE])
 
     def test_breaker_stops_blocked_details(self):
         portal = FakePortal()
@@ -869,6 +1032,17 @@ class FailureTests(MaricopaTestCase):
         self.assertEqual(portal.detail_requests(), 2 * dp.MCESD_ATTEMPTS)
         held = dp._FRESHNESS_HOLDS[SOURCE]
         self.assertEqual(sorted(v for v in held.values()), [(False, False), (False, False), (True, False), (True, False)])
+        self.assertEqual(dp._GROUP_STATUS[GROUP][0], 'blocked')
+        # a portal answering 'Inspection Not Available' for every page is as
+        # blocked as one answering 403: those pages count toward the streak
+        dp._FRESHNESS_HOLDS.clear(); dp._GROUP_STATUS.clear()
+        portal = FakePortal()
+        for key in DETAILS:
+            portal.details[key] = 'inspection_not_available.html'
+        with mock.patch.object(dp, 'MCESD_BREAKER_TRIP', 2):
+            records, portal = run_fetch(portal, since='2026-08-01')
+        self.assertEqual(records, [])
+        self.assertEqual(portal.detail_requests(), 2)
         self.assertEqual(dp._GROUP_STATUS[GROUP][0], 'blocked')
 
     def test_arcgis_points_failure_ships_records_without_coordinates(self):

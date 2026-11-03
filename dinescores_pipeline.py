@@ -7707,21 +7707,28 @@ def fetch_louisiana(since_date=None, limit=None):
 #      the permit as key and the group goes red). Rows dated inside the
 #      window whose (restaurant, date) is not already stored go on.
 #   3. DETAIL     GET /Inspection/{permitId}/{inspectionId}, oldest first:
-#      the header labels plus div#Violations, whose 'Comments:' text states
-#      each line's tier in two generations of wording (2024+ ' - Priority:' /
-#      ' - Priority Foundation:' / ' - Core:' with the observation after
-#      'Addl Notes:'; legacy ', P:' / ', Pf:' / ', C:' with it after '>>>').
-#      One county item can cite several sections, each with its own tier
-#      and notes: every citation is its own violation line. A page without
-#      the markers, with text in the block that is not an entry, or with an
-#      entry whose comments carry a tier the parser cannot read is UNREAD
-#      (dropped and held), never clean; a present-but-empty div#Violations
-#      is a real clean inspection and an entry printed with no comments at
-#      all (a re-inspection's re-checked item) adds nothing (both verified
-#      on live pages). A header Priority tally above the Priority citations
-#      read is UNREAD too (a citation the parser missed); one below them is
-#      only logged: the county does not tally a suspension's or a
-#      re-inspection's citations, nor one corrected on site.
+#      the header labels plus div#Violations (read to its OWN closing tag,
+#      nested divs counted), whose 'Comments:' text states each line's tier
+#      in two generations of wording (2024+ ' - Priority:' / ' - Priority
+#      Foundation:' / ' - Core:' with the observation after 'Addl Notes:';
+#      legacy ', P:' / ', Pf:' / ', C:' with it after '>>>'). One county
+#      item can cite several sections, each with its own tier and notes:
+#      every citation is its own violation line. An entry is five kinds of
+#      paragraph (number, description, the 'Comments:' label, the comments,
+#      a 'Repeat Violation' flag): any other text inside it, a missing
+#      number or description, no comments paragraph at all, text in
+#      the block that is not an entry, a block headed 'Violations' with no
+#      entry, or a tier the parser cannot read makes the page UNREAD
+#      (dropped and held), never clean. A whitespace-only div#Violations is
+#      a real clean inspection, and an entry whose comments paragraph is
+#      PRESENT and empty (a re-inspection's re-checked item) adds nothing:
+#      both verified on live pages. A comments paragraph the parser cannot
+#      find is a layout change, never an empty entry: that rule once made a
+#      renamed paragraph class ship every PF/Core-only page as a clean 100.
+#      A header Priority tally above the Priority citations read is UNREAD
+#      too (a citation the parser missed); one below them is only logged:
+#      the county does not tally a suspension's or a re-inspection's
+#      citations, nor one corrected on site.
 # The county publishes no numeric score: original_score is None and
 # risk_score = 100 - 5P - 2PF - C from the source-stated tiers (the label is
 # in jev_reader's SOURCE_TIER_SCORE_SOURCES / SOURCE_TIER_SOURCES, so Jev
@@ -7732,10 +7739,33 @@ def fetch_louisiana(since_date=None, limit=None):
 # geometry); permits without a point ship with None and main() geocodes.
 # Identity (make_restaurant_id) comes from the search row's businessName and
 # its 'STREET CITY AZ ZIP' concat split with MCESD_MULTIWORD_CITIES — never
-# from the ArcGIS City field, which carries typos (AONVDALE, PHEONIX).
+# from the ArcGIS City field, which carries typos (AONVDALE, PHEONIX). The
+# concat's quirks, each seen on live rows 2026-11-03 (21,724 food rows): the
+# state twice with the city's comma ('1825 N central AVE Phoenix, AZ AZ
+# 85004'), a nine-digit zip without its hyphen ('850222301') or a cut +4
+# ('85043-22'), a comma inside the street ('176 Wickenburg, Way'), a highway
+# number ('AZ-74') and two rows with no city at all. The splitter normalises
+# the first two (city and address are id inputs, so 'Az' as a city or a zip
+# inside the street would strand a restaurant's history once fixed) and
+# leaves the street as printed otherwise.
 # No run-to-run inventory count comparison: a fetcher has no sane place to
 # persist last week's count (the freshness file belongs to _record_group),
-# so MCESD_MIN_FOOD_PERMITS catches a collapsed inventory instead.
+# so MCESD_MIN_FOOD_PERMITS catches a collapsed inventory instead, on every
+# scan the record limit did not stop (the weekly run passes limit=50,000,
+# which is not a test mode: only a scan that stopped AT its limit is
+# exempt, and only such a scan leaves no source-lag note). Detail pages the
+# portal answered but that gave no inspection ('unread': a page the parser
+# rejects; 'unavailable': the app's 'Inspection Not Available') are dropped
+# and held like any other failure and, from MCESD_UNREAD_ERROR_MIN of them
+# in one run, make the group 'error' with every id in the log: a parser
+# blind spot is a steady percentage, not a transient, and a held record is
+# given up after FRESHNESS_HOLD_GIVE_UP_RUNS runs. An unread PERMIT page
+# holds the window at the requested start (freshness has no per-permit
+# scope): free in weekly mode, whose window already reaches back
+# MCESD_POSTING_LAG_DAYS, but a --since-date backfill WITH --freshness-file
+# would pin the next weeklies' window at the backfill's start for up to
+# three runs (re-detailing only rows not in SKIP_KNOWN_INSPECTIONS), so a
+# backfill runs without the freshness file.
 
 MCESD_BASE = 'https://envapp.maricopa.gov'
 MCESD_SEARCH_URL = MCESD_BASE + '/Search/Results'
@@ -7786,6 +7816,8 @@ MCESD_TIMEOUT = 60
 MCESD_ATTEMPTS = 3                   # tries per request on 429/5xx/transport errors
 MCESD_BACKOFF = (3, 8)               # seconds between those tries
 MCESD_BREAKER_TRIP = 25              # consecutive unreadable pages = the portal is blocking
+MCESD_UNREAD_ERROR_MIN = 5           # detail pages answered but giving no inspection (parser-rejected
+                                     # or 'Not Available') in one run before the group is 'error'
 MCESD_ARCGIS_CHUNK = 60              # permit ids per ArcGIS 'LicenseNumber IN (...)' GET: 75 ids
                                      # (1,739-char URL) answered 200, 100 ids (2,239 chars) 404
 # Visits that are not inspections: advisory visits (consultations, no grade,
@@ -7810,7 +7842,10 @@ MCESD_MULTIWORD_CITIES = tuple(sorted((
     'RIO VERDE', 'SAN TAN VALLEY', 'SUN CITY WEST', 'SUN CITY', 'SUN LAKES',
     'TORTILLA FLAT',
 ), key=len, reverse=True))
-MCESD_CONCAT_RE = re.compile(r'^(?P<body>.*?)\s+AZ\s+(?P<zip>\d{5})(?:-\d{4})?\s*$', re.I)
+# The tail is 'AZ 85004', 'AZ 85004-1234', a nine-digit 'AZ 850222301' or a
+# cut 'AZ 85043-22' (all live); the first five digits are the zip.
+MCESD_CONCAT_RE = re.compile(r'^(?P<body>.*?)\s+AZ\s+(?P<zip>\d{5})(?:-?\d{1,4})?\s*$', re.I)
+MCESD_STATE_TAIL_RE = re.compile(r'(?:[\s,]+AZ)+$', re.I)     # 'Phoenix, AZ AZ 85004': the state twice
 MCESD_RETRIEVED_RE = re.compile(r'(\d+)\s+Inspections?\s+Retrieved')
 MCESD_TBODY_RE = re.compile(r'<tbody>(.*?)</tbody>', re.S)
 MCESD_TR_RE = re.compile(r'<tr>(.*?)</tr>', re.S)
@@ -7819,7 +7854,15 @@ MCESD_LINK_RE = re.compile(r'href="/Inspection/([^/"]+)/([^/"]+)"')
 MCESD_TAG_RE = re.compile(r'<[^>]+>')
 MCESD_HEADER_RE = re.compile(
     r'<span class="fw-bold">([^<]+)</span><br\s*/?>\s*(?:<span>)?(.*?)(?:</span>)?\s*</div>', re.S)
-MCESD_VIOLATIONS_DIV_RE = re.compile(r'<div[^>]*\bid="Violations"[^>]*>(.*?)</div>', re.S)
+MCESD_VIOLATIONS_OPEN_RE = re.compile(r'<div[^>]*\bid="Violations"[^>]*>')
+MCESD_DIV_TAG_RE = re.compile(r'<(/?)div\b[^>]*>', re.I)
+MCESD_VIOLATIONS_H2_RE = re.compile(r'<h2>\s*Violations\s*</h2>')
+# A violation entry is five kinds of paragraph (every live page, 2026-11-03):
+# number, description, the 'Comments:' label, the comments (MCESD_PARA_RE)
+# and the 'Repeat Violation' flag. Outside the comments and the flags its
+# visible text must be exactly the labels, number and title: any other text
+# is a layout change the parser does not know, so the page is unread.
+MCESD_FLAG_RE = re.compile(r'<p class="mb-0 text-danger">(.*?)</p>', re.S)
 MCESD_VIOLATION_NUM_RE = re.compile(r'<span class="fw-bold">Violation #:</span>\s*([^<]*?)\s*</p>')
 MCESD_DESC_RE = re.compile(r'<span class="fw-bold">Description:</span>(.*?)</p>', re.S)
 MCESD_PARA_RE = re.compile(r'<p class=[\'"]mb-1[\'"]>(.*?)</p>', re.S)
@@ -7876,22 +7919,26 @@ def _mcesd_text(fragment):
 
 def _mcesd_split_address(concat):
     """'12223 N CAVE CREEK RD PHOENIX AZ 85022' -> ('12223 N CAVE CREEK RD',
-    'PHOENIX', '85022'). A concat without the 'AZ ZIP' tail is all street."""
+    'PHOENIX', '85022'). A concat without the 'AZ ZIP' tail is all street.
+    A state printed twice and a comma after the city ('1825 N central AVE
+    Phoenix, AZ AZ 85004') give the same street and city as the plain form:
+    both are make_restaurant_id inputs."""
     s = ' '.join(str(concat or '').split())
     m = MCESD_CONCAT_RE.match(s)
     if not m:
         return s, '', ''
-    body, zip5 = m.group('body').strip(), m.group('zip')
+    zip5 = m.group('zip')
+    body = MCESD_STATE_TAIL_RE.sub('', m.group('body').strip()).strip(' ,.')
     upper = body.upper()
     for city in MCESD_MULTIWORD_CITIES:
         if upper.endswith(' ' + city):
-            return body[:-len(city)].strip(), body[-len(city):], zip5
+            return body[:-len(city)].strip(' ,.'), body[-len(city):], zip5
     parts = body.rsplit(' ', 1)
     if len(parts) == 2:
-        last = parts[1]
-        if last.upper().strip('.,') in MCESD_STREET_SUFFIXES or last.strip('#').isdigit():
+        last = parts[1].strip('.,')
+        if not last or last.upper() in MCESD_STREET_SUFFIXES or last.strip('#').isdigit():
             return body, '', zip5            # the county left the city out
-        return parts[0], last, zip5
+        return parts[0].strip(' ,.'), last, zip5
     return '', body, zip5                    # a lone word is the city; no street
 
 
@@ -8013,19 +8060,24 @@ def _mcesd_permit(row):
 
 
 def _mcesd_inventory(session_for, zips, limit, stats):
-    """permitId -> permit dict over `zips` (deterministic order). Raises on a
-    search that cannot be read; returns None when the deadline cut the scan.
-    With `limit` (test mode) the scan stops once that many food permits are
-    known: a bounded read, never checked against MCESD_MIN_FOOD_PERMITS."""
+    """(permitId -> permit dict over `zips` in deterministic order, bounded):
+    `bounded` is True when the scan stopped because `limit` food permits were
+    already known (test mode's 25) rather than at the last zip, so the
+    caller knows whether the count may be checked against
+    MCESD_MIN_FOOD_PERMITS; `limit` itself says nothing about the mode (the
+    weekly run passes 50,000). Raises on a search that cannot be read;
+    (None, False) when the deadline cut the scan."""
     pacer = _McesdPacer(MCESD_SEARCH_RATE)
     permits, rows_seen, scanned = {}, 0, 0
     other_types, junk = defaultdict(int), 0
+    bounded = False
     batch = max(1, MCESD_SEARCH_WORKERS) * 4
     with ThreadPoolExecutor(max_workers=max(1, MCESD_SEARCH_WORKERS)) as pool:
         for i in range(0, len(zips), batch):
             if _past_deadline():
-                return None
+                return None, False
             if limit and len(permits) >= limit:
+                bounded = True
                 break
             chunk = zips[i:i + batch]
             for rows in pool.map(lambda z: _mcesd_search_zip(session_for(), z, pacer, stats), chunk):
@@ -8051,14 +8103,17 @@ def _mcesd_inventory(session_for, zips, limit, stats):
         # Visible on purpose: a renamed permit type would otherwise vanish quietly.
         top = sorted(other_types.items(), key=lambda kv: -kv[1])[:8]
         log.info("  Maricopa: permit types not shipped: " + ', '.join(f"{t} ({n})" for t, n in top))
-    return permits
+    return permits, bounded
 
 
 def _mcesd_parse_permit_page(text):
     """The inspection rows of a permit page, or None when the page is not a
     complete permit page: no 'N Inspections Retrieved' marker, no table, a
-    row without its seven cells and detail link, or a row count that
-    disagrees with the marker (a layout change must read as unread)."""
+    row without its seven cells and detail link, a date cell that is not
+    'M/D/YYYY', or a row count that disagrees with the marker (a layout
+    change must read as unread, never as a shorter history; the listing
+    once skipped every row whose date it could not parse, so a new date
+    format would have been a green empty run)."""
     m = MCESD_RETRIEVED_RE.search(text or '')
     if not m:
         return None
@@ -8071,6 +8126,10 @@ def _mcesd_parse_permit_page(text):
         cells = MCESD_TD_RE.findall(tr)
         link = MCESD_LINK_RE.search(tr)
         if len(cells) < 6 or not link:
+            return None
+        try:
+            datetime.strptime(_mcesd_text(cells[0]), '%m/%d/%Y')
+        except ValueError:
             return None
         rows.append({'date': _mcesd_text(cells[0]), 'purpose': _mcesd_text(cells[1]),
                      'grade': _mcesd_text(cells[2]), 'status': _mcesd_text(cells[3]),
@@ -8119,16 +8178,29 @@ def _mcesd_citations(comments):
 
 def _mcesd_violation(chunk):
     """[(number, title, severity, text), ...] for one 'Violation #:' entry,
-    one tuple per code citation it carries; [] for an entry the county
-    printed with no comments at all (a re-inspection lists the re-checked
-    item that way); None when comments are present but a citation's tier
-    cannot be read (then the whole page is unread)."""
+    one tuple per code citation it carries; [] for an entry whose comments
+    paragraph is PRESENT and empty (a re-inspection lists the re-checked
+    item that way); None when the entry is not one the parser knows (then
+    the whole page is unread): no number or description, text outside its
+    comments and flag paragraphs beyond the labels, number and title, a
+    flag paragraph carrying a citation, no comments paragraph at all (a
+    renamed class must not read as an empty entry), or a citation's tier
+    that cannot be read."""
     num_m = MCESD_VIOLATION_NUM_RE.search(chunk)
     desc_m = MCESD_DESC_RE.search(chunk)
-    paras = [_mcesd_text(p) for p in MCESD_PARA_RE.findall(chunk)]
-    comments = ' '.join(p for p in paras if p)
-    title = _mcesd_text(desc_m.group(1)) if desc_m else ''
-    number = _mcesd_text(num_m.group(1)) if num_m else ''
+    if not num_m or not desc_m:
+        return None
+    title = _mcesd_text(desc_m.group(1))
+    number = _mcesd_text(num_m.group(1))
+    if any(MCESD_CODE_RE.search(f) or MCESD_TIER_MARK_RE.search(f) for f in MCESD_FLAG_RE.findall(chunk)):
+        return None                          # a citation printed where only a flag belongs
+    rest = _mcesd_text(MCESD_FLAG_RE.sub(' ', MCESD_PARA_RE.sub(' ', chunk)))
+    if rest != _mcesd_text(f'Violation #: {number} Description: {title} Comments:'):
+        return None                          # text in the entry the parser does not know
+    raw_paras = MCESD_PARA_RE.findall(chunk)
+    if not raw_paras:
+        return None                          # no comments paragraph: a layout change, not an empty entry
+    comments = ' '.join(p for p in (_mcesd_text(p) for p in raw_paras) if p)
     if not comments:
         return []
     cites = _mcesd_citations(comments)
@@ -8163,13 +8235,30 @@ def _mcesd_violation(chunk):
     return out
 
 
+def _mcesd_violations_block(text):
+    """The inner HTML of div#Violations up to its OWN closing tag (nested
+    divs counted, so an inner div the county might add can never cut the
+    block short and make a page read as clean), or None when the div is
+    missing or never closed."""
+    m = MCESD_VIOLATIONS_OPEN_RE.search(text or '')
+    if not m:
+        return None
+    depth = 1
+    for t in MCESD_DIV_TAG_RE.finditer(text, m.end()):
+        depth += -1 if t.group(1) else 1
+        if depth == 0:
+            return text[m.end():t.start()]
+    return None
+
+
 def _mcesd_parse_detail(text):
     """{'header': {...}, 'violations': [(num, title, severity, text), ...],
     'empty_entries': n, 'priority_mismatch': bool} for an inspection detail
     page, or None when the page is not a complete one: missing header labels
     or div#Violations (the 'Inspection Not Available' page, an error page),
-    text in the block that is not a violation entry, or an entry with
-    comments whose tier cannot be read. An empty div#Violations with the
+    text in the block that is not a violation entry, a block headed
+    'Violations' with no entry the parser can see, or an entry it does not
+    know (see _mcesd_violation). A whitespace-only div#Violations with the
     header present is a real clean inspection. The header's 'Priority
     Violation' tally ABOVE the Priority citations read is unread too (every
     such page of the first live run was a second citation the parser had
@@ -8179,23 +8268,25 @@ def _mcesd_parse_detail(text):
     header = {_mcesd_text(k): _mcesd_text(v) for k, v in MCESD_HEADER_RE.findall(text or '')}
     if 'Inspection Date' not in header or 'Inspection Status' not in header:
         return None
-    m = MCESD_VIOLATIONS_DIV_RE.search(text)
-    if not m:
+    block = _mcesd_violations_block(text)
+    if block is None:
         return None
-    block = m.group(1)
     chunks = re.split(r'(?=<p[^>]*>\s*<span class="fw-bold">Violation #:</span>)', block)
-    violations, empty = [], 0
+    violations, empty, entries = [], 0, 0
     for chunk in chunks:
         if 'Violation #:' not in chunk:
-            if _mcesd_text(chunk).replace('Violations', '').strip():
+            if _mcesd_text(chunk) not in ('', 'Violations'):
                 return None                 # text in the block that is not a violation
             continue
+        entries += 1
         v = _mcesd_violation(chunk)
         if v is None:
             return None
         if not v:
             empty += 1
         violations.extend(v)
+    if not entries and MCESD_VIOLATIONS_H2_RE.search(block):
+        return None                         # headed 'Violations', yet no entry the parser can see
     stated = header.get('Priority Violation', '')
     parsed_p = sum(1 for v in violations if v[2] == 'priority')
     if stated.isdigit() and int(stated) > parsed_p:
@@ -8262,12 +8353,15 @@ def fetch_maricopa(since_date=None, limit=None):
 
     # 1. Inventory: every food permit, or raise.
     zips = _mcesd_zip_list()
-    permits = _mcesd_inventory(session_for, zips, limit, stats)
+    permits, bounded = _mcesd_inventory(session_for, zips, limit, stats)
     if permits is None:
         _set_group_status(MCESD_GROUP, 'skipped', 'fetch deadline reached during the permit inventory')
         log.warning("  Maricopa: fetch deadline reached during the permit inventory; nothing shipped")
         return []
-    if not limit and len(permits) < MCESD_MIN_FOOD_PERMITS:
+    # A scan the limit did not stop saw every zip: too few permits means the
+    # search broke (a renamed form field answers 200 with an empty list for
+    # every zip), whatever the limit was. The weekly run passes 50,000.
+    if not bounded and len(permits) < MCESD_MIN_FOOD_PERMITS:
         raise RuntimeError(f"Maricopa inventory implausibly small: {len(permits)} food permits "
                            f"from {stats.counts['zips_scanned']} zips (floor {MCESD_MIN_FOOD_PERMITS})")
     t_inventory = time.time() - started
@@ -8281,7 +8375,7 @@ def fetch_maricopa(since_date=None, limit=None):
     candidates, seen = [], set()
     unread, newest, read_pages, cut = [], '', 0, None
     last_logged = 0
-    skipped_known = 0
+    skipped_known = implausible_dates = 0
     skipped_purpose = defaultdict(int)
     streak = 0
     t0 = time.time()
@@ -8309,6 +8403,7 @@ def fetch_maricopa(since_date=None, limit=None):
                 for row in rows:
                     d = _mcesd_date(row['date'])
                     if not d:
+                        implausible_dates += 1   # well-formed (the page parser checked), out of range: a typo
                         continue
                     if d > newest:
                         newest = d
@@ -8341,15 +8436,18 @@ def fetch_maricopa(since_date=None, limit=None):
     if skipped_purpose:
         log.info("  Maricopa: visits that are not inspections left out: " + ', '.join(
             f"{k} ({n})" for k, n in sorted(skipped_purpose.items(), key=lambda kv: -kv[1])))
+    if implausible_dates:
+        log.warning(f"  Maricopa: {implausible_dates} permit page rows dated before 2000 or in the "
+                    f"future left out")
     if unread:
         # Tried twice and still not a complete permit page: that permit's
         # window is unknown. Hold the window on the permit so next run
         # re-reads it (given up after FRESHNESS_HOLD_GIVE_UP_RUNS runs) and
-        # go red: a silently missing permit is how coverage gaps hide.
+        # go red: a silently missing permit is how coverage gaps hide. The
+        # pages a block ate were not that permit's failure: held, not counted.
         for pid in unread:
-            _hold_window_start(MCESD_SOURCE, requested_start, counted=True, key=pid)
-        log.warning(f"  Maricopa: {len(unread)} permit pages could not be read: "
-                    + ', '.join(unread[:10]) + (' ...' if len(unread) > 10 else ''))
+            _hold_window_start(MCESD_SOURCE, requested_start, counted=cut != 'blocked', key=pid)
+        log.warning(f"  Maricopa: {len(unread)} permit pages could not be read: " + ', '.join(unread))
     if cut in ('deadline', 'blocked'):
         _hold_window_start(MCESD_SOURCE, requested_start, counted=False)
         reason = ('fetch deadline reached' if cut == 'deadline'
@@ -8361,12 +8459,12 @@ def fetch_maricopa(since_date=None, limit=None):
         _MCESD_LAST_STATS.update(stats.counts, permits=len(permits), listing_s=round(t_listing),
                                  inventory_s=round(t_inventory), cut=cut)
         return []
+    problems = []
     if unread:
-        _set_group_status(MCESD_GROUP, 'error',
-                          f"{len(unread)} of {len(ordered)} permit pages unreadable; "
-                          f"their window is held and re-read next run")
-    if cut is None and not limit:
-        _note_source_lag(MCESD_GROUP, newest)
+        problems.append(f"{len(unread)} of {len(ordered)} permit pages unreadable; "
+                        f"their window is held and re-read next run")
+    if cut is None and not bounded:
+        _note_source_lag(MCESD_GROUP, newest)    # every permit page of every permit was read
 
     # 3. Details, oldest first so a deadline cut drops the newest tail.
     candidates.sort(key=lambda c: (c[0], c[1]['permit'], c[2]['inspection']), reverse=True)
@@ -8398,12 +8496,14 @@ def fetch_maricopa(since_date=None, limit=None):
             parsed = _mcesd_parse_detail(r.text)
             outcome = parsed if parsed is not None else 'unread'
         with streak_lock:
-            if outcome in ('download', 'unread'):
+            if isinstance(outcome, dict):
+                streak_box[0] = 0
+            else:
+                # any page that gave no inspection, a 'Not Available' one too:
+                # MCESD_BREAKER_TRIP of them in a row is the portal, not the page
                 streak_box[0] += 1
                 if streak_box[0] >= MCESD_BREAKER_TRIP:
                     blocked.set()
-            else:
-                streak_box[0] = 0
         return cand, outcome
 
     dropped_ids = defaultdict(list)
@@ -8414,27 +8514,40 @@ def fetch_maricopa(since_date=None, limit=None):
                 details[(row['permit'], row['inspection'])] = outcome
                 continue
             failures[outcome] += 1
-            if len(dropped_ids[outcome]) < 5:
-                dropped_ids[outcome].append(f"{row['permit']}/{row['inspection']}")
+            tried = outcome in ('download', 'unread', 'unavailable')
+            if tried:
+                dropped_ids[outcome].append(f"{row['permit']}/{row['inspection']}")   # every id: a blind spot is diagnosed from the log
             # Dropped, never shipped clean. Tried-and-failed drops count
             # toward the per-record give-up; a deadline or block cut does not.
-            _hold_freshness(MCESD_SOURCE, d, counted=outcome in ('download', 'unread', 'unavailable'),
-                            key=row['inspection'])
+            _hold_freshness(MCESD_SOURCE, d, counted=tried, key=row['inspection'])
     t_details = time.time() - t0
     log.info(f"  Maricopa: {len(details)} detail pages read in {t_details:.0f}s "
              f"({MCESD_DETAIL_WORKERS} workers)")
+    not_read = failures.get('unread', 0) + failures.get('unavailable', 0)
+    status = None
     if failures.get('deadline'):
-        _set_group_status(MCESD_GROUP, 'skipped',
-                          f"fetch deadline reached; {failures['deadline']} detail pages not read")
+        status = 'skipped'
+        problems.append(f"fetch deadline reached; {failures['deadline']} detail pages not read")
     elif failures.get('blocked'):
-        _set_group_status(MCESD_GROUP, 'blocked',
-                          f"portal blocked ({MCESD_BREAKER_TRIP} detail pages in a row unreadable); "
-                          f"{failures['blocked']} detail pages not read")
+        status = 'blocked'
+        problems.append(f"portal blocked ({MCESD_BREAKER_TRIP} detail pages in a row unreadable); "
+                        f"{failures['blocked']} detail pages not read")
+    if not_read >= MCESD_UNREAD_ERROR_MIN:
+        # Pages the portal answered that gave no inspection are a parser
+        # blind spot or a portal change, never a transient: red, with every
+        # id in the log, before the holds give them up.
+        status = status or 'error'
+        problems.append(f"{not_read} detail pages answered but gave no inspection "
+                        f"({failures.get('unread', 0)} not readable, {failures.get('unavailable', 0)} "
+                        f"'Inspection Not Available'); held, ids in the log")
+    if problems:
+        _set_group_status(MCESD_GROUP, status or 'error', '; '.join(problems))
     if failures:
         log.warning("  Maricopa: dropped " + ', '.join(
             f"{n} ({why})" for why, n in sorted(failures.items())) +
-            " inspections whose detail page could not be read (held for the next run); e.g. " +
-            '; '.join(f"{why}: {', '.join(ids)}" for why, ids in sorted(dropped_ids.items())))
+            " inspections whose detail page could not be read (held for the next run)" +
+            ('; ' + '; '.join(f"{why}: {', '.join(ids)}" for why, ids in sorted(dropped_ids.items()))
+             if dropped_ids else ''))
 
     # Coordinates for the permits that ship.
     shipped = [(permit, row) for (_, permit, row) in candidates
@@ -8500,9 +8613,11 @@ def fetch_maricopa(since_date=None, limit=None):
                                 r['total_violations'], r['source_id']), reverse=True)
     with_point = sum(1 for r in results if r['latitude'] is not None)
     _MCESD_LAST_STATS.clear()
-    _MCESD_LAST_STATS.update(stats.counts, permits=len(permits), permit_pages_read=read_pages,
+    _MCESD_LAST_STATS.update(stats.counts, permits=len(permits), inventory_bounded=bounded,
+                             permit_pages_read=read_pages,
                              permit_pages_unread=len(unread), candidates=len(candidates),
                              skipped_known=skipped_known, skipped_purpose=dict(skipped_purpose),
+                             implausible_dates=implausible_dates,
                              details_read=len(details),
                              dropped=dict(failures), records=len(results), with_point=with_point,
                              newest=newest, inventory_s=round(t_inventory),
