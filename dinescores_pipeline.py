@@ -7729,6 +7729,11 @@ TP_HEADERS = {
 _TP_STATS = {}             # group -> {'requests', 'seconds'} for the run log
 _TP_STATS_LOCK = threading.Lock()
 _TP_ADDR_RE = re.compile(r'^\s*(.*?)\s*\r?\n\s*(.+?),\s*([A-Za-z]{2})\s+(\d{5})(?:-\d{4})?\s*$', re.S)
+# Louisiana variants seen on 6 of 1,434 live rows (2026-11-03): one line with
+# no city ('402 N CARROLLTON AVE LA 70119 ', the city is in the 'City:'
+# column) and a two-line address with a corrupted zip ('PAULINA, LA 7.076').
+_TP_ADDR_ONE_LINE_RE = re.compile(r'^\s*(.*?\S)\s+([A-Za-z]{2})\s+(\d{5})(?:-\d{4})?\s*$', re.S)
+_TP_ADDR_NO_ZIP_RE = re.compile(r'^\s*(.*?)\s*\r?\n\s*(.+?),\s*([A-Za-z]{2})\b.*$', re.S)
 _TP_DATE_RE = re.compile(r'(\d{2})-(\d{2})-(\d{4})\s*$')
 
 GA_API = 'https://ga.healthinspections.us/stateofgeorgia/API/index.cfm/'
@@ -7913,15 +7918,29 @@ def _tp_title(s):
     return s
 
 
-def _tp_parse_address(map_address, state):
-    """'STREET \\r\\nCITY, ST ZIP[-4]' -> (street, city, zip5), or None."""
-    m = _TP_ADDR_RE.match(str(map_address or ''))
-    if not m or m.group(3).upper() != state:
+def _tp_parse_address(map_address, state, city_hint=''):
+    """'STREET \\r\\nCITY, ST ZIP[-4]' -> (street, city, zip5), or None. A
+    one-line 'STREET ST ZIP' takes its city from `city_hint` (the row's
+    'City:' column); a two-line address with an unreadable zip ships with
+    zip ''. The state must match: a facility is never placed in another."""
+    s = str(map_address or '')
+    m = _TP_ADDR_RE.match(s)
+    if m:
+        street, city, st, zip5 = m.group(1), m.group(2), m.group(3), m.group(4)
+    elif '\n' not in s and _TP_ADDR_ONE_LINE_RE.match(s):
+        m = _TP_ADDR_ONE_LINE_RE.match(s)
+        street, city, st, zip5 = m.group(1), city_hint, m.group(2), m.group(3)
+    elif _TP_ADDR_NO_ZIP_RE.match(s):
+        m = _TP_ADDR_NO_ZIP_RE.match(s)
+        street, city, st, zip5 = m.group(1), m.group(2), m.group(3), ''
+    else:
         return None
-    street, city = _tp_title(m.group(1)), _tp_title(m.group(2))
+    if st.upper() != state:
+        return None
+    street, city = _tp_title(street), _tp_title(city)
     if not street or not city:
         return None
-    return street, city, m.group(4)
+    return street, city, zip5
 
 
 def _tp_date(value):
@@ -8418,7 +8437,7 @@ def _la_build_factory(aux):
     [item numbers]) for the narrative pass."""
     def build(row, hist, since, day):
         name = _tp_title(row.get('name'))
-        parsed = _tp_parse_address(row.get('mapAddress'), 'LA')
+        parsed = _tp_parse_address(row.get('mapAddress'), 'LA', _tp_column(row, 'City:'))
         if not name or not parsed:
             log.warning(f"  Louisiana: facility {row.get('id')} has no usable name/address; skipped")
             return [], []

@@ -521,6 +521,7 @@ class HelperTests(unittest.TestCase):
         self.assertEqual(dp._tp_parse_address('2651 COBB PKWY SE  \r\nATLANTA, GA 30339-3111', 'GA'),
                          ('2651 Cobb Pkwy Se', 'Atlanta', '30339'))
         self.assertIsNone(dp._tp_parse_address('no second line', 'GA'))
+        self.assertEqual(dp._tp_parse_address('1 MAIN ST GA 30301', 'GA', 'ATLANTA'), ('1 Main St', 'Atlanta', '30301'))
         self.assertIsNone(dp._tp_parse_address('1 MAIN ST \r\nMOBILE, AL 36602', 'GA'))
         self.assertEqual(dp._tp_title("JOE'S  DINER"), "Joe's Diner")
         self.assertEqual(dp._tp_title('Publix Falcons activation  10/31'), 'Publix Falcons activation 10/31')

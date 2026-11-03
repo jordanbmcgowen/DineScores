@@ -368,6 +368,22 @@ class RecordTests(LouisianaTestCase):
     def test_coordinates_are_none_for_the_geocoder(self):
         self.assertTrue(all(r['latitude'] is None and r['longitude'] is None for r in self.records))
 
+    def test_address_variants_seen_live_still_ship(self):
+        # six of 1,434 live rows (2026-11-03): one line with no city, or a corrupted zip
+        self.assertEqual(dp._tp_parse_address('402 N CARROLLTON AVE LA 70119 ', 'LA', 'NEW ORLEANS'),
+                         ('402 N Carrollton Ave', 'New Orleans', '70119'))
+        self.assertEqual(dp._tp_parse_address('1120 COOLIDGE  DR STE C LA 70503 ', 'LA', 'LAFAYETTE'),
+                         ('1120 Coolidge Dr Ste C', 'Lafayette', '70503'))
+        self.assertEqual(dp._tp_parse_address('3830 LA 44 \r\nPAULINA, LA 7.076', 'LA'),
+                         ('3830 La 44', 'Paulina', ''))
+        self.assertIsNone(dp._tp_parse_address('402 N CARROLLTON AVE LA 70119 ', 'LA'))      # no city anywhere
+        self.assertIsNone(dp._tp_parse_address('402 N CARROLLTON AVE TX 70119 ', 'LA', 'HOUSTON'))
+        row = copy.deepcopy(_load('search_day_p0.json')[1])
+        row['mapAddress'] = row['columns']['0'] = '14514 HIGHWAY 165 LA 70648'
+        recs, holds = dp._la_build_factory({})(row, FAUSTOS_HISTORY, None, DAY)
+        self.assertEqual((recs[0]['address'], recs[0]['city'], recs[0]['zip']), ('14514 Highway 165', 'Kinder', '70648'))
+        self.assertEqual(holds, [])
+
     def test_ids_are_stable_and_same_day_permits_are_worst_first(self):
         again = _by_id(_fetch(_portal()))
         for sid, r in self.by_id.items():
