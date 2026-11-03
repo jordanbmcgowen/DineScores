@@ -15,8 +15,9 @@ Georgia (fetch_georgia) + Louisiana (fetch_louisiana) on one shared Tyler
       printable 503s found -> one worker, 1.2 s spacing, Retry-After honoured)
 - [x] Fixtures (tests/fixtures/georgia, tests/fixtures/louisiana)
 - [ ] tests/test_georgia.py, tests/test_louisiana.py written; being made green
-- [ ] Live runs: --mode full --since-date 2026-10-20 per state (launched 2026-11-03 ~01:15 UTC,
-      logs in scratchpad/tyler_live/{georgia,louisiana}_14d.log)
+- [x] Georgia --mode full --since-date 2026-10-20 (15 days): OK, see Live results
+- [ ] Louisiana --mode full --since-date 2026-10-20: running (started 01:16:56 UTC; 1,434
+      facilities listed at 01:26; details then ~1,100 printables at ~2.3 s each)
 - [ ] Final cleanup + report
 
 ## Design decisions (so a successor does not re-derive them)
@@ -68,6 +69,19 @@ Georgia (fetch_georgia) + Louisiana (fetch_louisiana) on one shared Tyler
   16/20 printables 503'd before the pacing fix.
 - LA probe 2026-11-03: 250 facilities / 2,995 inspections; avg 0.79 s per API call,
   max 4.8 s; one well-formed inspectionsData answered 500 once (retry OK).
+- 2026-11-03 georgia --mode full --since-date 2026-10-20 (15 day windows): 2,215 facilities
+  listed (466 search pages incl. terminators + 3 GNR checks), 2,215 inspectionsData calls,
+  1 lag probe = 2,685 requests, 221 s in requests, 9.0 min wall at TP_WORKERS=2 (4 transient
+  500s, all recovered on the first retry; 0 give-ups, 0 drops). 1,882 inspections shipped
+  (1,842 restaurants; institutional kitchens and Temporary booths skipped). Census geocoded
+  1,754/1,882 = 93% (+ Nominatim fallback hit its 150 cap, 51 left for next run; 2
+  implausible Nominatim points dropped by the existing sanity check). Grades by score
+  A 1,547 / B 254 / C 31 / F 10 (risk 47-100, median 97); regex text-F would add 30.
+  metro Atlanta 689 / none 1,153. Types: Routine 1,656, Initial 137, Followup 44,
+  Issued Provisional Permit 5. Violation lines 3,045 (P 729 / PF 780 / C 1,536), every
+  line carries an observation; 17% still contain inspector-pasted rule sentences with no
+  marker (none fire the pest/sewage regex) — left in place on purpose.
+  => weekly (9-day window) estimate for Georgia: ~1,650 requests, ~6 min wall.
 
 ## Open questions / follow-ups
 (none yet)

@@ -7766,15 +7766,19 @@ GA_METRO = 'Atlanta'
 _GA_DESIGNATION_RE = re.compile(r'\(\s*((?:pf?|c)(?:\s*,\s*(?:pf?|c))*)\s*\)\s*$', re.I)
 _GA_ITEM_CODE_RE = re.compile(r'^\s*\d{1,2}(?:-\d)?[A-Za-z]?\s*-\s*')
 # Inspector Notes carry the observation plus, often, the corrective action
-# ('CA:', 'C/A:', '(CA)', 'CA-') and the rule text pasted after its citation
-# ('511-6-1.05(7)(b) - Food Contact Surfaces ... (P, C) (b) Equipment ...').
-# Only the observation ships: rule text names pests and sewage as a matter of
-# course and must never read as evidence of them.
+# ('CA:', 'C/A:', '(CA)', 'CA-', 'Rule:', 'Code:', 'RCA:') and the rule text
+# pasted after its citation ('511-6-1.05(7)(b) - Food Contact Surfaces ...
+# (P, C) (b) Equipment ...'). Only the observation ships: rule text names
+# pests and sewage as a matter of course and must never read as evidence of
+# them. Rule sentences pasted with no marker at all ("Employees shall not
+# ...", 17% of 3,045 live lines on 2026-11-03) are left in place: none of
+# them fired the pest/sewage regex, and cutting at the sentence would have
+# emptied observations that put the rule first.
 _GA_NOTES_PREFIX_RE = re.compile(r'^\s*Inspector Notes:\s*', re.I)
 _GA_CODE_REF_RE = re.compile(r'Violation of Code:\s*\[[^\]]*\]\s*', re.I)
 _GA_RULE_RE = re.compile(r'\b511-6-1[-.]\s*\d')
 _GA_CA_RE = re.compile(r'(?:\bCorrective Actions?\b\s*[:\-]?|\(\s*CA\s*\)|\bC/A\b\s*[:\-]?'
-                       r'|\b[Cc][Aa]\s*[:\-–]|\bCA\s+(?=[A-Z]))')
+                       r'|\b[Cc][Aa]\s*[:\-–]|\bCA\s+(?=[A-Z])|\b(?:Rule|Code|RCA)\s*:)')
 _GA_OBS_RE = re.compile(r'\b(?:Observed|Observation|Observations)\b\s*:?|\bCOS\b|\bCorrected on site\b', re.I)
 
 LA_API = 'https://la.healthinspections.us/API/index.cfm/'

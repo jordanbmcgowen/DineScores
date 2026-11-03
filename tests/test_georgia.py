@@ -346,6 +346,15 @@ class RecordTests(GeorgiaTestCase):
             'Observed box of to-go cups stored on the floor')
         self.assertEqual(dp._ga_observation('Inspector Notes: Observed debris in soda nozzle. Ca- clean soda nozzles.'),
                          'Observed debris in soda nozzle')
+        self.assertEqual(dp._ga_observation('Inspector Notes: Observed mildew-like substance on racks. RCA: Nonfood-contact '
+                                            'surfaces of equipment shall be cleaned at a frequency necessary.'),
+                         'Observed mildew-like substance on racks')
+        self.assertEqual(dp._ga_observation('Inspector Notes: Observed cold TCS food above 41 F. COS. Discarded. Code: TCS '
+                                            'food that uses cold holding shall be held at 41 F or below'),
+                         'Observed cold TCS food above 41 F. COS. Discarded')
+        self.assertEqual(dp._ga_observation('Inspector Notes: Observed no hand soap at hand sink. Rule: A handwashing sink '
+                                            'shall be maintained so that it is accessible at all times'),
+                         'Observed no hand soap at hand sink')
         self.assertEqual(dp._ga_observation('Inspector Notes:'), '')
         self.assertEqual(dp._ga_observation(None), '')
         # the pasted rule's pest wording must never read as evidence; a real sighting still does
