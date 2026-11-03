@@ -931,6 +931,17 @@ class PolicyTests(unittest.TestCase):
         for src in (PIMA_SRC, LBK_SRC, MESQ_SRC):
             self.assertEqual(jr.tier_policy(src), 'fixed', src)
 
+    def test_jev_vermin_guard_knows_the_hedgerow_pest_title(self):
+        # jev_reader removes the Texas form's pest title before looking for a
+        # named vermin: the comma form the Hedgerow portals print (negation
+        # dropped by the fetcher) and Richardson's slash form alike.
+        self.assertFalse(jr.names_vermin('Insect Contamination, Rodent, Other Animals: Sticky fly trap '
+                                         'stored over prep table (Ceiling)'))
+        self.assertFalse(jr.names_vermin('No evidence of Insect Contamination, Rodent, Other Animals: Fly strips'))
+        self.assertFalse(jr.names_vermin('No Evidence of Insect contamination, rodent/other animals: There is a hole'))
+        self.assertTrue(jr.names_vermin('Insect Contamination, Rodent, Other Animals: Observed rodent droppings '
+                                        'on top of dishwasher'))
+
     def test_pacing_constants_are_modest(self):
         self.assertLessEqual(dp.HH_WORKERS, 4)
         self.assertGreater(dp.HH_DELAY, 0)
