@@ -209,6 +209,52 @@ its official score):
 
 (in progress)
 
+
+## Notes for the integrator
+
+- Slugs for `--cities` (refresh-data.yml line 98): `fortbend arapahoe douglas`
+  (group 'MHD metros', +173 detail pages/week, ~22 searches) and
+  `cuyahoga virginia` (group 'MHD metros (midweek)', +1,223 detail pages/week:
+  ccbh 218 + 33 VDH districts 1,005; ~250 searches at the 7-day window, ~450
+  with VDH's lag_days 14). `richmond`, `hamptonroads`, `nova` select VDH
+  subsets. main() builds one fetch group per distinct config 'group', so a
+  second workflow running only `--cities cuyahoga virginia` on another day
+  gives the midweek group its own 240-minute deadline and detail-ban budget
+  (1,223 details ~ 5 ban windows of 15 min: ~1.5-2 h). If both groups run in
+  the Sunday job instead, expect ~+1.5-2 h of detail time.
+- Existing jurisdictions now read one-day windows sorted on inspectionID:
+  7-15 searches per jurisdiction-week instead of 2-20 (the AFTER column);
+  detail-page counts rise only by the rows that were being lost (~6%, and
+  the re-inspection pairs).
+- Backfills (never search-only for acph/dchd/ccbh/VDH — demerit or no score;
+  fbceh's score is a real 0-100 so a search-only pass is scale-safe but
+  ships no violation text): one-day windows make a 90-day backfill 90
+  windows x 1-3 pages per jurisdiction (~100-250 searches). Detail pages:
+  fbceh ~750, acph ~1,100, dchd ~400, ccbh ~2,800 (~11 ban windows, ~3 h),
+  VDH ~13,000 (~14+ h: stage per metro group with --until-date and
+  --skip-known-inspections). History floors: fbceh 2025-03-07, acph
+  2023-01-04, dchd 2022-09-07, ccbh 2024-11-04, VDH ~2024-10-01.
+- Jev: no jev_reader change. score_policy derives from score_scale: Fort
+  Bend 'official' (tier 'free' like every MHD county), Arapahoe / Douglas CO /
+  Cuyahoga / every VDH district 'computed'. Omaha's 'Douglas County Health
+  Dept' untouched (the new label is 'Douglas County CO Health Dept').
+- Lord Fairfax ('VDH Lord Fairfax', va-lord-fairfax) is the Winchester-area
+  district, NOT Fairfax County; Fairfax County is not on the portal (its
+  district link goes to fairfaxcounty.gov) and stays the 'fairfax' source.
+- Residual risks: (a) two inspections of ONE permit on the SAME day still
+  collapse to the latest (seen twice on Placer in the probes; not measurable
+  here without permit pages); (b) VDH 'Washington'/'Falls Church' cities on
+  a few Arlington/Alexandria rows are mobile units' base addresses; (c) Fort
+  Bend observation lines are mostly TFER rule wording ("... Pg. 163"), so
+  text-forced F's rarely fire there (its official score carries the grade);
+  (d) Arapahoe/Douglas 'Pre-Operational'/'Opening' visits (score 0, no
+  observations) ship as clean A's exactly as the existing CO counties do;
+  (e) the sorted-pages guard fails a query only on a repeat after one
+  re-read; a jurisdiction that fails raises -> group 'error' -> red run,
+  nothing shipped for it, re-read next run (held).
+
 ## Open questions / decisions
 
-(none yet)
+- Whether the midweek group gets its own workflow/cron (recommended) or
+  joins the Sunday run is the integrator's call.
+- README/CLAUDE.md/refresh-data.yml edits are left to the integrator.
