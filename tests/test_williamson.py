@@ -83,17 +83,20 @@ class _Resp:
                         'Last-Modified': 'Thu, 29 Oct 2026 15:56:36 GMT'}
 
 
-def _fetch(since=None, limit=None, zip_bytes=None, replies=None, guards=False):
+def _fetch(since=None, limit=None, zip_bytes=None, replies=None, guards=False, reread=0):
     """Run fetch_williamson against one zip, or a scripted list of replies
     and exceptions. The fixture is far smaller than a real snapshot, so the
-    row-count guards are lowered unless a test asks for them."""
+    row-count guards are lowered unless a test asks for them, and the
+    weekly re-read margin is off (reread=0) unless a test sets it, so a
+    since-date means exactly that date."""
     if replies is None:
         replies = [_Resp(_zip() if zip_bytes is None else zip_bytes)]
     floor = (dp.WM_MIN_INSPECTION_ROWS, dp.WM_MIN_BUSINESS_ROWS) if guards else (1, 1)
     with mock.patch.object(dp.requests, 'get', side_effect=replies) as get, \
             mock.patch.object(dp.time, 'sleep') as sleep, \
             mock.patch.object(dp, 'WM_MIN_INSPECTION_ROWS', floor[0]), \
-            mock.patch.object(dp, 'WM_MIN_BUSINESS_ROWS', floor[1]):
+            mock.patch.object(dp, 'WM_MIN_BUSINESS_ROWS', floor[1]), \
+            mock.patch.object(dp, 'WM_REREAD_DAYS', reread):
         records = dp.fetch_williamson(since_date=since, limit=limit)
     return records, get, sleep
 
@@ -218,6 +221,30 @@ class SnapshotGuardTests(_Base):
         with self.assertRaises(RuntimeError) as ctx:
             _fetch(zip_bytes=_zip(inspections=bad))
         self.assertIn('unparseable', str(ctx.exception))
+
+    def test_a_businesses_file_that_does_not_cover_the_inspections_is_refused(self):
+        # A truncated or re-keyed businesses.csv passes the row floor but
+        # would drop most of the window as orphans: refuse it instead.
+        rows = _fixture('businesses.csv').decode().split('\r\n')
+        truncated = '\r\n'.join(rows[:4]).encode() + b'\r\n'          # header + 3 permits
+        with self.assertRaises(RuntimeError) as ctx:
+            _fetch(zip_bytes=_zip(businesses=truncated))
+        self.assertIn('businesses.csv does not cover', str(ctx.exception))
+        # Out-of-scope orphans do not count: twenty school kitchens with no
+        # business row are not a join failure of the food establishments
+        # (the fixture's own share, 1 of 50, stays under the guard).
+        schools = ''.join(f'JAS-{n}-SFEC,20260601,90,Pass,Routine\r\n' for n in range(20)).encode()
+        records, _, _ = _fetch(zip_bytes=_zip(inspections=_fixture('inspections.csv') + schools))
+        self.assertEqual(len(records), 46)
+
+    def test_more_than_one_percent_unknown_results_is_refused(self):
+        # The feed's vocabulary is exactly Pass/Fail/IHH; a renamed closure
+        # must stop the run, not ship as a scored Pass.
+        good = [f'RR-679,{date(2025, 1, 1) + timedelta(days=i):%Y%m%d},90,Pass,Routine' for i in range(200)]
+        closed = [f'RR-679,{date(2026, 1, 1) + timedelta(days=i):%Y%m%d},100,Closed,Routine' for i in range(3)]
+        with self.assertRaises(RuntimeError) as ctx:
+            _fetch(zip_bytes=_zip(inspections=_csv(INS_HDR, good + closed)))
+        self.assertIn("'Closed': 3", str(ctx.exception))
 
     def test_a_few_unparseable_rows_are_skipped_not_fatal(self):
         good = [f'RR-679,{date(2025, 1, 1) + timedelta(days=i):%Y%m%d},90,Pass,Routine' for i in range(200)]
@@ -422,8 +449,12 @@ class RecordTests(_Base):
         self.assertFalse(dp._wants_portal_sources(['williamson']))
 
     def test_a_complete_read_leaves_no_hold_and_no_partial_status(self):
-        # One atomic object: nothing can be dropped transiently, so there is
-        # never a freshness hold; a complete read reports a plain 'ok'.
+        # One atomic object: a read is complete or raises, so there is no
+        # per-record failure to hold. The fixture's orphan (2026-1304-FFE)
+        # is not held either: a hold would pin the recorded latest at its
+        # date for three runs (a false STALE flag in the report) and then
+        # give it up; the WM_REREAD_DAYS margin re-reads it instead
+        # (WindowTests).
         _fetch()
         self.assertEqual(dp._FRESHNESS_HOLDS, {})
         self.assertNotIn(dp.WM_GROUP, dp._GROUP_STATUS)
@@ -454,6 +485,35 @@ class WindowTests(_Base):
         records, _, _ = _fetch(limit=2)
         self.assertEqual([r['source_id'] for r in records],
                          ['wcchd_2026-1214-FFE_20261028', 'wcchd_2026-1214-FFE_20261014'])
+
+    def test_weekly_window_never_starts_later_than_the_reread_margin(self):
+        # businesses.csv lists issued permits, so a pre-opening inspection
+        # can sit in inspections.csv for months before its business row
+        # appears (and a row entered late is older than the newest shipped
+        # one): the window is widened so a later run still ships them.
+        today = date.today()
+        ago = lambda n: f'{today - timedelta(days=n):%Y%m%d}'  # noqa: E731
+        snapshot = _zip(inspections=_csv(INS_HDR, [
+            f'RR-679,{ago(5)},88,Pass,Routine', f'RR-679,{ago(40)},70,Pass,Routine',
+            f'RR-679,{ago(100)},95,Pass,Routine', f'RR-679,{ago(400)},60,Fail,Routine']))
+        weekly = f'{today - timedelta(days=8):%Y-%m-%dT00:00:00}'       # the weekly default window
+        with self.assertLogs('dinescores', level='INFO') as logs:
+            records, get, _ = _fetch(since=weekly, zip_bytes=snapshot, reread=90)
+        self.assertEqual([r['inspection_date'] for r in records],
+                         [f'{today - timedelta(days=5):%Y-%m-%d}', f'{today - timedelta(days=40):%Y-%m-%d}'])
+        self.assertEqual(get.call_count, 1)
+        self.assertTrue(any('re-read margin' in line for line in logs.output))
+        self.assertEqual(dp._FRESHNESS_HOLDS, {})                 # the margin, not a hold
+        self.assertNotIn(dp.WM_GROUP, dp._GROUP_STATUS)
+        # The margin only widens: an earlier since-date is kept (a backfill
+        # reads what it asked for) and None still means the whole file.
+        records, _, _ = _fetch(since=f'{today - timedelta(days=200):%Y-%m-%d}', zip_bytes=snapshot, reread=90)
+        self.assertEqual(len(records), 3)
+        records, _, _ = _fetch(zip_bytes=snapshot, reread=90)
+        self.assertEqual(len(records), 4)
+        # 0 disables it (the other window tests rely on that).
+        records, _, _ = _fetch(since=weekly, zip_bytes=snapshot, reread=0)
+        self.assertEqual(len(records), 1)
 
     def test_lag_note_names_the_feeds_newest_row_and_a_bounded_read_leaves_none(self):
         businesses = _csv(BUS_HDR, ['RR-679,BUSH\'S CHICKEN,1410 ROUND ROCK AVE,ROUND ROCK,TX',
@@ -513,19 +573,67 @@ class CsvEdgeTests(_Base):
         base, _, _ = _fetch()
         self.assertEqual(records, base)
 
-    def test_unknown_result_ships_with_the_score_and_a_warning(self):
-        extra = _fixture('inspections.csv') + b'RR-679,20260101,88,Reinspection,Complaint\r\n'
+    def test_unknown_result_is_dropped_with_a_warning_never_shipped_on_its_score(self):
+        # The result is what carries a closure (two thirds of the feed's IHH
+        # rows have a passing score), so a value the fetcher cannot read
+        # must not ship as a scored Pass: under the 1% guard it is dropped
+        # and logged, and the re-read margin ships it once a mapping exists.
+        good = [f'RR-679,{date(2025, 1, 1) + timedelta(days=i):%Y%m%d},90,Pass,Routine' for i in range(200)]
+        odd = ['RR-679,20260101,100,Closed,Routine', 'RR-679,20260102,88,Reinspection,Complaint']
         with self.assertLogs('dinescores', level='WARNING') as logs:
-            records, _, _ = _fetch(zip_bytes=_zip(inspections=extra))
-        r = _by_id(records)['wcchd_RR-679_20260101']
-        self.assertEqual((r['original_score'], r['risk_score'], r['results'], r['inspection_type']),
-                         (88, 88, 'Reinspection', 'Complaint'))
-        self.assertTrue(any('Reinspection' in line for line in logs.output))
+            records, _, _ = _fetch(zip_bytes=_zip(inspections=_csv(INS_HDR, good + odd)))
+        self.assertEqual(len(records), 200)
+        self.assertNotIn('wcchd_RR-679_20260101', _by_id(records))
+        self.assertNotIn('wcchd_RR-679_20260102', _by_id(records))
+        text = '\n'.join(logs.output)
+        self.assertIn("'Closed': 1", text)
+        self.assertIn("'Reinspection': 1", text)
+        # An unknown TYPE carries no grade meaning and passes through.
+        records, _, _ = _fetch(zip_bytes=_zip(inspections=_csv(INS_HDR, good + ['RR-679,20260103,88,Pass,Complaint'])))
+        self.assertEqual(_by_id(records)['wcchd_RR-679_20260103']['inspection_type'], 'Complaint')
+
+    def test_results_are_matched_case_insensitively(self):
+        extra = _fixture('inspections.csv') + b'RR-679,20260104,88,pass,Routine\r\nRR-679,20260105,95,ihh,Routine\r\n'
+        by_id = _by_id(_fetch(zip_bytes=_zip(inspections=extra))[0])
+        self.assertEqual(by_id['wcchd_RR-679_20260104']['results'], 'Pass')
+        closed = by_id['wcchd_RR-679_20260105']
+        self.assertEqual((closed['results'], closed['original_score'], closed['risk_score']),
+                         ('Imminent Health Hazard - closed', 95, dp.WM_IHH_RISK_CAP))
 
     def test_scores_are_clamped_to_0_100(self):
         extra = _fixture('inspections.csv') + b'RR-679,20260102,105,Pass,Routine\r\n'
         r = _by_id(_fetch(zip_bytes=_zip(inspections=extra))[0])['wcchd_RR-679_20260102']
         self.assertEqual((r['original_score'], r['risk_score']), (105, 100))
+
+    def test_a_cp1252_re_export_decodes_to_the_same_restaurants(self):
+        # 'APARICIO’S' is E2 80 99 in UTF-8 and 0x92 in cp1252: the same
+        # character, so the same restaurant id; a lossy decode would not be.
+        utf8 = _fixture('businesses.csv')
+        cp1252 = utf8.decode('utf-8').encode('cp1252')
+        self.assertNotEqual(utf8, cp1252)
+        self.assertIn(b'\x92', cp1252)
+        with self.assertLogs('dinescores', level='WARNING') as logs:
+            records, _, _ = _fetch(zip_bytes=_zip(businesses=cp1252))
+        base, _, _ = _fetch()
+        self.assertEqual(records, base)
+        self.assertEqual(_by_id(records)['wcchd_2022-340-FFE_20250227']['name'], 'Aparicio’s')
+        self.assertTrue(any('cp1252' in line for line in logs.output))
+
+    def test_bytes_that_decode_as_neither_refuse_the_snapshot(self):
+        garbled = _fixture('businesses.csv').replace(b'APARICIO', b'APARICIO\x81')   # undefined in cp1252
+        with self.assertRaises(RuntimeError) as ctx:
+            _fetch(zip_bytes=_zip(businesses=garbled))
+        self.assertIn('neither UTF-8 nor cp1252', str(ctx.exception))
+
+    def test_state_is_a_two_letter_code_or_tx(self):
+        businesses = _csv(BUS_HDR, ['2026-11-FFE,Alpha Cafe,1 Main St,ROUND ROCK,Texas',
+                                    '2026-12-FFE,Beta Cafe,2 Main St,ROUND ROCK,tx',
+                                    '2026-13-FFE,Gamma Cafe,3 Main St,ROUND ROCK,',
+                                    '2026-14-FFE,Delta Cafe,4 Main St,ROUND ROCK,OK'])
+        inspections = _csv(INS_HDR, [f'2026-{n}-FFE,20260601,90,Pass,Routine' for n in (11, 12, 13, 14)])
+        by_id = _by_id(_fetch(zip_bytes=_zip(businesses=businesses, inspections=inspections))[0])
+        self.assertEqual([by_id[f'wcchd_2026-{n}-FFE_20260601']['state'] for n in (11, 12, 13, 14)],
+                         ['TX', 'TX', 'TX', 'OK'])
 
     def test_permit_codes_decide_the_scope(self):
         businesses = _csv(BUS_HDR, [
@@ -571,6 +679,41 @@ class CsvEdgeTests(_Base):
         text = '\n'.join(logs.output)
         self.assertIn('1 no name', text)
         self.assertIn('1 no usable city', text)
+
+    def test_every_permit_at_the_districts_office_is_dropped_whatever_its_name(self):
+        # All 35 permits at 355 Texas Ave in the 2026-10-29 file are the
+        # district's own (tests, 'ABC Food', 'WCCHD', 'Food Sampling', a
+        # SNAP-Ed station), and it does run inspections on them (33 rows),
+        # so a training inspection must not ship as a restaurant at the
+        # health district's offices; the name rule alone misses most.
+        businesses = _csv(BUS_HDR, [
+            '2026-69-FFE,TEST 355,"355 TEXAS AVE, STE C",ROUND ROCK,TX',
+            '2025-332-FFE,ABC Food,355 Texas Ave,Round Rock,TX',
+            '2025-1413-FFE,WCCHD,355 Texas,Round Rock,TX',
+            '2024-1354-UNP,SNAP-ED - Infused Water Station,355 Texas Avenue,Round Rock,TX',
+            '2026-296-FFE,TEST Preopen Assignment,"355 Texas Ave, Entrance C",Round Rock,TX',
+            '2026-20-FFE,Texas Ave Diner,3550 Texas Ave,Round Rock,TX',
+            '2026-21-FFE,Lone Star Grill,1355 Texas Ave,Round Rock,TX',
+            '2026-22-FFE,Trail Tacos,355 Texan Trl,Round Rock,TX',
+        ])
+        permits = [row.split(',')[0] for row in businesses.decode().split('\r\n')[1:-1]]
+        inspections = _csv(INS_HDR, [f'{p},20260601,90,Pass,Routine' for p in permits])
+        records, _, _ = _fetch(zip_bytes=_zip(businesses=businesses, inspections=inspections))
+        self.assertEqual(sorted(r['name'] for r in records), ['Lone Star Grill', 'Texas Ave Diner', 'Trail Tacos'])
+        for address in ('355 TEXAS AVE', '355 Texas', '355 Texas Avenue', '355 Texas Ave, Entrance C'):
+            self.assertTrue(dp.WM_TEST_ADDRESS_RE.match(dp._wm_address(address)), address)
+        for address in ('3550 Texas Ave', '1355 Texas Ave', '355 Texan Trl', '355 N Texas Ave'):
+            self.assertFalse(dp.WM_TEST_ADDRESS_RE.match(dp._wm_address(address)), address)
+
+    def test_out_of_scope_orphans_are_not_reported_as_join_failures(self):
+        # School and mobile permits are judged by their code before the
+        # join, so an unlisted school kitchen is scope, not a join failure
+        # (62 of the real file's 86 orphan rows are school permits).
+        extra = _fixture('inspections.csv') + b'JAS-6-SFEC,20260601,90,Pass,Routine\r\nLES-15-ISD,20260602,91,Pass,Routine\r\n'
+        with self.assertLogs('dinescores', level='WARNING') as logs:
+            records, _, _ = _fetch(zip_bytes=_zip(inspections=extra))
+        self.assertEqual(len(records), 46)
+        self.assertIn('dropped 2 rows in the window — 1 no businesses.csv row', '\n'.join(logs.output))
 
 
 if __name__ == '__main__':

@@ -3,7 +3,7 @@
 Branch `feat/williamson`, worktree `/home/user/wt-williamson`. Section header in
 `dinescores_pipeline.py`: "WILLIAMSON COUNTY, TX (WCCHD inspection-scores zip snapshot)".
 
-## Status: COMPLETE (suite green, live runs verified) — awaiting integration
+## Status: FIX PASS — reviewer findings fixed, 325 tests green; live re-verification in progress
 
 ## Done
 - [x] Read the recon docs (contract / wiring / tests), the probe report and the capture
@@ -65,3 +65,30 @@ Branch `feat/williamson`, worktree `/home/user/wt-williamson`. Section header in
 - Backfill: `--mode full --since-date 2021-12-01 --cities williamson` ships 5,343 inspections
   / 1,744 addresses; ~20% miss the Census batch and Nominatim is capped at 150 per call, so
   raise `nominatim_fallback_cap` for that one run (or accept ~200 coordinate-less rows).
+
+## Fix pass (2026-11-03) — two adversarial reviews
+Findings reproduced against the captured 2026-10-29 snapshot (`python3 -I` analysis) before fixing.
+- FIXED (blocking, both reviewers) orphan rows lost for good: in-scope orphans are 24 rows / 13
+  permits (0.44%); every 2026-numbered one (27-85 days old at the snapshot) is above businesses.csv's
+  newest 2026 sequence (1215), i.e. a permit not yet issued; the older ones (2023-1869-FFE, CP-1011,
+  ...) are permanently orphaned. Fix: `WM_REREAD_DAYS` (180) — in weekly mode the window never starts
+  later than 180 days ago (one GET anyway; merge and D1 upserts idempotent; ~360-820 rows/week
+  re-shipped at 2026/2025 volumes). The suggested `_hold_freshness` was REJECTED as the mechanism:
+  `_record_group` caps the group's `latest` at the hold date and the report flags age > 21 days
+  STALE, so an orphan hold would raise a false STALE flag for three runs and then give the record
+  up before the observed resolution times. Also covers Reviewer B's late-publication concern.
+- FIXED (should_fix) no guard on businesses.csv coverage: `WM_MAX_ORPHAN_SHARE` (5%) over the whole
+  file's food-establishment rows raises; `WM_MIN_BUSINESS_ROWS` 2000 -> 6000 (the registry only grows).
+- FIXED (should_fix) test permits at the district's office: `WM_TEST_ADDRESS_RE` drops every permit
+  at 355 Texas Ave (all 35 are internal: 'TEST 355', 'ABC Food', 'WCCHD', 'Food Sampling', a SNAP-Ed
+  station). -FFER/-FFED/-FFEX left in scope: no real rows, and a remodel permit's inspection is the
+  same restaurant.
+- FIXED (should_fix) unknown result shipped on its score: results are matched upper-cased against
+  Pass/Fail/IHH; anything else is an unparseable row (dropped, WARNING) and more than 1% of them
+  refuses the snapshot.
+- FIXED (nits) `errors='replace'` decoding -> strict UTF-8, cp1252 fallback with a warning, anything
+  else refused; scope check now runs before the join so school orphans are not counted as join
+  failures; state 'Texas' -> 'TX' (two-letter codes only, else TX).
+- REJECTED (Reviewer B should_fix) 'williamson' missing from refresh-data.yml --cities: the
+  integrator's step (.github/ is outside this branch's region); listed as a follow-up.
+- Tests: 51 Williamson tests (9 new); whole suite 325 OK; relay PASS; py_compile OK.

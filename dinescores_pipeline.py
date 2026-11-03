@@ -7741,10 +7741,33 @@ def fetch_mesquite(since_date=None, limit=None):
 # -SFEC, -FFES..., and the <city>S- prefixes the ISDs' contract kitchens
 # use: RRS-, GES-, LES-, HUS-, TAS-...) are dropped, as the Tennessee and
 # Omaha fetchers drop theirs; -FFEC (a commissary/shared kitchen) is food
-# and stays. The district's own test permits ('TEST', 'Test Project Name'
-# at its office) are dropped by name. Rows whose business_id has no
-# businesses.csv row, no name or no usable city are dropped with a WARNING
-# count: 22 permits (0.3% of rows) were missing from the 2026-10-29 file.
+# and stays. The district's own permits are dropped by address (every one
+# of the 35 permits at its 355 Texas Ave office is internal: 'TEST',
+# 'TEST 355', 'ABC Food', 'WCCHD', 'Food Sampling', a SNAP-Ed station) and
+# by 'TEST'-style name elsewhere. Rows whose business_id has no
+# businesses.csv row (13 food permits, 0.44% of the food rows in the
+# 2026-10-29 file), no name or no usable city are dropped with a WARNING
+# count.
+#
+# Late rows and the re-read margin: businesses.csv lists ISSUED permits, so
+# a new restaurant's pre-opening inspections sit in inspections.csv for
+# months before their business row appears (every 2026-numbered orphan in
+# the 2026-10-29 file carried a permit number above the newest one in
+# businesses.csv; the oldest was 85 days past its inspection), and the
+# feed's 2026-H2 volume suggests rows may be entered late too. A weekly
+# window that starts the day before the newest shipped row would never see
+# them again, so in weekly mode the window never starts later than
+# WM_REREAD_DAYS ago: the whole file is one GET anyway, and the data.js
+# merge and the D1 upserts are idempotent, so re-shipping a few hundred
+# rows a week costs nothing. A freshness hold is deliberately NOT used for
+# an orphan: it would pin the recorded latest at the orphan's date for
+# three runs (the report would flag the group STALE for a lag that is the
+# source's) and then give the record up, sooner than the orphans observed
+# resolve. Vocabulary drift fails closed: a result outside Pass/Fail/IHH is
+# an unparseable row (the result is what carries a closure, so it never
+# ships on its score alone) and more than WM_MAX_BAD_ROW_SHARE of them
+# refuses the snapshot, as does a businesses.csv that covers less than
+# 1 - WM_MAX_ORPHAN_SHARE of the food-establishment rows.
 #
 # Identity: 'ROUND ROCK' / 'Round rock' / 'round rock' are one city, so
 # name, address and city are normalised (whitespace collapsed, a stray
@@ -7773,13 +7796,21 @@ WM_TIMEOUT = 120              # seconds for the one GET (a ~260 KB object)
 WM_RETRIES = 3                # attempts: connection errors, timeouts, 429 and 5xx retry
 WM_RETRY_DELAY = 10           # seconds before the second attempt, doubled each time
 # Snapshot sanity. The 2026-10-29 feed held 6,734 inspections and 12,145
-# permits with 0 unparseable rows; a file far below that is a truncated
-# upload or a changed layout, not a quiet month.
+# permits (a registry that only grows: temporary permits stay listed) with
+# 0 unparseable rows and 24 food-establishment rows (0.44%) without a
+# businesses.csv row; a file far outside that is a truncated upload or a
+# changed layout, not a quiet month.
 WM_MIN_INSPECTION_ROWS = 1000
-WM_MIN_BUSINESS_ROWS = 2000
-WM_MAX_BAD_ROW_SHARE = 0.01
+WM_MIN_BUSINESS_ROWS = 6000
+WM_MAX_BAD_ROW_SHARE = 0.01   # blank id, bad date or score, or a result outside WM_RESULTS
+WM_MAX_ORPHAN_SHARE = 0.05    # food rows with no businesses.csv row (0.4% is normal)
+# Weekly mode re-reads at least this far back (see the section comment): a
+# pre-opening inspection ships once its business row appears, a row entered
+# late ships on the next run. 0 disables the margin.
+WM_REREAD_DAYS = 180
 WM_IHH_RISK_CAP = 55          # a closure grades F (the Orange County / San Diego rule)
-WM_RESULTS = {'Pass': 'Pass', 'Fail': 'Fail', 'IHH': 'Imminent Health Hazard - closed'}
+# Keyed by the upper-cased feed value; anything else is an unparseable row.
+WM_RESULTS = {'PASS': 'Pass', 'FAIL': 'Fail', 'IHH': 'Imminent Health Hazard - closed'}
 WM_TYPES = {'Routine': 'Routine', 'Followup': 'Follow-up'}
 # Programs that are not fixed food establishments, by permit-number code.
 WM_OUT_OF_SCOPE = (
@@ -7788,9 +7819,12 @@ WM_OUT_OF_SCOPE = (
     ('sewage/sanitation permit', re.compile(r'-SAN$')),
     ('school kitchen', re.compile(r'-ISD$|-SFEC$|-FFES(?:-|$)|^[A-Z]{2}S-\d')),
 )
-# The district's own test permits ('TEST', 'Test Project Name', 'TEST Preopen
-# Assignment', all at its 355 Texas Ave office); a real "Test Kitchen" stays.
+# The district's own permits: every permit at its 355 Texas Ave office
+# (matched on the normalised address, with or without 'Ave'/'Avenue') and
+# the 'TEST' / 'Test Project Name' / 'TEST Preopen Assignment' names it
+# uses elsewhere; a real "Test Kitchen" stays.
 WM_TEST_NAME_RE = re.compile(r'^\s*test(?:\s*$|\s+(?:project|preopen|permit|record|account)\b)', re.I)
+WM_TEST_ADDRESS_RE = re.compile(r'^355\s+Texas\b', re.I)
 _WM_XLSX_NS = '{http://schemas.openxmlformats.org/spreadsheetml/2006/main}'
 # Tokens .title() must not lower-case: Texas road codes and compass points
 # in addresses ('FM 1105', 'IH 35', 'NE Inner Loop'), company codes in names.
@@ -7939,10 +7973,22 @@ def _wm_unzip(content):
 
 
 def _wm_rows(data, fields, member):
-    """csv.DictReader over a UTF-8 (BOM) CSV member -> list of dicts with
-    lower-cased keys and '' for missing values; raises RuntimeError when the
-    header lacks a LIVES column."""
-    reader = csv.DictReader(io.StringIO(data.decode('utf-8-sig', errors='replace')))
+    """csv.DictReader over a CSV member (UTF-8 with or without a BOM; a
+    cp1252 re-export is accepted with a warning, since its curly quotes
+    decode to the same characters) -> list of dicts with lower-cased keys
+    and '' for missing values. Raises RuntimeError when the bytes decode as
+    neither (a lossy decode would re-key every restaurant with a non-ASCII
+    name and strand its history) or the header lacks a LIVES column."""
+    try:
+        text = data.decode('utf-8-sig')
+    except UnicodeDecodeError:
+        try:
+            text = data.decode('cp1252')
+        except UnicodeDecodeError as e:
+            raise RuntimeError(f'Williamson County: {member} is neither UTF-8 nor cp1252 ({e}); '
+                               f'refusing to re-key restaurants on a garbled decode')
+        log.warning(f"Williamson County: {member} is not UTF-8; decoded as cp1252")
+    reader = csv.DictReader(io.StringIO(text))
     header = [(h or '').strip().lower() for h in (reader.fieldnames or [])]
     missing = [f for f in fields if f not in header]
     if missing:
@@ -7955,8 +8001,17 @@ def _wm_rows(data, fields, member):
 
 
 def fetch_williamson(since_date=None, limit=None):
-    since = str(since_date)[:10] if since_date else None
-    log.info(f"Fetching Williamson County (WCCHD) snapshot (since={since}, limit={limit})")
+    since = requested = str(since_date)[:10] if since_date else None
+    if since and WM_REREAD_DAYS:
+        # Never start later than the re-read margin: a row the district
+        # adds late (a pre-opening inspection whose business row appears
+        # months after it) must still fall inside a later run's window.
+        floor = (datetime.now() - timedelta(days=WM_REREAD_DAYS)).strftime('%Y-%m-%d')
+        if since > floor:
+            since = floor
+    log.info(f"Fetching Williamson County (WCCHD) snapshot (since={since}"
+             + (f", widened from {requested} by the {WM_REREAD_DAYS}-day re-read margin"
+                if since != requested else '') + f", limit={limit})")
     if _past_deadline():
         _set_group_status(WM_GROUP, 'skipped', 'fetch deadline reached before the snapshot was read')
         return []
@@ -7977,8 +8032,12 @@ def fetch_williamson(since_date=None, limit=None):
         raise RuntimeError(f'Williamson County: snapshot has only {len(inspections)} inspection rows and '
                            f'{len(businesses)} business rows (expect >= {WM_MIN_INSPECTION_ROWS} / '
                            f'{WM_MIN_BUSINESS_ROWS}); refusing a truncated feed')
+    by_id = {}
+    for b in businesses:
+        if b['business_id']:
+            by_id.setdefault(b['business_id'], b)
 
-    parsed, bad = [], 0
+    parsed, bad, unknown_results = [], 0, defaultdict(int)
     for row in inspections:
         bid = row['business_id']
         m = re.fullmatch(r'(\d{4})(\d{2})(\d{2})', row['date'])
@@ -7987,41 +8046,58 @@ def fetch_williamson(since_date=None, limit=None):
             score = int(float(row['score']))
         except (ValueError, OverflowError):
             score = None
-        if not bid or not day or score is None:
+        result = row['result'].upper()
+        if result not in WM_RESULTS:
+            unknown_results[row['result']] += 1
+        if not bid or not day or score is None or result not in WM_RESULTS:
             bad += 1
             continue
-        parsed.append((bid, day, score, row['result'], row['type']))
+        parsed.append((bid, day, score, result, row['type']))
     if bad > WM_MAX_BAD_ROW_SHARE * len(inspections):
         raise RuntimeError(f'Williamson County: {bad} of {len(inspections)} inspection rows unparseable '
-                           f'(> {WM_MAX_BAD_ROW_SHARE:.0%}); refusing a reshaped feed')
+                           f'(> {WM_MAX_BAD_ROW_SHARE:.0%}'
+                           + (f'; results outside {sorted(WM_RESULTS)}: {dict(unknown_results)}'
+                              if unknown_results else '')
+                           + '); refusing a reshaped feed')
+    if unknown_results:
+        log.warning(f"Williamson County: dropped {sum(unknown_results.values())} rows whose result is "
+                    f"outside {sorted(WM_RESULTS)} ({dict(unknown_results)}); a result the fetcher "
+                    f"cannot read may be a closure, so it never ships on its score alone")
+    # businesses.csv must cover the food-establishment rows: a truncated or
+    # re-keyed permit file would otherwise drop most of the window as
+    # orphans under a WARNING while the group reported 'ok'.
+    food_rows = [p for p in parsed if _wm_out_of_scope(p[0]) is None]
+    orphans = sum(1 for p in food_rows if p[0] not in by_id)
+    if food_rows and orphans > WM_MAX_ORPHAN_SHARE * len(food_rows):
+        raise RuntimeError(f'Williamson County: {orphans} of {len(food_rows)} food-establishment rows have '
+                           f'no businesses.csv row (> {WM_MAX_ORPHAN_SHARE:.0%}; 0.4% is normal); refusing '
+                           f'a snapshot whose businesses.csv does not cover its inspections')
     newest = max(p[1] for p in parsed)
     window = [p for p in parsed if since is None or p[1] >= since]
+    in_margin = sum(1 for p in window if requested and p[1] < requested)
     log.info(f"  Williamson County: feed_date {info['feed_date']}, newest inspection {newest}; "
-             f"{len(inspections)} inspection rows ({bad} unparseable), {len(businesses)} permits, "
-             f"{len(window)} rows since {since or 'the start of the file'}; "
-             f"{len(content)} bytes, etag {headers.get('ETag')}, last-modified {headers.get('Last-Modified')}")
+             f"{len(inspections)} inspection rows ({bad} unparseable), {len(businesses)} permits "
+             f"({orphans} food rows without one), {len(window)} rows since {since or 'the start of the file'}"
+             + (f" ({in_margin} of them before {requested}, in the re-read margin)" if in_margin else '')
+             + f"; {len(content)} bytes, etag {headers.get('ETag')}, last-modified {headers.get('Last-Modified')}")
 
-    by_id = {}
-    for b in businesses:
-        if b['business_id']:
-            by_id.setdefault(b['business_id'], b)
-
-    quality, scope, unknown_results = defaultdict(int), defaultdict(int), defaultdict(int)
+    quality, scope = defaultdict(int), defaultdict(int)
     built, seen = [], set()
     for bid, day, score, result, kind in window:
-        biz = by_id.get(bid)
-        if biz is None:
-            quality['no businesses.csv row'] += 1
-            continue
         label = _wm_out_of_scope(bid)
         if label:
             scope[label] += 1
+            continue
+        biz = by_id.get(bid)
+        if biz is None:
+            quality['no businesses.csv row (a permit not issued yet)'] += 1
             continue
         name = _wm_title(biz['name'])
         if not name:
             quality['no name'] += 1
             continue
-        if WM_TEST_NAME_RE.match(name):
+        address = _wm_address(biz['address'])
+        if WM_TEST_NAME_RE.match(name) or WM_TEST_ADDRESS_RE.match(address):
             scope["the district's test permit"] += 1
             continue
         city = _wm_city(biz['city'])
@@ -8036,19 +8112,16 @@ def fetch_williamson(since_date=None, limit=None):
             scope['exact duplicate row'] += 1
             continue
         seen.add(dup_key)
-        results = WM_RESULTS.get(result)
-        if results is None:
-            unknown_results[result] += 1
-            results = result
         risk = max(0, min(100, score))
         if result == 'IHH':
             risk = min(risk, WM_IHH_RISK_CAP)
         itype = WM_TYPES.get(kind, kind)
+        state = (biz['state'] or '').strip().upper()
         rec = {
             'name': name,
-            'address': _wm_address(biz['address']),
+            'address': address,
             'city': city,
-            'state': (biz['state'] or 'TX').upper()[:2] or 'TX',
+            'state': state if re.fullmatch(r'[A-Z]{2}', state) else 'TX',
             'zip': '',
             'latitude': None,
             'longitude': None,
@@ -8061,7 +8134,7 @@ def fetch_williamson(since_date=None, limit=None):
             'total_violations': 0,
             'violations': [],
             'inspection_type': itype,
-            'results': results,
+            'results': WM_RESULTS[result],
             'source': WM_SOURCE,
             'source_url': WM_SOURCE_PAGE,
             'source_id': f"wcchd_{bid}_{day.replace('-', '')}",
@@ -8088,9 +8161,6 @@ def fetch_williamson(since_date=None, limit=None):
     if quality:
         log.warning(f"Williamson County: dropped {sum(quality.values())} rows in the window — "
                     + ', '.join(f'{n} {why}' for why, n in sorted(quality.items())))
-    if unknown_results:
-        log.warning(f"Williamson County: {sum(unknown_results.values())} rows carry a result the "
-                    f"fetcher does not know ({dict(unknown_results)}); shipped with the score alone")
     if scope:
         log.info(f"  Williamson County: skipped {sum(scope.values())} rows — "
                  + ', '.join(f'{n} {why}' for why, n in sorted(scope.items())))
