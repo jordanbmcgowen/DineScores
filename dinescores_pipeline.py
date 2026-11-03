@@ -7797,7 +7797,7 @@ MCESD_TIER_OLD_RE = re.compile(r',\s*(Pf|P|C):\s', re.I)
 MCESD_TIER = {'priority': 'priority', 'p': 'priority',
               'priority foundation': 'priority_foundation', 'pf': 'priority_foundation',
               'core': 'core', 'c': 'core'}
-MCESD_UNAVAILABLE = 'Inspection Not Available'
+MCESD_UNAVAILABLE = 'alert-heading">Inspection Not Available'   # the app's page for an id it no longer serves
 _MCESD_LAST_STATS = {}               # the last fetch_maricopa run's counters (for measurement)
 
 
@@ -7857,7 +7857,7 @@ def _mcesd_split_address(concat):
     parts = body.rsplit(' ', 1)
     if len(parts) == 2:
         return parts[0], parts[1], zip5
-    return body, '', zip5
+    return '', body, zip5                    # a lone word is the city; no street
 
 
 def _mcesd_date(text):
@@ -7984,6 +7984,7 @@ def _mcesd_inventory(session_for, zips, limit, stats):
     known: a bounded read, never checked against MCESD_MIN_FOOD_PERMITS."""
     pacer = _McesdPacer(MCESD_SEARCH_RATE)
     permits, rows_seen, scanned = {}, 0, 0
+    other_types, junk = defaultdict(int), 0
     batch = max(1, MCESD_SEARCH_WORKERS) * 4
     with ThreadPoolExecutor(max_workers=max(1, MCESD_SEARCH_WORKERS)) as pool:
         for i in range(0, len(zips), batch):
@@ -7996,11 +7997,25 @@ def _mcesd_inventory(session_for, zips, limit, stats):
                 scanned += 1
                 rows_seen += len(rows)
                 for row in rows:
-                    p = _mcesd_permit(row if isinstance(row, dict) else {})
-                    if p and p['permit'] not in permits:
+                    row = row if isinstance(row, dict) else {}
+                    p = _mcesd_permit(row)
+                    if p is None:
+                        ptype = ' '.join(str(row.get('permitType') or '').split())
+                        if ptype in MCESD_FOOD_PERMIT_TYPES and not str(row.get('permitId') or '').upper().startswith('MF'):
+                            junk += 1            # a food row without a usable name or street
+                        else:
+                            other_types[ptype or '(no type)'] += 1
+                    elif p['permit'] not in permits:
                         permits[p['permit']] = p
     stats.bump('zips_scanned', scanned)
     stats.bump('permit_rows', rows_seen)
+    stats.bump('junk_rows', junk)
+    if junk:
+        log.warning(f"  Maricopa: {junk} food permit rows skipped (no name or street in the search row)")
+    if other_types:
+        # Visible on purpose: a renamed permit type would otherwise vanish quietly.
+        top = sorted(other_types.items(), key=lambda kv: -kv[1])[:8]
+        log.info("  Maricopa: permit types not shipped: " + ', '.join(f"{t} ({n})" for t, n in top))
     return permits
 
 
@@ -8299,6 +8314,7 @@ def fetch_maricopa(since_date=None, limit=None):
                 streak_box[0] = 0
         return cand, outcome
 
+    dropped_ids = defaultdict(list)
     with ThreadPoolExecutor(max_workers=max(1, MCESD_DETAIL_WORKERS)) as pool:
         for cand, outcome in pool.map(work, candidates):
             d, permit, row = cand
@@ -8306,6 +8322,8 @@ def fetch_maricopa(since_date=None, limit=None):
                 details[(row['permit'], row['inspection'])] = outcome
                 continue
             failures[outcome] += 1
+            if len(dropped_ids[outcome]) < 5:
+                dropped_ids[outcome].append(f"{row['permit']}/{row['inspection']}")
             # Dropped, never shipped clean. Tried-and-failed drops count
             # toward the per-record give-up; a deadline or block cut does not.
             _hold_freshness(MCESD_SOURCE, d, counted=outcome in ('download', 'unread', 'unavailable'),
@@ -8323,7 +8341,8 @@ def fetch_maricopa(since_date=None, limit=None):
     if failures:
         log.warning("  Maricopa: dropped " + ', '.join(
             f"{n} ({why})" for why, n in sorted(failures.items())) +
-            " inspections whose detail page could not be read (held for the next run)")
+            " inspections whose detail page could not be read (held for the next run); e.g. " +
+            '; '.join(f"{why}: {', '.join(ids)}" for why, ids in sorted(dropped_ids.items())))
 
     # Coordinates for the permits that ship.
     shipped = [(permit, row) for (_, permit, row) in candidates

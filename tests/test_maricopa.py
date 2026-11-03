@@ -279,6 +279,7 @@ class HelperTests(unittest.TestCase):
             '100 N 1ST ST PHOENIX AZ 85004-1234': ('100 N 1ST ST', 'PHOENIX', '85004'),
             ' 10  E  BUCKEYE  RD  PHOENIX  AZ  85004 ': ('10 E BUCKEYE RD', 'PHOENIX', '85004'),
             'no state or zip here': ('no state or zip here', '', ''),
+            'PHOENIX AZ 85004': ('', 'PHOENIX', '85004'),            # no street: dropped as junk
             '': ('', '', ''),
         }
         for concat, expected in cases.items():
@@ -300,6 +301,7 @@ class HelperTests(unittest.TestCase):
             self.assertIsNotNone(dp._mcesd_permit(dict(row, permitType=ptype)), ptype)
         self.assertIsNone(dp._mcesd_permit(dict(row, permitId='MF2403509')))      # a mobile unit
         self.assertIsNone(dp._mcesd_permit(dict(row, businessName='')))
+        self.assertIsNone(dp._mcesd_permit(dict(row, businessAddressConcat='PHOENIX AZ 85004')))
         self.assertIsNone(dp._mcesd_permit({}))
 
     def test_results_text(self):
