@@ -34,8 +34,17 @@ Findings accepted — ALL FIXED in commit 9361e60 (suite 340 tests green,
 relay passes, py_compile ok; live test mode re-run 2026-11-03 04:34 UTC:
 exit 0, 14 s, 25 records / 21 establishments / 40 requests, 23/25 geocoded,
 group ok, no contradiction warning fired). 14-day re-run with the fixed code
-started 04:35 UTC (log: scratchpad harris_fix/run_14d.log) — results below
-once done. Remaining: fold the 14-day numbers in here, final commit, report.
+(`--mode full --since-date 2026-10-20`, 04:34-04:48 UTC): exit 0, 809 s wall
+= 474 s fetch + geocoding; 1,861 establishments (4 pages), 1,540 in scope,
+1,495 records from 2,837 requests, 1,381 restaurants, grades A 964 / B 393 /
+C 21 / F 3, risk 55-100, original_score never None, 1,099 (80%) with
+coordinates (Nominatim read timeouts + its 150 cap left 201), 30 cities, all
+'TX', no PII (the one '@' is "Golden Chick @ FM 1960"). Same numbers as the
+pre-fix run: the fixes are inert on the normal path. New checks on live data:
+0 score<100 inspections without an OUT item; 3 of 1,540 inspection lists
+hold nothing within 30 days of the search field (held) — being probed
+(scratchpad harris_fix/probe_contradictions.py) before the hold policy is
+final. Remaining: that decision, final commit, report.
 - [x] A1/B1 listing-completeness check dead with the weekly limit (50000):
       key it on `bounded = limit reached`, not on limit being set
 - [x] A2 a score<100 inspection whose item list read as [] (or rows with no
