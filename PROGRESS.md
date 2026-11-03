@@ -253,6 +253,13 @@ its official score):
   re-read; a jurisdiction that fails raises -> group 'error' -> red run,
   nothing shipped for it, re-read next run (held).
 
+- Bucket mode and the sort (spot check 2026-11-03, Nashville 2026-10-21,
+  searchStr 'Nashville' purpose 'Routine'): sorted and unsorted reads
+  returned the same 70 ids over 3 pages with no repeats either way, so a
+  bucket entry could set 'sort' later; the default stays the portal order
+  (one day of evidence, and the TN reads showed no loss).
+- Both edited files parse with ast feature_version (3, 11) (CI runs 3.11).
+
 ## Open questions / decisions
 
 - Whether the midweek group gets its own workflow/cron (recommended) or
