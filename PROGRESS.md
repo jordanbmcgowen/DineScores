@@ -39,11 +39,20 @@ LUBBOCK TX, MESQUITE TX". Scaffold commit 75d73d8.
   the pipeline section (compiles). Fixtures built: tests/fixtures/hedgerow/
   (16 files, 67 KB, trimmed from the 2026-11-02/03 captures).
 
+- Mesquite public portal found via the city site search:
+  https://mesquite.hedgerowsoftware.com/ (SPA + same API, proxied to
+  msqt-app-prod); fetcher now uses it (base + source_url), route scheme
+  #/{program}/disclosure/facility/{fid}/inspection/{iid} confirmed in all
+  three bundles (DisclosureProgram -> [routeParam, 'disclosure']).
+- tests/test_hedgerow.py: 51 tests; full suite 325 OK, node relay PASS,
+  py_compile OK (2026-11-03).
+- Live test mode Lubbock: 25 records / 18 facilities / 48 requests / 30 s,
+  25/25 with coordinates (oldest-first from the 2023-11 floor).
+
 ## Next
-- tests/test_hedgerow.py; run the suite; live test-mode + 14-day runs.
-- Mesquite source_url host: the SPA is not on the API host (root is the
-  vendor's "Hedgehog Server" page, /portal/ 404) — find the public SPA host
-  or document the URL as unverified.
+- Live test mode Pima + Mesquite (running); 14-day window runs
+  (Lubbock/Mesquite --since-date 2026-10-20; Pima 2026-10-10 because the
+  portal publishes ~16 days late); write results here; final cleanup.
 
 ## Open questions
 - Pima 'Needs Improvement' computes to a B (e.g. 93 for P+C+C); only Fail /

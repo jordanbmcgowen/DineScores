@@ -7728,8 +7728,10 @@ def fetch_harris(since_date=None, limit=None):
 # Lubbock TX ('Lubbock' / 'Lubbock Environmental Health'): paged list
 #   (pageSize 500) sorted lastInspectionDate desc, read while a page's last
 #   row is still in the window; official 0-100 hazardScore per inspection.
-# Mesquite TX ('Mesquite' / 'Mesquite Environmental Health', DFW): the whole
-#   list (689 rows) with facilityType and lastInspectionDate hidden, and the
+# Mesquite TX ('Mesquite' / 'Mesquite Environmental Health', DFW; public
+#   portal https://mesquite.hedgerowsoftware.com/, whose API proxies to the
+#   app server msqt-app-prod.hedgerowsoftware.com): the whole list (689 rows)
+#   with facilityType and lastInspectionDate hidden, and the
 #   server does not honour a sort on the hidden date (verified 2026-11-03:
 #   newest dates rise and fall down the "sorted" list), so EVERY facility's
 #   inspection list is read each run (~690 GETs, a few minutes). Official
@@ -7769,6 +7771,7 @@ HH_PORTALS = {
         'history_start': '2019-10-01',      # the portal launched in Oct 2019; oldest row seen 2019-12-05
         'list': 'whole', 'list_sort': 'id', 'list_min_rows': 4000,   # 5,177 rows on 2026-11-02
         'dated_list': True, 'official_score': False, 'results': 'rating',
+        'title_caps': True,                 # 2,229 of 5,177 names (and their streets) are ALL CAPS
     },
     'lubbock': {
         'group': 'Lubbock', 'source': 'Lubbock Environmental Health', 'prefix': 'lbk',
@@ -7779,16 +7782,18 @@ HH_PORTALS = {
         'history_start': '2023-11-01',      # oldest published inspection 2023-11-11
         'list': 'paged', 'list_sort': 'lastInspectionDate', 'list_min_rows': 1,
         'dated_list': True, 'official_score': True, 'results': 'grade',
+        'title_caps': False,                # mixed case as published; '(OXXO) DK #401' is a brand
     },
     'mesquite': {
         'group': 'Mesquite', 'source': 'Mesquite Environmental Health', 'prefix': 'mesq',
-        'base': 'https://msqt-app-prod.hedgerowsoftware.com/api/v0/portal/',
-        'site': 'https://msqt-app-prod.hedgerowsoftware.com/',
+        'base': 'https://mesquite.hedgerowsoftware.com/api/v0/portal/',
+        'site': 'https://mesquite.hedgerowsoftware.com/',
         'program': '6ee6f958-ea40-45cb-bb87-ba2e06bd1257',
         'state': 'TX', 'default_city': 'Mesquite', 'metro': 'DFW',
         'history_start': '2020-01-01',      # no date on the list; oldest inspection seen 2025-11-04
         'list': 'whole', 'list_sort': 'id', 'list_min_rows': 400,     # 689 rows on 2026-11-03
         'dated_list': False, 'official_score': True, 'results': 'none',
+        'title_caps': False,
     },
 }
 # Pima's inspections carry a categorical rating. Graded visits ship with the
@@ -7822,6 +7827,9 @@ _HH_ADDR_ZIP_STATE_RE = re.compile(
 # 'STREET City, ST 79416' (the comma after the city instead of before it)
 _HH_ADDR_CITY_IN_STREET_RE = re.compile(
     r'^(?P<street>.+?)\s+(?P<city>[A-Za-z.]+),\s*(?P<state>[A-Za-z]{2})\s+(?P<zip>\d{5})(?:-?\d{4})?\s*$')
+# 'STREET, Tucsonaz 85713' (state run into the city, or missing)
+_HH_ADDR_NOSTATE_RE = re.compile(
+    r'^(?P<street>.*?),\s*(?P<city>[^,]+?)\s+(?P<zip>\d{5})(?:-?\d{4})?\s*$')
 _HH_ORDINAL_RE = re.compile(r'(\d)(St|Nd|Rd|Th)\b')
 _HH_PLACEHOLDER_RE = re.compile(r'\s*@?\s*_{2,}\s*(?:PPM|°F|F\b)?', re.I)
 _HH_CODE_PREFIX_RE = re.compile(r'^\s*(?:§\s*)?[\d][\w.()§-]*\s*(?:-|–|:)\s*')
@@ -7892,6 +7900,12 @@ def _hh_title(s):
     return s
 
 
+def _hh_case(s, cfg):
+    """A name or street as the portal prints it: whitespace collapsed, and
+    for a portal that prints in capitals (Pima) ALL CAPS -> title case."""
+    return _hh_title(s) if cfg.get('title_caps') else ' '.join(str(s or '').split())
+
+
 def _hh_coord(v):
     try:
         f = float(v)
@@ -7911,15 +7925,16 @@ def _hh_split_address(addr, cfg):
     if not addr:
         return None
     m = (_HH_ADDR_RE.match(addr) or _HH_ADDR_ZIP_STATE_RE.match(addr)
-         or _HH_ADDR_CITY_IN_STREET_RE.match(addr) or _HH_ADDR_NOZIP_RE.match(addr))
+         or _HH_ADDR_CITY_IN_STREET_RE.match(addr) or _HH_ADDR_NOSTATE_RE.match(addr)
+         or _HH_ADDR_NOZIP_RE.match(addr))
     if not m:
-        return _hh_title(addr.strip(' ,')), cfg['default_city'], cfg['state'], ''
+        return _hh_case(addr.strip(' ,'), cfg), cfg['default_city'], cfg['state'], ''
     g = m.groupdict()
-    state = _HH_STATE_NAMES.get(g['state'].lower(), g['state'].upper())
+    state = _HH_STATE_NAMES.get((g.get('state') or cfg['state']).lower(), (g.get('state') or cfg['state']).upper())
     city = ' '.join(g['city'].split())
     if len(city) > 2 and city.lower().endswith(state.lower()) and not city[-3].isspace():
         city = city[:-2]                 # 'Tucsonaz'
-    street = _hh_title(g['street'].strip(' ,'))
+    street = _hh_case(g['street'].strip(' ,'), cfg)
     if not street:
         return None
     return street, (city.title() or cfg['default_city']), state, (g.get('zip') or '')[:5]
@@ -7932,7 +7947,7 @@ def _hh_facility(cfg, row, skipped):
         skipped['malformed row'] += 1
         return None
     fid = str(row.get('id') or '').strip()
-    name = _hh_title(row.get('facilityName'))
+    name = _hh_case(row.get('facilityName'), cfg)
     ftype = ' '.join(str(row.get('facilityType') or '').split())
     if not fid or not name:
         skipped['no id or name'] += 1
@@ -8162,11 +8177,14 @@ def _fetch_hedgehog(slug, since_date=None, limit=None):
     # Phase 0 — the facility list (atomic: any failure raises and ships nothing).
     rows = _hh_facility_rows(slug, since)
     skipped = defaultdict(int)
-    facilities, newest = [], ''
+    facilities, newest, seen = [], '', set()
     for row in rows:
         fac = _hh_facility(cfg, row, skipped)
         if fac is None:
             continue
+        if fac['id'] in seen:
+            continue                     # a page-boundary shift repeated the row
+        seen.add(fac['id'])
         newest = max(newest, fac['last'])
         if cfg['dated_list']:
             if not fac['last']:
@@ -8194,7 +8212,7 @@ def _fetch_hedgehog(slug, since_date=None, limit=None):
         return data
 
     candidates, dropped, cut, bounded = [], defaultdict(int), False, False
-    unread = list(facilities)
+    read = set()
     with ThreadPoolExecutor(max_workers=HH_WORKERS) as pool:
         for chunk in _hh_chunks(facilities, HH_WORKERS):
             if limit and len(candidates) >= limit:
@@ -8203,11 +8221,10 @@ def _fetch_hedgehog(slug, since_date=None, limit=None):
             if _past_deadline():
                 break
             for fac, got in zip(chunk, pool.map(list_one, chunk)):
-                unread.remove(fac)
                 if got == 'deadline':
                     cut = True
-                    unread.append(fac)
                     continue
+                read.add(fac['id'])
                 if isinstance(got, _HhError):
                     if got.permanent:
                         dropped['facility gone'] += 1       # a 4xx: nothing to re-read
@@ -8225,17 +8242,18 @@ def _fetch_hedgehog(slug, since_date=None, limit=None):
                     continue
                 newest = max(newest, nw)
                 candidates.extend(cands)
+    unread = len(facilities) - len(read)
     if unread and not bounded:
         # The deadline cut the facility phase: the window is held (not
         # counted) and the group reports a partial read.
         cut = True
         _hold_window_start(source, since, counted=False, key='facilities')
-        dropped['facility list not read (deadline)'] += len(unread)
+        dropped['facility list not read (deadline)'] += unread
     candidates.sort(key=lambda c: (c['date'], c['id']))
     if limit and len(candidates) > limit:
         bounded = True
         candidates = candidates[:limit]
-    log.info(f"  {group}: {len(candidates)} inspections to read from {len(facilities) - len(unread)} "
+    log.info(f"  {group}: {len(candidates)} inspections to read from {len(read)} "
              f"facility lists ({time.time() - started:.0f}s so far)")
 
     # Phase 2 — each inspection's checklist, oldest first. An unread one is
@@ -8251,16 +8269,15 @@ def _fetch_hedgehog(slug, since_date=None, limit=None):
         return data
 
     results = []
-    pending = list(candidates)
+    read_cands = set()
     with ThreadPoolExecutor(max_workers=HH_WORKERS) as pool:
         for chunk in _hh_chunks(candidates, HH_WORKERS):
             if _past_deadline():
                 break
             for cand, got in zip(chunk, pool.map(read_one, chunk)):
-                pending.remove(cand)
                 if got == 'deadline':
-                    pending.append(cand)
                     continue
+                read_cands.add(cand['id'])
                 if isinstance(got, _HhError):
                     if got.permanent:
                         dropped['checklist gone'] += 1
@@ -8280,6 +8297,7 @@ def _fetch_hedgehog(slug, since_date=None, limit=None):
                     skipped['unscored visit without citations'] += 1
                     continue
                 results.append(rec)
+    pending = [c for c in candidates if c['id'] not in read_cands]
     if pending:
         cut = True
         for cand in pending:
@@ -8302,7 +8320,7 @@ def _fetch_hedgehog(slug, since_date=None, limit=None):
     results.sort(key=lambda r: r['inspection_date'], reverse=True)
     with _HH_REQUESTS_LOCK:
         n_req = _HH_REQUESTS[slug]
-    log.info(f"{group}: {len(results)} inspections from {len(facilities) - len(unread)} facilities "
+    log.info(f"{group}: {len(results)} inspections from {len(read)} facilities "
              f"in {time.time() - started:.0f}s ({n_req} requests; source newest {newest or 'n/a'})")
     return results
 
