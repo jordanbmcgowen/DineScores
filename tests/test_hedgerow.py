@@ -8,7 +8,10 @@ scope branch, two real inspection lists per portal family, and the
 checklists of real inspections (a Needs Improvement, an enforcement Fail, a
 seven-citation visit, a score-65 Lubbock visit, Mesquite's title-only
 items). Inspection lists for facilities whose list was not captured are
-built in code with the real key set."""
+built in code with the real key set. The fail-closed rules added by the
+2026-11-03 review (4xx classes, the portal breaker, the mass-failure rule,
+unread-checklist cross-checks, Lubbock's paging checks, the Pima rating caps
+and lag margin) have their own tests below."""
 import json
 import os
 import sys
@@ -56,19 +59,30 @@ def _load(name):
 
 
 def _insp(iid, date, score=None, rating='Excellent', itype='Standard Frequency Inspection ',
-          number=None, reason=None):
-    """An inspectionDetails row with the real key set (Pima prints a rating,
-    Lubbock a score and number, Mesquite neither type nor number)."""
+          number=None, reason=None, infractions=None, count=None):
+    """An inspectionDetails row with the real key set (Pima prints a rating
+    and hasInfractions, Lubbock a score, a number and criticalInfractionCount,
+    Mesquite neither type nor number nor either cross-check)."""
     return {
         'id': iid, 'programAreaId': 'f1dad0aa-20ce-47ee-b5da-7b4333b0282c', 'facilityName': None,
-        'closingComments': None, 'hasInfractions': None, 'inspectionDate': date,
+        'closingComments': None, 'hasInfractions': infractions, 'inspectionDate': date,
         'openingComments': None, 'inspectionType': itype, 'inspectionReason': reason,
-        'inspector': None, 'criticalInfractionCount': None, 'inspectionNumber': number,
+        'inspector': None, 'criticalInfractionCount': count, 'inspectionNumber': number,
         'nonCriticalInfractionCount': None, 'hazardScore': score, 'hazardRating': rating,
         'hazardRatingModelElementId': None, 'actionsTaken': None, 'actionsTakenList': None,
         'showInspectionDisclaimer': False, 'inspectionDisclaimer': None, 'groupingOption': None,
         'documentId': None,
     }
+
+
+def _pima_row(fid, name, address, last, ftype='Class 3 Restaurant, Full Service (3000C)'):
+    """A Pima facility row with the keys the parser reads."""
+    return {'id': fid, 'facilityName': name, 'facilityType': ftype, 'siteAddress': address,
+            'lastInspectionDate': last, 'latitude': 32.2217, 'longitude': -110.9265,
+            'hazardScore': None, 'hazardRating': 'Good', 'totalInfractions': None}
+
+
+FORBIDDEN = {'Message': 'Forbidden'}        # a 403 body (a WAF block, a per-connection ban)
 
 
 class _Resp:
@@ -181,16 +195,19 @@ def _pima_portal(**overrides):
         MEXICO_101: [_insp('mx1', '2026-06-18T11:00:17.9914412-07:00')],
     }
     clean = _load('pima_results_clean.json')
+    cited = _load('pima_results_needs_improvement.json')          # 1 Priority + 2 Core: 93
     checklists = {
-        DOMINOS_NI: _load('pima_results_needs_improvement.json'),
+        DOMINOS_NI: cited,
         DOMINOS_EDU: _load('pima_results_sonic.json'),
         BAG_FAIL: _load('pima_results_fail.json'),
         'vh1': _load('pima_results_sonic.json'),
     }
     inspections.update(overrides.pop('inspections', {}))
+    # a checklist that agrees with its row: cited items where the row says
+    # hasInfractions, the clean form otherwise
     for insp_list in inspections.values():
         for insp in (insp_list if isinstance(insp_list, list) else []):
-            checklists.setdefault(insp['id'], clean)
+            checklists.setdefault(insp['id'], cited if insp.get('hasInfractions') else clean)
     checklists.update(overrides.pop('checklists', {}))
     return Portal(PIMA, overrides.pop('facilities', facilities), inspections, checklists)
 
@@ -200,17 +217,23 @@ class _Base(unittest.TestCase):
 
     def setUp(self):
         self._saved = (dp._FRESHNESS, dict(dp._FRESHNESS_HOLDS), dict(dp._GROUP_STATUS),
-                       dict(dp._GROUP_NOTES), dp._FETCH_DEADLINE)
+                       dict(dp._GROUP_NOTES), dp._FETCH_DEADLINE, dict(dp._HH_STREAK), dict(dp._HH_BLOCKED))
         dp._FRESHNESS = None
         dp._FRESHNESS_HOLDS.clear()
         dp._GROUP_STATUS.clear()
         dp._GROUP_NOTES.clear()
         dp._FETCH_DEADLINE = None
+        dp._HH_STREAK.clear()
+        dp._HH_BLOCKED.clear()
         # the fixtures are a handful of rows, not a whole program
         for cfg in (PIMA, MESQ):
             p = mock.patch.dict(cfg, {'list_min_rows': 1})
             p.start()
             self.addCleanup(p.stop)
+        # the window tests ask for exact dates; the publication-lag margin has its own tests
+        p = mock.patch.dict(PIMA, {'lag_margin_days': 0})
+        p.start()
+        self.addCleanup(p.stop)
 
     def tearDown(self):
         dp._FRESHNESS = self._saved[0]
@@ -218,6 +241,8 @@ class _Base(unittest.TestCase):
         dp._GROUP_STATUS.clear(); dp._GROUP_STATUS.update(self._saved[2])
         dp._GROUP_NOTES.clear(); dp._GROUP_NOTES.update(self._saved[3])
         dp._FETCH_DEADLINE = self._saved[4]
+        dp._HH_STREAK.clear(); dp._HH_STREAK.update(self._saved[5])
+        dp._HH_BLOCKED.clear(); dp._HH_BLOCKED.update(self._saved[6])
 
 
 # ── the client ───────────────────────────────────────────────────────────────
@@ -245,17 +270,62 @@ class ClientTests(_Base):
         self.assertEqual(len(calls), 2)
         sleep.assert_called_once_with(dp.HH_RETRY_WAIT)
 
-    def test_a_4xx_is_permanent_and_not_retried(self):
-        got, calls, _ = self._get([_Resp({'Message': 'not found'}, 404)])
-        self.assertIsInstance(got, dp._HhError)
-        self.assertTrue(got.permanent)
-        self.assertEqual(len(calls), 1)
+    def test_a_400_404_or_410_is_permanent_and_not_retried(self):
+        for status in (400, 404, 410):
+            with self.subTest(status=status):
+                got, calls, _ = self._get([_Resp({'Message': 'not found'}, status)])
+                self.assertIsInstance(got, dp._HhError)
+                self.assertTrue(got.permanent)
+                self.assertFalse(got.blocked)
+                self.assertEqual(len(calls), 1)
+        self.assertEqual(dp._HH_STREAK['pima'], 0)       # that record's problem: no strike against the portal
+
+    def test_a_401_403_or_408_is_the_portals_problem_retried_then_transient(self):
+        # a block or a ban, not a gone record: the record is held and re-read next run
+        for status in (401, 403, 408):
+            with self.subTest(status=status):
+                got, calls, sleep = self._get([_Resp(FORBIDDEN, status)])
+                self.assertIsInstance(got, dp._HhError)
+                self.assertFalse(got.permanent)
+                self.assertFalse(got.blocked)
+                self.assertEqual(len(calls), dp.HH_RETRIES)
+                self.assertEqual(sleep.call_count, dp.HH_RETRIES - 1)
 
     def test_exhausted_retries_raise_a_transient_error(self):
         got, calls, _ = self._get([dp.requests.ConnectionError('reset')])
         self.assertIsInstance(got, dp._HhError)
         self.assertFalse(got.permanent)
         self.assertEqual(len(calls), dp.HH_RETRIES)
+
+    def test_the_breaker_trips_after_consecutive_exhausted_requests(self):
+        for n in range(1, dp.HH_BREAKER_TRIP):
+            got, calls, _ = self._get([dp.requests.Timeout('slow')])
+            self.assertEqual(len(calls), dp.HH_RETRIES)
+            self.assertEqual(dp._HH_STREAK['pima'], n)
+        self.assertEqual(dp._hh_blocked('pima'), '')
+        # a success resets the streak; a 404 neither counts nor resets
+        self.assertEqual(self._get([_Resp([1])])[0], [1])
+        self.assertEqual(dp._HH_STREAK['pima'], 0)
+        self._get([dp.requests.Timeout('slow')])
+        self._get([_Resp(None, 404)])
+        self.assertEqual(dp._HH_STREAK['pima'], 1)
+        # a retry the deadline cut short is not the portal's failure
+        dp._FETCH_DEADLINE = time.time() - 1
+        got, calls, _ = self._get([_Resp(None, 503)])
+        self.assertEqual(len(calls), 1)
+        self.assertEqual(dp._HH_STREAK['pima'], 1)
+        dp._FETCH_DEADLINE = None
+        for _ in range(dp.HH_BREAKER_TRIP - 1):
+            self._get([_Resp(FORBIDDEN, 403)])
+        self.assertIn('requests in a row failed', dp._hh_blocked('pima'))
+        self.assertIn('HTTP 403', dp._hh_blocked('pima'))
+        # tripped: the next request is not even made, and only this portal is affected
+        got, calls, _ = self._get([_Resp([1])])
+        self.assertIsInstance(got, dp._HhError)
+        self.assertTrue(got.blocked)
+        self.assertFalse(got.permanent)
+        self.assertEqual(calls, [])
+        self.assertEqual(dp._hh_blocked('lubbock'), '')
 
     def test_a_non_json_200_is_transient(self):
         got, calls, _ = self._get([_Resp(ValueError, text='<html>challenge</html>'), _Resp({'ok': 1})])
@@ -376,14 +446,38 @@ class ViolationTests(unittest.TestCase):
         self.assertEqual(one[0][1], 'priority')
 
     def test_a_cited_item_without_a_citation_keeps_the_classifier_tier(self):
-        items = [{'description': 'Insects, rodents, and animals not present', 'result': 'Out of Compliance',
+        items = [{'description': 'Proper hot holding temperatures', 'result': 'Out of Compliance',
                   'isCritical': True, 'cannedComments': None},
-                 {'description': 'Hot holding', 'result': 'In Compliance', 'cannedComments': None}]
+                 {'description': 'Food contact surfaces clean', 'result': 'In Compliance', 'cannedComments': None}]
         lines = dp._hh_violations(items)
-        cat, sev, _ = dp.classify_violation('Insects, rodents, and animals not present')
-        self.assertEqual(lines, [[cat, sev, 'Insects, rodents, and animals not present']])
-        self.assertEqual(cat, 'pest_control')
-        self.assertFalse(dp.has_active_pest_or_sewage(lines[0][2]))   # a bare title is not evidence
+        cat, sev, _ = dp.classify_violation('Proper hot holding temperatures')
+        self.assertEqual(lines, [[cat, sev, 'Proper hot holding temperatures']])
+        self.assertEqual((cat, sev), ('temperature_control', 'priority'))
+
+    def test_pimas_pest_title_ships_under_the_neutral_heading_too(self):
+        title = 'Insects, rodents, and animals not present'
+        self.assertFalse(dp.has_active_pest_or_sewage(title))          # the bare title is not evidence...
+        # ...but its 'rodents' meets an evidence word at the end of the line before, across the '|||' join
+        self.assertTrue(dp.has_active_pest_or_sewage(f'Hand sink blocked, soap not found|||{title}: Door gap'))
+
+        def item(obs):
+            return [{'description': title, 'result': 'Out of Compliance', 'isCritical': False,
+                     'cannedComments': [{'description': '6-501.111 Controlling Pests', 'severity': 'Core',
+                                         'observationComment': obs, 'locationComment': None}]}]
+        gap = dp._hh_violations(item('There is significant light visible along the bottom edge of the screen door'))
+        self.assertEqual(gap[0][2], 'Pests and animals: There is significant light visible along the bottom '
+                                    'edge of the screen door')
+        self.assertEqual(gap[0][:2], ['pest_control', 'core'])
+        joined = dp.build_violation_text(
+            [['personal_hygiene', 'priority_foundation', 'Hand sink blocked, soap not found']] + gap)
+        self.assertFalse(dp.has_active_pest_or_sewage(joined))
+        self.assertFalse(jr.names_vermin(gap[0][2]))
+        roaches = dp._hh_violations(item('Observed several dead roaches under the prep sink'))
+        self.assertTrue(dp.has_active_pest_or_sewage(roaches[0][2]))
+        self.assertTrue(jr.names_vermin(roaches[0][2]))
+        bare = dp._hh_violations([dict(item(None)[0], cannedComments=None)])
+        self.assertEqual(bare[0][2], 'Pests and animals')
+        self.assertFalse(dp.has_active_pest_or_sewage(bare[0][2]))
 
     def test_the_texas_pest_criterion_ships_under_a_neutral_heading(self):
         def item(obs, rule='228.186(k) - Outer openings, protected'):
@@ -394,7 +488,7 @@ class ViolationTests(unittest.TestCase):
         # the form's title alone trips the regex ('evidence of' before 'Insect'); the shipped line must not
         self.assertTrue(dp.has_active_pest_or_sewage('No evidence of Insect Contamination, Rodent, Other Animals'))
         trap = dp._hh_violations(item('Sticky fly trap stored over prep table located in center of kitchen'))
-        self.assertEqual(trap[0][2], 'Pest control: Sticky fly trap stored over prep table located in '
+        self.assertEqual(trap[0][2], 'Pests and animals: Sticky fly trap stored over prep table located in '
                                      'center of kitchen (Ceiling)')
         self.assertEqual(trap[0][:2], ['pest_control', 'core'])
         self.assertFalse(dp.has_active_pest_or_sewage(trap[0][2]))
@@ -408,13 +502,17 @@ class ViolationTests(unittest.TestCase):
         self.assertTrue(dp.has_active_pest_or_sewage(roaches[0][2]))
         self.assertTrue(jr.names_vermin(roaches[0][2]))
         bare = dp._hh_violations(item(None))                            # Mesquite prints no observation
-        self.assertEqual(bare[0][2], 'Pest control: Outer openings, protected (Ceiling)')
+        self.assertEqual(bare[0][2], 'Pests and animals: Outer openings, protected (Ceiling)')
         self.assertFalse(dp.has_active_pest_or_sewage(bare[0][2]))
-        # Richardson's slash form and a title without the negation are the same criterion
+        # the regex summariser's fallback must not read the heading as a records finding
+        self.assertNotEqual(dp.summarize_violations(bare[0][2])[0]['text'], 'No pest control records')
+        # Richardson's slash form, a title without the negation and Pima's title are the same criterion
         for title in ('No Evidence of Insect contamination, rodent/other animals',
-                      'Evidence of Insect Contamination, Rodent, Other Animals'):
+                      'Evidence of Insect Contamination, Rodent, Other Animals',
+                      'Insects, rodents, and animals not present'):
             self.assertTrue(dp._HH_PEST_TITLE_RE.match(title), title)
-        self.assertFalse(dp._HH_PEST_TITLE_RE.match('Insects, rodents, and animals not present'))
+        self.assertFalse(dp._HH_PEST_TITLE_RE.match('Insects, rodents, and animals not present: observed roaches'))
+        self.assertFalse(dp._HH_PEST_TITLE_RE.match('Pest control devices maintained'))
 
     def test_clean_checklist_is_empty_and_junk_raises(self):
         self.assertEqual(dp._hh_violations(_load('pima_results_clean.json')), [])
@@ -468,8 +566,8 @@ class PimaFetchTests(_Base):
             'longitude': -111.0431794,
             'inspection_date': '2026-10-17',
             'original_score': None,
-            'risk_score': 93,                       # 100 - 5 - 1 - 1 from the citations
-            'priority_violations': 1,
+            'risk_score': 79,                       # 100 - 5 - 1 - 1 = 93 from the citations, capped: the
+            'priority_violations': 1,               # county's 'Needs Improvement' is a re-inspection verdict
             'priority_foundation_violations': 0,
             'core_violations': 2,
             'total_violations': 3,
@@ -484,7 +582,9 @@ class PimaFetchTests(_Base):
         })
         self.assertEqual(len(r['violations']), 3)
         self.assertEqual(r['violations'], dp._hh_violations(_load('pima_results_needs_improvement.json')))
-        self.assertEqual(dp.calculate_vetted_grade(r['risk_score']), 'A')
+        self.assertEqual(dp.calc_risk_score(r['violations'])[0], 93)
+        self.assertEqual(r['risk_score'], dp.PIMA_RATING_RISK_CAP['Needs Improvement'])
+        self.assertEqual(dp.calculate_vetted_grade(r['risk_score']), 'C')
 
     def test_a_fail_rating_caps_the_computed_score_at_an_f(self):
         by_id = _by_id(_run(_pima_portal(), dp.fetch_pima, since='2026-10-01'))
@@ -497,10 +597,36 @@ class PimaFetchTests(_Base):
         self.assertEqual(fail['results'], 'Fail')
         self.assertEqual(fail['inspection_type'], 'Enforcement Inspection')
         self.assertIsNone(fail['original_score'])
-        # a cap never raises a score
-        ni = by_id[f'pima_{BAG_NI}']
-        self.assertEqual(ni['risk_score'], 100)      # clean checklist fixture, rating Needs Improvement
+        ni = by_id[f'pima_{BAG_NI}']                 # the cited default checklist (93), rated Needs Improvement
+        self.assertEqual(ni['risk_score'], dp.PIMA_RATING_RISK_CAP['Needs Improvement'])
         self.assertEqual(ni['results'], 'Needs Improvement')
+
+    def test_the_countys_verdict_is_never_contradicted_upward_and_a_cap_never_raises(self):
+        sonic = _load('pima_results_sonic.json')                        # seven citations: computes to 92
+        six_priority = [{'description': f'Item {i}', 'result': 'Out of Compliance',
+                         'cannedComments': [{'severity': 'Priority', 'observationComment': f'Observation {i}'}]}
+                        for i in range(6)]                              # computes to 70
+        portal = _pima_portal(inspections={RITAS: [
+            _insp('ex', '2026-05-14T09:00:00.0000000-07:00', rating='Excellent', infractions=True),
+            _insp('good', '2026-05-15T09:00:00.0000000-07:00', rating='Good', infractions=True),
+            _insp('sat', '2026-05-16T09:00:00.0000000-07:00', rating='Satisfactory', infractions=True),
+            _insp('ni', '2026-05-17T09:00:00.0000000-07:00', rating='Needs Improvement', infractions=True),
+            _insp('ni-low', '2026-05-18T09:00:00.0000000-07:00', rating='Needs Improvement', infractions=True),
+            _insp('prob', '2026-05-19T09:00:00.0000000-07:00', rating='Probation', infractions=True),
+            _insp('edu', '2026-05-20T09:00:00.0000000-07:00', rating='Educational', infractions=True),
+        ]}, checklists={'ex': sonic, 'good': sonic, 'sat': sonic, 'ni': sonic, 'ni-low': six_priority,
+                        'prob': six_priority, 'edu': sonic})
+        by_id = _by_id(_run(portal, dp.fetch_pima, since='2026-05-14'))
+        scores = {k[5:]: v['risk_score'] for k, v in by_id.items() if v['name'] == "Rita's Italian Ice"}
+        self.assertEqual(scores, {'ex': 92, 'good': 92, 'edu': 92,            # not banded: the citations decide
+                                  'sat': 89,                                  # a Satisfactory is at best a B
+                                  'ni': 79,                                   # a Needs Improvement at best a C
+                                  'ni-low': 70,                               # a cap never raises a score
+                                  'prob': 65})                                # a Probation is an F (70 computed)
+        self.assertEqual(dp.calculate_vetted_grade(scores['sat']), 'B')
+        self.assertEqual(dp.calculate_vetted_grade(scores['ni']), 'C')
+        self.assertEqual(dp.calculate_vetted_grade(scores['prob']), 'F')
+        self.assertTrue(all(by_id[f'pima_{k}']['original_score'] is None for k in scores))
 
     def test_full_history_ships_educational_and_pass_visits_and_skips_scope(self):
         portal = _pima_portal()
@@ -614,6 +740,137 @@ class PimaFetchTests(_Base):
         self.assertEqual(len(records), 2)
         self.assertEqual(portal.checklists_requested().count(DOMINOS_NI), 1)
         self.assertEqual(dp._FRESHNESS_HOLDS, {})
+        self.assertNotIn('Pima County', dp._GROUP_STATUS)
+
+    def test_a_block_in_the_checklist_phase_holds_everything_uncounted_and_reports_blocked(self):
+        forbidden = _Resp(FORBIDDEN, 403)
+        portal = _pima_portal(checklists={DOMINOS_NI: forbidden, BAG_FAIL: forbidden, BAG_NI: forbidden})
+        records = _run(portal, dp.fetch_pima, since='2026-10-01')
+        self.assertEqual(records, [])
+        # three checklists, each retried and exhausted, trip the breaker; none of the three
+        # counts against its record (a block is the portal's doing, not the record's)
+        self.assertEqual([portal.checklists_requested().count(i) for i in (DOMINOS_NI, BAG_FAIL, BAG_NI)],
+                         [dp.HH_RETRIES] * 3)
+        self.assertEqual(dp._FRESHNESS_HOLDS, {PIMA_SRC: {f'2026-10-17|{DOMINOS_NI}': (False, False),
+                                                          f'2026-10-16|{BAG_FAIL}': (False, False),
+                                                          f'2026-10-06|{BAG_NI}': (False, False)}})
+        status, detail = dp._GROUP_STATUS['Pima County']
+        self.assertEqual(status, 'blocked')
+        self.assertIn('HTTP 403', detail)
+        self.assertIn('held', detail)
+
+    def test_a_block_in_the_facility_phase_holds_the_window_uncounted(self):
+        facilities = _load('pima_facilities.json')
+        for row in facilities['result']:
+            if row['id'] == RITAS:                          # a third facility in the window
+                row['lastInspectionDate'] = '2026-10-12T10:00:00.0000000-07:00'
+        forbidden = _Resp(FORBIDDEN, 403)
+        portal = _pima_portal(facilities=facilities,
+                              inspections={DOMINOS: forbidden, BAG_O_CRAB: forbidden, RITAS: forbidden})
+        records = _run(portal, dp.fetch_pima, since='2026-10-01')
+        self.assertEqual(records, [])
+        self.assertEqual(portal.checklists_requested(), [])
+        self.assertEqual(dp._FRESHNESS_HOLDS, {PIMA_SRC: {f'2026-10-03|{DOMINOS}': (False, False),
+                                                          f'2026-10-03|{BAG_O_CRAB}': (False, False),
+                                                          f'2026-10-03|{RITAS}': (False, False)}})
+        self.assertEqual(dp._GROUP_STATUS['Pima County'][0], 'blocked')
+        # one failure with no block is counted, so a list that never reads is given up after three runs
+        dp._FRESHNESS_HOLDS.clear()
+        dp._GROUP_STATUS.clear()
+        portal = _pima_portal(inspections={BAG_O_CRAB: forbidden})
+        records = _run(portal, dp.fetch_pima, since='2026-10-01')
+        self.assertEqual([r['source_id'] for r in records], [f'pima_{DOMINOS_NI}'])
+        self.assertEqual(dp._FRESHNESS_HOLDS, {PIMA_SRC: {f'2026-10-03|{BAG_O_CRAB}': (True, False)}})
+        self.assertNotIn('Pima County', dp._GROUP_STATUS)
+        self.assertEqual(dp._hh_blocked('pima'), '')
+
+    def test_scattered_failures_report_error_without_tripping_the_breaker(self):
+        # 12 of 24 checklists fail, never three in a row: every failure is held (counted)
+        # and the run goes red as an error, not a block
+        rows = [_pima_row(f'f{i:02d}', f'Cafe {i:02d}', f'{i + 1} E Main St, Tucson AZ 85701',
+                          '2026-10-10T10:00:00.0000000-07:00') for i in range(24)]
+        inspections = {f'f{i:02d}': [_insp(f'i{i:02d}', '2026-10-10T10:00:00.0000000-07:00', infractions=False)]
+                       for i in range(24)}
+        checklists = {f'i{i:02d}': (_Resp({'Message': 'An error has occurred.'}, 500) if i % 2 else
+                                    _load('pima_results_clean.json')) for i in range(24)}
+        portal = Portal(PIMA, {'pageNumber': 0, 'pageSize': 0, 'totalNumberOfRecords': 0, 'result': rows},
+                        inspections, checklists)
+        with mock.patch.object(dp, 'HH_WORKERS', 1):
+            records = _run(portal, dp.fetch_pima, since='2026-10-01')
+        self.assertEqual(len(records), 12)
+        self.assertEqual(dp._hh_blocked('pima'), '')
+        self.assertEqual(len(dp._FRESHNESS_HOLDS[PIMA_SRC]), 12)
+        self.assertEqual(set(dp._FRESHNESS_HOLDS[PIMA_SRC].values()), {(True, False)})
+        status, detail = dp._GROUP_STATUS['Pima County']
+        self.assertEqual(status, 'error')
+        self.assertIn('12 of 48', detail)                   # 24 facility lists + 24 checklists read
+
+    def test_a_checklist_with_no_cited_item_is_clean_only_when_the_row_agrees(self):
+        unanswered = [dict(item, result='No Answer Selected', cannedComments=None)
+                      for item in _load('pima_results_clean.json')]
+        portal = _pima_portal(inspections={RITAS: [
+            _insp('says-cited', '2026-05-14T09:00:00.0000000-07:00', rating='Fail', infractions=True),
+            _insp('says-clean', '2026-05-15T09:00:00.0000000-07:00', rating='Pass', infractions=False),
+            _insp('no-flag', '2026-05-16T09:00:00.0000000-07:00', rating='Good'),
+            _insp('no-flag-answered', '2026-05-17T09:00:00.0000000-07:00', rating='Good'),
+            _insp('empty', '2026-05-18T09:00:00.0000000-07:00', rating='Excellent', infractions=True),
+        ]}, checklists={'says-cited': unanswered, 'says-clean': unanswered, 'no-flag': unanswered,
+                        'no-flag-answered': _load('pima_results_clean.json'), 'empty': []})
+        by_id = _by_id(_run(portal, dp.fetch_pima, since='2026-05-14'))
+        ritas = {k[5:]: v for k, v in by_id.items() if v['name'] == "Rita's Italian Ice"}
+        # the row says no infractions: an unanswered form is the county's clean visit
+        self.assertEqual(sorted(ritas), ['no-flag-answered', 'says-clean'])
+        self.assertEqual((ritas['says-clean']['risk_score'], ritas['says-clean']['results'],
+                          ritas['says-clean']['violations']), (100, 'Pass', []))
+        # the row says infractions (or says nothing and the form has no answer): unread, never a clean 100;
+        # held and counted, so a checklist the county never publishes is given up after three runs
+        self.assertEqual(dp._FRESHNESS_HOLDS, {PIMA_SRC: {'2026-05-14|says-cited': (True, False),
+                                                          '2026-05-16|no-flag': (True, False),
+                                                          '2026-05-18|empty': (True, False)}})
+        self.assertNotIn('Pima County', dp._GROUP_STATUS)   # 3 of 11 reads: below the mass-failure floor
+
+    def test_a_window_ahead_of_the_portal_is_an_error_not_a_green_empty(self):
+        # the fixture's newest row is 2026-10-17; a weekly first run with nothing recorded asks for 8 days
+        portal = _pima_portal()
+        records = _run(portal, dp.fetch_pima, since='2026-10-26T00:00:00')
+        self.assertEqual(records, [])
+        self.assertEqual(portal.lists_requested(), [])
+        status, detail = dp._GROUP_STATUS['Pima County']
+        self.assertEqual(status, 'error')
+        self.assertIn('2026-10-17', detail)
+        self.assertIn('--since-date', detail)
+        self.assertEqual(dp._FRESHNESS_HOLDS, {})
+
+    def test_the_lag_margin_widens_the_window_and_bootstraps_a_weekly_run(self):
+        self.assertEqual(dp.HH_PORTALS['pima']['lag_margin_days'], 0)    # the test patch; live it is 21
+        facilities = _load('pima_facilities.json')
+        for row in facilities['result']:
+            if row['id'] == RITAS:
+                row['lastInspectionDate'] = '2026-09-20T10:00:00.0000000-07:00'
+        straggler = [_insp('late', '2026-09-20T10:00:00.0000000-07:00', rating='Good')]
+        with mock.patch.dict(PIMA, {'lag_margin_days': 21}):
+            # a first weekly window (8 days) still reaches the portal's ~16-day-old batch
+            portal = _pima_portal()
+            records = _run(portal, dp.fetch_pima, since='2026-10-26T00:00:00')
+            self.assertEqual([r['source_id'] for r in records],
+                             [f'pima_{DOMINOS_NI}', f'pima_{BAG_FAIL}', f'pima_{BAG_NI}'])
+            self.assertNotIn('Pima County', dp._GROUP_STATUS)
+            # a steady-state window re-reads the three weeks before it: a report published late comes along
+            portal = _pima_portal(facilities=facilities, inspections={RITAS: straggler})
+            records = _run(portal, dp.fetch_pima, since='2026-10-01')
+            self.assertIn('pima_late', {r['source_id'] for r in records})
+            # an unread list is still held at the start the caller asked for, so the margin never creeps
+            portal = _pima_portal(facilities=facilities, inspections={RITAS: dp.requests.ConnectionError('reset')})
+            _run(portal, dp.fetch_pima, since='2026-10-01')
+            self.assertEqual(dp._FRESHNESS_HOLDS, {PIMA_SRC: {f'2026-10-03|{RITAS}': (True, False)}})
+            # no margin in test mode / the history floor: nothing there to miss
+            dp._FRESHNESS_HOLDS.clear()
+            portal = _pima_portal(facilities=facilities, inspections={RITAS: straggler})
+            self.assertEqual(len(_run(portal, dp.fetch_pima)), 14)
+        # without the margin the straggler is missed (the reason the margin exists)
+        portal = _pima_portal(facilities=facilities, inspections={RITAS: straggler})
+        records = _run(portal, dp.fetch_pima, since='2026-10-01')
+        self.assertNotIn('pima_late', {r['source_id'] for r in records})
 
     def test_an_unread_facility_list_holds_the_whole_window(self):
         portal = _pima_portal(inspections={BAG_O_CRAB: dp.requests.ConnectionError('reset')})
@@ -807,20 +1064,71 @@ class LubbockFetchTests(_Base):
         self.assertIn('Lubbock', dp._GROUP_NOTES)
         self.assertIn('2026-01-15', dp._GROUP_NOTES['Lubbock'])
 
-    def test_an_unscored_visit_without_citations_is_dropped_not_shipped_as_100(self):
+    def test_unscored_visits_are_dropped_on_an_official_score_portal(self):
         # (OXXO)'s row says last inspected 2026-01-21, so its list is read for a January window
         portal = _lbk_portal(inspections={OXXO: [
             _insp('zero', '2026-01-10T10:00:00.0000000-06:00', score=0, rating='INFO_REDACTED',
-                  itype='Routine Inspection', number='INSP-Z'),
+                  itype='Routine Inspection', number='INSP-Z', count=0),
             _insp('nullv', '2026-01-11T10:00:00.0000000-06:00', score=None, rating='INFO_REDACTED',
-                  itype='Routine Inspection', number='INSP-N'),
-        ]}, checklists={'zero': [], 'nullv': _load('lubbock_results_small.json')})
+                  itype='Routine Inspection', number='INSP-N', count=2),
+            _insp('scored', '2026-01-12T10:00:00.0000000-06:00', score=98, rating='INFO_REDACTED',
+                  itype='Routine Inspection', number='INSP-S', count=2),
+        ]}, checklists={'zero': [], 'nullv': _load('lubbock_results_small.json'),
+                        'scored': _load('lubbock_results_small.json')})
         by_id = _by_id(_run(portal, dp.fetch_lubbock, since='2026-01-01'))
+        # the county scored neither visit: a 5/2/1 count over the second one's citations would grade it
+        # on another scale than every other Lubbock record (the Texas form deducts 3/2/1), so neither ships
         self.assertNotIn('lbk_INSP-Z', by_id)
-        computed = by_id['lbk_INSP-N']                      # no score but two Core citations: computed
-        self.assertIsNone(computed['original_score'])
-        self.assertEqual(computed['risk_score'], 98)
-        self.assertEqual(computed['results'], '')
+        self.assertNotIn('lbk_INSP-N', by_id)
+        self.assertEqual((by_id['lbk_INSP-S']['original_score'], by_id['lbk_INSP-S']['risk_score']), (98, 98))
+        self.assertEqual(dp._FRESHNESS_HOLDS, {})            # not a failure: nothing to re-read
+
+    def test_an_empty_checklist_is_clean_only_when_the_row_counts_no_citations(self):
+        # Lubbock's clean checklists ARE empty lists (every score-100 visit probed live answered
+        # []); the row's criticalInfractionCount counts every citation, Core included
+        portal = _lbk_portal(inspections={OXXO: [
+            _insp('clean', '2026-01-10T10:00:00.0000000-06:00', score=100, rating='INFO_REDACTED',
+                  itype='Routine Inspection', number='INSP-C', count=0),
+            _insp('hidden', '2026-01-11T10:00:00.0000000-06:00', score=94, rating='INFO_REDACTED',
+                  itype='Routine Inspection', number='INSP-H', count=2),
+        ]}, checklists={'clean': [], 'hidden': []})
+        by_id = _by_id(_run(portal, dp.fetch_lubbock, since='2026-01-01'))
+        self.assertEqual((by_id['lbk_INSP-C']['risk_score'], by_id['lbk_INSP-C']['violations'],
+                          by_id['lbk_INSP-C']['results']), (100, [], 'Grade A'))
+        self.assertNotIn('lbk_INSP-H', by_id)                 # two citations the checklist does not show: unread
+        self.assertEqual(dp._FRESHNESS_HOLDS, {LBK_SRC: {'2026-01-11|hidden': (True, False)}})
+
+    def test_a_clamped_page_size_or_an_unsorted_page_is_not_trusted(self):
+        rows = _load('lubbock_facilities.json')['result']
+        # the server clamps the page size (echoes 2 for the 500 asked): a short first page is not the end
+        portal = _lbk_portal(page_size=2, rows=rows)
+        with self.assertRaises(RuntimeError) as cm:
+            _run(portal, dp.fetch_lubbock, since='2026-01-01')
+        self.assertIn('pageSize 2', str(cm.exception))
+        self.assertEqual(len(portal.calls), 1)
+        with mock.patch.object(dp, 'HH_PAGE', 3):
+            # a page out of order
+            portal = _lbk_portal(page_size=3, rows=rows)
+            portal.facilities[0]['result'].reverse()
+            with self.assertRaises(RuntimeError) as cm:
+                _run(portal, dp.fetch_lubbock)
+            self.assertIn('not sorted', str(cm.exception))
+            # a never-inspected row before a dated one
+            portal = _lbk_portal(page_size=3, rows=rows)
+            never = next(r for p in portal.facilities for r in p['result'] if not r.get('lastInspectionDate'))
+            portal.facilities[0]['result'].insert(0, never)
+            with self.assertRaises(RuntimeError):
+                _run(portal, dp.fetch_lubbock)
+            # a page that starts newer than the page before ended
+            portal = _lbk_portal(page_size=3, rows=rows)
+            portal.facilities[1]['result'].insert(0, portal.facilities[0]['result'][0])
+            with self.assertRaises(RuntimeError):
+                _run(portal, dp.fetch_lubbock)
+            # the honest server: never-inspected rows last, pages continuing each other
+            portal = _lbk_portal(page_size=3, rows=rows)
+            self.assertEqual(len(_run(portal, dp.fetch_lubbock)), 6)
+        self.assertEqual(dp._FRESHNESS_HOLDS, {})
+        self.assertNotIn('Lubbock', dp._GROUP_STATUS)
 
     def test_unread_checklist_drops_and_holds_with_the_inspection_number(self):
         portal = _lbk_portal(checklists={OXXO_99: dp.requests.Timeout('slow')})
@@ -920,6 +1228,33 @@ class MesquiteFetchTests(_Base):
         self.assertEqual([r['inspection_date'] for r in subway],
                          ['2026-10-22', '2026-08-18', '2026-06-05', '2026-02-02', '2025-11-20'])
 
+    def test_an_empty_checklist_is_the_countys_clean_visit(self):
+        # Mesquite's rows carry neither a flag nor a count, and its score is the county's own
+        portal = _mesq_portal(checklists={'k1': []})
+        by_id = _by_id(_run(portal, dp.fetch_mesquite, since='2026-10-01'))
+        self.assertEqual((by_id['mesq_k1']['risk_score'], by_id['mesq_k1']['violations']), (85, []))
+        self.assertEqual(dp._FRESHNESS_HOLDS, {})
+
+    def test_a_block_in_the_facility_phase_reports_blocked_and_leaves_no_lag_note(self):
+        forbidden = _Resp(FORBIDDEN, 403)
+        # by id: Kamikaze reads, then Mathis, Subway and Express trip the breaker; Wilkinson is never asked
+        portal = _mesq_portal(inspections={MATHIS: forbidden, SUBWAY: forbidden, EXPRESS: forbidden,
+                                           WILKINSON: forbidden})
+        with mock.patch.object(dp, 'HH_WORKERS', 1), mock.patch.object(dp, 'SOURCE_LAG_NOTE_DAYS', 0):
+            records = _run(portal, dp.fetch_mesquite, since='2026-10-01')
+        self.assertEqual(records, [])
+        self.assertEqual(portal.lists_requested(), [KAMIKAZE] + [MATHIS] * 3 + [SUBWAY] * 3 + [EXPRESS] * 3)
+        self.assertEqual(portal.checklists_requested(), [])
+        self.assertEqual(dp._GROUP_STATUS['Mesquite'][0], 'blocked')
+        # the three lists tried are held uncounted (a block), the one never asked for and Kamikaze's
+        # unread checklist too
+        self.assertEqual(dp._FRESHNESS_HOLDS, {MESQ_SRC: {
+            f'2026-10-03|{MATHIS}': (False, False), f'2026-10-03|{SUBWAY}': (False, False),
+            f'2026-10-03|{EXPRESS}': (False, False), '2026-10-03|facilities': (False, False),
+            '2026-10-30|k1': (False, False)}})
+        # an undated list's newest row is unknown after a cut: no lag note even at a zero threshold
+        self.assertNotIn('Mesquite', dp._GROUP_NOTES)
+
     def test_a_deadline_cut_in_the_facility_phase_holds_the_window_and_reports_skipped(self):
         portal = _mesq_portal()
         seen = []
@@ -952,6 +1287,12 @@ class PolicyTests(unittest.TestCase):
         self.assertLessEqual(dp.HH_WORKERS, 4)
         self.assertGreater(dp.HH_DELAY, 0)
         self.assertGreaterEqual(dp.HH_RETRIES, 2)
+        self.assertGreaterEqual(dp.HH_BREAKER_TRIP, 2)
+        self.assertEqual(dp.HH_PERMANENT_STATUSES, {400, 404, 410})
+        self.assertGreaterEqual(dp.HH_MASS_FAILURE_MIN, 10)
+        self.assertEqual(dp.HH_PORTALS['pima']['lag_margin_days'], 21)
+        for slug in ('lubbock', 'mesquite'):
+            self.assertEqual(dp.HH_PORTALS[slug]['lag_margin_days'], 0)
 
 
 if __name__ == '__main__':
