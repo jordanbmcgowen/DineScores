@@ -7917,15 +7917,20 @@ def _harris_search_body(since, skip, take):
 def _harris_list_establishments(session, since, limit):
     """Phase 1: every active establishment whose newest inspection is on or
     after `since` (all of them when None), newest first, deduped on
-    documentId. Raises RuntimeError when a page cannot be read or the listing
-    ends short of the server's totalCount; _HarrisCut on the deadline or the
-    breaker."""
+    documentId. The listing is newest first on purpose: a row updated while
+    it is being read moves to the top and shifts the rest one place FORWARD,
+    past the cursor (a duplicate, deduped), never backward (a loss). A page
+    is followed until a short page reaches the server's totalCount or an
+    empty one comes back (a server that clamped `take` must not end a
+    window early), and the unique count is checked against totalCount.
+    Raises RuntimeError when a page cannot be read or the listing came up
+    short; _HarrisCut on the deadline or the breaker."""
     take = min(HARRIS_PAGE, max(int(limit), 1)) if limit else HARRIS_PAGE
-    ests, skip, total, read, pages = {}, 0, 0, 0, 0
+    ests, skip, total, pages = {}, 0, 0, 0
     while True:
         if _past_deadline():
             raise _HarrisCut('skipped', f'fetch deadline reached while listing establishments '
-                                        f'({read} rows read)')
+                                        f'({len(ests)} read)')
         page = _harris_request(session, HARRIS_SEARCH_URL, body=_harris_search_body(since, skip, take))
         rows = page.get('data') if isinstance(page, dict) else None
         if not isinstance(rows, list):
@@ -7940,20 +7945,17 @@ def _harris_list_establishments(session, since, limit):
             raise RuntimeError(f'Harris County: establishment search answered without a totalCount '
                                f'(skip={skip}); not shipping a partial window')
         pages += 1
-        read += len(rows)
         for row in rows:
             did = row.get('documentId') if isinstance(row, dict) else None
             if did and did not in ests:
                 ests[did] = row
         time.sleep(HARRIS_DELAY)
-        if len(rows) < take or (limit and len(ests) >= limit):
+        skip += len(rows)
+        if not rows or (limit and len(ests) >= limit) or (len(rows) < take and skip >= total):
             break
-        skip += take
-        if skip >= total:
-            break
-    if not limit and read < total:
-        raise RuntimeError(f'Harris County: establishment listing incomplete ({read} of {total} rows '
-                           f'in {pages} pages); not shipping a partial window')
+    if not limit and len(ests) < total:
+        raise RuntimeError(f'Harris County: establishment listing incomplete ({len(ests)} of {total} '
+                           f'establishments in {pages} pages); not shipping a partial window')
     log.info(f"  Harris County: {len(ests)} establishments with an inspection since "
              f"{since or 'the start of the record'} ({pages} search pages, totalCount {total})")
     return list(ests.values())
@@ -8137,12 +8139,13 @@ def fetch_harris(since_date=None, limit=None):
     leaves no lag note. Only inspections whose item list was read (or whose
     score of 100 means there is none) ship.
     """
-    global _HARRIS_FAILURES_LOGGED
+    global _HARRIS_FAILURES_LOGGED, _HARRIS_BLOCKED, _HARRIS_EXHAUSTED_STREAK, _HARRIS_LAST_ERROR
     log.info(f"Fetching Harris County data (since={since_date}, limit={limit})")
     since = str(since_date)[:10] if since_date else None
     _HARRIS_FAILURES_LOGGED = 0
     with _HARRIS_LOCK:
         _HARRIS_STATS.clear()
+        _HARRIS_BLOCKED, _HARRIS_EXHAUSTED_STREAK, _HARRIS_LAST_ERROR = False, 0, ''
     started = time.time()
     local = threading.local()
 
@@ -8163,34 +8166,39 @@ def fetch_harris(since_date=None, limit=None):
     # Phase 1: the establishments inspected in the window.
     skipped_est = defaultdict(int)
     try:
-        ests = [e for e in _harris_list_establishments(get_session(), since, limit)
-                if _harris_in_scope(e, skipped_est)]
+        listed = _harris_list_establishments(get_session(), since, limit)
     except _HarrisCut as c:
         return cut(c.status, c.detail)
+    truncated = bool(limit) and len(listed) >= limit      # a bounded read never saw the end
+    ests = [e for e in listed if _harris_in_scope(e, skipped_est)]
     if skipped_est:
         log.info("  Harris County: skipped " + ', '.join(
             f"{n} {why}" for why, n in sorted(skipped_est.items(), key=lambda kv: -kv[1]))
             + " establishments (not public food businesses)")
-    truncated = bool(limit) and len(ests) >= limit
 
     # Phase 2: each establishment's inspection list. The window is complete
     # only when every list was read, so one unreadable list fails the run;
     # a breaker trip or the deadline stops the phase and holds the window.
+    # An establishment the API no longer knows (404/410 — deactivated since
+    # the search) is skipped and held on its own, like any bad record.
     def list_inspections(est):
         did = est.get('documentId')
         if _past_deadline():
             return did, 'deadline'
         if _HARRIS_BLOCKED:
             return did, 'blocked'
-        data = _harris_request(get_session(), HARRIS_INSPECTIONS_URL, params={'id': did})
+        info = {}
+        data = _harris_request(get_session(), HARRIS_INSPECTIONS_URL, params={'id': did}, info=info)
         time.sleep(HARRIS_DELAY)
         if isinstance(data, list):
             return did, data
+        if info.get('permanent'):
+            return did, 'gone'
         if _HARRIS_BLOCKED:
             return did, 'blocked'
         return did, 'deadline' if _past_deadline() else 'failed'
 
-    lists, outcomes = {}, defaultdict(int)
+    lists, outcomes, gone = {}, defaultdict(int), []
     if ests:
         log.info(f"  Harris County: reading {len(ests)} inspection lists ({HARRIS_WORKERS} workers)...")
         with ThreadPoolExecutor(max_workers=HARRIS_WORKERS) as pool:
@@ -8198,8 +8206,18 @@ def fetch_harris(since_date=None, limit=None):
                 did, data = future.result()
                 if isinstance(data, list):
                     lists[did] = data
+                elif data == 'gone':
+                    gone.append(did)
                 else:
                     outcomes[data] += 1
+    if gone:
+        by_id = {e.get('documentId'): e for e in ests}
+        for did in gone:
+            day = sane_inspection_date(by_id[did].get('lastCompletedInspectionDate')) or since
+            _hold_freshness(HARRIS_SOURCE, day, counted=True, key=did)
+        log.warning(f"  Harris County: {len(gone)} establishments answered 404/410 to their inspection "
+                    f"list (deactivated since the search?); skipped and held for a re-read")
+        ests = [e for e in ests if e.get('documentId') not in set(gone)]
     if outcomes.get('blocked'):
         return cut('blocked', f'HCPH stopped answering ({_HARRIS_LAST_ERROR}); '
                               f'{sum(outcomes.values())} of {len(ests)} inspection lists not read')

@@ -11,7 +11,14 @@ when resuming; never start over.
       inspected in the 14 days to 2026-11-03.
 - [x] fetch_harris written (section "HARRIS COUNTY, TX" in dinescores_pipeline.py)
 - [x] test-mode live run: 25 records, 21 establishments, 40 requests, 8 s, 24/25 geocoded (Census)
-- [ ] 14-day live run, results below
+- [x] 2026-11-03 resume: listing pages until a short page REACHES totalCount
+      (or an empty page), unique count checked against totalCount (DESC order
+      kept: a mid-read update shifts rows forward past the cursor, never
+      backward); a 404/410 on an inspection list skips + holds that
+      establishment (key=documentId) instead of failing the window; truncated
+      computed from the raw listing; breaker state reset per fetch.
+- [ ] 14-day live run + analysis pass (scratchpad/harris/run_live.sh ->
+      live_chain.log, test_run.log, run_14d.log, analysis.log), results below
 - [ ] fixtures captured + scrubbed under tests/fixtures/harris/
 - [ ] tests/test_harris.py green; whole suite green
 - [ ] final cleanup + structured report
