@@ -89,6 +89,37 @@ Branch `feat/maricopa`, worktree `/home/user/wt-maricopa`. Section header in
     MCESD_POSTING_LAG_DAYS=21 kept as insurance against a late tail that one
     run cannot see (self-healing alone tolerates ~6 days of lag worst case).
 
+## Weekly-equivalent cost and backfill estimate (from the 14-day run, 2026-11-03)
+- Measured: inventory 403 zip searches in 102 s (2 workers, 4/s); listing 21,722
+  permit pages in 3,131 s = 6.97 pages/s, flat for the whole run (2,000 pages
+  every ~287 s), 0 unread, no 429/403/5xx seen at INFO level; details 1,677
+  pages in 2,616 s = 0.64 pages/s at 2 workers + 0.5 s delay (~2.6 s server
+  time per page, as the probe measured). 23,826 portal requests, 97.6 min of
+  fetcher wall time for a 14-day window; Census geocoding then took 3 min.
+  No sign of throttling at these rates (the probe saw 29.8 pages/s tolerated).
+- Volume: 1,692 inspections dated in the 10 published days Oct 20-29 (~169 a
+  calendar day, ~1,180 a week; 3% are advisory/training visits now skipped).
+- Weekly run (before `--skip-known-inspections` removes the embedded
+  restaurants' stored dates): inventory 2 min + listing 52 min + details for
+  the widened window: MCESD_POSTING_LAG_DAYS=21 -> ~3,450 pages, 90 min
+  (run ~143 min, ~25,600 requests); 14 -> ~2,300 pages, 60 min (~114 min);
+  10 -> ~1,650 pages, 43 min (~97 min). The county's embargo measured sharp
+  (~5 days, no taper), so 10-14 is defensible once a few runs confirm no
+  late tail; 21 is the shipped insurance. All fit the 240-minute deadline.
+- 90-day backfill: the same 54 min of inventory+listing (a permit page lists
+  the whole 3-year history, so a longer window costs no extra listing) plus
+  ~14,800 detail pages = 6.4 h at 2 workers (~37,000 requests): more than one
+  weekly deadline. Either a one-off local run (`--mode full --since-date
+  <90 days ago> --cities maricopa`, no deadline) or let the weekly job drain
+  it: details run oldest-first, a deadline cut holds the newest tail
+  (counted=False) and the next run resumes there, ~7,000 pages per run after
+  the listing -> 2-3 Sunday runs. MCESD_DETAIL_WORKERS=4 would halve the time
+  if the server scales (unverified; it is a server-latency bound).
+- Caveat: an unreadable permit page in a backfill run holds the window at the
+  backfill's start (freshness has no per-permit scope), so the following run
+  re-details that window once (minus skip-known); in weekly mode the hold is
+  free because the window is already widened to MCESD_POSTING_LAG_DAYS.
+
 ## Open questions
 - Posting lag: measured 5 days at the newest end (newest row 2026-10-29 on
   2026-11-03 across all permits). The spread (how many days until a date is
