@@ -8,7 +8,11 @@ tests/fixtures/maricopa/, trimmed from pages captured live on 2026-11-02/03
 (the <main> element of each page, so the markup the parsers read is
 byte-exact; permit pages for permits whose live page was not captured are
 single-row pages built from the FD-00570 page's own row markup; search
-rows and ArcGIS features are verbatim)."""
+rows and ArcGIS features are verbatim). inspection_INSP-143596-2026.html
+(one item citing two Food Code sections with different tiers) and
+inspection_INSP-195554-2026.html (a re-inspection listing a re-checked item
+with empty comments) are two of the 15 pages the 2026-11-03 live run could
+not read, captured the same day."""
 import json
 import logging
 import os
@@ -255,7 +259,8 @@ class DetailPageParserTests(unittest.TestCase):
         self.assertIsNone(dp._mcesd_parse_detail(page.replace('Inspection Status', 'Status')))
         # a tier wording the parser does not know must not read as core
         self.assertIsNone(dp._mcesd_parse_detail(page.replace(' - Priority:', ' - Severe:')))
-        # the Priority tally must agree with the header count
+        # a header Priority tally above the citations read is a citation the
+        # parser could not see (every such live page was a missed second one)
         self.assertIsNone(dp._mcesd_parse_detail(page.replace('<br />\n                1\n', '<br />\n                2\n')))
         # text inside the block that is not a violation is a layout change
         self.assertIsNone(dp._mcesd_parse_detail(page.replace('<h2>Violations</h2>', '<h2>Violations</h2><p>Some new block</p>')))
@@ -267,12 +272,68 @@ class DetailPageParserTests(unittest.TestCase):
                  "<p class='mb-1'>PRIORITY VIOLATION-3-501.14 - Priority: Cooling.  For a permanent fix to this "
                  "violation, check out these simple tools. https://www.maricopa.gov/4617/AMC-Toolbox---Cooling. </p>")
         self.assertEqual(dp._mcesd_violation(chunk),
-                         ('20', 'Proper Cooling Time and Temperatures', 'priority',
-                          'Proper Cooling Time and Temperatures: Cooling'))
+                         [('20', 'Proper Cooling Time and Temperatures', 'priority',
+                           'Proper Cooling Time and Temperatures: Cooling')])
         self.assertIsNone(dp._mcesd_violation(chunk.replace(' - Priority:', ' - Major:')))
         # a code phrase that only repeats the item title is not repeated
         same = chunk.replace('Priority: Cooling.', 'Priority: Proper Cooling Time and Temperatures.')
-        self.assertEqual(dp._mcesd_violation(same)[3], 'Proper Cooling Time and Temperatures')
+        self.assertEqual(dp._mcesd_violation(same)[0][3], 'Proper Cooling Time and Temperatures')
+
+    def test_tier_marker_without_a_citation_is_unread(self):
+        # a tier word that is not preceded by a Food Code section citation is
+        # a wording the parser does not know, so the entry (and page) is unread
+        chunk = ('<p class="mb-0 mt-3"><span class="fw-bold">Violation #:</span> 20</p>'
+                 '<p class="mb-0"><span class="fw-bold">Description:</span> Proper Cooling Time and Temperatures </p>'
+                 '<p class="commentBlock mb-0"><span class="fw-bold">Comments:</span></p>'
+                 "<p class='mb-1'>Cooling violation - Priority: Cooling. Addl Notes: Observed gravy at 95F.</p>")
+        self.assertIsNone(dp._mcesd_violation(chunk))
+        self.assertIsNone(dp._mcesd_violation(chunk.replace(' - Priority:', ', P:')))
+        self.assertIsNone(dp._mcesd_violation(chunk.replace('Cooling violation - Priority:', 'Observed gravy at 95F.')))
+        # the same text with its citation reads as one priority line
+        cited = chunk.replace('Cooling violation - Priority:', 'PRIORITY VIOLATION-3-501.14 - Priority:')
+        self.assertEqual([(v[2], v[3]) for v in dp._mcesd_violation(cited)],
+                         [('priority', 'Proper Cooling Time and Temperatures: Observed gravy at 95F.')])
+
+    def test_several_citations_in_one_entry_are_separate_lines(self):
+        p = dp._mcesd_parse_detail(_load('inspection_INSP-143596-2026.html'))
+        self.assertEqual(p['header']['Priority Violation'], '2')
+        self.assertFalse(p['priority_mismatch'])
+        self.assertEqual(p['empty_entries'], 0)
+        # item 16 cites a Core section and then a Priority one, each with its
+        # own 'Addl Notes' paragraph; the county's tally of 2 counts citations
+        self.assertEqual([(v[0], v[2]) for v in p['violations']],
+                         [('16', 'core'), ('16', 'priority'), ('23', 'priority'), ('38', 'core')])
+        title = 'Food-Contact Surfaces: Cleaned and Sanitized'
+        core16, prio16 = p['violations'][0][3], p['violations'][1][3]
+        self.assertTrue(core16.startswith(title + ': Observed build-up occurring in the soda gun nozzles'))
+        self.assertTrue(core16.endswith('must be cleaned to sight and touch.'))
+        self.assertTrue(prio16.startswith(title + ': Observed 0 ppm chlorine sanitizer in the main dish machine'))
+        for text in (core16, prio16):
+            for needle in ('4-602.11', '4-501.114', 'PRIORITY VIOLATION', 'Corrective Action', 'AMC-Toolbox', 'http'):
+                self.assertNotIn(needle, text)
+        self.assertTrue(p['violations'][3][3].startswith(
+            'Insects, Rodents and Animals not Present: Observed more than 5 small flies in the bar'))
+
+    def test_entry_printed_without_comments_adds_nothing(self):
+        p = dp._mcesd_parse_detail(_load('inspection_INSP-195554-2026.html'))
+        self.assertEqual(p['header']['Inspection Purpose'], 'Re-Inspection')
+        self.assertEqual(p['header']['Grade'], 'R')
+        # item 10 (the re-checked handwashing sink) is printed with an empty
+        # Comments block: nothing to read, counted, not a violation and not unread
+        self.assertEqual(p['empty_entries'], 1)
+        self.assertEqual([(v[0], v[2]) for v in p['violations']], [('55', 'core')])
+        self.assertTrue(p['violations'][0][3].startswith(
+            'Physical Facilities Installed, Maintained, and Clean: Observed unused equipment next to 3 comp sink'))
+        self.assertFalse(p['priority_mismatch'])
+
+    def test_tally_below_the_citations_is_reported_not_enforced(self):
+        # the county does not tally a suspension's, a re-inspection's or a
+        # corrected-on-site Priority citation: the citations ship, flagged
+        page = _load('inspection_INSP-055361-2026.html')
+        p = dp._mcesd_parse_detail(page.replace('<br />\n                1\n', '<br />\n                0\n'))
+        self.assertIsNotNone(p)
+        self.assertTrue(p['priority_mismatch'])
+        self.assertEqual([v[2] for v in p['violations']], ['priority'])
 
 
 class HelperTests(unittest.TestCase):
@@ -471,6 +532,27 @@ class RecordTests(MaricopaTestCase):
             self.assertIsNone(rec['original_score'])
             self.assertEqual(rec['state'], 'AZ')
             self.assertEqual(rec['metro'], 'Phoenix')
+
+    def test_multi_citation_and_empty_entries_in_records(self):
+        portal = FakePortal()
+        portal.details[('FD-00408', 'INSP-026373-2026')] = 'inspection_INSP-143596-2026.html'
+        portal.details[('FD2602160', 'INSP-900002-2026')] = 'inspection_INSP-195554-2026.html'
+        records, _ = run_fetch(portal, since='2026-08-01')
+        by_id = _by_id(records)
+        multi = by_id['mcesd_FD-00408_INSP-026373-2026']
+        self.assertEqual((multi['priority_violations'], multi['priority_foundation_violations'],
+                          multi['core_violations'], multi['total_violations'], multi['risk_score']),
+                         (2, 0, 2, 4, 88))
+        self.assertEqual([v[1] for v in multi['violations']], ['core', 'priority', 'priority', 'core'])
+        self.assertEqual(multi['violations'][0][2][:46], multi['violations'][1][2][:46])   # same item title
+        self.assertEqual(multi['results'], 'Not Participating')
+        reinsp = by_id['mcesd_FD2602160_INSP-900002-2026']
+        self.assertEqual((reinsp['total_violations'], reinsp['risk_score']), (1, 99))
+        self.assertEqual(reinsp['violations'][0][1], 'core')
+        self.assertEqual(reinsp['inspection_type'], 'Re-Inspection')
+        self.assertEqual(reinsp['results'], 'Re-inspection')
+        self.assertEqual(dp._FRESHNESS_HOLDS, {})            # nothing was dropped
+        self.assertNotIn(GROUP, dp._GROUP_STATUS)
 
     def test_window_selects_only_rows_on_or_after_since(self):
         self.assertEqual(sorted(self.by_id), ['mcesd_FD-00408_INSP-026373-2026', 'mcesd_FD-00570_INSP-067508-2026',

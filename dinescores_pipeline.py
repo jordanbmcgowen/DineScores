@@ -7711,10 +7711,17 @@ def fetch_louisiana(since_date=None, limit=None):
 #      each line's tier in two generations of wording (2024+ ' - Priority:' /
 #      ' - Priority Foundation:' / ' - Core:' with the observation after
 #      'Addl Notes:'; legacy ', P:' / ', Pf:' / ', C:' with it after '>>>').
-#      A page without the markers, with a line whose tier cannot be read, or
-#      whose Priority count disagrees with the header is UNREAD (dropped and
-#      held), never clean; a present-but-empty div#Violations is a real
-#      clean inspection (verified on live pages).
+#      One county item can cite several sections, each with its own tier
+#      and notes: every citation is its own violation line. A page without
+#      the markers, with text in the block that is not an entry, or with an
+#      entry whose comments carry a tier the parser cannot read is UNREAD
+#      (dropped and held), never clean; a present-but-empty div#Violations
+#      is a real clean inspection and an entry printed with no comments at
+#      all (a re-inspection's re-checked item) adds nothing (both verified
+#      on live pages). A header Priority tally above the Priority citations
+#      read is UNREAD too (a citation the parser missed); one below them is
+#      only logged: the county does not tally a suspension's or a
+#      re-inspection's citations, nor one corrected on site.
 # The county publishes no numeric score: original_score is None and
 # risk_score = 100 - 5P - 2PF - C from the source-stated tiers (the label is
 # in jev_reader's SOURCE_TIER_SCORE_SOURCES / SOURCE_TIER_SOURCES, so Jev
@@ -7816,8 +7823,9 @@ MCESD_VIOLATIONS_DIV_RE = re.compile(r'<div[^>]*\bid="Violations"[^>]*>(.*?)</di
 MCESD_VIOLATION_NUM_RE = re.compile(r'<span class="fw-bold">Violation #:</span>\s*([^<]*?)\s*</p>')
 MCESD_DESC_RE = re.compile(r'<span class="fw-bold">Description:</span>(.*?)</p>', re.S)
 MCESD_PARA_RE = re.compile(r'<p class=[\'"]mb-1[\'"]>(.*?)</p>', re.S)
-MCESD_TIER_NEW_RE = re.compile(r'\s-\s(Priority Foundation|Priority|Core):', re.I)
-MCESD_TIER_OLD_RE = re.compile(r',\s*(Pf|P|C):\s', re.I)
+MCESD_TIER_MARK_RE = re.compile(r'\s-\s(Priority Foundation|Priority|Core):|,\s*(Pf|P|C):\s', re.I)
+MCESD_CODE_RE = re.compile(r'(?:PRIORITY VIOLATION-|Priority Foundation-|Core-)?\d-\d{3}\.\d+', re.I)
+MCESD_CODE_REACH = 70                # chars from a citation's start to its tier marker, at most
 MCESD_TIER = {'priority': 'priority', 'p': 'priority',
               'priority foundation': 'priority_foundation', 'pf': 'priority_foundation',
               'core': 'core', 'c': 'core'}
@@ -8089,50 +8097,85 @@ def _mcesd_fetch_permit_page(session, permit, pacer, stats):
     return None
 
 
+def _mcesd_citations(comments):
+    """[(start, tier_match), ...] for every code citation in an entry's
+    comments text, in order. One county item ('Violation #') can cite several
+    Food Code sections, each with its own tier and 'Addl Notes' (12 of the 38
+    entries on the 15 pages the first live run could not read): every tier
+    marker (' - Priority:' / ' - Priority Foundation:' / ' - Core:', legacy
+    ', P:' / ', Pf:' / ', C:') preceded within MCESD_CODE_REACH characters by
+    a section citation such as '4-602.11 (E)' or 'PRIORITY VIOLATION-3-501.16
+    (A)(2) and (B)' starts a citation there. None when a marker has no
+    citation before it: a wording the parser does not know, never core."""
+    out = []
+    for m in MCESD_TIER_MARK_RE.finditer(comments):
+        lo = max(0, m.start() - MCESD_CODE_REACH)
+        codes = list(MCESD_CODE_RE.finditer(comments[lo:m.start()]))
+        if not codes:
+            return None
+        out.append((lo + codes[-1].start(), m))
+    return out
+
+
 def _mcesd_violation(chunk):
-    """(number, title, severity, text) for one 'Violation #:' block, or None
-    when its tier cannot be read (then the whole page is unread)."""
+    """[(number, title, severity, text), ...] for one 'Violation #:' entry,
+    one tuple per code citation it carries; [] for an entry the county
+    printed with no comments at all (a re-inspection lists the re-checked
+    item that way); None when comments are present but a citation's tier
+    cannot be read (then the whole page is unread)."""
     num_m = MCESD_VIOLATION_NUM_RE.search(chunk)
     desc_m = MCESD_DESC_RE.search(chunk)
     paras = [_mcesd_text(p) for p in MCESD_PARA_RE.findall(chunk)]
-    paras = [p for p in paras if p]
+    comments = ' '.join(p for p in paras if p)
     title = _mcesd_text(desc_m.group(1)) if desc_m else ''
     number = _mcesd_text(num_m.group(1)) if num_m else ''
-    comments = ' '.join(paras)
-    # The tier sits in the code citation that opens the comments, before the
-    # observation ('Addl Notes:' 2024+, '>>>' legacy).
-    head = re.split(r'Addl Notes:|>>>', comments, maxsplit=1)[0]
-    tier_m = MCESD_TIER_NEW_RE.search(head) or MCESD_TIER_OLD_RE.search(head)
-    if not tier_m:
+    if not comments:
+        return []
+    cites = _mcesd_citations(comments)
+    if not cites:
         return None
-    severity = MCESD_TIER[tier_m.group(1).lower()]
-    # The code phrase after the tier ('Cooling.', 'Sanitizers, Criteria-
-    # Chemicals') up to the county's AMC-toolbox marketing sentence.
-    phrase = re.split(r'\s+For a permanent fix|https?://', head[tier_m.end():], maxsplit=1)[0]
-    phrase = ' '.join(phrase.split()).strip(' .,;:-')
-    obs_m = re.search(r'Addl Notes:\s*(.*)', comments, re.S)
-    if obs_m:
-        observation = obs_m.group(1)
-    else:
-        i = comments.find('>>>')
-        observation = comments[i + 3:] if i >= 0 else ''
-    observation = re.split(r'Predefined Comment:|Corrective Action:|Correct By:',
-                           observation, maxsplit=1)[0]
-    observation = ' '.join(observation.split()).strip()
-    detail = observation or phrase
-    if detail.lower().strip('.') == title.lower().strip('.'):
-        detail = ''                          # the code phrase merely repeats the item title
-    text = f'{title}: {detail}' if title and detail else (title or detail)
-    return number, title, severity, text[:500]
+    out = []
+    for i, (start, tier_m) in enumerate(cites):
+        end = cites[i + 1][0] if i + 1 < len(cites) else len(comments)
+        severity = MCESD_TIER[(tier_m.group(1) or tier_m.group(2)).lower()]
+        body = comments[tier_m.end():end]
+        # The code phrase after the tier ('Cooling.', 'Sanitizers, Criteria-
+        # Chemicals') up to the county's AMC-toolbox marketing sentence; the
+        # observation follows 'Addl Notes:' (2024+) or '>>>' (legacy) and
+        # ends at the predefined comment / corrective action / correct-by.
+        head = re.split(r'Addl Notes:|>>>', body, maxsplit=1)[0]
+        phrase = re.split(r'\s+For a permanent fix|https?://', head, maxsplit=1)[0]
+        phrase = ' '.join(phrase.split()).strip(' .,;:-')
+        obs_m = re.search(r'Addl Notes:\s*(.*)', body, re.S)
+        if obs_m:
+            observation = obs_m.group(1)
+        else:
+            j = body.find('>>>')
+            observation = body[j + 3:] if j >= 0 else ''
+        observation = re.split(r'Predefined Comment:|Corrective Action:|Correct By:',
+                               observation, maxsplit=1)[0]
+        observation = ' '.join(observation.split()).strip()
+        detail = observation or phrase
+        if detail.lower().strip('.') == title.lower().strip('.'):
+            detail = ''                      # the code phrase merely repeats the item title
+        text = f'{title}: {detail}' if title and detail else (title or detail)
+        out.append((number, title, severity, text[:500]))
+    return out
 
 
 def _mcesd_parse_detail(text):
-    """{'header': {...}, 'violations': [(num, title, severity, text), ...]}
-    for an inspection detail page, or None when the page is not a complete
-    one: missing header labels or div#Violations (the 'Inspection Not
-    Available' page, an error page), a violation whose tier cannot be read,
-    or a Priority tally that disagrees with the header. An empty
-    div#Violations with the header present is a real clean inspection."""
+    """{'header': {...}, 'violations': [(num, title, severity, text), ...],
+    'empty_entries': n, 'priority_mismatch': bool} for an inspection detail
+    page, or None when the page is not a complete one: missing header labels
+    or div#Violations (the 'Inspection Not Available' page, an error page),
+    text in the block that is not a violation entry, or an entry with
+    comments whose tier cannot be read. An empty div#Violations with the
+    header present is a real clean inspection. The header's 'Priority
+    Violation' tally ABOVE the Priority citations read is unread too (every
+    such page of the first live run was a second citation the parser had
+    missed); a tally below them is reported, not enforced: the county does
+    not tally a suspension's or a re-inspection's citations, nor one it
+    saw corrected on site."""
     header = {_mcesd_text(k): _mcesd_text(v) for k, v in MCESD_HEADER_RE.findall(text or '')}
     if 'Inspection Date' not in header or 'Inspection Status' not in header:
         return None
@@ -8141,7 +8184,7 @@ def _mcesd_parse_detail(text):
         return None
     block = m.group(1)
     chunks = re.split(r'(?=<p[^>]*>\s*<span class="fw-bold">Violation #:</span>)', block)
-    violations = []
+    violations, empty = [], 0
     for chunk in chunks:
         if 'Violation #:' not in chunk:
             if _mcesd_text(chunk).replace('Violations', '').strip():
@@ -8150,11 +8193,15 @@ def _mcesd_parse_detail(text):
         v = _mcesd_violation(chunk)
         if v is None:
             return None
-        violations.append(v)
+        if not v:
+            empty += 1
+        violations.extend(v)
     stated = header.get('Priority Violation', '')
-    if stated.isdigit() and int(stated) != sum(1 for v in violations if v[2] == 'priority'):
-        return None
-    return {'header': header, 'violations': violations}
+    parsed_p = sum(1 for v in violations if v[2] == 'priority')
+    if stated.isdigit() and int(stated) > parsed_p:
+        return None                         # a Priority citation the parser could not see
+    return {'header': header, 'violations': violations, 'empty_entries': empty,
+            'priority_mismatch': bool(stated.isdigit() and int(stated) != parsed_p)}
 
 
 def _mcesd_points(permit_ids, stats=None):
@@ -8396,7 +8443,7 @@ def fetch_maricopa(since_date=None, limit=None):
                            [row['permit'] for _, row in shipped], stats)
 
     results = []
-    date_mismatch = 0
+    date_mismatch = priority_mismatch = empty_entries = 0
     for d, permit, row in candidates:
         parsed = details.get((row['permit'], row['inspection']))
         if parsed is None:
@@ -8407,6 +8454,8 @@ def fetch_maricopa(since_date=None, limit=None):
         page_date = _mcesd_date(header.get('Inspection Date'))
         if page_date and page_date != d:
             date_mismatch += 1
+        priority_mismatch += 1 if parsed.get('priority_mismatch') else 0
+        empty_entries += parsed.get('empty_entries', 0)
         violations = []
         for _num, _title, severity, text in parsed['violations']:
             cat, _, _ = classify_violation(text)
@@ -8441,6 +8490,10 @@ def fetch_maricopa(since_date=None, limit=None):
     if date_mismatch:
         log.warning(f"  Maricopa: {date_mismatch} detail pages print a different inspection "
                     f"date than the permit page row (the row's date shipped)")
+    if priority_mismatch or empty_entries:
+        log.info(f"  Maricopa: {priority_mismatch} detail pages whose Priority tally is below their "
+                 f"citations (the citations shipped); {empty_entries} violation entries printed "
+                 f"with no comments (nothing to read, left out)")
     # Newest day first; within a day the worst visit first (an F, then the
     # lowest score), so same-day picks are deterministic.
     results.sort(key=lambda r: (r['inspection_date'], -r['risk_score'], r['priority_violations'],

@@ -24,8 +24,28 @@ Branch `feat/maricopa`, worktree `/home/user/wt-maricopa`. Section header in
 - [x] Scope rule documented in the section comment: permit type is the only
       signal; school/hospital/workplace cafeterias ship like every other source
       (data.js already holds 3,785 school-named entries from other sources).
-- [ ] Diagnose the 15 'unread' detail pages (find_unread.py rescan running,
-      started 02:50 UTC at 10 pages/s; report -> scratchpad/live/unread_report.json).
+- [x] Diagnosed the 15 'unread' detail pages (rescan 02:50-03:28 UTC, 22,147
+      requests, 0 unread permit pages; report scratchpad/live/unread_report.json,
+      pages saved under scratchpad/live/unread_pages/). ROOT CAUSES, both fixed:
+      (1) one county item ('Violation #') can cite SEVERAL Food Code sections,
+      each in its own <p class='mb-1'> with its own tier and 'Addl Notes' (12 of
+      the 38 entries on those pages; e.g. item 16 'Food-Contact Surfaces' = a
+      Core soda-gun citation + a Priority 0-ppm-sanitizer citation). The parser
+      read only the first tier, so the header's Priority tally (which counts
+      citations) disagreed -> 13 pages dropped; worse, on pages where the tally
+      still matched, a second non-Priority citation was silently lost from the
+      score. Now `_mcesd_citations` splits an entry at every tier marker that a
+      section citation precedes and `_mcesd_violation` returns one line per
+      citation. (2) a re-inspection lists the re-checked item with an EMPTY
+      Comments block (2 pages): now `[]` (counted as `empty_entries`, logged),
+      not unread. The tally check became asymmetric: header ABOVE the Priority
+      citations read = unread (every such page was a missed citation; it is
+      the check that found this bug), below = logged only (suspensions,
+      re-inspections and corrected-on-site items are not tallied: 3 pages).
+      Re-parse of all 15 pages + 6 fixtures: 20 parse, 0 header>parsed, 3
+      header<parsed, 1 unread (the 'Inspection Not Available' fixture).
+      Fixtures inspection_INSP-143596-2026.html / inspection_INSP-195554-2026.html
+      and 5 tests added (52 in the module).
 - [ ] Final cleanup + report.
 
 ## Design decisions (so a successor does not re-derive them)
