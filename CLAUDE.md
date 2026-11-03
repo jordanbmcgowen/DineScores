@@ -2,7 +2,7 @@
 
 Restaurant health-inspection scores on a map: https://dinescores.com
 ~69k restaurants embedded client-side (the 24 MB cap), ~300k in the
-database, covering ~50 metros (NYC, Chicago, LA County, SF, Seattle, Boston,
+database, covering ~55 metros (NYC, Chicago, LA County, SF, Seattle, Boston,
 Austin, Houston, DC, DFW incl. McKinney/Lewisville/Denton, Las Vegas,
 Raleigh, Miami/Tampa/Orlando, Louisville, Minneapolis, Cincinnati,
 Montgomery County MD, Detroit, Sacramento, Fairfax County, Portland OR
@@ -38,7 +38,7 @@ Cloudflare Pages builds on deploy, serves public/
   button can't be clicked". Ours never disables, re-asks on every tap,
   zooms to street level and follows live until the user pans; a tap that
   finds no location shows a notice saying why. Data sources, in order: embedded
-  `public/data.js` (top ~1500/city), then viewport lazy-loading via
+  `public/data.js` (top 1,000/city, bounded by EMBED_BUDGET and the 24 MB cap), then viewport lazy-loading via
   `src/api.js` → `/api/restaurants?bbox=`, history via
   `/api/restaurants/:id/history`. All API helpers fail soft so the map
   works even if D1 is down. Basemap tiles are CARTO raster tiles, which
@@ -174,8 +174,9 @@ middleware.
     - The cooldown budget `MHD_BAN_COOLDOWNS` defaults to 16 (was 3): a
       normal week of every MHD jurisdiction is well over 1,000 detail pages,
       five or more 15-minute ban windows, which the old budget could never
-      finish. The weekly job's 240-minute fetch deadline (330-minute job)
-      is what bounds a CI run; it is a Sunday cron, so the hours are free.
+      finish. The job's 270-minute fetch deadline (350-minute job) is what
+      bounds a CI run; both crons fire at 09:17 UTC (Sunday, Wednesday), so
+      the hours are free.
     - SNHD is rate-limited, not IP-blocked: a 401/429 pauses every SNHD
       worker (`_snhd_pause_all`, `SNHD_RATE_LIMIT_WAIT`) instead of
       retrying three seconds later, and the detail phase runs at
@@ -310,11 +311,15 @@ people covered per unit of work:
 
 - **Cloudflare Pages rejects any asset over 25 MiB**, and `public/data.js`
   is the asset that grows. `write_data_js` bounds it (EMBED_BUDGET global
-  cap + EMBED_CITY_FLOOR per-city floor) and then enforces a hard
-  `DATA_JS_MAX_BYTES` (24,000,000) by dropping the oldest records outside
-  the floors — the record budget alone let the file creep to 24.8 MB as
-  new towns added floors. A deploy that fails with no error on the commit
-  is usually this. The full dataset lives in D1.
+  cap + EMBED_CITY_FLOOR per-city floor, cities keyed by (name, state))
+  and then enforces a hard `DATA_JS_MAX_BYTES` (24,000,000); both trims
+  take the oldest record of the DEEPEST city, over and over, never below
+  the floor (`_embed_trim`) — dropping the globally oldest records let a
+  few hundred small towns' newest inspections push the metros out one
+  record at a time (2026-11-03: Dallas would have kept ~150 of 1,000), and
+  the record budget alone let the file creep to 24.8 MB as new towns added
+  floors. A deploy that fails with no error on the commit is usually this.
+  The full dataset lives in D1.
 - **D1 rejects any SQL statement over 100KB** (`SQLITE_TOOBIG`), and its
   file imports are atomic. `write_d1_sql` caps multi-row INSERTs at 40 rows
   AND 80KB (`_d1_row_batches`) — keep both caps on anything that emits SQL.
@@ -335,7 +340,7 @@ people covered per unit of work:
 - **MHD detail-page bans are temporary, search blocks are not.** The portal
   bans detail pages after a few hundred per ~15 min window and lifts it
   ~15 min later (measured Aug 2026); `_mhd_fetch_details_bulk` waits it
-  out (`MHD_BAN_COOLDOWN`=900s, `MHD_BAN_COOLDOWNS`=3 per run, only inside
+  out (`MHD_BAN_COOLDOWN`=900s, `MHD_BAN_COOLDOWNS`=16 per run, only inside
   the fetch deadline) and only then trips `_MHD_PORTAL_BLOCKED`. Don't turn
   a detail ban into a run-wide skip again.
 - **King County ids depend on `data/king_county_address_map.json`.** The
@@ -469,10 +474,16 @@ people covered per unit of work:
   Animals' trips the regex (an evidence word before a pest word) by itself
   and across the '|||' join when 'Rodent' is left in a heading: 10/72
   Lubbock and 8/136 Mesquite records were false F's before the Hedgerow
-  fetchers started shipping that criterion as 'Pest control: <observation>'.
-  Fort Bend's TFER wording goes through the same rule in the MHD parser. A
-  new source that prints form titles with pest words needs either a neutral
-  heading or an entry in `CITED_PEST_ITEM_TITLES`.
+  fetchers started shipping that criterion as 'Pests and animals:
+  <observation>' (`HH_PEST_TITLE`). Fort Bend prints the Food Code dead-pest
+  title (6-501.112) under whichever pest code the inspector cited, and that
+  wording is registered in `CITED_PEST_ITEM_TITLES` (`_item_key` drops the
+  item number and page reference); so are the bare TFER/FDA item 38 title
+  'Insects, rodents, and animals not present' that Harris County, Georgia
+  (empty notes) and Pima print and McKinney's no-observation placeholder:
+  pest chip and 'Pests found', no F, whole-line matches only. A new source
+  that prints form titles with pest words needs either a neutral heading or
+  an entry in `CITED_PEST_ITEM_TITLES`.
 - **Hedgerow portals have no server-side date filter.** Pima's whole
   facility list (5,177 rows, 5 MB) answers only sorted by id (the SPA's own
   name sort 500s) and the county publishes ~16 days late; Mesquite's list
@@ -521,7 +532,7 @@ impact and the open policy decisions; `scripts/jev_shadow.py` reproduces it.
 
 - **One pass, after the fetch phase.** `_run_jev_pass` in `main()` calls
   `jev_reader.apply_to_inspections` over every fetched record on its own
-  `--jev-deadline-minutes` budget (20 in CI, inside the 330-minute job), then
+  `--jev-deadline-minutes` budget (20 in CI, inside the 350-minute job), then
   the output paths read the per-record `_jev` result (forces_f, chips,
   summaries). Nothing in the fetchers changed. A data.js record kept from an
   earlier run keeps the text F decision of the run that last read its full
@@ -533,7 +544,9 @@ impact and the open policy decisions; `scripts/jev_shadow.py` reproduces it.
   it; a failure of the whole pass is logged and the run continues. The
   refresh must never fail or ship less because of Jev.
 - **Policy lives in code.** `F_FORCING_HAZARDS` (vermin, sewage; not flies,
-  not `pests_unspecified`), `SCORE_FROM_TIERS_SOURCES` / `SOURCE_TIER_SOURCES`
+  not `pests_unspecified`), `SCORE_FROM_TIERS_SOURCES` / `SOURCE_TIER_SCORE_SOURCES`
+  (score computed from tiers the source states: Boston, Detroit, Louisiana,
+  Maricopa, Pima) / `SOURCE_TIER_SOURCES`
   / `BOUNDED_TIER_SOURCES` (which sources may be re-scored or re-tiered), the
   chip and summary-severity maps. A source-stated tier never moves (Omaha,
   Santa Clara, San Diego, Orange County, McKinney, Georgia, Louisiana,
