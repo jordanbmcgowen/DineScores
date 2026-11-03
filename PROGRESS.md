@@ -10,6 +10,10 @@ Branch `feat/maricopa`, worktree `/home/user/wt-maricopa`. Section header in
 - [x] Live test-mode run (25 records): see Live results.
 - [x] Live 14-day bounded run (weekly-equivalent cost measurement) — see Live results.
 - [x] Fixtures + tests/test_maricopa.py (44 tests); whole suite green (318 tests, node tests/test_relay.mjs, py_compile) at 01:14 UTC; also green under /usr/bin/python3.11 (CI's version) with PYTHONPATH pointed at the 3.13 requests package.
+- [x] Post-run fixes: ArcGIS chunk, purpose filter, city-less concat guard
+      ('1155 W OCOTILLO RD AZ 85240' parsed city 'Rd'), title==phrase dedupe.
+- [ ] Diagnose the 15 'unread' detail pages (find_unread.py rescan running,
+      started 02:50 UTC at 10 pages/s; report -> scratchpad/live/unread_report.json).
 - [ ] Final cleanup + report.
 
 ## Design decisions (so a successor does not re-derive them)
@@ -56,14 +60,16 @@ Branch `feat/maricopa`, worktree `/home/user/wt-maricopa`. Section header in
     (100 min). One proxy tunnel reset mid-run, absorbed by the retry ladder.
   - ArcGIS points: 150-id IN(...) chunks answered 404 (URL too long); Census
     geocoding filled in: 1,666/1,677 records with coordinates, 11 without.
-    FIX NEEDED: shrink MCESD_ARCGIS_CHUNK (75) — test for the where length.
+    FIXED in f6e5414: MCESD_ARCGIS_CHUNK=60 (live probe: 75 ids/1,739-char URL ->
+    200; 100 ids/2,239 chars -> 404); test pins the URL length.
   - Output: 1,677 records / 1,441 restaurants; grades (latest per restaurant)
     A 1,389 / B 39 / C 3 / F 10 (9 text-forced by named pests, 1 by score 69);
     scores 69-100, 826 at 100; results Grade A 686, Not Participating 393,
     Grade B 111, A+ 79, Re-inspection 62, blank 46, ...; purposes Routine
     1,147, CI Routine 177, Re-Inspection 71, Advisory 45, 'Food AMC Trainings' 1
-    (a training visit shipped as an inspection — FIX: keep purposes containing
-    'Inspection' only). Cities: Phoenix 498, Mesa 203, Scottsdale 131, Chandler
+    (a training visit shipped as an inspection — FIXED in f6e5414:
+    MCESD_SKIP_PURPOSE_RE drops advisory/training/review visits before the
+    detail phase; all 45 advisories had 0 violations and no grade). Cities: Phoenix 498, Mesa 203, Scottsdale 131, Chandler
     91, Gilbert 83, Tempe 82, Glendale 81, Queen Creek 45, ... (multiword
     names split correctly: Sun City 18, Sun City West 11).
   - Per-date counts Oct 20..29: 170,174,177,123,6,4,149,228,208,202 then NOTHING
