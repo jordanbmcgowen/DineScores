@@ -13780,9 +13780,12 @@ def write_data_js(all_inspections, output_path, top_per_city=1000,
     # towns' newest inspections push the metros out one record at a time
     # (measured 2026-11-03: Dallas would have kept ~150 of 1,000). The full
     # roster streams from D1.
-    if len(final) > EMBED_BUDGET:
+    # The floors are on top of the budget (a town's floor never costs a
+    # metro its depth); in practice the byte cap below is what binds.
+    floors_total = sum(min(len(city_recs), EMBED_CITY_FLOOR) for city_recs in by_city.values())
+    if len(final) > EMBED_BUDGET + floors_total:
         before = len(final)
-        final = _embed_trim(final, by_city, before - EMBED_BUDGET)
+        final = _embed_trim(final, by_city, before - EMBED_BUDGET - floors_total)
         log.info(f"Embed budget: kept {len(final)} records ({before - len(final)} beyond "
                  f"budget live in D1 only)")
 

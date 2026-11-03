@@ -57,7 +57,7 @@ class EmbedTrimTests(unittest.TestCase):
 
     def test_write_data_js_keeps_the_floor_of_a_small_town_under_the_budget(self):
         old_budget = dp.EMBED_BUDGET
-        dp.EMBED_BUDGET = 60
+        dp.EMBED_BUDGET = 40     # plus the floors: 20 (Dallas TX) + 5 (Dallas GA) = 65 records kept
         try:
             recs = [_rec('Dallas', 'TX', 1 + k % 12, f'Dallas {k}') for k in range(80)]
             recs += [_rec('Dallas', 'GA', 1 + k % 12, f'Dallas GA {k}') for k in range(5)]
@@ -65,9 +65,9 @@ class EmbedTrimTests(unittest.TestCase):
                 out = os.path.join(d, 'data.js')
                 dp.write_data_js(recs, out)
                 data = json.loads(open(out).read().split('window.DATA = ', 1)[1].rstrip(';\n'))
-            self.assertEqual(len(data), 60)
+            self.assertEqual(len(data), 65)
             self.assertEqual(sum(1 for r in data if r['s'] == 'GA'), 5)
-            self.assertEqual(sum(1 for r in data if r['s'] == 'TX'), 55)
+            self.assertEqual(sum(1 for r in data if r['s'] == 'TX'), 60)
         finally:
             dp.EMBED_BUDGET = old_budget
 
