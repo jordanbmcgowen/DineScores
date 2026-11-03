@@ -190,6 +190,16 @@
    },
    "latest": "2026-11-02"
   },
+  "MHD metros (midweek)": {
+   "last_run": {
+    "at": "2026-11-03",
+    "detail": "",
+    "latest": "2026-11-02",
+    "records": 1688,
+    "status": "ok"
+   },
+   "latest": "2026-11-02"
+  },
   "Maricopa County": {
    "last_run": {
     "at": "2026-11-03",
@@ -437,6 +447,10 @@
   "Clark County WA Health Dept": {
    "group": "MHD metros",
    "latest": "2026-10-31"
+  },
+  "Cuyahoga County Health Dept": {
+   "group": "MHD metros (midweek)",
+   "latest": "2026-11-02"
   },
   "DC Health": {
    "group": "dc",
