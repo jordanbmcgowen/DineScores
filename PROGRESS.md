@@ -85,7 +85,7 @@ LUBBOCK TX, MESQUITE TX". Scaffold commit 75d73d8.
   city parsed as Mesquite; 0 text-forced F's (was 8 with the raw title);
   A 127 / B 9 by score. Suite also green under python3.11 (CI's version).
 
-## Status: FIX PASS in progress (2026-11-03) — see below; was DONE before the review.
+## Status before the review: DONE (2026-11-03); see the fix pass below.
 
 ## Open questions
 - Pima 'Needs Improvement' computes to a B (e.g. 93 for P+C+C); only Fail /
@@ -144,5 +144,74 @@ Pipeline changes (all inside the Hedgerow section):
 Rejected: A2's literal rule (empty list = unread for every portal) — see the
 live fact above; applied with per-portal cross-checks instead.
 
-Next: update tests/test_hedgerow.py for the new behaviour + new tests, run
-the suite, live test-mode runs, commit, final PROGRESS.md.
+### Fix-pass verification (2026-11-03, final code unless noted)
+- Suite: 341 tests OK (python3.13; the Hedgerow module also OK under
+  /usr/bin/python3.11), node tests/test_relay.mjs 24 PASS / 0 FAIL,
+  py_compile OK. tests/test_hedgerow.py: 52 -> 67 tests.
+- Test mode (--mode test, 25 records): Lubbock 25 records / 18 facility
+  lists / 48 requests / 26 s, 25/25 coords; Mesquite 25 / 6 / 32 requests /
+  15 s, 25/25 coords; Pima 20 of 25 candidates shipped / 9 facilities / 35
+  requests / 22 s, 20/20 coords — the 5 drops are 2019-2022 checklists the
+  county never filled in (3 are all 'No Answer Selected' with hasInfractions
+  True; 2 are answered forms with no cited item but hasInfractions True, so
+  the flag is a conservative, not a perfect, signal). Held, retried 3 runs.
+- Window runs (--mode full --since-date 2026-10-20): Lubbock 72 records /
+  72 facility lists / 145 requests / 60 s, 72/72 coords, A 52 / B 16 / C 4
+  by score and with the text rule (0 text F's; 13 'Pests and animals'
+  lines), one 500-row page (paging checks passed live). Pima (the 21-day
+  margin makes the window start 2026-09-29): 314 inspections / 307
+  restaurants in 248 s, 314/314 coords; by score A 268 / B 29 / C 8 / F 2,
+  with text A 267 / B 27 / C 6 / F 7 — the 5 text F's are genuine (dead
+  roaches, a roach in monitoring devices, rodent droppings x2, a rodent
+  carcass); ratings Excellent 161 (all A) / Good 95 (A 80, B 15) /
+  Educational 18 / Pass 12 / Satisfactory 12 (B 11, C 1) / Needs
+  Improvement 7 (all 79 = C, the new cap) / Fail 1 (55) / Probation 1 (62);
+  cities Tucson 245, Oro Valley 30, Green Valley 11, Sahuarita 10, Marana 7,
+  Amado/Arivaca/Sasabe 1 each. Re-run on the final code: 5,177 listed,
+  312 facilities inspected since 09-29 (630 mobile units, 109 never
+  inspected skipped), 319 candidates, 5 (1.6%) dropped as unpublished
+  checklists (held), 314 shipped / 632 requests / 229 s, records identical
+  to the first run (307/307).
+- Mesquite (since 2026-10-20, no margin): 136 inspections / 689 facility
+  lists / 826 requests / 286 s fetch + 10 s Census geocoding (56/56 of the
+  rows the portal published without coordinates), 136/136 coords; scores
+  84-100, median 97, A 127 / B 9 by score and with the text rule (0 text
+  F's; 8 'Pests and animals' lines); 24 clean records, all score 100; every
+  city 'Mesquite'; dates 10-20..11-02.
+- Test mode re-run on the final code: Pima 20 of 25 / 35 requests / 20 s,
+  Mesquite 25 / 32 / 14 s, Lubbock 25 / 48 / 25 s (all with coordinates).
+- Live Pima facility list diffed against the reviewer's capture ~35 min
+  earlier (both 2026-11-03 UTC): unchanged (5,177 rows, newest 2026-10-17),
+  so no publication event was observed; the frontier shape (Thu 10-16: 15
+  facilities vs 26-33 on the other Thursdays, Fridays 1-2) is the evidence
+  for the publication spread, not a direct observation of a late report.
+
+### Findings disposition
+- A1/B2 (4xx = permanent, no breaker, no mass rule): FIXED.
+- A2 (unanswered checklist ships as 100): FIXED with per-portal cross-checks;
+  the literal "empty list = unread for every portal" rule was REJECTED (it
+  would drop every clean Lubbock/Mesquite inspection: their clean
+  checklists are empty lists, verified live).
+- A3 (Lubbock paging trusts the server): FIXED (pageSize echo, sort checks).
+- A4 (no failure breaker): FIXED (same breaker).
+- A should-fix (1-day overlap vs Pima's publication lag): FIXED
+  (lag_margin_days 21, holds keyed to the asked start).
+- B1 (Pima never bootstraps in weekly mode): FIXED twice over — the margin
+  makes the first 8-day window reach the portal's batch, and a window still
+  ahead of the portal's newest row reports 'error' with a seeding hint.
+- B3 (NI ships as A): FIXED — NI capped at 79, Satisfactory at 89.
+- B4 (unscored visit with citations computed on another scale): FIXED —
+  dropped on the official-score portals.
+- Nits: Pima pest title across the join FIXED (neutral heading, now
+  'Pests and animals' for both forms); skip counts now logged; left as is:
+  Mesquite's 400-row floor, the 'School' type (not in Lubbock's current
+  vocabulary; harmless), the single-word-city deviant regex (two-word cities
+  there would mis-split the common form), the paging race (dedupe on id
+  covers repeats; a stable id sort is not offered for Lubbock's window).
+
+## Status: FIX PASS DONE — branch feat/hedgerow, not pushed; integrator
+squash-merges. Open for the integrator: add pima/lubbock/mesquite to
+refresh-data.yml's --cities; seed Pima once (a weekly run now bootstraps on
+its own thanks to the margin, but a --since-date 2026-01-01 run with
+--freshness-file gives it history); README/CLAUDE.md rows; consider a
+per-group default window in _expansion_job for other late publishers.

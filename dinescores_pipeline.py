@@ -7805,8 +7805,9 @@ HH_BREAKER_TRIP = 3          # requests in a row that exhaust their retries -> t
 HH_MASS_FAILURE_MIN = 10     # unread (held) lists/checklists that report the group 'error' when they are also
 HH_MASS_FAILURE_FRACTION = 0.1   # ...more than this share of the reads (fetch failures: 5xx, timeouts, blocks)
 HH_MASS_UNPUBLISHED_FRACTION = 0.5   # ...or, for checklists the county never filled in, more than this share
-#                                      of the checklists read (Pima's 2019-2023 history runs ~20% unpublished;
-#                                      a vendor renaming the result field makes it 100%)
+#                                      of the checklists read (5 of the 25 oldest Pima visits, 2019-2022, were
+#                                      unpublished; the 2026-09/10 window 1.6%; a vendor renaming the result
+#                                      field would make it 100%)
 # A checklist item's possible answers; an item outside this vocabulary (a
 # renamed field, a new result) is neither a citation nor a clean answer.
 HH_ANSWERED_RESULTS = HH_VIOLATION_RESULTS | {'In Compliance', 'Not Applicable', 'Not Observed'}
