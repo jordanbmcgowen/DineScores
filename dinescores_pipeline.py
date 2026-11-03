@@ -7700,8 +7700,11 @@ def fetch_maricopa(since_date=None, limit=None):
 # The public "FSP portal" (secureweb.hcphtx.org/fspportal) is an Angular app
 # over a JSON API with no auth, cookie or token: a DevExtreme establishment
 # search (server-side filter, sort and skip/take, totalCount in every
-# answer), a per-establishment inspection list (the permit's whole history,
-# back to 2022) and a per-inspection list of the OUT-of-compliance items.
+# answer), a per-establishment inspection list (the permit's whole published
+# history: the lists read in the 2026-11 probes start in 2024-11, and the
+# oldest lastCompletedInspectionDate on file is 2022-02-01; only ACTIVE
+# permits are searchable, so a closed place's history is out of reach) and
+# a per-inspection list of the OUT-of-compliance items.
 # There is no cross-establishment inspection list by date (probed
 # 2026-11-02: every guessed route answers 405 or the SPA shell), so a window
 # is read in three phases:
