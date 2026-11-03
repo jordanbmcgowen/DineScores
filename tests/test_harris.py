@@ -871,7 +871,7 @@ class FailureTests(HarrisTestCase):
         self.assertEqual(set(by_id(records)), IN_WINDOW - {'hcph_I0493073', 'hcph_I0493159'})
         self.assertEqual(dp._FRESHNESS_HOLDS, {SRC: {f'2026-10-30|{TMG}': (True, False)}})
         self.assertEqual(dp._GROUP_STATUS, {})
-        self.assertTrue(any('hold nothing within' in m for m in logs.output))
+        self.assertTrue(any('hold nothing within' in m and f'{TMG} field 2026-10-30' in m for m in logs.output))
         # a field a day or two ahead of the list (Marble Slab, as live) is no contradiction
         self.rows, self.lists, self.items = load_fixtures()
         dp._FRESHNESS_HOLDS.clear()

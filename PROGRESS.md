@@ -27,7 +27,8 @@ when resuming; never start over.
 - [x] whole suite green under 3.11 + 3.13 (329 tests), node tests/test_relay.mjs
 - [x] FINAL live re-run with the margin done 2026-11-03 03:31-03:45 UTC (below)
 - [x] structured report returned; branch ready for the integrator (squash)
-- [ ] final cleanup + structured report
+- [x] fix pass after two adversarial reviews (section below): all findings
+      fixed or explicitly rejected, re-verified live
 
 ## FIX PASS (2026-11-03, after two adversarial reviews) — state
 Findings accepted — ALL FIXED in commit 9361e60 (suite 340 tests green,
@@ -42,9 +43,18 @@ coordinates (Nominatim read timeouts + its 150 cap left 201), 30 cities, all
 'TX', no PII (the one '@' is "Golden Chick @ FM 1960"). Same numbers as the
 pre-fix run: the fixes are inert on the normal path. New checks on live data:
 0 score<100 inspections without an OUT item; 3 of 1,540 inspection lists
-hold nothing within 30 days of the search field (held) — being probed
-(scratchpad harris_fix/probe_contradictions.py) before the hold policy is
-final. Remaining: that decision, final commit, report.
+hold nothing within 30 days of the search field (held). Lists-only probe of
+the same 1,540 (04:58-05:02 UTC, 1,544 requests, 0 failures): field - newest
+listed row = 0 days on 1,501, within 3 days on 36, 3 contradictions (gaps 48,
+79, 162 days; each establishment Active, permitApprovalDate or
+nextInspectionDate moved on the field's day, the list unchanged: an
+inspection recorded but not yet published). DECIDED: keep the per-record
+counted hold (key=documentId) — it re-reads them for up to 3 runs, then
+gives up; a gap under the 30-day tolerance is re-read by the 28-day margin
+anyway. Cost: a held establishment pulls the window start back to its field
+date (~40 establishments listed per day of pull-back) for up to 3 runs. The
+held ids are now in the warning. All done; suite 340 green (3.11 + 3.13),
+relay passes, py_compile ok.
 - [x] A1/B1 listing-completeness check dead with the weekly limit (50000):
       key it on `bounded = limit reached`, not on limit being set
 - [x] A2 a score<100 inspection whose item list read as [] (or rows with no

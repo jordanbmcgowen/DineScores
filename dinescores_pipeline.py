@@ -7769,11 +7769,17 @@ HARRIS_LIST_FAILURES_MAX = 5
 # "nothing here" if the endpoint stopped answering anonymous callers or
 # renamed a field. An establishment's inspection list must hold a row dated
 # within HARRIS_LIST_AGREE_DAYS of the lastCompletedInspectionDate the search
-# listed it for (200 live establishments on 2026-11-03: the gap was -1 to 2
-# days and no list was empty), and an inspection scored below 100 must come
-# with an OUT item (_harris_items_unread). Either contradiction drops and
-# holds that record; once HARRIS_MASS_FAILURE_MIN were checked and more than
-# half contradict, nothing ships and the group is an error.
+# listed it for: of 1,540 live establishments on 2026-11-03, 1,501 agreed to
+# the day, 36 within 3 days, none had an empty list, and 3 had a field 48-162
+# days past the list's newest row with the permit-approval or next-inspection
+# date moved on the field's day — an inspection recorded but not yet
+# published. Such an establishment is held on its own (key = documentId) so
+# the next runs re-read it until it publishes or FRESHNESS_HOLD_GIVE_UP_RUNS
+# give it up; a gap shorter than the tolerance is re-read by the
+# HARRIS_LC_LAG_DAYS margin anyway, which is why the two are about equal. An
+# inspection scored below 100 must come with an OUT item
+# (_harris_items_unread). Once HARRIS_MASS_FAILURE_MIN were checked and more
+# than half contradict, nothing ships and the group is an error.
 HARRIS_LIST_AGREE_DAYS = 30
 HARRIS_MASS_FAILURE_MIN = 20
 # The search filter field trails the inspection list. lastCompletedInspectionDate
@@ -8389,8 +8395,8 @@ def fetch_harris(since_date=None, limit=None):
         _hold_freshness(HARRIS_SOURCE, field, counted=True, key=did)
     if contradicted:
         log.warning(f"  Harris County: {len(contradicted)} inspection lists hold nothing within "
-                    f"{HARRIS_LIST_AGREE_DAYS} days of the establishment's lastCompletedInspectionDate; "
-                    f"held for a re-read")
+                    f"{HARRIS_LIST_AGREE_DAYS} days of the establishment's lastCompletedInspectionDate "
+                    f"({', '.join(f'{did} field {field}' for field, did in contradicted[:5])}); held for a re-read")
 
     dropped = defaultdict(int)
     candidates, seen = [], set()
