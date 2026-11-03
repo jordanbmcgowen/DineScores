@@ -80,6 +80,7 @@ jobs:
           probe "Harris County HCPH portal" 'https://secureweb.hcphtx.org/fspportal/'
           probe "Pima County Hedgerow portal" 'https://healthinspect.pima.gov/portal/'
           probe "Lubbock Hedgerow portal" 'https://clhd-portal.hedgerowsoftware.com/'
+          probe "Mesquite Hedgerow portal" 'https://mesquite.hedgerowsoftware.com/'
           probe "WCCHD inspection zip" 'https://storage.googleapis.com/ehyelp/WCCHD%20Food%20Inspections.zip' -r 0-200
           probe "MHD Fort Bend page" 'https://inspections.myhealthdepartment.com/fbceh'
           probe "MHD Cuyahoga page" 'https://inspections.myhealthdepartment.com/ccbh'

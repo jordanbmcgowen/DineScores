@@ -10,8 +10,8 @@ metro incl. Clark County WA, Colorado Springs/Fort Collins/Greeley/Adams
 County CO, Arapahoe/Douglas County CO, Provo/Orem, Yolo County, San Jose/
 Santa Clara County, San Diego County, Omaha/Douglas County, Orange County
 CA, San Antonio, Williamson County TX, Fort Bend County TX, Nashville/
-Memphis/Knoxville/Chattanooga, Phoenix/Maricopa County AZ, Cuyahoga County
-OH) plus all of Florida, New York State, Delaware, South Carolina, Georgia
+Memphis/Knoxville/Chattanooga, Phoenix/Maricopa County AZ, Tucson/Pima
+County AZ, Lubbock TX, Mesquite TX, Cuyahoga County OH) plus all of Florida, New York State, Delaware, South Carolina, Georgia
 (Atlanta: Fulton/DeKalb/Cobb and the other 153 counties; Gwinnett/Newton/
 Rockdale on the MHD `gwinnett` slug), Louisiana (New Orleans, Baton Rouge,
 Shreveport, Lafayette) and Virginia (33 VDH districts; Fairfax County is
@@ -463,6 +463,24 @@ people covered per unit of work:
   county EH phone (`GA_ATLANTA_EH_PHONES`) is the only 'Atlanta' signal, and
   Gwinnett/Newton/Rockdale are re-checked by county filter every run so they
   stay on the MHD `gwinnett` slug.
+- **A pest item TITLE must never reach the text-F regex on its own.** The
+  Texas TFER criterion 'No evidence of Insect Contamination, Rodent, Other
+  Animals' trips the regex (an evidence word before a pest word) by itself
+  and across the '|||' join when 'Rodent' is left in a heading: 10/72
+  Lubbock and 8/136 Mesquite records were false F's before the Hedgerow
+  fetchers started shipping that criterion as 'Pest control: <observation>'.
+  Fort Bend's TFER wording goes through the same rule in the MHD parser. A
+  new source that prints form titles with pest words needs either a neutral
+  heading or an entry in `CITED_PEST_ITEM_TITLES`.
+- **Hedgerow portals have no server-side date filter.** Pima's whole
+  facility list (5,177 rows, 5 MB) answers only sorted by id (the SPA's own
+  name sort 500s) and the county publishes ~16 days late; Mesquite's list
+  hides `lastInspectionDate` and `facilityType`, so every facility's
+  inspection list is read each week (~700 requests) and its schools ship;
+  Lubbock pages newest-inspected first and stops at the window. Mobile units
+  are dropped by type (`HH_MOBILE_TYPE_RE`; 84 Pima trucks share one
+  commissary address). An unread checklist drops the inspection; an unread
+  facility list holds the whole window.
 - **Backfills are chunked and absorbed, not refetched.** `--output-records`
   dumps a run's inspection records (Jev reading included) and
   `--input-records` feeds such files into a later run's data.js merge and D1
@@ -502,8 +520,9 @@ impact and the open policy decisions; `scripts/jev_shadow.py` reproduces it.
   not `pests_unspecified`), `SCORE_FROM_TIERS_SOURCES` / `SOURCE_TIER_SOURCES`
   / `BOUNDED_TIER_SOURCES` (which sources may be re-scored or re-tiered), the
   chip and summary-severity maps. A source-stated tier never moves (Omaha,
-  Santa Clara, San Diego, Orange County, McKinney, Georgia, Louisiana and
-  Maricopa County included: their agencies state it; McKinney's TX-form item
+  Santa Clara, San Diego, Orange County, McKinney, Georgia, Louisiana,
+  Maricopa County and the Hedgerow portals (Pima County, Lubbock, Mesquite)
+  included: their agencies state it; McKinney's TX-form item
   points are the city's tiers and its `risk_score` is the form score 100 −
   demerits, never recomputed; Georgia's (p)/(pf)/(c) designations carry its
   official score; Louisiana's Critical/Non-Critical and Maricopa's
