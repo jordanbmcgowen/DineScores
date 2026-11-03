@@ -7832,12 +7832,18 @@ _HH_ADDR_NOSTATE_RE = re.compile(
     r'^(?P<street>.*?),\s*(?P<city>[^,]+?)\s+(?P<zip>\d{5})(?:-?\d{4})?\s*$')
 _HH_ORDINAL_RE = re.compile(r'(\d)(St|Nd|Rd|Th)\b')
 _HH_PLACEHOLDER_RE = re.compile(r'\s*@?\s*_{2,}\s*(?:PPM|°F|F\b)?', re.I)
-# The Texas form's pest item is titled 'No evidence of Insect Contamination,
-# Rodent, Other Animals': the title alone trips the text-forced F (an
-# evidence word before a pest word), so the negation is dropped and the line
-# reads 'Insect Contamination, Rodent, Other Animals: <observation>' — a
-# sticky fly trap stays a Core line, 'Observed live roaches' still forces F.
-_HH_NEGATED_TITLE_RE = re.compile(r'^no\s+evidence\s+of\s+', re.I)
+# The Texas form's pest criterion is titled 'No evidence of Insect
+# Contamination, Rodent, Other Animals'. The title alone trips the text-forced
+# F (an evidence word before a pest word; measured 2026-11-03: 10 of Lubbock's
+# 72 window records graded F for fly tape, door gaps and ceiling tiles, 8 of
+# Mesquite's 136 for 'Outer openings'), and a 'Rodent' left in the heading
+# also matches the regex across the '|||' line join and defeats Jev's
+# named-vermin guard. The line therefore ships under the section's neutral
+# heading, 'Pest control: <observation>': a sticky fly trap stays a Core
+# line, 'Observed live roaches' still forces an F from the observation.
+_HH_PEST_TITLE_RE = re.compile(
+    r'^(?:no\s+)?evidence\s+of\s+insect\s+contamination,?\s+rodent[/,]?\s*(?:and\s+)?other\s+animals$', re.I)
+HH_PEST_TITLE = 'Pest control'
 _HH_CODE_PREFIX_RE = re.compile(r'^\s*(?:§\s*)?[\d][\w.()§-]*\s*(?:-|–|:)\s*')
 _HH_REQUESTS = defaultdict(int)       # portal slug -> requests this run (for the log)
 _HH_REQUESTS_LOCK = threading.Lock()
@@ -7940,6 +7946,8 @@ def _hh_split_address(addr, cfg):
     city = ' '.join(g['city'].split())
     if len(city) > 2 and city.lower().endswith(state.lower()) and not city[-3].isspace():
         city = city[:-2]                 # 'Tucsonaz'
+    if len(city) == 2 and city.upper() in set(_HH_STATE_NAMES.values()) | {cfg['state']}:
+        state, city = city.upper(), ''   # '3220 Gus Thomasson Mesquite 101, TX 75150': no city given
     street = _hh_case(g['street'].strip(' ,'), cfg)
     if not street:
         return None
@@ -8049,7 +8057,9 @@ def _hh_violations(items):
             continue
         if ' '.join(str(item.get('result') or '').split()) not in HH_VIOLATION_RESULTS:
             continue
-        title = _HH_NEGATED_TITLE_RE.sub('', _hh_clean(item.get('description')).rstrip(' .:;'))
+        title = _hh_clean(item.get('description')).rstrip(' .:;')
+        if _HH_PEST_TITLE_RE.match(title):
+            title = HH_PEST_TITLE
         comments = item.get('cannedComments')
         if not isinstance(comments, list) or not comments:
             comments = [{}]

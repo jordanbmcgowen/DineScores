@@ -122,8 +122,7 @@ VERMIN_TITLE_RE = re.compile(
     r"no rodents,? insects,? birds,? (?:or|and) animals"                    # CA counties' item title
     r"|insects?\s*[,;&]?\s*(?:and\s+)?rodents?\s*[,;&]?\s*(?:(?:&|and)\s*)?(?:animals?\s*)?(?:are\s+)?not present"
     #                                                                        ^ Chicago, Omaha, Delaware, Houston
-    r"|(?:no evidence of )?insect contamination,? rodent[/,] ?other animals"    # Richardson (slash);
-    #                                     Lubbock and Mesquite print the comma form (negation dropped by the fetcher)
+    r"|no evidence of insect contamination,? rodent/other animals"             # Richardson
     r"|removing dead or trapped birds[,;]? insects[,;]? rodents[,;]? and other pests"  # FDA 6-501.112 title
     r"|presence of insects,? rodents,? and other pests"                        # FDA 6-501.111 rule text
     r"|including,? but not limited to,? rodents and insects"                 # Orange County boilerplate

@@ -300,6 +300,11 @@ class AddressTests(unittest.TestCase):
             # Lubbock keeps the published case (its ALL-CAPS names are brands)
             ('2902 4TH ST, LUBBOCK TX 79415', LBK, ('2902 4TH ST', 'Lubbock', 'TX', '79415')),
             ('3522   Gus Thomasson Rd #110, Mesquite TX 75150', MESQ, ('3522 Gus Thomasson Rd #110', 'Mesquite', 'TX', '75150')),
+            # Mesquite's six off-pattern rows (2026-11-03): city before a suite number, no city, comma after the city
+            ('3220 Gus Thomasson  Mesquite 101, TX 75150', MESQ, ('3220 Gus Thomasson Mesquite 101', 'Mesquite', 'TX', '75150')),
+            ('1700 Rodeo Dr, TX 75149', MESQ, ('1700 Rodeo Dr', 'Mesquite', 'TX', '75149')),
+            ('1111 E Davis Mesquite, TX 75149', MESQ, ('1111 E Davis', 'Mesquite', 'TX', '75149')),
+            ('1140 IH 30,   Suite #100, Mesquite, TX 75150', MESQ, ('1140 IH 30, Suite #100', 'Mesquite', 'TX', '75150')),
         ]
         for addr, cfg, want in cases:
             with self.subTest(addr=addr):
@@ -380,24 +385,36 @@ class ViolationTests(unittest.TestCase):
         self.assertEqual(cat, 'pest_control')
         self.assertFalse(dp.has_active_pest_or_sewage(lines[0][2]))   # a bare title is not evidence
 
-    def test_the_texas_pest_title_loses_its_negation_so_only_a_real_finding_forces_f(self):
-        def item(obs):
+    def test_the_texas_pest_criterion_ships_under_a_neutral_heading(self):
+        def item(obs, rule='228.186(k) - Outer openings, protected'):
             return [{'description': 'No evidence of Insect Contamination, Rodent, Other Animals',
                      'result': 'Out of Compliance', 'isCritical': False,
-                     'cannedComments': [{'description': '228.186(k) - Pest control', 'severity': 'Core',
+                     'cannedComments': [{'description': rule, 'severity': 'Core',
                                          'observationComment': obs, 'locationComment': 'Ceiling'}]}]
-        # the bare title trips the regex ('evidence of' before 'Insect'); the shipped line must not
+        # the form's title alone trips the regex ('evidence of' before 'Insect'); the shipped line must not
         self.assertTrue(dp.has_active_pest_or_sewage('No evidence of Insect Contamination, Rodent, Other Animals'))
         trap = dp._hh_violations(item('Sticky fly trap stored over prep table located in center of kitchen'))
-        self.assertEqual(trap[0][2], 'Insect Contamination, Rodent, Other Animals: Sticky fly trap stored '
-                                     'over prep table located in center of kitchen (Ceiling)')
+        self.assertEqual(trap[0][2], 'Pest control: Sticky fly trap stored over prep table located in '
+                                     'center of kitchen (Ceiling)')
         self.assertEqual(trap[0][:2], ['pest_control', 'core'])
         self.assertFalse(dp.has_active_pest_or_sewage(trap[0][2]))
+        self.assertFalse(jr.names_vermin(trap[0][2]))                 # Jev's guard sees no vermin either
+        # two pest lines of one inspection: 'dead flies' at the end of one line
+        # and the next line's heading must not meet across the '|||' join
+        joined = dp.build_violation_text(dp._hh_violations(
+            item('Fly strips with accumulation of dead flies hanging in kitchen area') + item('Ceiling tile missing')))
+        self.assertFalse(dp.has_active_pest_or_sewage(joined))
         roaches = dp._hh_violations(item('Observed live roaches under the prep sink'))
         self.assertTrue(dp.has_active_pest_or_sewage(roaches[0][2]))
-        bare = dp._hh_violations(item(None))          # Mesquite prints no observation
-        self.assertEqual(bare[0][2], 'Insect Contamination, Rodent, Other Animals: Pest control (Ceiling)')
+        self.assertTrue(jr.names_vermin(roaches[0][2]))
+        bare = dp._hh_violations(item(None))                            # Mesquite prints no observation
+        self.assertEqual(bare[0][2], 'Pest control: Outer openings, protected (Ceiling)')
         self.assertFalse(dp.has_active_pest_or_sewage(bare[0][2]))
+        # Richardson's slash form and a title without the negation are the same criterion
+        for title in ('No Evidence of Insect contamination, rodent/other animals',
+                      'Evidence of Insect Contamination, Rodent, Other Animals'):
+            self.assertTrue(dp._HH_PEST_TITLE_RE.match(title), title)
+        self.assertFalse(dp._HH_PEST_TITLE_RE.match('Insects, rodents, and animals not present'))
 
     def test_clean_checklist_is_empty_and_junk_raises(self):
         self.assertEqual(dp._hh_violations(_load('pima_results_clean.json')), [])
@@ -930,17 +947,6 @@ class PolicyTests(unittest.TestCase):
         self.assertEqual(jr.score_policy(MESQ_SRC, 97), 'official')
         for src in (PIMA_SRC, LBK_SRC, MESQ_SRC):
             self.assertEqual(jr.tier_policy(src), 'fixed', src)
-
-    def test_jev_vermin_guard_knows_the_hedgerow_pest_title(self):
-        # jev_reader removes the Texas form's pest title before looking for a
-        # named vermin: the comma form the Hedgerow portals print (negation
-        # dropped by the fetcher) and Richardson's slash form alike.
-        self.assertFalse(jr.names_vermin('Insect Contamination, Rodent, Other Animals: Sticky fly trap '
-                                         'stored over prep table (Ceiling)'))
-        self.assertFalse(jr.names_vermin('No evidence of Insect Contamination, Rodent, Other Animals: Fly strips'))
-        self.assertFalse(jr.names_vermin('No Evidence of Insect contamination, rodent/other animals: There is a hole'))
-        self.assertTrue(jr.names_vermin('Insect Contamination, Rodent, Other Animals: Observed rodent droppings '
-                                        'on top of dishwasher'))
 
     def test_pacing_constants_are_modest(self):
         self.assertLessEqual(dp.HH_WORKERS, 4)
