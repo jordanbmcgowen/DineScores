@@ -1,0 +1,90 @@
+[
+ {
+  "inspectionNumber": "I0463030",
+  "violationNumber": 10,
+  "violationDescription": "Adequate handwashing facilities supplied & accessible",
+  "complianceResult": "Out",
+  "numberOfDemerits": 2,
+  "violationId": "5ce899cc-8680-4ee1-b1cd-5c5d39132343",
+  "violationGroup": "P",
+  "department": "General",
+  "shortDescription": "Handwashing Facilities – Supplied and Accessible"
+ },
+ {
+  "inspectionNumber": "I0463030",
+  "violationNumber": 15,
+  "violationDescription": "Food separated and protected",
+  "complianceResult": "Out",
+  "numberOfDemerits": 2,
+  "violationId": "722ffebb-38f1-41f9-8bbf-ec6c7e81c6f4",
+  "violationGroup": "P",
+  "department": "General",
+  "shortDescription": "Cross-contamination prevented"
+ },
+ {
+  "inspectionNumber": "I0463030",
+  "violationNumber": 22,
+  "violationDescription": "Proper cold holding temperatures (41°F/45°F)",
+  "complianceResult": "Out",
+  "numberOfDemerits": 3,
+  "violationId": "427a7fd9-e69e-496b-a278-67301f61d3f2",
+  "violationGroup": "F",
+  "department": "General",
+  "shortDescription": "TCS Food Cold Holding"
+ },
+ {
+  "inspectionNumber": "I0463030",
+  "violationNumber": 41,
+  "violationDescription": "Wiping cloths; properly used and stored",
+  "complianceResult": "Out",
+  "numberOfDemerits": 1,
+  "violationId": "89400ab6-1424-4eb3-a19a-1e66e0827d4a",
+  "violationGroup": "C",
+  "department": "General",
+  "shortDescription": "Proper use and storage of wiping cloths"
+ },
+ {
+  "inspectionNumber": "I0463030",
+  "violationNumber": 43,
+  "violationDescription": "In-use utensils; properly stored",
+  "complianceResult": "Out",
+  "numberOfDemerits": 1,
+  "violationId": "98574f23-c50e-409d-9cb1-2a1f04779b6a",
+  "violationGroup": "C",
+  "department": "General",
+  "shortDescription": "Proper storage of in-use utensils during operations"
+ },
+ {
+  "inspectionNumber": "I0463030",
+  "violationNumber": 44,
+  "violationDescription": "Utensils, equipment, and linens; properly stored, dried, and handled",
+  "complianceResult": "Out",
+  "numberOfDemerits": 1,
+  "violationId": "a94e7efc-a5b9-4e38-8878-7ac85371f366",
+  "violationGroup": "C",
+  "department": "General",
+  "shortDescription": "Proper storage and air-drying of clean equipment and linens"
+ },
+ {
+  "inspectionNumber": "I0463030",
+  "violationNumber": 49,
+  "violationDescription": "Non-food contact surfaces clean",
+  "complianceResult": "Out",
+  "numberOfDemerits": 1,
+  "violationId": "ffb8d6cd-b3b6-4efc-8164-3de368dcba11",
+  "violationGroup": "C",
+  "department": "General",
+  "shortDescription": "Cleanliness and maintenance of non-food-contact surfaces"
+ },
+ {
+  "inspectionNumber": "I0463030",
+  "violationNumber": 54,
+  "violationDescription": "Garbage and Refuse are properly disposed of; facilities maintained",
+  "complianceResult": "Out",
+  "numberOfDemerits": 1,
+  "violationId": "64cd50ea-8c47-4b6a-b935-4db8ab32c7ea",
+  "violationGroup": "C",
+  "department": "General",
+  "shortDescription": "Proper disposal and maintenance of garbage and refuse areas."
+ }
+]

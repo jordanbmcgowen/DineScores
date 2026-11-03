@@ -7823,13 +7823,15 @@ def _harris_request(session, url, body=None, params=None, info=None):
     """JSON from one HCPH API call (a POST of the JSON `body`, else a GET
     with `params`), or None once HARRIS_RETRIES attempts failed. Retries wait
     HARRIS_BACKOFF * 3**attempt seconds (a 429/503 Retry-After when longer),
-    never past the fetch deadline. A 400/404/410 is that request's own
-    problem: not retried and not counted (info['permanent'] = True). Any
-    other exhausted failure — a 5xx, a timeout, a 403, the SPA shell in
-    place of JSON — counts toward the breaker: HARRIS_BREAKER_TRIP in a row
-    sets _HARRIS_BLOCKED and every further request returns None at once."""
+    never past the fetch deadline. `info` (a dict) says why None came back:
+    'permanent' — a 400/404/410, that request's own problem, not retried and
+    not counted; 'exhausted' — every attempt failed (a 5xx, a timeout, a
+    403, the SPA shell in place of JSON), which counts toward the breaker:
+    HARRIS_BREAKER_TRIP in a row set _HARRIS_BLOCKED and every further
+    request returns None at once with no flag; 'deadline' — the retry ladder
+    was cut by the fetch deadline."""
     global _HARRIS_BLOCKED, _HARRIS_EXHAUSTED_STREAK, _HARRIS_FAILURES_LOGGED, _HARRIS_LAST_ERROR
-    last_err, permanent = None, False
+    last_err, permanent, deadline = None, False, False
     for attempt in range(HARRIS_RETRIES):
         if _HARRIS_BLOCKED:
             return None
@@ -7852,7 +7854,10 @@ def _harris_request(session, url, body=None, params=None, info=None):
             if status in (400, 404, 410):
                 permanent = True
                 break
-            if attempt == HARRIS_RETRIES - 1 or _past_deadline():
+            if attempt == HARRIS_RETRIES - 1:
+                break
+            if _past_deadline():
+                deadline = True
                 break
             wait = HARRIS_BACKOFF * (3 ** attempt)
             if status in (429, 503):
@@ -7862,10 +7867,12 @@ def _harris_request(session, url, body=None, params=None, info=None):
                     pass
             time.sleep(wait)
     _HARRIS_LAST_ERROR = f'{type(last_err).__name__}: {str(last_err)[:120]}' if last_err else 'breaker tripped'
+    if info is not None:
+        info['permanent' if permanent else 'deadline' if deadline else 'exhausted'] = True
     if permanent:
-        if info is not None:
-            info['permanent'] = True
         _harris_stat('permanent failures')
+    elif deadline:
+        _harris_stat('deadline cuts')
     elif last_err is not None:
         _harris_stat('exhausted failures')
         with _HARRIS_LOCK:
@@ -7917,14 +7924,18 @@ def _harris_search_body(since, skip, take):
 def _harris_list_establishments(session, since, limit):
     """Phase 1: every active establishment whose newest inspection is on or
     after `since` (all of them when None), newest first, deduped on
-    documentId. The listing is newest first on purpose: a row updated while
-    it is being read moves to the top and shifts the rest one place FORWARD,
-    past the cursor (a duplicate, deduped), never backward (a loss). A page
-    is followed until a short page reaches the server's totalCount or an
-    empty one comes back (a server that clamped `take` must not end a
-    window early), and the unique count is checked against totalCount.
-    Raises RuntimeError when a page cannot be read or the listing came up
-    short; _HarrisCut on the deadline or the breaker."""
+    documentId. Newest first so a bounded (test-mode) read sees the newest
+    establishments. There is no snapshot: an establishment re-inspected
+    between two pages moves to the top of the listing — a row already read
+    comes back once more (deduped), a row not yet read jumps past the cursor
+    and is missed — so pages are followed until a short page reaches the
+    server's totalCount or an empty page comes back (a server that clamped
+    `take` must not end a window early) and the UNIQUE count is checked
+    against totalCount: such a run fails closed and the self-healing
+    lookback re-reads the window next week. A weekly window fits one page,
+    so the exposure is the seconds between two pages. Raises RuntimeError
+    when a page cannot be read or the listing came up short; _HarrisCut on
+    the deadline or the breaker."""
     take = min(HARRIS_PAGE, max(int(limit), 1)) if limit else HARRIS_PAGE
     ests, skip, total, pages = {}, 0, 0, 0
     while True:
@@ -8111,6 +8122,23 @@ def _harris_record(est, insp, items, counts):
     }
 
 
+def _harris_outcome(info):
+    """Why a per-record request came back without data: 'gone' (the record
+    no longer exists: 400/404/410), 'failed' (tried through every retry, or
+    answered something that is not a list), 'deadline' (the retry ladder or
+    the phase was cut by the fetch deadline) or 'blocked' (the breaker had
+    already tripped, nothing was tried)."""
+    if info.get('permanent'):
+        return 'gone'
+    if info.get('exhausted'):
+        return 'failed'
+    if info.get('deadline'):
+        return 'deadline'
+    if _HARRIS_BLOCKED:
+        return 'blocked'
+    return 'deadline' if _past_deadline() else 'failed'
+
+
 def _harris_newest(session):
     """The source's own newest lastCompletedInspectionDate (for the lag
     note), '' when the probe fails."""
@@ -8192,11 +8220,7 @@ def fetch_harris(since_date=None, limit=None):
         time.sleep(HARRIS_DELAY)
         if isinstance(data, list):
             return did, data
-        if info.get('permanent'):
-            return did, 'gone'
-        if _HARRIS_BLOCKED:
-            return did, 'blocked'
-        return did, 'deadline' if _past_deadline() else 'failed'
+        return did, _harris_outcome(info)
 
     lists, outcomes, gone = {}, defaultdict(int), []
     if ests:
@@ -8264,13 +8288,12 @@ def fetch_harris(since_date=None, limit=None):
             return cand, 'deadline'
         if _HARRIS_BLOCKED:
             return cand, 'blocked'
-        data = _harris_request(get_session(), HARRIS_VIOLATIONS_URL, params={'id': number})
+        info = {}
+        data = _harris_request(get_session(), HARRIS_VIOLATIONS_URL, params={'id': number}, info=info)
         time.sleep(HARRIS_DELAY)
         if isinstance(data, list):
             return cand, data
-        if _HARRIS_BLOCKED:
-            return cand, 'blocked'
-        return cand, 'deadline' if _past_deadline() else 'failed'
+        return cand, _harris_outcome(info)
 
     items, failures = {}, defaultdict(int)
     log.info(f"  Harris County: reading the items of {len(candidates)} inspections "
@@ -8284,9 +8307,10 @@ def fetch_harris(since_date=None, limit=None):
             else:
                 failures[data] += 1
                 # Dropped, never shipped clean; the hold makes the next
-                # lookback re-read it (a tried-and-failed read counts toward
-                # giving the record up, a breaker/deadline drop never does).
-                _hold_freshness(HARRIS_SOURCE, cand[0], counted=(data == 'failed'), key=cand[1])
+                # lookback re-read it (a tried-and-failed read — or a 404 —
+                # counts toward giving the record up, a breaker/deadline
+                # drop never does).
+                _hold_freshness(HARRIS_SOURCE, cand[0], counted=(data in ('failed', 'gone')), key=cand[1])
     if failures.get('blocked'):
         _set_group_status(HARRIS_GROUP, 'blocked',
                           f"HCPH stopped answering ({_HARRIS_LAST_ERROR}); "
