@@ -8338,10 +8338,11 @@ def fetch_maricopa(since_date=None, limit=None):
         if parsed is None:
             continue
         header = parsed['header']
+        # The permit page's row is the index this run filtered and held on,
+        # so its date is the one that ships; the detail page is checked.
         page_date = _mcesd_date(header.get('Inspection Date'))
         if page_date and page_date != d:
             date_mismatch += 1
-        insp_date = page_date or d
         violations = []
         for _num, _title, severity, text in parsed['violations']:
             cat, _, _ = classify_violation(text)
@@ -8356,7 +8357,7 @@ def fetch_maricopa(since_date=None, limit=None):
             'zip': permit['zip'],
             'latitude': point[0] if point else None,
             'longitude': point[1] if point else None,
-            'inspection_date': insp_date,
+            'inspection_date': d,
             'original_score': None,         # the county publishes a grade card, not a number
             'risk_score': risk,
             'priority_violations': pv,
@@ -8375,7 +8376,7 @@ def fetch_maricopa(since_date=None, limit=None):
         })
     if date_mismatch:
         log.warning(f"  Maricopa: {date_mismatch} detail pages print a different inspection "
-                    f"date than the permit page row (the detail page's date shipped)")
+                    f"date than the permit page row (the row's date shipped)")
     # Newest day first; within a day the worst visit first (an F, then the
     # lowest score), so same-day picks are deterministic.
     results.sort(key=lambda r: (r['inspection_date'], -r['risk_score'], r['priority_violations'],
@@ -8390,7 +8391,8 @@ def fetch_maricopa(since_date=None, limit=None):
                              listing_s=round(t_listing), details_s=round(t_details),
                              total_s=round(time.time() - started), cut=cut)
     log.info(f"Maricopa County: {len(results)} inspections ({with_point} with ArcGIS coordinates) "
-             f"in {time.time() - started:.0f}s, {stats.counts['requests']} portal requests")
+             f"in {time.time() - started:.0f}s, {stats.counts['requests']} portal requests "
+             f"({stats.counts['retries']} retried after a 429/5xx/transport error)")
     return results
 
 
