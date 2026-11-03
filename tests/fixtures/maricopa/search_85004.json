@@ -1,0 +1,95 @@
+{
+ "data": [
+  {
+   "eplGlobalEntityGUID": null,
+   "eplBusinessLicenseGUID": null,
+   "permitId": "FD-00570",
+   "permitType": "Food Establishment - Eating & Drinking",
+   "businessName": "Renaissance Phoenix Downtown",
+   "businessAddressConcat": "100 N 1ST ST PHOENIX AZ 85004",
+   "isCuttingEdgeParticipant": false,
+   "issuedDateString": null,
+   "issuedDate": null,
+   "cuttingEdgeIcon": "",
+   "notes": null
+  },
+  {
+   "eplGlobalEntityGUID": null,
+   "eplBusinessLicenseGUID": null,
+   "permitId": "FD-00571",
+   "permitType": "Food Establishment - Eating & Drinking",
+   "businessName": "Renaissance Phoenix Downtown",
+   "businessAddressConcat": "100 N 1ST ST PHOENIX AZ 85004",
+   "isCuttingEdgeParticipant": false,
+   "issuedDateString": null,
+   "issuedDate": null,
+   "cuttingEdgeIcon": "",
+   "notes": null
+  },
+  {
+   "eplGlobalEntityGUID": null,
+   "eplBusinessLicenseGUID": null,
+   "permitId": "FD-00777",
+   "permitType": "Food Establishment - Eating & Drinking",
+   "businessName": "Hyatt Regency",
+   "businessAddressConcat": "122 N 2ND ST PHOENIX AZ 85004",
+   "isCuttingEdgeParticipant": false,
+   "issuedDateString": null,
+   "issuedDate": null,
+   "cuttingEdgeIcon": "",
+   "notes": null
+  },
+  {
+   "eplGlobalEntityGUID": null,
+   "eplBusinessLicenseGUID": null,
+   "permitId": "FD-13060",
+   "permitType": "Food Establishment - Daycare Food Service",
+   "businessName": "Yellow Brick Road Preschool Inc",
+   "businessAddressConcat": "392 E WINDSOR AVE PHOENIX AZ 85004",
+   "isCuttingEdgeParticipant": false,
+   "issuedDateString": null,
+   "issuedDate": null,
+   "cuttingEdgeIcon": "",
+   "notes": null
+  },
+  {
+   "eplGlobalEntityGUID": null,
+   "eplBusinessLicenseGUID": null,
+   "permitId": "FD2602160",
+   "permitType": "Food Establishment - Retail Food",
+   "businessName": "Event Network # 5156",
+   "businessAddressConcat": "340 N 3rd ST Phoenix AZ 85004",
+   "isCuttingEdgeParticipant": false,
+   "issuedDateString": null,
+   "issuedDate": null,
+   "cuttingEdgeIcon": "",
+   "notes": null
+  },
+  {
+   "eplGlobalEntityGUID": null,
+   "eplBusinessLicenseGUID": null,
+   "permitId": "MF-10-0582",
+   "permitType": "Mobile Food Annual - MF Type 1",
+   "businessName": "Alaskan Pride Seafood",
+   "businessAddressConcat": "307 E Buckeye RD Phoenix AZ 85004",
+   "isCuttingEdgeParticipant": false,
+   "issuedDateString": null,
+   "issuedDate": null,
+   "cuttingEdgeIcon": "",
+   "notes": null
+  },
+  {
+   "eplGlobalEntityGUID": null,
+   "eplBusinessLicenseGUID": null,
+   "permitId": "FD-00570",
+   "permitType": "Food Establishment - Eating & Drinking",
+   "businessName": "Renaissance Phoenix Downtown",
+   "businessAddressConcat": "100 N 1ST ST PHOENIX AZ 85004",
+   "isCuttingEdgeParticipant": false,
+   "issuedDateString": null,
+   "issuedDate": null,
+   "cuttingEdgeIcon": "",
+   "notes": null
+  }
+ ]
+}
