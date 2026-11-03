@@ -8096,7 +8096,7 @@ def _tp_fetch(cfg, since_date, limit):
              f"{'' if complete else ' (bounded read)'}")
 
     # 2. Facilities another source already covers (Georgia's GNR counties).
-    if cfg.get('excluded_ids'):
+    if facilities and cfg.get('excluded_ids'):
         excluded = cfg['excluded_ids'](session(), start)
         dropped = [fid for fid in facilities if fid in excluded]
         for fid in dropped:

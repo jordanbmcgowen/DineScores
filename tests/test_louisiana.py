@@ -10,6 +10,7 @@ listed facilities whose histories were not captured."""
 import base64
 import copy
 import json
+import logging
 import os
 import sys
 import unittest
@@ -186,9 +187,12 @@ def _portal(day=None, printables=None):
     return FakePortal({day or DAY: rows}, histories, newest_rows=rows[:5], printables=printables)
 
 
-def _fetch(portal, since=None, limit=None):
+def _fetch(portal, since=None, limit=None, workers=None):
+    """fetch_louisiana against the fake portal; workers=1 makes the detail
+    call order deterministic for the tests that assert it."""
     with mock.patch.object(dp.requests, 'Session', return_value=portal), \
-            mock.patch.object(dp.time, 'sleep'):
+            mock.patch.object(dp.time, 'sleep'), \
+            mock.patch.object(dp, 'TP_WORKERS', workers or dp.TP_WORKERS):
         return dp.fetch_louisiana(since_date=since, limit=limit)
 
 
@@ -205,8 +209,11 @@ class LouisianaTestCase(unittest.TestCase):
         dp._GROUP_STATUS.clear()
         dp._FRESHNESS = None
         dp._FETCH_DEADLINE = None
+        self._level = dp.log.level
+        dp.log.setLevel(logging.WARNING)
 
     def tearDown(self):
+        dp.log.setLevel(self._level)
         notes, holds, status, fresh, deadline, stats = self._saved
         dp._GROUP_NOTES.clear(); dp._GROUP_NOTES.update(notes)
         dp._FRESHNESS_HOLDS.clear(); dp._FRESHNESS_HOLDS.update(holds)
@@ -226,7 +233,7 @@ class RequestShapeTests(LouisianaTestCase):
 
     def test_one_day_is_asked_with_exclusive_bounds_and_paged_to_the_terminator(self):
         portal = _portal(day=YESTERDAY)
-        records = _fetch(portal, since=YESTERDAY)
+        records = _fetch(portal, since=YESTERDAY, workers=1)
         before = (datetime.now() - timedelta(days=2)).strftime('%Y-%m-%d')
         after = (datetime.now() + timedelta(days=1)).strftime('%Y-%m-%d')
         self.assertEqual(portal.searches[0], ({'keyword': '', 'from': before, 'to': TODAY}, 0))
@@ -290,14 +297,14 @@ class RecordTests(LouisianaTestCase):
                 ['employee_training', 'priority',
                  'Food safety certification: A current state food safety certificate is not held by the '
                  'owner or a designated employee of the establishment. (repeat violation)'],
-                ['equipment_utensils', 'core',
+                ['food_handling', 'core',
                  'Equipment construction, good repair: Non-food contact equipment is not maintained in good '
                  'repair. Gaskets on reach in cooler (repeat violation)'],
-                ['general_cleanliness', 'core',
+                ['food_handling', 'core',
                  'Non-food contact surfaces clean: Non-food contact surfaces of equipment have an accumulation '
                  'of dust, dirt, food residue and other debris. Fryer has an accumulation of grease; '
                  'microwave (repeat violation)'],
-                ['waste_management', 'core',
+                ['food_handling', 'core',
                  'Garbage receptacles: Outside receptacles for garbage, etc. did not have tight fitting lids, '
                  'doors, or covers. (repeat violation)'],
             ],
@@ -395,10 +402,10 @@ class PrintableTests(LouisianaTestCase):
     def test_a_503_is_retried_after_the_hint_and_a_dead_printable_keeps_the_titles(self):
         printables = {PRINTABLE.format(151712897): [503, _text('printable_violations.html')],
                       PRINTABLE.format(151712900): 503}
-        portal = _portal(day=YESTERDAY, printables=printables)
-        with mock.patch.object(dp.time, 'sleep') as sleep:
-            with mock.patch.object(dp.requests, 'Session', return_value=portal):
-                records = _fetch(portal, since=YESTERDAY)
+        portal = _portal(printables=printables)
+        with mock.patch.object(dp.requests, 'Session', return_value=portal), \
+                mock.patch.object(dp.time, 'sleep') as sleep:
+            records = dp.fetch_louisiana()
         by_id = _by_id(records)
         self.assertTrue(by_id['lald_151712897']['violations'][0][2].startswith(
             'Food safety certification: A current state'))
@@ -409,6 +416,9 @@ class PrintableTests(LouisianaTestCase):
         self.assertEqual(by_id['lald_151712900']['risk_score'], 93)         # a failed printable changes no score
         self.assertEqual(dp._FRESHNESS_HOLDS, {})                           # and never holds the window
         self.assertIn(mock.call(3.5), sleep.call_args_list)                 # Retry-After 3 + 0.5
+        # an inspection whose printable 404s keeps its titles too (one attempt, not retried)
+        self.assertEqual(portal.calls.count(PRINTABLE.format(151684519)), 1)
+        self.assertEqual(by_id['lald_151684519']['violations'][0][2], 'Food safety certification')
 
     def test_a_printable_for_another_date_or_a_non_notice_keeps_the_titles(self):
         wrong_day = _text('printable_violations.html').replace('Date<br>10/26/2026', 'Date<br>10/25/2026')

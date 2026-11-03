@@ -9,6 +9,7 @@ first page)."""
 import base64
 import copy
 import json
+import logging
 import os
 import sys
 import time
@@ -143,9 +144,12 @@ def _portal(**kw):
     return FakePortal({day or DAY: rows}, histories, **kw)
 
 
-def _fetch(portal, since=None, limit=None):
+def _fetch(portal, since=None, limit=None, workers=None):
+    """fetch_georgia against the fake portal; workers=1 makes the detail
+    call order deterministic for the tests that assert it."""
     with mock.patch.object(dp.requests, 'Session', return_value=portal), \
-            mock.patch.object(dp.time, 'sleep'):
+            mock.patch.object(dp.time, 'sleep'), \
+            mock.patch.object(dp, 'TP_WORKERS', workers or dp.TP_WORKERS):
         return dp.fetch_georgia(since_date=since, limit=limit)
 
 
@@ -164,8 +168,11 @@ class GeorgiaTestCase(unittest.TestCase):
         dp._GROUP_STATUS.clear()
         dp._FRESHNESS = None
         dp._FETCH_DEADLINE = None
+        self._level = dp.log.level
+        dp.log.setLevel(logging.WARNING)
 
     def tearDown(self):
+        dp.log.setLevel(self._level)
         notes, holds, status, fresh, deadline, stats = self._saved
         dp._GROUP_NOTES.clear(); dp._GROUP_NOTES.update(notes)
         dp._FRESHNESS_HOLDS.clear(); dp._FRESHNESS_HOLDS.update(holds)
@@ -194,7 +201,7 @@ class RequestShapeTests(GeorgiaTestCase):
 
     def test_a_day_is_paged_to_the_empty_terminator_and_days_run_oldest_first(self):
         portal = _portal(day=YESTERDAY)
-        records = _fetch(portal, since=YESTERDAY)
+        records = _fetch(portal, since=YESTERDAY, workers=1)
         day_searches = [(f['from'], p) for f, p in portal.searches if not f.get('county')]
         # yesterday: pages 0, 1 (5 + 2 rows) then the [] page 2; today: page 0 is already []
         self.assertEqual(day_searches, [(YESTERDAY, 0), (YESTERDAY, 1), (YESTERDAY, 2), (TODAY, 0)])
