@@ -71,3 +71,36 @@ Georgia (fetch_georgia) + Louisiana (fetch_louisiana) on one shared Tyler
 
 ## Open questions / follow-ups
 (none yet)
+
+## Handoff notes for the integrator (docs/workflow are theirs)
+- Slugs: `georgia` / `atlanta` -> group 'Georgia' (source 'Georgia DPH', source_id
+  'ga_<inspectionId>'); `louisiana` / `neworleans` -> group 'Louisiana' (source
+  'Louisiana LDH', source_id 'lald_<inspectionId>'). Both are API-class groups
+  (api_since, 400-day cap) run in the pool with geocode_missing_coords.
+- README source-table row drafts:
+  | Georgia (statewide, 156 counties; Atlanta's Fulton/DeKalb/Cobb) | Tyler
+  "publicportals" JSON API at `ga.healthinspections.us/stateofgeorgia`: one
+  single-day facility search per day of the window (5 rows/page to the []
+  terminator, ordering invariant checked, a shifted day re-read then the group
+  errors), one `inspectionsData` call per listed facility. OFFICIAL 0-100 score;
+  severity from the state's (p)/(pf)/(c) citation designations (Points fallback);
+  text = form item + inspector observation with the corrective-action and rule
+  boilerplate stripped. 'Temporary' (event booth) inspections and institutional
+  kitchens (by name) are skipped; Gwinnett/Newton/Rockdale are GNR Health (MHD
+  `gwinnett`) and re-checked each run. No coordinates: Census-geocoded. metro
+  'Atlanta' from the county EH phone for the nine core counties. |
+  | Louisiana (statewide, 64 parishes; New Orleans, Baton Rouge chips) | Same
+  API at `la.healthinspections.us` (date bounds strictly exclusive; `keyword`
+  key mandatory). No score: `risk = 100 - 5*Critical - 1*Non-Critical` from
+  LDH's own two categories, `{'0': ['None']}` is the explicit clean marker;
+  narrative text from each inspection's printable "Notice of Violations" (one
+  rate-limited worker; a failed printable ships the item titles, never a hold).
+  Institutional kitchens skipped by name. Census-geocoded. |
+- CLAUDE.md: add Georgia + Louisiana to the coverage list, remove them from
+  "Candidate sources surveyed but not added", and note under the Jev policy
+  bullet that both state their tiers (already registered in jev_reader).
+- Workflow: append `georgia louisiana` to the --cities line of refresh-data.yml.
+- Backfill: run `--mode full --since-date <date> --cities georgia` (and
+  louisiana) in chunks; LA_PRINTABLE_MAX_PER_RUN (env, default 6000) bounds the
+  narrative pass per run (0 = titles only). The portals hold ~3 years
+  (GA from 2023-11-06, LA from 2023-11-07).
