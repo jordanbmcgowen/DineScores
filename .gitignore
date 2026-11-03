@@ -10,3 +10,6 @@ dinescores_data.json
 # pipeline-generated data, not build output).
 public/assets/
 public/index.html
+
+# Temporary agent worktrees created by Claude Code workflow runs
+.claude/worktrees/
