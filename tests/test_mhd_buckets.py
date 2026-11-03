@@ -35,9 +35,9 @@ class FakeSearch:
         self.calls = []
 
     def __call__(self, session, path, date_range_str, start_offset, retry_count=0,
-                 search_str='', purpose=''):
+                 search_str='', purpose='', sort=None):
         self.calls.append({'path': path, 'date': date_range_str, 'start': start_offset,
-                           'search_str': search_str, 'purpose': purpose})
+                           'search_str': search_str, 'purpose': purpose, 'sort': sort})
         rows = self.table.get((date_range_str, search_str, purpose), [])
         return rows[start_offset:start_offset + dp.MHD_PAGE_SIZE]
 
@@ -209,7 +209,8 @@ class CapTests(unittest.TestCase):
         rows = [_row(f'G{i}', city='Duluth', state='GA', program='Food') for i in range(240)]
         calls = []
 
-        def fake(session, path, date_range, start, retry_count=0, search_str='', purpose=''):
+        def fake(session, path, date_range, start, retry_count=0, search_str='', purpose='',
+                 sort=None):
             calls.append(start)
             if start == 0:
                 return rows[:43]
@@ -400,3 +401,541 @@ class ConnectionQuotaTests(unittest.TestCase):
             for _ in range(12):
                 dp._mhd_search_page(session, 'dallas', '2026-10-06 to 2026-10-06', 0)
         self.assertEqual(session.close.call_count, 2)
+
+
+# ─── 2026-11 expansion: stable sorting, one-day windows, fetch groups, the
+# new jurisdictions (Fort Bend, Arapahoe, Douglas CO, Cuyahoga, the 33 VDH
+# districts). Fixtures under tests/fixtures/mhd/ are rows and detail blocks
+# trimmed from the live portal captures of 2026-11-02/03 (public records,
+# kept verbatim; detail pages cut down to the score header and the
+# observations block, which is what the parser reads).
+
+import json  # noqa: E402
+
+FIXTURES = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'fixtures', 'mhd')
+
+
+def _fixture_rows(name):
+    with open(os.path.join(FIXTURES, name), encoding='utf-8') as f:
+        return json.load(f)
+
+
+def _fixture_html(name):
+    with open(os.path.join(FIXTURES, name), encoding='utf-8') as f:
+        return f.read()
+
+
+def _guid(n, head='00000000'):
+    """A GUID whose SQL Server order is decided by `n` (the last group)."""
+    return f'{head}-0000-0000-0000-{n:012d}'
+
+
+class FailingSearch(FakeSearch):
+    """FakeSearch that answers None (a permanent failure) for some dates."""
+
+    def __init__(self, table, fail_dates=()):
+        super().__init__(table)
+        self.fail_dates = set(fail_dates)
+
+    def __call__(self, session, path, date_range_str, start_offset, retry_count=0,
+                 search_str='', purpose='', sort=None):
+        if date_range_str in self.fail_dates:
+            self.calls.append({'path': path, 'date': date_range_str, 'start': start_offset,
+                               'search_str': search_str, 'purpose': purpose, 'sort': sort})
+            return None
+        return super().__call__(session, path, date_range_str, start_offset, retry_count,
+                                search_str, purpose, sort)
+
+
+class SortThreadingTests(unittest.TestCase):
+    """The per-config sort reaches the search payload. Measured 2026-11-03:
+    the portal's own order ('sort': {}) pages unstably and the weekly 7-day
+    read lost 3-13% of each jurisdiction's rows; sorting on inspectionID
+    gave complete, disjoint pages everywhere."""
+
+    def _session(self, captured):
+        resp = mock.Mock(status_code=200)
+        resp.json.return_value = []
+        resp.raise_for_status.return_value = None
+        session = mock.Mock()
+
+        def post(url, json=None, timeout=None):
+            captured.append((url, json))
+            return resp
+        session.post.side_effect = post
+        return session
+
+    def test_sort_reaches_the_payload(self):
+        captured = []
+        dp._mhd_search_page(self._session(captured), 'fbceh', '2026-10-20 to 2026-10-20', 25,
+                            sort={'field': 'inspectionID', 'direction': 'asc'})
+        data = captured[0][1]['data']
+        self.assertEqual(data['sort'], {'field': 'inspectionID', 'direction': 'asc'})
+        self.assertEqual(data['start'], 25)
+
+    def test_no_sort_sends_the_empty_dict(self):
+        # Orange County's newest-225 poll depends on the unsorted query.
+        captured = []
+        dp._mhd_search_page(self._session(captured), 'orange-county', '', 0)
+        self.assertEqual(captured[0][1]['data']['sort'], {})
+
+    def test_default_sort_is_the_stable_inspection_id_order(self):
+        self.assertEqual(dp.MHD_DEFAULT_SORT, {'field': 'inspectionID', 'direction': 'asc'})
+        self.assertEqual(dp.MHD_WINDOW_DAYS, 1)
+
+    def test_plain_jurisdiction_reads_one_day_at_a_time_with_the_stable_sort(self):
+        cfg = dp.MHD_METRO_JURISDICTIONS['gwinnett']
+        table = {(f'2026-10-{d:02d} to 2026-10-{d:02d}', '', ''):
+                 [_row(f'G{d}', city='Duluth', state='GA', program='Food')]
+                 for d in range(5, 12)}
+        fake = FakeSearch(table)
+        records = _run('gwinnett', cfg, fake, since_date='2026-10-05T00:00:00',
+                       until_date='2026-10-11')
+        self.assertEqual({r['source_id'] for r in records}, {f'G{d}' for d in range(5, 12)})
+        self.assertEqual({c['date'] for c in fake.calls},
+                         {f'2026-10-{d:02d} to 2026-10-{d:02d}' for d in range(5, 12)})
+        self.assertTrue(all(c['sort'] == dp.MHD_SORT_INSPECTION_ID for c in fake.calls))
+
+    def test_bucket_configs_keep_the_portal_order(self):
+        cfg = dp._mhd_tn_bucket('Testville', ['Testville'])
+        day = '2026-10-06 to 2026-10-06'
+        fake = FakeSearch({(day, 'Testville', 'Routine'): [_row('X1', city='Testville')]})
+        _run('tennessee:testville', cfg, fake, since_date='2026-10-06', until_date='2026-10-06')
+        self.assertTrue(fake.calls)
+        self.assertTrue(all(c['sort'] is None for c in fake.calls))
+
+    def test_a_config_can_opt_out_or_choose_its_own_sort(self):
+        day = '2026-10-08 to 2026-10-08'
+        base = dict(dp.MHD_METRO_JURISDICTIONS['gwinnett'])
+        rows = [_row('F1', city='Lawrenceville', state='GA', program='Food')]
+        fake = FakeSearch({(day, '', ''): rows})
+        _run('gwinnett', {**base, 'sort': None}, fake, since_date='2026-10-08', until_date='2026-10-08')
+        self.assertTrue(all(c['sort'] is None for c in fake.calls))
+        fake = FakeSearch({(day, '', ''): rows})
+        custom = {'field': 'establishmentName', 'direction': 'desc'}
+        _run('gwinnett', {**base, 'sort': custom}, fake, since_date='2026-10-08', until_date='2026-10-08')
+        self.assertTrue(all(c['sort'] == custom for c in fake.calls))
+
+    def test_a_multi_day_window_config_warns_about_the_per_permit_collapse(self):
+        cfg = {**dp.MHD_METRO_JURISDICTIONS['gwinnett'], 'window_days': 7}
+        fake = FakeSearch({})
+        with self.assertLogs(dp.log, level='WARNING') as logs:
+            _run('gwinnett', cfg, fake, since_date='2026-10-05', until_date='2026-10-11')
+        self.assertTrue(any('latest inspection' in line for line in logs.output), logs.output)
+        self.assertEqual(len(fake.calls), 1, 'one 7-day window, as configured')
+
+
+class SortGuardTests(unittest.TestCase):
+    """Sorted pages must fit together as one stable sequence; a repeated row
+    or a key out of order fails the query (None) instead of shipping short."""
+
+    def test_guid_order_is_sql_server_uniqueidentifier_order(self):
+        a, b = 'FFFFFFFF-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000002'
+        self.assertLess(dp._mhd_guid_sort_key(a), dp._mhd_guid_sort_key(b))
+        self.assertGreater(a, b, 'string order says the opposite — the key must not use it')
+        # groups are compared from the last to the first: the last group
+        # decides, the fourth group only breaks a tie on it
+        self.assertLess(dp._mhd_guid_sort_key('00000000-0000-0000-0002-000000000004'),
+                        dp._mhd_guid_sort_key('00000000-0000-0000-0001-000000000005'))
+        self.assertLess(dp._mhd_guid_sort_key('00000000-0000-0000-0001-000000000005'),
+                        dp._mhd_guid_sort_key('00000000-0000-0000-0002-000000000005'))
+        # a non-GUID sorts after every GUID, as text
+        self.assertGreater(dp._mhd_guid_sort_key('X7'), dp._mhd_guid_sort_key(b))
+        self.assertEqual(dp._mhd_guid_sort_key(None), dp._mhd_guid_sort_key(''))
+
+    def test_pages_in_order_are_consistent(self):
+        pages = [[{'inspectionID': _guid(i)} for i in range(1, 26)],
+                 [{'inspectionID': _guid(i)} for i in range(26, 30)]]
+        self.assertEqual(dp._mhd_pages_consistent(pages, dp.MHD_SORT_INSPECTION_ID), '')
+        desc = [list(reversed(p)) for p in reversed(pages)]
+        self.assertEqual(dp._mhd_pages_consistent(desc, {'field': 'inspectionID',
+                                                         'direction': 'desc'}), '')
+
+    def test_a_row_repeated_across_pages_is_a_repeat(self):
+        pages = [[{'inspectionID': _guid(i)} for i in range(1, 26)],
+                 [{'inspectionID': _guid(25)}, {'inspectionID': _guid(26)}]]
+        self.assertEqual(dp._mhd_pages_consistent(pages, dp.MHD_SORT_INSPECTION_ID), 'repeat')
+        # the repeat check does not need a known order
+        self.assertEqual(dp._mhd_pages_consistent(pages, {'field': 'establishmentName',
+                                                          'direction': 'asc'}), 'repeat')
+
+    def test_a_key_out_of_order_fails_the_inspection_id_sort_only(self):
+        pages = [[{'inspectionID': _guid(1)}, {'inspectionID': _guid(3)}],
+                 [{'inspectionID': _guid(2)}]]
+        self.assertEqual(dp._mhd_pages_consistent(pages, dp.MHD_SORT_INSPECTION_ID), 'order')
+        self.assertEqual(dp._mhd_pages_consistent(pages, {'field': 'establishmentName',
+                                                          'direction': 'asc'}), '')
+        # string order is not the server's order: these are in GUID order
+        in_guid_order = [[{'inspectionID': 'FFFFFFFF-0000-0000-0000-000000000001'}],
+                         [{'inspectionID': '00000000-0000-0000-0000-000000000002'}]]
+        self.assertEqual(dp._mhd_pages_consistent(in_guid_order, dp.MHD_SORT_INSPECTION_ID), '')
+
+    def test_rows_without_an_id_are_ignored(self):
+        pages = [[{'inspectionID': _guid(1)}, {'permitID': 'P'}], [{'inspectionID': _guid(2)}]]
+        self.assertEqual(dp._mhd_pages_consistent(pages, dp.MHD_SORT_INSPECTION_ID), '')
+
+    def _paged(self, pages):
+        def fake(session, path, date_range, start, retry_count=0, search_str='', purpose='',
+                 sort=None):
+            idx = start // dp.MHD_PAGE_SIZE
+            return pages[idx] if idx < len(pages) else []
+        return fake
+
+    def test_search_all_pages_fails_on_a_repeated_row_when_sorted(self):
+        pages = [[_row(_guid(i)) for i in range(1, 26)], [_row(_guid(25)), _row(_guid(26))]]
+        with mock.patch.object(dp, '_mhd_search_page', side_effect=self._paged(pages)), \
+             mock.patch.object(dp.time, 'sleep'), \
+             self.assertLogs(dp.log, level='ERROR') as logs:
+            out = dp._mhd_search_all_pages(None, 'fbceh', '2026-10-20 to 2026-10-20',
+                                           sort=dp.MHD_SORT_INSPECTION_ID, label='Fort Bend County')
+        self.assertIsNone(out)
+        self.assertTrue(any('repeat' in line and 'Fort Bend County' in line for line in logs.output))
+
+    def test_search_all_pages_fails_on_an_out_of_order_page_when_sorted(self):
+        pages = [[_row(_guid(i)) for i in range(1, 26)], [_row(_guid(0))]]
+        with mock.patch.object(dp, '_mhd_search_page', side_effect=self._paged(pages)), \
+             mock.patch.object(dp.time, 'sleep'):
+            out = dp._mhd_search_all_pages(None, 'fbceh', '2026-10-20 to 2026-10-20',
+                                           sort=dp.MHD_SORT_INSPECTION_ID)
+        self.assertIsNone(out)
+
+    def test_search_all_pages_without_a_sort_keeps_the_old_contract(self):
+        # Unsorted callers dedupe by inspectionID themselves; the guard is off.
+        pages = [[_row(_guid(i)) for i in range(1, 26)], [_row(_guid(25)), _row(_guid(26))]]
+        with mock.patch.object(dp, '_mhd_search_page', side_effect=self._paged(pages)), \
+             mock.patch.object(dp.time, 'sleep'):
+            out = dp._mhd_search_all_pages(None, 'fbceh', '2026-10-20 to 2026-10-20')
+        self.assertEqual(len(out), 27)
+
+    def test_a_consistent_sorted_read_returns_every_row(self):
+        pages = [[_row(_guid(i)) for i in range(1, 26)], [_row(_guid(26)), _row(_guid(27))]]
+        with mock.patch.object(dp, '_mhd_search_page', side_effect=self._paged(pages)), \
+             mock.patch.object(dp.time, 'sleep'):
+            out = dp._mhd_search_all_pages(None, 'fbceh', '2026-10-20 to 2026-10-20',
+                                           sort=dp.MHD_SORT_INSPECTION_ID)
+        self.assertEqual(len(out), 27)
+
+
+class WindowFailureTests(unittest.TestCase):
+    """A window that cannot be read completely never ships the jurisdiction
+    short and quiet: without the breaker or the deadline it raises (the
+    group goes red) and holds the source at the window."""
+
+    def setUp(self):
+        self.saved = (dict(dp._FRESHNESS_HOLDS), dp._MHD_PORTAL_BLOCKED, dp._FETCH_DEADLINE,
+                      set(dp._MHD_DEADLINE_CUT))
+        dp._FRESHNESS_HOLDS.clear()
+        dp._MHD_PORTAL_BLOCKED = False
+        dp._FETCH_DEADLINE = None
+        dp._MHD_DEADLINE_CUT.clear()
+        self.cfg = dp.MHD_METRO_JURISDICTIONS['gwinnett']
+        self.d1, self.d2 = '2026-10-05 to 2026-10-05', '2026-10-06 to 2026-10-06'
+        self.table = {(self.d1, '', ''): [_row('G1', city='Duluth', state='GA', program='Food')],
+                      (self.d2, '', ''): [_row('G2', city='Duluth', state='GA', program='Food')]}
+
+    def tearDown(self):
+        holds, blocked, deadline, cut = self.saved
+        dp._FRESHNESS_HOLDS.clear()
+        dp._FRESHNESS_HOLDS.update(holds)
+        dp._MHD_PORTAL_BLOCKED = blocked
+        dp._FETCH_DEADLINE = deadline
+        dp._MHD_DEADLINE_CUT.clear()
+        dp._MHD_DEADLINE_CUT.update(cut)
+
+    def test_an_unreadable_window_raises_and_holds_the_source_at_it(self):
+        fake = FailingSearch(self.table, fail_dates=[self.d2])
+        with self.assertRaises(RuntimeError) as ctx:
+            _run('gwinnett', self.cfg, fake, since_date='2026-10-05', until_date='2026-10-06')
+        self.assertIn('2026-10-06', str(ctx.exception))
+        holds = dp._FRESHNESS_HOLDS.get('Gwinnett County Health Dept', {})
+        # _hold_window_start: the next lookback starts exactly at the window
+        self.assertEqual(list(holds), [f'2026-10-{6 + 1 + dp.FRESHNESS_OVERLAP_DAYS:02d}|'])
+        self.assertEqual(list(holds.values()), [(False, False)], 'held, never counted')
+
+    def test_a_breaker_cut_window_ships_what_was_read(self):
+        fake = FailingSearch(self.table, fail_dates=[self.d2])
+        dp._MHD_PORTAL_BLOCKED = True
+        records = _run('gwinnett', self.cfg, fake, since_date='2026-10-05', until_date='2026-10-06')
+        self.assertEqual([r['source_id'] for r in records], ['G1'])
+        self.assertEqual(dp._FRESHNESS_HOLDS, {})
+
+    def test_a_deadline_cut_never_raises(self):
+        fake = FailingSearch(self.table, fail_dates=[self.d2])
+        dp._FETCH_DEADLINE = 1.0   # long past
+        records = _run('gwinnett', self.cfg, fake, since_date='2026-10-05', until_date='2026-10-06')
+        self.assertEqual(records, [])
+        self.assertIn('Gwinnett County', dp._MHD_DEADLINE_CUT)
+
+
+class ExcludeTests(unittest.TestCase):
+    def test_exclude_patterns_compile_from_the_config(self):
+        pats = dp._mhd_exclude_patterns({'exclude': {'addressLine1': r'^\^?\s*Mobile Unit'}})
+        self.assertEqual([f for f, _ in pats], ['addressLine1'])
+        self.assertEqual(dp._mhd_exclude_patterns({}), [])
+        self.assertEqual(dp._mhd_row_rejection({'addressLine1': '^Mobile Unit'}, exclude=pats),
+                         'excluded')
+        self.assertEqual(dp._mhd_row_rejection({'addressLine1': '5050 S Federal Blvd'},
+                                               exclude=pats), '')
+
+    def test_arapahoe_drops_mobile_units_child_care_and_body_art(self):
+        cfg = dp.MHD_METRO_JURISDICTIONS['acph']
+        rows = _fixture_rows('search_acph.json')
+        day = '2026-10-27 to 2026-11-02'
+        fake = FakeSearch({(day, '', ''): rows})
+        records = _run('acph', {**cfg, 'window_days': 7}, fake,
+                       since_date='2026-10-27', until_date='2026-11-02')
+        self.assertEqual([r['name'] for r in records], ['Boba City 2'])
+        rec = records[0]
+        self.assertEqual(rec['source'], 'Arapahoe County Health Dept')
+        self.assertEqual((rec['state'], rec['metro']), ('CO', ''))
+        # the risk-index total is a demerit count: kept as the official
+        # number, risk recomputed from the detail page (placeholder until then)
+        self.assertEqual(rec['original_score'], 52)
+        self.assertEqual(rec['risk_score'], max(0, 100 - 2 * 52))
+        self.assertEqual(rec['city'], 'Englewood')
+
+    def test_arapahoe_detail_phase_does_not_trust_the_demerit_total(self):
+        cfg = dp.MHD_METRO_JURISDICTIONS['acph']
+        rows = [r for r in _fixture_rows('search_acph.json') if r['establishmentName'] == 'Boba City 2']
+        day = '2026-10-30 to 2026-10-30'
+        rows[0]['inspectionDate'] = '2026-10-30T00:00:00.000Z'
+        fake = FakeSearch({(day, '', ''): rows})
+        seen = {}
+
+        def fake_bulk(path, records, trust_official_score=True, label=None):
+            seen.update(path=path, trust=trust_official_score, label=label)
+            return len(records), []
+        with mock.patch.object(dp, '_mhd_fetch_details_bulk', side_effect=fake_bulk):
+            _run('acph', cfg, fake, fetch_violations=True,
+                 since_date='2026-10-30', until_date='2026-10-30')
+        self.assertEqual(seen, {'path': 'acph', 'trust': False, 'label': 'Arapahoe County'})
+
+
+class GroupTests(unittest.TestCase):
+    def test_groups_follow_the_config_with_the_default(self):
+        groups = dp._mhd_metro_groups(['gwinnett', 'ccbh', 'fbceh', 'va-richmond'])
+        self.assertEqual(list(groups), ['MHD metros', 'MHD metros (midweek)'])
+        self.assertEqual(list(groups['MHD metros']), ['gwinnett', 'fbceh'])
+        self.assertEqual(list(groups['MHD metros (midweek)']), ['ccbh', 'va-richmond'])
+        self.assertIs(groups['MHD metros']['gwinnett'], dp.MHD_METRO_JURISDICTIONS['gwinnett'])
+        self.assertEqual(dp._mhd_metro_groups([]), {})
+
+    def test_every_entry_runs_in_a_known_group(self):
+        names = {str(c.get('group') or dp.MHD_DEFAULT_GROUP)
+                 for c in dp.MHD_METRO_JURISDICTIONS.values()}
+        self.assertEqual(names, {'MHD metros', 'MHD metros (midweek)'})
+        self.assertEqual(dp.MHD_DEFAULT_GROUP, 'MHD metros')
+
+    def test_existing_entries_stay_in_mhd_metros(self):
+        for key in ('multco-eh', 'epcph', 'gwinnett', 'tennessee:nashville', 'yolocountyeh'):
+            self.assertNotIn('group', dp.MHD_METRO_JURISDICTIONS[key], key)
+        groups = dp._mhd_metro_groups(dp._mhd_metro_keys(['portland', 'tennessee', 'gwinnett']))
+        self.assertEqual(list(groups), ['MHD metros'])
+
+    def test_heavy_jurisdictions_run_midweek(self):
+        midweek = {k for k, c in dp.MHD_METRO_JURISDICTIONS.items()
+                   if c.get('group') == 'MHD metros (midweek)'}
+        self.assertEqual(midweek, {'ccbh'} | {k for k in dp.MHD_METRO_JURISDICTIONS
+                                             if k.startswith('va-')})
+        for key in ('fbceh', 'acph', 'dchd'):
+            self.assertEqual(dp.MHD_METRO_JURISDICTIONS[key]['group'], 'MHD metros')
+
+    def test_display_names_are_unique_across_both_tables(self):
+        names = ([c['display_name'] for c in dp.MHD_METRO_JURISDICTIONS.values()]
+                 + [c['display_name'] for c in dp.DFW_JURISDICTIONS.values()])
+        self.assertEqual(len(names), len(set(names)))
+        labels = {f"{n} Health Dept" for n in names}
+        self.assertNotIn(dp.OMAHA_SOURCE, labels, "Omaha's label is 'Douglas County Health Dept'")
+
+
+class ExpansionConfigTests(unittest.TestCase):
+    NEW = ('fbceh', 'acph', 'dchd', 'ccbh')
+
+    def _va_keys(self):
+        return [k for k in dp.MHD_METRO_JURISDICTIONS if k.startswith('va-')]
+
+    def test_new_entries_set_every_dfw_default_explicitly(self):
+        for key in self.NEW + tuple(self._va_keys()):
+            cfg = dp.MHD_METRO_JURISDICTIONS[key]
+            for field in ('display_name', 'default_city', 'state', 'score_scale', 'metro',
+                          'programs', 'group'):
+                self.assertIn(field, cfg, f'{key} lacks {field}')
+            self.assertNotEqual(cfg['metro'], 'DFW', key)
+            self.assertNotIn('path', cfg, key)
+            self.assertNotIn('search_terms', cfg, key)
+
+    def test_fort_bend(self):
+        cfg = dp.MHD_METRO_JURISDICTIONS['fbceh']
+        self.assertEqual(cfg, {'display_name': 'Fort Bend County', 'default_city': 'Richmond',
+                               'state': 'TX', 'score_scale': '100', 'metro': '',
+                               'programs': ['Food'], 'group': 'MHD metros'})
+        self.assertEqual(dp.MHD_METRO_SLUG_GROUPS['fortbend'], ['fbceh'])
+
+    def test_arapahoe(self):
+        cfg = dp.MHD_METRO_JURISDICTIONS['acph']
+        self.assertEqual((cfg['display_name'], cfg['default_city'], cfg['state'], cfg['score_scale'],
+                          cfg['metro'], cfg['programs'], cfg['group']),
+                         ('Arapahoe County', 'Aurora', 'CO', 'demerit', '', ['Retail Food'],
+                          'MHD metros'))
+        self.assertIn('addressLine1', cfg['exclude'])
+        self.assertEqual(dp.MHD_METRO_SLUG_GROUPS['arapahoe'], ['acph'])
+
+    def test_douglas_county_co_is_not_omaha(self):
+        cfg = dp.MHD_METRO_JURISDICTIONS['dchd']
+        self.assertEqual((cfg['display_name'], cfg['default_city'], cfg['state'], cfg['score_scale'],
+                          cfg['metro'], cfg['programs'], cfg['group']),
+                         ('Douglas County CO', 'Castle Rock', 'CO', 'demerit', '', ['Retail Food'],
+                          'MHD metros'))
+        self.assertNotEqual(f"{cfg['display_name']} Health Dept", dp.OMAHA_SOURCE)
+        self.assertEqual(dp.MHD_METRO_SLUG_GROUPS['douglas'], ['dchd'])
+
+    def test_cuyahoga(self):
+        cfg = dp.MHD_METRO_JURISDICTIONS['ccbh']
+        self.assertEqual(cfg, {'display_name': 'Cuyahoga County', 'default_city': 'Parma',
+                               'state': 'OH', 'score_scale': 'none', 'metro': 'Cleveland',
+                               'programs': ['Food'], 'group': 'MHD metros (midweek)'})
+        self.assertNotIn('window_days', cfg, 'one-day windows: a 2-day window collapses re-inspections')
+        self.assertEqual(dp.MHD_METRO_SLUG_GROUPS['cuyahoga'], ['ccbh'])
+
+    def test_virginia_districts(self):
+        keys = self._va_keys()
+        self.assertEqual(len(keys), 33)
+        self.assertNotIn('va-fairfax', keys, 'Fairfax County is its own source and not on the portal')
+        names = [dp.MHD_METRO_JURISDICTIONS[k]['display_name'] for k in keys]
+        self.assertEqual(len(set(names)), 33, 'per-district source labels keep freshness honest')
+        self.assertNotIn('VDH Fairfax', names)
+        self.assertIn('VDH Lord Fairfax', names, 'the Winchester-area district, not Fairfax County')
+        for k in keys:
+            cfg = dp.MHD_METRO_JURISDICTIONS[k]
+            self.assertTrue(cfg['display_name'].startswith('VDH '), k)
+            self.assertEqual((cfg['state'], cfg['score_scale'], cfg['programs'], cfg['lag_days'],
+                              cfg['group']),
+                             ('VA', 'none', ['Food Establishment'], 14, 'MHD metros (midweek)'), k)
+            self.assertEqual(dp._mhd_path(k, cfg), k, 'each district is its own portal slug')
+        self.assertEqual(dp._mhd_va_district('Testham', 'Testville', 'Metro'),
+                         {'display_name': 'VDH Testham', 'default_city': 'Testville', 'state': 'VA',
+                          'score_scale': 'none', 'metro': 'Metro',
+                          'programs': ['Food Establishment'], 'lag_days': 14,
+                          'group': 'MHD metros (midweek)'})
+        self.assertEqual(dp._mhd_va_district('Testham', 'Testville')['metro'], '')
+
+    def test_virginia_slug_groups_and_metros(self):
+        groups = dp.MHD_METRO_SLUG_GROUPS
+        self.assertEqual(groups['richmond'], ['va-richmond', 'va-henrico', 'va-chesterfield',
+                                              'va-chickahominy'])
+        self.assertEqual(groups['hamptonroads'], ['va-virginia-beach', 'va-norfolk', 'va-chesapeake',
+                                                  'va-portsmouth', 'va-hampton', 'va-peninsula',
+                                                  'va-western-tidewater'])
+        self.assertEqual(groups['nova'], ['va-arlington', 'va-alexandria', 'va-loudoun',
+                                          'va-prince-william'])
+        self.assertEqual(set(groups['virginia']), set(self._va_keys()))
+        metro_of = {'richmond': 'Richmond', 'hamptonroads': 'Hampton Roads', 'nova': 'Northern Virginia'}
+        for slug, metro in metro_of.items():
+            for k in groups[slug]:
+                self.assertEqual(dp.MHD_METRO_JURISDICTIONS[k]['metro'], metro, k)
+        chipped = {k for slug in metro_of for k in groups[slug]}
+        for k in self._va_keys():
+            if k not in chipped:
+                self.assertEqual(dp.MHD_METRO_JURISDICTIONS[k]['metro'], '', k)
+        self.assertEqual(len(dp._mhd_metro_keys(['virginia'])), 33)
+        self.assertEqual(len(dp._mhd_metro_keys(['richmond', 'virginia', 'nova'])), 33)
+        self.assertEqual(dp._mhd_metro_keys(['richmond']), groups['richmond'])
+
+    def test_new_slugs_count_as_portal_sources(self):
+        for slug in ('fortbend', 'arapahoe', 'douglas', 'cuyahoga', 'richmond', 'hamptonroads',
+                     'nova', 'virginia', 'fbceh', 'va-norfolk'):
+            self.assertTrue(dp._wants_portal_sources([slug]), slug)
+
+
+class ExpansionParseTests(unittest.TestCase):
+    """Rows and detail blocks captured from the new jurisdictions."""
+
+    KEYS = {'name', 'address', 'city', 'state', 'zip', 'latitude', 'longitude', 'inspection_date',
+            'original_score', 'risk_score', 'priority_violations', 'priority_foundation_violations',
+            'core_violations', 'total_violations', 'violations', 'inspection_type', 'results',
+            'source', 'source_url', 'source_id', 'metro'}
+
+    def _records(self, key, fixture, since, until):
+        cfg = dp.MHD_METRO_JURISDICTIONS[key]
+        fake = FakeSearch({(f'{since} to {until}', '', ''): _fixture_rows(fixture)})
+        return _run(key, {**cfg, 'window_days': 400}, fake, since_date=since, until_date=until)
+
+    def test_fort_bend_official_score_and_pools_filter(self):
+        records = self._records('fbceh', 'search_fbceh.json', '2026-10-06', '2026-11-02')
+        self.assertEqual(sorted(r['name'] for r in records),
+                         ['Hacienda Don Jose 2 Llc', 'Nirmanz Food Boutique', 'Ohl Style Beef Jerky'])
+        rec = next(r for r in records if r['name'].startswith('Hacienda'))
+        self.assertEqual((rec['original_score'], rec['risk_score']), (72, 72))
+        self.assertEqual(rec['source'], 'Fort Bend County Health Dept')
+        self.assertEqual(rec['source_id'], '2AACA469-B955-42B5-948A-047BCFDF1B1C')
+        self.assertEqual(rec['source_url'], 'https://inspections.myhealthdepartment.com/fbceh/'
+                                            'inspection/?inspectionID=2AACA469-B955-42B5-948A-047BCFDF1B1C')
+        self.assertEqual((rec['state'], rec['metro']), ('TX', ''))
+        self.assertIsNone(rec['latitude'])
+        self.assertIsNone(rec['longitude'])
+        self.assertEqual(dp.calculate_vetted_grade(rec['risk_score']), 'C')
+        self.assertEqual(set(rec) - {'purpose'}, self.KEYS)
+
+    def test_douglas_demerit_rows(self):
+        records = self._records('dchd', 'search_dchd.json', '2026-10-26', '2026-11-02')
+        by = {r['name']: r for r in records}
+        self.assertEqual(set(by), {'Dumpling Kitchen', 'Cold Stone Creamery'}, 'child care dropped')
+        self.assertEqual(by['Dumpling Kitchen']['original_score'], 30)
+        self.assertEqual(by['Dumpling Kitchen']['risk_score'], 100 - 2 * 30)
+        self.assertEqual(by['Dumpling Kitchen']['source'], 'Douglas County CO Health Dept')
+        self.assertEqual(by['Dumpling Kitchen']['city'], 'Castle Rock')
+        self.assertEqual(by['Cold Stone Creamery']['original_score'], 0)
+
+    def test_cuyahoga_rows(self):
+        records = self._records('ccbh', 'search_ccbh.json', '2026-10-26', '2026-11-02')
+        self.assertEqual([r['name'] for r in records], ['Speedway #4043'], 'schools and body art dropped')
+        rec = records[0]
+        self.assertEqual((rec['original_score'], rec['risk_score']), (None, 70))
+        self.assertEqual((rec['state'], rec['metro'], rec['source']),
+                         ('OH', 'Cleveland', 'Cuyahoga County Health Dept'))
+
+    def test_cuyahoga_null_state_falls_back_to_ohio(self):
+        row = dict(next(r for r in _fixture_rows('search_ccbh.json') if r['programName'] == 'Food'))
+        row['state'] = None
+        rec = dp._parse_mhd_record(row, 'ccbh', 'Cuyahoga County', 'Parma', 'OH', 'none', 'Cleveland')
+        self.assertEqual(rec['state'], 'OH')
+
+    def test_virginia_rows(self):
+        records = self._records('va-arlington', 'search_va_arlington.json', '2026-10-14', '2026-10-20')
+        self.assertEqual(len(records), 3)
+        by = {r['source_id']: r for r in records}
+        rec = by['8ED6A912-A4F7-45F2-AD82-D75C447E2A4F']
+        self.assertEqual(rec['inspection_date'], '2026-10-20', 'MM/DD/YYYY parsed')
+        self.assertEqual(rec['name'], 'Don Tito')
+        self.assertEqual((rec['original_score'], rec['risk_score']), (None, 70))
+        self.assertEqual((rec['state'], rec['metro'], rec['source']),
+                         ('VA', 'Northern Virginia', 'VDH Arlington Health Dept'))
+        self.assertTrue(rec['source_url'].startswith(
+            'https://inspections.myhealthdepartment.com/va-arlington/inspection/?inspectionID='))
+        self.assertEqual(rec['inspection_type'], 'Full Service Restaurant')
+        self.assertEqual(set(rec) - {'purpose'}, self.KEYS)
+        self.assertEqual(dp.make_restaurant_id(rec['name'], rec['address'], rec['city']),
+                         dp.make_restaurant_id('Don Tito', '3165 Wilson Blvd', 'Arlington'))
+
+    def test_detail_pages_parse(self):
+        counts = {'detail_fbceh_score72.html': 19, 'detail_acph_result.html': 3,
+                  'detail_dchd_score30.html': 4, 'detail_ccbh.html': 6,
+                  'detail_va_henrico.html': 2, 'detail_va_clean.html': 0}
+        for name, n in counts.items():
+            obs = dp._mhd_parse_detail_html(_fixture_html(name))
+            self.assertIsInstance(obs, list, name)
+            self.assertEqual(len(obs), n, name)
+            for text in obs:
+                self.assertLessEqual(len(text), 500)
+                self.assertNotIn('\n', text)
+        self.assertIn('Observed staff washing dishes and not sanitizing them',
+                      dp._mhd_parse_detail_html(_fixture_html('detail_va_henrico.html'))[0])
+
+    def test_scores_from_the_detail_pass_for_no_score_jurisdictions(self):
+        # 'none' / 'demerit': the risk score is calc_risk_score over the lines
+        texts = dp._mhd_parse_detail_html(_fixture_html('detail_ccbh.html'))
+        violations = [dp.classify_violation(t) for t in texts]
+        score, pv, pfv, cv = dp.calc_risk_score(violations)
+        self.assertEqual(pv + pfv + cv, 6)
+        self.assertTrue(all(v[1] in ('priority', 'priority_foundation', 'core') for v in violations))
+        self.assertTrue(0 <= score <= 100)
