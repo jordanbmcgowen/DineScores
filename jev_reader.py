@@ -1702,6 +1702,11 @@ SOURCE_TIER_SOURCES = frozenset({
     'Georgia DPH', 'Louisiana LDH', 'Maricopa County Environmental Services',
     'Harris County Public Health', 'Pima County Health Department',
     'Lubbock Environmental Health', 'Mesquite Environmental Health',
+    # McKinney's per-item TX form points (3 priority / 2 priority foundation
+    # / 1 core) are the city's own tiers, and its risk_score is the TX form
+    # score (100 - the city's demerit total, kept in original_score), an
+    # official number like Richardson's: never re-scored.
+    'McKinney Health Inspections',
 })
 # Sources whose tier was bounded by a per-item rule the stored row no longer
 # carries (Chicago's item number, NYC's critical flag): a stored core line

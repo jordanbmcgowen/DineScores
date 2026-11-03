@@ -1,0 +1,159 @@
+{
+ "help": "https://data.cityofdenton.com/api/3/action/help_show?name=datastore_search_sql",
+ "success": true,
+ "result": {
+  "sql": "SELECT DISTINCT ... (trimmed)",
+  "records": [
+   {
+    "PERMIT_NO": "HC2001-131",
+    "Name": "WAL MART SUPERCENTER # 467",
+    "Address": "1515 S LOOP 288",
+    "Type": "Grocery",
+    "Lat": null,
+    "Long": null,
+    "RESULT": "APPROVED",
+    "HealthScoreInt": "100",
+    "HealthScoreLetter": "A: 94-100",
+    "HealthScoreDate": "20261028000000"
+   },
+   {
+    "PERMIT_NO": "1610-0672",
+    "Name": "OLD WEST",
+    "Address": "2420 S I35 EAST",
+    "Type": "Casual Dining",
+    "Lat": "33.184704",
+    "Long": "-97.106847",
+    "RESULT": "APPROVED",
+    "HealthScoreInt": "90",
+    "HealthScoreLetter": "B: 87-93",
+    "HealthScoreDate": "20261028000000"
+   },
+   {
+    "PERMIT_NO": "2009-0704",
+    "Name": "AVOCA COFFEE ROASTERS",
+    "Address": "510 FORT WORTH DR STE. 150",
+    "Type": "Fast Casual",
+    "Lat": "33.201413",
+    "Long": "-97.137449",
+    "RESULT": "APPROVED",
+    "HealthScoreInt": "91",
+    "HealthScoreLetter": "B: 87-93",
+    "HealthScoreDate": "20261027000000"
+   },
+   {
+    "PERMIT_NO": "1809-0116",
+    "Name": "BUC-EE'S TEXAS ROUND UP",
+    "Address": "2800 I35E",
+    "Type": "Convenience",
+    "Lat": null,
+    "Long": null,
+    "RESULT": "APPROVED",
+    "HealthScoreInt": "100",
+    "HealthScoreLetter": "A: 94-100",
+    "HealthScoreDate": "20261027000000"
+   },
+   {
+    "PERMIT_NO": "0402-0477",
+    "Name": "THE LOOPHOLE",
+    "Address": "119 W HICKORY",
+    "Type": "Casual Dining",
+    "Lat": "33.214292",
+    "Long": "-97.133358",
+    "RESULT": "APPROVED",
+    "HealthScoreInt": "84",
+    "HealthScoreLetter": "C: 80-86",
+    "HealthScoreDate": "20261027000000"
+   },
+   {
+    "PERMIT_NO": "2209-0771",
+    "Name": "Namaste Denton",
+    "Address": "222 W HICKORY ST 103",
+    "Type": "Casual Dining",
+    "Lat": null,
+    "Long": null,
+    "RESULT": "FAILED",
+    "HealthScoreInt": "74",
+    "HealthScoreLetter": "F: 0-79",
+    "HealthScoreDate": "20260506000000"
+   },
+   {
+    "PERMIT_NO": "2104-0617",
+    "Name": "LONE STAR POPCORN",
+    "Address": "2430 S I-35 E 164",
+    "Type": "Fast Casual",
+    "Lat": "33.184066",
+    "Long": "-97.107538",
+    "RESULT": null,
+    "HealthScoreInt": "93",
+    "HealthScoreLetter": "B: 87-93",
+    "HealthScoreDate": "20221003000000"
+   },
+   {
+    "PERMIT_NO": null,
+    "Name": "CHARLEY'S PHILLY STEAKS",
+    "Address": "2750 W UNIVERSITY DR",
+    "Type": "Fast Casual",
+    "Lat": "33.232881",
+    "Long": "-97.167416",
+    "RESULT": null,
+    "HealthScoreInt": null,
+    "HealthScoreLetter": "N/A",
+    "HealthScoreDate": null
+   },
+   {
+    "PERMIT_NO": "0811-0106",
+    "Name": "APPLEBEE'S",
+    "Address": "707 I-35E SOUTH",
+    "Type": "Casual Dining",
+    "Lat": "33.194173",
+    "Long": "-97.123459",
+    "RESULT": "APPROVED",
+    "HealthScoreInt": "88",
+    "HealthScoreLetter": "B: 87-93",
+    "HealthScoreDate": "20240521"
+   }
+  ],
+  "fields": [
+   {
+    "id": "PERMIT_NO",
+    "type": "text"
+   },
+   {
+    "id": "Name",
+    "type": "text"
+   },
+   {
+    "id": "Address",
+    "type": "text"
+   },
+   {
+    "id": "Type",
+    "type": "text"
+   },
+   {
+    "id": "Lat",
+    "type": "text"
+   },
+   {
+    "id": "Long",
+    "type": "text"
+   },
+   {
+    "id": "RESULT",
+    "type": "text"
+   },
+   {
+    "id": "HealthScoreInt",
+    "type": "text"
+   },
+   {
+    "id": "HealthScoreLetter",
+    "type": "text"
+   },
+   {
+    "id": "HealthScoreDate",
+    "type": "text"
+   }
+  ]
+ }
+}

@@ -914,6 +914,15 @@ class PipelinePassTests(unittest.TestCase):
                     'Pima County Health Department'):
             self.assertEqual(jr.tier_policy(src), 'fixed', src)
             self.assertEqual(jr.score_policy(src, None), 'source_tiers', src)
+        # McKinney: city-stated TX form points per item (never re-tiered) and
+        # a risk_score that is the TX form score, 100 - the demerit total kept
+        # in original_score (never re-scored, like Richardson's).
+        self.assertEqual(jr.tier_policy('McKinney Health Inspections'), 'fixed')
+        self.assertEqual(jr.score_policy('McKinney Health Inspections', 13), 'official')
+        self.assertEqual(jr.score_policy('McKinney Health Inspections', None), 'official')
+        # Lewisville and Denton publish an official 0-100 score and no lines.
+        self.assertEqual(jr.score_policy('Lewisville Environmental Health', 93), 'official')
+        self.assertEqual(jr.score_policy('Denton Open Data', 90), 'official')
         self.assertEqual(jr.bounded_tier('core', 'priority'), 'core')
         self.assertEqual(jr.bounded_tier('priority_foundation', 'core'), 'priority_foundation')
         self.assertEqual(jr.bounded_tier('priority', 'priority_foundation'), 'priority_foundation')
