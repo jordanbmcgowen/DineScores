@@ -8498,7 +8498,7 @@ def fetch_maricopa(since_date=None, limit=None):
         with streak_lock:
             if isinstance(outcome, dict):
                 streak_box[0] = 0
-            else:
+            elif outcome in ('download', 'unread', 'unavailable'):
                 # any page that gave no inspection, a 'Not Available' one too:
                 # MCESD_BREAKER_TRIP of them in a row is the portal, not the page
                 streak_box[0] += 1
