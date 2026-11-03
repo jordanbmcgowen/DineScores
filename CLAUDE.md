@@ -1,8 +1,8 @@
 # DineScores
 
 Restaurant health-inspection scores on a map: https://dinescores.com
-~69k restaurants embedded client-side (the 24 MB cap), ~300k in the
-database, covering ~55 metros (NYC, Chicago, LA County, SF, Seattle, Boston,
+~67k restaurants embedded client-side (the 24 MB cap; each metro's ~500
+newest), ~350k in the database, covering ~55 metros (NYC, Chicago, LA County, SF, Seattle, Boston,
 Austin, Houston, DC, DFW incl. McKinney/Lewisville/Denton, Las Vegas,
 Raleigh, Miami/Tampa/Orlando, Louisville, Minneapolis, Cincinnati,
 Montgomery County MD, Detroit, Sacramento, Fairfax County, Portland OR
@@ -314,8 +314,8 @@ people covered per unit of work:
   cap + EMBED_CITY_FLOOR per-city floor, cities keyed by (name, state))
   and then enforces a hard `DATA_JS_MAX_BYTES` (24,000,000); both trims
   keep the same FRACTION of every city's newest records, never below the
-  floor (`_embed_trim`; measured 2026-11-03 on 3,872 cities: metros keep
-  ~59% of their 1,000, Houston 594, Dallas 558). Dropping the globally
+  floor (`_embed_trim`; the 2026-11-03 rebuild, 4,202 cities: every metro
+  keeps its 496 newest of up to 1,000). Dropping the globally
   oldest records instead let a few hundred small towns' newest inspections
   push the metros out one record at a time (Dallas would have kept ~150),
   levelling every city to the same COUNT gave each metro ~158, and the
