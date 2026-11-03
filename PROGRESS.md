@@ -97,6 +97,24 @@ windows, repeats guard) re-reading the same weeks: 0 rows missing and 0 extra
 in all 32 jurisdiction-weeks, at 7-15 searches per jurisdiction-week (before:
 2-20, the 20 being Dallas's cap bisection).
 
+Third completed week (2026-10-26..11-01, run 2026-11-03 03:40Z): the OLD
+unsorted 7-day read (one query, no bisection) against a sorted single-day
+truth read, and the committed production path:
+
+| jurisdiction | rows | old read missing | old read repeats | production path missing |
+|---|---|---|---|---|
+| dallas | 206 | 31 | 30 | 0 |
+| plano | 151 | 9 | 0 | 0 |
+| fort-worth-texas | 203 | 23 | 21 | 0 |
+| tarrant | 190 | 27 | 27 | 0 |
+| frisco | 51 | 4 | 4 | 0 |
+| gwinnett | 161 | 0 | 0 | 0 |
+| multco-eh | 0 | 0 | 0 | 0 |
+
+(Multnomah: 0 rows — the county publishes about two weeks late, as its
+lag_days 21 expects.)
+
+
 ## Verification of the new jurisdictions (C) — live, production code path
 
 Each slug read with _fetch_mhd_jurisdiction_api(fetch_violations=False) over
