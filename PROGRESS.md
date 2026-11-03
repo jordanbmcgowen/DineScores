@@ -9,7 +9,7 @@ Branch `feat/maricopa`, worktree `/home/user/wt-maricopa`. Section header in
 - [x] Parsers verified against every captured page (4 permit pages, 5 detail pages, not-available page).
 - [x] Live test-mode run (25 records): see Live results.
 - [ ] Live 14-day bounded run (weekly-equivalent cost measurement).
-- [x] Fixtures + tests/test_maricopa.py (44 tests); whole suite green (318 tests, node tests/test_relay.mjs, py_compile) at 01:14 UTC.
+- [x] Fixtures + tests/test_maricopa.py (44 tests); whole suite green (318 tests, node tests/test_relay.mjs, py_compile) at 01:14 UTC; also green under /usr/bin/python3.11 (CI's version) with PYTHONPATH pointed at the 3.13 requests package.
 - [ ] Final cleanup + report.
 
 ## Design decisions (so a successor does not re-derive them)
