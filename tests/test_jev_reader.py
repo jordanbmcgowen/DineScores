@@ -568,6 +568,15 @@ class PolicyTests(unittest.TestCase):
         items = jr.summarize_violations([sf], {jr.normalize_text(sf): j})
         self.assertEqual((items[0]['text'], items[0]['severity']), ('Pests found', 'CRITICAL'))
 
+    def test_bare_tfer_item_38_and_the_mckinney_placeholder_are_cited_pest_items(self):
+        for text in ('38. Insects, rodents, and animals not present',                       # Harris County
+                     'Insects, rodents, and animals not present',                           # Georgia (no note), Pima
+                     'Pest control item cited on the inspection report; no observation recorded'):  # McKinney
+            self.assertEqual(jr.cited_pest_item(text), 'pests_unspecified', text)
+        # a title followed by an observation is a different line: whole-line matches only
+        self.assertIsNone(jr.cited_pest_item('Insects, rodents, and animals not present: Observed dead roaches under the sink'))
+        self.assertIsNone(jr.cited_pest_item('INSECTS, RODENTS, & ANIMALS NOT PRESENT - Comments: Observed mouse droppings'))
+
     def test_cited_pest_item_titles_keep_their_pest_flag_without_an_f(self):
         title_only = self.judged('conditions_only', cat='pest_control', summ=jr.SUMMARY_NO_MATCH)
         houston_b = ('6-501.111(B) The PREMISES shall be maintained free of insects, rodents, and other pests. '

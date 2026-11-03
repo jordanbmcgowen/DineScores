@@ -1060,6 +1060,8 @@ def drop_implausible_coords(records):
 # ─── GEOCODING ───────────────────────────────────────────────────────────────
 
 _GEOCODE_CACHE = {}
+_NOMINATIM_LOCK = threading.Lock()   # Nominatim allows ONE request per second per client, across all threads
+NOMINATIM_FALLBACK_CAP = int(os.environ.get('NOMINATIM_FALLBACK_CAP', '150'))   # per geocode_missing_coords call
 
 NOMINATIM_MIN_PLACE_RANK = 26   # street level or better; never a town/suburb centroid
 
@@ -1079,8 +1081,9 @@ def geocode_address(address, city, state, nominatim_session=None):
             'addressdetails': 0,
         }
         headers = {'User-Agent': 'DineScores/1.0 (jordanbmcgowen@gmail.com)'}
-        r = requests.get(url, params=params, headers=headers, timeout=5)
-        time.sleep(1.1)  # Respect Nominatim rate limit
+        with _NOMINATIM_LOCK:   # the API pool geocodes from many threads at once
+            r = requests.get(url, params=params, headers=headers, timeout=5)
+            time.sleep(1.1)  # Respect Nominatim rate limit
         if r.status_code == 200:
             results = r.json()
             if results:
@@ -6946,6 +6949,8 @@ def _parse_mhd_record(rec, path, display_name, default_city, default_state,
         address = ' '.join(filter(None, [addr1, addr2])).strip()
         city = (rec.get('city') or default_city).strip()
         state = (rec.get('state') or default_state).strip()
+        if not re.fullmatch(r'[A-Za-z]{2}', state):
+            state = default_state   # a spelled-out state would miss its coordinate box and split the city index
         zip_code = (rec.get('zip') or '').strip()
 
         # Inspection date — may be ISO string, MM/DD/YYYY (Virginia), or timestamp
@@ -13399,11 +13404,13 @@ def geocode_census_batch(records, benchmark='Public_AR_Current'):
     return geocoded
 
 
-def geocode_missing_coords(records, nominatim_fallback_cap=150):
+def geocode_missing_coords(records, nominatim_fallback_cap=None):
     """
     Geocode records missing latitude/longitude: Census Bureau batch first,
     then a capped Nominatim fallback for the stragglers (1 req/sec).
     """
+    if nominatim_fallback_cap is None:
+        nominatim_fallback_cap = NOMINATIM_FALLBACK_CAP
     missing = [r for r in records if not r.get('latitude') or not r.get('longitude')]
     if not missing:
         log.info("All records have coordinates, no geocoding needed")
@@ -13478,8 +13485,12 @@ def read_records_json(paths):
         if not isinstance(data, list):
             raise ValueError(f"{path}: expected a JSON list of inspection records")
         for i, rec in enumerate(data):
-            if not isinstance(rec, dict) or not all(k in rec for k in ('name', 'address', 'city', 'inspection_date', 'source')):
-                raise ValueError(f"{path}: record {i} is not an inspection record")
+            if (not isinstance(rec, dict)
+                    or not all(isinstance(rec.get(k), str) and rec.get(k) for k in ('name', 'address', 'city', 'state', 'source'))
+                    or not sane_inspection_date(rec.get('inspection_date'))
+                    or not isinstance(rec.get('risk_score'), (int, float)) or isinstance(rec.get('risk_score'), bool)
+                    or not isinstance(rec.get('violations'), list)):
+                raise ValueError(f"{path}: record {i} is not a complete inspection record")
         log.info(f"Loaded {len(data)} inspection records from {path}")
         records.extend(data)
     return records
@@ -13610,6 +13621,35 @@ def _apply_grades(rec):
         rec['vs'] = summaries
 
 
+def _embed_trim(final, by_city, drop_count):
+    """Drop up to drop_count records from final: each time the oldest record
+    of the (city, state) with the most records still embedded, never below
+    EMBED_CITY_FLOOR for any city (then the trim stops short). by_city maps
+    each city to its records newest-first; final is the embedded subset.
+    Returns the kept records in their current order."""
+    import heapq
+    keep_ids = {id(r) for r in final}
+    pools = {}
+    for key, city_recs in by_city.items():
+        recs = [r for r in city_recs if id(r) in keep_ids]
+        if recs:
+            pools[key] = recs
+    heap = [(-len(recs), i, key) for i, (key, recs) in enumerate(pools.items())]
+    heapq.heapify(heap)
+    dropped = set()
+    while drop_count > 0 and heap:
+        neg, i, key = heapq.heappop(heap)
+        recs = pools[key]
+        if len(recs) <= EMBED_CITY_FLOOR:
+            break
+        dropped.add(id(recs.pop()))   # the city's oldest
+        drop_count -= 1
+        heapq.heappush(heap, (-len(recs), i, key))
+    if not dropped:
+        return final
+    return [r for r in final if id(r) not in dropped]
+
+
 def write_data_js(all_inspections, output_path, top_per_city=1000,
                   summaries_budget=8000, merge_from=None):
     """Write a data.js file with window.DATA = [...] for client-side embedding.
@@ -13717,9 +13757,12 @@ def write_data_js(all_inspections, output_path, top_per_city=1000,
     for rec in records:
         _apply_grades(rec)
 
+    # Cities are (name, state): statewide sources brought a Dallas GA, a
+    # Rome GA and 90 other towns whose names already exist under another
+    # state, and a shared bucket gave the small one no floor of its own.
     by_city = _dd(list)
     for rec in records:
-        by_city[rec['c']].append(rec)
+        by_city[(rec['c'], rec.get('s'))].append(rec)
 
     final = []
     for city, city_recs in by_city.items():
@@ -13729,18 +13772,18 @@ def write_data_js(all_inspections, output_path, top_per_city=1000,
 
     # Global budget on top of the per-city cap: with statewide sources the
     # long tail of small towns dominates, and Cloudflare Pages rejects any
-    # asset over 25 MiB — keep the most recently inspected EMBED_BUDGET
-    # records overall plus a small floor per city so every town still gets
-    # instant first paint. The full roster streams from D1.
+    # asset over 25 MiB. The budget is taken from the DEEPEST cities (the
+    # oldest record of whichever city has the most embedded records, over
+    # and over) and never below EMBED_CITY_FLOOR per city, so every town
+    # keeps instant first paint and the big metros keep an even depth.
+    # Dropping the globally oldest records instead let a few hundred small
+    # towns' newest inspections push the metros out one record at a time
+    # (measured 2026-11-03: Dallas would have kept ~150 of 1,000). The full
+    # roster streams from D1.
     if len(final) > EMBED_BUDGET:
-        final.sort(key=lambda x: x.get('d', ''), reverse=True)
-        keep = {id(r) for r in final[:EMBED_BUDGET]}
-        for city_recs in by_city.values():
-            for r in city_recs[:EMBED_CITY_FLOOR]:
-                keep.add(id(r))
-        dropped = len(final) - len(keep)
-        final = [r for r in final if id(r) in keep]
-        log.info(f"Embed budget: kept {len(final)} records ({dropped} beyond "
+        before = len(final)
+        final = _embed_trim(final, by_city, before - EMBED_BUDGET)
+        log.info(f"Embed budget: kept {len(final)} records ({before - len(final)} beyond "
                  f"budget live in D1 only)")
 
     # Global detail budget: embed violation summaries (and the source
@@ -13770,21 +13813,24 @@ def write_data_js(all_inspections, output_path, top_per_city=1000,
     js_content = header + 'window.DATA = ' + json.dumps(final, separators=(',', ':'), default=str) + ';\n'
 
     if len(js_content) > DATA_JS_MAX_BYTES:
-        # Over the byte cap: drop the oldest records outside the per-city
-        # floors until it fits (D1 still serves them). json.dumps escapes to
-        # ASCII, so characters are bytes.
-        floor = {id(r) for city_recs in by_city.values() for r in city_recs[:EMBED_CITY_FLOOR]}
-        excess = len(js_content) - DATA_JS_MAX_BYTES
-        drop, freed = set(), 0
-        for r in sorted((r for r in final if id(r) not in floor), key=lambda r: r.get('d', '')):
-            if freed >= excess:
+        # Over the byte cap: take records from the deepest cities (never
+        # below the per-city floor) until it fits; D1 still serves them.
+        # json.dumps escapes to ASCII, so characters are bytes. The drop
+        # count is estimated from the average record and re-measured, a few
+        # rounds at most.
+        before = len(final)
+        for _ in range(8):
+            excess = len(js_content) - DATA_JS_MAX_BYTES
+            if excess <= 0:
                 break
-            drop.add(id(r))
-            freed += len(json.dumps(r, separators=(',', ':'), default=str)) + 1
-        final = [r for r in final if id(r) not in drop]
-        js_content = header + 'window.DATA = ' + json.dumps(final, separators=(',', ':'), default=str) + ';\n'
-        log.warning(f"data.js over {DATA_JS_MAX_BYTES:,} bytes: dropped the {len(drop)} oldest "
-                    f"non-floor records (they live in D1); now {len(js_content):,} bytes")
+            avg = len(js_content) / max(1, len(final))
+            trimmed = _embed_trim(final, by_city, int(excess / avg * 1.05) + 1)
+            if len(trimmed) == len(final):
+                break   # every city is at its floor
+            final = trimmed
+            js_content = header + 'window.DATA = ' + json.dumps(final, separators=(',', ':'), default=str) + ';\n'
+        log.warning(f"data.js over {DATA_JS_MAX_BYTES:,} bytes: dropped {before - len(final)} records "
+                    f"from the deepest cities (they live in D1); now {len(js_content):,} bytes")
         if len(js_content) > DATA_JS_MAX_BYTES:
             log.error(f"data.js is still {len(js_content):,} bytes with only the per-city floors "
                       f"left — lower EMBED_CITY_FLOOR before the next deploy")
@@ -13887,6 +13933,21 @@ def _sql_json(value):
     return _sql_quote(json.dumps(value, separators=(',', ':'), ensure_ascii=True, default=str))
 
 
+D1_VIOLATION_LINES = 20   # lines stored per inspection (400 characters each)
+
+
+def _d1_violation_lines(violations):
+    """The lines D1 stores for one inspection: the first D1_VIOLATION_LINES
+    in form order, except that a longer list is ordered worst tier first
+    (stable within a tier) so the cut keeps the priority findings — Lubbock
+    checklists run to 70 lines with priority items anywhere on the form."""
+    lines = [list(v) for v in (violations or [])]
+    if len(lines) > D1_VIOLATION_LINES:
+        rank = {'priority': 0, 'priority_foundation': 1, 'core': 2}
+        lines.sort(key=lambda v: rank.get(v[1] if len(v) > 1 else '', 3))
+    return lines[:D1_VIOLATION_LINES]
+
+
 def write_d1_sql(all_inspections, output_path, include_schema=True):
     """
     Write idempotent D1 SQL for this run's inspections: inspection rows first
@@ -13932,7 +13993,7 @@ def write_d1_sql(all_inspections, output_path, include_schema=True):
                 _sql_quote(i.get('inspection_type', '')),
                 _sql_quote(i.get('results', '')),
                 _sql_json([list(v)[:2] + [str(list(v)[2])[:400]]
-                           for v in (i.get('violations') or [])[:20]]),
+                           for v in _d1_violation_lines(i.get('violations'))]),
                 _sql_quote(i.get('source_id', '')),
                 _sql_quote(i.get('source_url', '')),
             ]) + ')')
@@ -14349,7 +14410,10 @@ def _run_jev_pass(all_inspections, args):
         reader = jev_reader.JevReader.from_env(deadline=deadline)
         log.info(f"Jev pass: mode={reader.mode} decide={sorted(reader.decide_set) if reader.mode == 'decide' else []} "
                  f"budget={args.jev_deadline_minutes or 'none'} min")
-        unread = [r for r in all_inspections if not r.get('_jev')]   # absorbed records keep their reading
+        # absorbed records keep a reading Jev actually made; an all-None _jev
+        # (nothing decided, e.g. a budget cut) is read again
+        unread = [r for r in all_inspections
+                  if not any(v is not None for v in (r.get('_jev') or {}).values())]
         stats = jev_reader.apply_to_inspections(unread, reader, label=args.mode)
         path = reader.flush_cache(args.mode)
         stats['cache_file'] = os.path.basename(path) if path else None
@@ -14436,6 +14500,16 @@ def main():
     args = parser.parse_args()
     if args.cities is None:
         args.cities = [] if args.input_records else ['chicago', 'nyc', 'sf', 'dfw']
+    # A bad record path must fail here, not after hours of fetching
+    for path in args.input_records or ():
+        if not os.path.isfile(path):
+            parser.error(f"--input-records: {path} is not a file")
+    if args.output_records:
+        try:
+            with open(args.output_records, 'ab'):
+                pass
+        except OSError as e:
+            parser.error(f"--output-records: cannot write {args.output_records}: {e}")
 
     if args.debug:
         logging.getLogger().setLevel(logging.DEBUG)
@@ -14627,19 +14701,18 @@ def main():
         if any(s in args.cities for s in slugs):
             socrata_jobs[group] = _expansion_job(group, fetcher)
 
+    # The API-class groups run in a pool WHILE the scraped portals (Tyler,
+    # Richardson, Arlington, Orange County, the MHD groups) run on this
+    # thread; the pool's results are collected after the portal phase, so
+    # all_inspections and the freshness bookkeeping are only touched from
+    # this thread. Waiting for the pool first used to be free (its slowest
+    # member took ~13 minutes); since 2026-11 it holds Maricopa (~2.5 h) and
+    # Louisiana (~1 h), which would have pushed the MHD groups into the
+    # deadline's tail every Sunday.
+    pool, pool_futures = None, {}
     if socrata_jobs:
-        with ThreadPoolExecutor(max_workers=len(socrata_jobs)) as pool:
-            futures = {pool.submit(fn): city for city, fn in socrata_jobs.items()}
-            for future in as_completed(futures):
-                city = futures[future]
-                try:
-                    data = future.result()
-                    all_inspections.extend(data)
-                    log.info(f"{city}: {len(data)} records")
-                    _record_group(city, data)
-                except Exception as e:
-                    log.error(f"{city} fetch failed: {e}")
-                    _record_group(city, [], 'error', str(e))
+        pool = ThreadPoolExecutor(max_workers=len(socrata_jobs))
+        pool_futures = {pool.submit(fn): city for city, fn in socrata_jobs.items()}
 
     # Houston, San Antonio and DC use the Tyler healthinspections.us portals (scraped)
     for slug, fetcher in (('houston', fetch_houston), ('sanantonio', fetch_san_antonio),
@@ -14821,6 +14894,19 @@ def main():
         except Exception as e:
             log.error(f"{group} fetch failed: {e}")
             _record_group(group, [], 'error', str(e))
+
+    for future in as_completed(pool_futures):
+        city = pool_futures[future]
+        try:
+            data = future.result()
+            all_inspections.extend(data)
+            log.info(f"{city}: {len(data)} records")
+            _record_group(city, data)
+        except Exception as e:
+            log.error(f"{city} fetch failed: {e}")
+            _record_group(city, [], 'error', str(e))
+    if pool is not None:
+        pool.shutdown(wait=True)
 
     if args.input_records:
         all_inspections.extend(read_records_json(args.input_records))
