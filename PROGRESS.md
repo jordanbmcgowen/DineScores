@@ -5,7 +5,7 @@ Branch: feat/dfw-holes. Section in dinescores_pipeline.py:
 If you are a successor agent: read this file, `git diff`, run
 `python3 -m unittest discover -s tests` from the worktree root, continue.
 
-## Status: FIX pass in progress (2026-11-03) - review findings being addressed
+## Status: complete, FIX pass applied (2026-11-03)
 
 - [x] Recon read; live probes of the uncertain shapes.
 - [x] data/certs/lewisville_ca_bundle.pem (certifi 2026.07.22 + GoDaddy G2
@@ -85,7 +85,23 @@ Rejected / not changed:
 - Nursing homes, park concessions, golf courses stay (fixed-address kitchens
   serving food; not in the task's drop list).
 
-Live post-fix runs: see the table below (filled in after the runs).
+Live post-fix runs (2026-11-03, this container through the agent proxy, TLS verified,
+Lewisville against the committed bundle; outputs /tmp/<slug>_fixed.json and
+/tmp/<slug>_30d_fixed.json):
+
+| run | records | wall | requests | coords | grades | notes |
+|---|---|---|---|---|---|---|
+| mckinney --mode test | 25 | 16 s (13 s Census) | 6 + Census | 25/25 (9 Census) | A20 B5 | 341 rows / 60 d, 59 school/micro-market + 3 unnamed skipped; 83 lines, 1 neutral |
+| lewisville --mode test | 25 | 1.4 s | 1 | 25/25 | A23 B2 | 1146 rows / 365 d: 19 unscored + 85 school/child-care dropped |
+| denton --mode test | 25 | 12 s | 2 + Census | 23/25 (10/12 Census) | A21 B4 | one 2000-row page of 3134 pairs (bounded read), total ORDER BY accepted by the WAF |
+| mckinney --since-date 2026-10-04 | 117 (131 rows; 9 scope + 1 unnamed skipped) | 7.7 s | 6 + Census | 117/117 (16 Census) | A100 B14 C3 | risk min 76 (24 demerits); 389 lines, 4 neutral; 0 text-forced F; tiers add up on 117/117 |
+| lewisville --since-date 2026-10-04 | 74 (80 rows; 6 school rows) | 1.1 s | 1 | 74/74 | A67 B6 C1 | min score 77 |
+| denton --since-date 2026-10-04 | 65 (server count 65) | 21 s | 2 + Census | 62/65 (27/30 Census) | A49 B16 | min 84 |
+
+Every record carries the 21 contract keys, float/None coordinates, exact
+severity strings, no newline, lines <= 500 chars, metro 'DFW', state 'TX',
+city 'Mckinney' / 'Lewisville' / 'Denton'. No holds, no warnings, no
+mismatches in any live run.
 
 ## Design (decided after the recon docs + probe captures + live probes)
 
@@ -98,13 +114,14 @@ Live post-fix runs: see the table below (filled in after the runs).
   date is the local date. total_score = DEMERITS: the 47 item columns hold
   exactly {0, TX weight} (verified on 131 live rows; items 1-20 = 3 pts,
   21-34 = 2, 35-47 = 1) -> tier from points (3 priority / 2 PF / 1 core),
-  risk_score = calc_risk_score, original_score = demerits, results
-  "<n> demerits (<status>)". Violation text = "<form title>: <inspector's
+  risk_score = 100 - demerits (the TX form score; FIX pass), original_score =
+  demerits, results "<n> demerits (<status>)". Violation text = "<form title>: <inspector's
   '#NN.' block from custom_comments>" (items 20 sewage and 34 pests carry
   the observation ALONE, no title: a bare TX title "No Evidence of Insect
   contamination, rodent/other animals" trips PEST_EVIDENCE_RE by itself);
-  a cited item with no attributable text ships a neutral phrase (5% of
-  lines over 90 days). The report header (CFM's personal name, pest
+  a cited item with no attributable text ships a neutral phrase (1.4% of
+  lines over 90 days after the FIX pass; a cited pest/sewage item gets the
+  report's hazard sentence instead). The report header (CFM's personal name, pest
   contractor) is never read; phones/e-mails scrubbed. Same inspection
   appears once per PDF attachment -> dedupe on inspection_number.
   Scope: drop status 'Void', purpose '3 - Pre-Opening', permits on layers
@@ -127,8 +144,8 @@ Live post-fix runs: see the table below (filled in after the runs).
 - Denton: CKAN datastore_search_sql with the verified shapes only: COUNT
   over a DISTINCT subquery with WHERE, SELECT DISTINCT <10 cols> WHERE
   "HealthScoreDate" >= 'YYYYMMDD' ORDER BY "HealthScoreDate" DESC,
-  "PERMIT_NO" LIMIT 2000 OFFSET n (paged until a short page; count checked
-  when complete), MAX(). HTML/403 (Cloudflare WAF) or any non-JSON -> raise
+  <every column> LIMIT 2000 OFFSET n (a total order; paged until a short
+  page; count checked when complete). HTML/403 (Cloudflare WAF) or any non-JSON -> raise
   at once; 429/5xx retried 3x. Scores only; RESULT text -> results
   ('Approved', 'Failed', 'Approved with conditions'...); the letter
   (Denton cutoffs 94/87/80) is never copied. Dedupe (PERMIT_NO, date),
@@ -136,8 +153,9 @@ Live post-fix runs: see the table below (filled in after the runs).
 - All three: since in both formats and None; limit keeps the newest and
   leaves no lag note (a bounded read); complete reads call
   _note_source_lag(<group>, newest) once (21-day threshold inside it);
-  oldest-first, worst-first within a day; no detail phase -> no holds ever
-  (complete-or-raise), asserted by the tests.
+  oldest-first, worst-first within a day; no detail phase -> no holds except
+  McKinney's drop-and-hold of an inspection whose item points do not add up
+  (complete-or-raise otherwise), asserted by the tests.
 
 ## Live results (2026-11-03, from this container through the agent proxy)
 

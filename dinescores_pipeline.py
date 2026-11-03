@@ -8678,9 +8678,10 @@ def fetch_denton(since_date=None, limit=None):
             'source_id': f"den_{permit}_{insp_date.replace('-', '')}",
             'metro': 'DFW',
         }
-    if in_window >= DFW_HOLE_UNSCORED_MIN and skipped['unscored'] * 2 > in_window:
-        raise RuntimeError(f"Denton: {skipped['unscored']} of {in_window} rows since {since} carry no "
-                           f"usable HealthScoreInt (a format change?); not shipping")
+    unscored = skipped.get('unscored', 0)
+    if in_window >= DFW_HOLE_UNSCORED_MIN and unscored * 2 > in_window:
+        raise RuntimeError(f"Denton: {unscored} of {in_window} rows since {since} carry no usable "
+                           f"HealthScoreInt (a format change?); not shipping")
     if skipped:
         log.info(f"  Denton: skipped {dict(skipped)}")
     results = sorted(by_key.values(), key=lambda r: (r['inspection_date'], r['risk_score'], r['source_id']))
