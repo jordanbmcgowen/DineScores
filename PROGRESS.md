@@ -6,6 +6,39 @@ the `_mhd_*` helpers, `fetch_dfw`, `_fetch_mhd_jurisdiction_api`,
 `_parse_mhd_record`, the MHD block in `main()`, tests/test_mhd_buckets.py
 and the MHD parts of tests/test_refresh_hardening.py.
 
+## FIX PASS (2026-11-03, after two adversarial reviews) — IN PROGRESS
+
+Resume here if restarted: the code fixes below are written; run the suite
+(UTC and TZ=America/Chicago), relay tests, py_compile, then the live
+test-mode run, then commit.
+
+| finding | verdict | fix |
+|---|---|---|
+| B blocking: Fort Bend item-38 wording ("Dead or trapped birds, insects, rodents, and other pests shall be removed ... Pg. 191") forces F on county-scored 97/84/70 | CONFIRMED (3/117 in /tmp/mhd_14d.json; the text is printed under 6-501.111, 6-501.112 AND 6-202.15(A)) | `DEAD_PEST_TITLE_RE` strips the "dead (or trapped) + generic pest list" construction before `PEST_EVIDENCE_RE` (shared helper `has_active_pest_or_sewage`, outside the MHD region). Measured on 161,604 distinct lines from the Jev caches: 147 regex F's go (all this title: Dallas item 34 over dead crickets/flies x80, Houston/Detroit/Delaware/Fort Worth bare 6-501.112 titles, Fort Bend), 0 added; a named finding after the title keeps its F. jev_reader `_item_key` also drops MHD's "NN: " prefix and a trailing " Pg. NNN" and the 6-501.111 variant is registered in CITED_PEST_ITEM_TITLES, so the Jev path answers the bare title deterministically (pests_unspecified, "Pests found", no F). The 6-202.15(A) form runs on into that rule's wording: not a whole-line title, Jev reads it, no regex F. |
+| A1 should_fix: a 200 non-inspection page parses as a CLEAN inspection | CONFIRMED live (welcome page under 'virginia', landing page under a bogus path: no observations block; 12 real templates all carry it, Frisco via itemNum JS) | `_mhd_is_inspection_page` (observations block or itemNum JS — what the parser reads; the title alone would not catch a template change); `_mhd_fetch_inspection_detail` returns None for a 200 without it -> dropped + held. Fixtures `detail_welcome_page.html`, `detail_landing_page.html` trimmed from the live pages. |
+| A2 should_fix: mass detail failure (404/welcome page) drops+holds but reports nothing, group stays 'ok' | CONFIRMED by reading the code | `_MHD_DETAIL_FAILED` + `_mhd_detail_mass_failure(unreadable, tried)` (all tried failed, or >50% of >=20 — OC's rule); fetch_dfw appends "<name> (error: n/total detail pages unreadable)" so main() reports the group 'error'. Holds unchanged. |
+| A3 should_fix: a 200 `{"err":true,"msg":"bad request"}` search body read as an empty day | CONFIRMED live (bad path and start>=225 answer that dict; an empty day and an unknown sort field answer `[]`) | `_mhd_search_page` returns None for a non-list body -> the fail-closed path (hold + RuntimeError -> group 'error'). OC's poll already treats None as 'error'. Residual: an unknown SORT field answers `[]` (silent zero) — only the STALE flag after 21 days catches a renamed sort field. |
+| A: `test_row_dates` red under any US TZ | CONFIRMED (TZ=America/Chicago: '2025-10-19' != '2025-10-20') | `_mhd_row_date` reads an epoch in ms as UTC (CI's clock); test asserts under TZ=America/Chicago too. |
+| B should_fix: fixture `search_fbceh.json` carries a private email, a named CFM and an inspector's email in `comments` | CONFIRMED | `comments` blanked in all five search fixtures (the parser never reads it; every other field byte-identical). |
+| B should_fix / A: midweek group not wired to a workflow; never-seen labels sort the group first | REJECTED for this pass | .github/, README and CLAUDE.md are the integrator's by the task rules (recommendation unchanged: a second cron for `cuyahoga virginia`). The '' sort key is the deliberate "never fetched = stalest" rule shared with fetch_dfw's per-jurisdiction order; inside one Sunday run the deadline + self-healing windows bound the damage, and PROGRESS.md sizes it (~1.5-2 h). |
+| A: single-day 225-cap partial ship | REJECTED | Pre-existing and unchanged by one-day windows (the 7-day read bisected down to single days and shipped them capped too); no jurisdiction is near 225 rows/day (max seen: Dallas ~60, Cuyahoga 84). A hold would re-read the capped day forever. Logged warning stays. |
+| B nit: Fort Bend's inspector narrative sits in "Additional Comments" | REJECTED | The live block carries exactly the PII the fixture scrub removed (reinspection invoices emailed to private addresses, CFM names and certificate expiries) — never shipped. |
+| B nit: pre-opening visits ship as clean A's | REJECTED (no key) | Arapahoe rows carry NO purpose field (None on 146/146 Retail Food rows), Douglas only Routine/Re-Inspection; VDH has 'Pre-Opening' (55/1005 rows) like every existing source's permit/pre-opening visits — scope unchanged, documented. |
+| B nit: os=0 on the '100' scale unguarded | REJECTED (no data) | 0 of 184 Fort Bend Food rows over 2026-10-13..11-02 score 0 (all 30 zero rows are Pools, filtered by programs). |
+| B nit: harsh F-rate band for the 'none' districts; program name as inspection_type | REJECTED (policy) | Scoring policy is the owner's (computed-score path shared with Cincinnati etc.); inspection_type is the portal's field for every MHD source. |
+| B nit: PROGRESS.md at the repo root | REJECTED | Required by the task (tracked checkpoint log); the integrator squash-merges. |
+
+Edits outside the MHD region: `has_active_pest_or_sewage` + `DEAD_PEST_TITLE_RE`
+(dinescores_pipeline.py grading helpers), `jev_reader._item_key` +
+one `CITED_PEST_ITEM_TITLES` entry, one assertion in tests/test_jev_reader.py
+(Delaware's bare title is no longer a regex F; a finding after it still is).
+
+Follow-up found while measuring (NOT changed): `PEST_EVIDENCE_RE`'s `found`
+has no word boundary and matches "FOUNDATION" in Oregon's "*PRIORITY
+FOUNDATION* The premises is not maintained free of insects, rodents ..."
+lines: every such line is a regex F today (73 in the caches), right about a
+third of the time; Jev decides them in production. Needs its own measurement.
+
 ## Status (update after every milestone; a successor resumes from here)
 
 - [x] Recon read: understand_mhd/contract/wiring/tests + 8 probe reports.

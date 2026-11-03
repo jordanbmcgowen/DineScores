@@ -640,6 +640,15 @@ CITED_PEST_ITEM_TITLES = {
     'eliminate their presence within the physical facility and its contents and on the contiguous land or '
     'property under the control of the permit holder by routinely inspecting the premises for the evidence of '
     'pests.': 'pests_unspecified',
+    # Fort Bend County (MHD) prints item 38's 6-501.112 wording under whichever pest
+    # code the inspector cited ("38: 6-501.111 Dead or trapped ... Pg. 191"; the item
+    # number and page reference are _item_key's to drop). Houston's 6-501.112 entry
+    # above covers the 6-501.112 form; the 6-501.111 form needs its own key. The
+    # same text under 6-202.15(A) continues with that rule's wording, so it is never
+    # a whole-line match and stays Jev's to read.
+    '6-501.111 Dead or trapped birds, insects, rodents, and other pests shall be removed from control devices '
+    'and the premises at a frequency that prevents their accumulation, decomposition, or the attraction of '
+    'pests': 'pests_unspecified',
     # Detroit
     'Dead or trapped birds, insects, rodents, and other pests shall be removed from control devices and the '
     'PREMISES at a frequency that prevents their accumulation, decomposition, or the attraction of pests.':
@@ -669,10 +678,13 @@ CITED_ITEM_PHRASES = {
 
 
 def _item_key(text):
-    """Lowercase, item number dropped, whitespace collapsed, the literal "\\r\\n"
-    one feed leaves at the end removed, trailing punctuation stripped."""
+    """Lowercase, item number dropped ("23. ", MyHealthDepartment's "38: "),
+    whitespace collapsed, the literal "\\r\\n" one feed leaves at the end and
+    the page reference Fort Bend County prints after every line (" Pg. 191")
+    removed, trailing punctuation stripped."""
     t = re.sub(r'(?:\\[rn])+\s*$', '', (text or '').lower())
-    t = re.sub(r'^\s*\d+[a-z]?\.\s*', '', t)
+    t = re.sub(r'^\s*\d+[a-z]?[.:]\s*', '', t)
+    t = re.sub(r'\s*\bpg\.?\s*\d+(?:\s*-\s*\d+)?\s*$', '', t)
     return re.sub(r'\s+', ' ', t).strip(' .;:')
 
 

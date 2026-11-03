@@ -253,7 +253,7 @@ class GwinnettTests(unittest.TestCase):
 class DetailPathTests(unittest.TestCase):
     def test_detail_url_uses_the_real_path(self):
         captured = []
-        resp = mock.Mock(status_code=200, text='<html></html>')
+        resp = mock.Mock(status_code=200, text='<html><p class="observations-text"></p></html>')
         session = mock.Mock()
 
         def get(url, params=None, timeout=None):
@@ -1015,7 +1015,17 @@ class LagNoteTests(unittest.TestCase):
     def test_row_dates(self):
         self.assertEqual(dp._mhd_row_date({'inspectionDate': '2026-10-20T00:00:00.000Z'}), '2026-10-20')
         self.assertEqual(dp._mhd_row_date({'inspectionDate': '10/20/2026'}), '2026-10-20')
+        # an epoch in milliseconds is read as UTC whatever the local clock
+        # (1760918400000 is 2025-10-20T00:00:00Z; a US clock reads it as the 19th)
         self.assertEqual(dp._mhd_row_date({'inspectionDate': 1760918400000}), '2025-10-20')
+        with mock.patch.dict(os.environ, {'TZ': 'America/Chicago'}):
+            import time as _time
+            _time.tzset()
+            try:
+                self.assertEqual(dp._mhd_row_date({'inspectionDate': 1760918400000}), '2025-10-20')
+            finally:
+                os.environ.pop('TZ', None)
+                _time.tzset()
         self.assertEqual(dp._mhd_row_date({'inspectionDate': None}), '')
         self.assertEqual(dp._mhd_row_date({}), '')
 
@@ -1023,11 +1033,15 @@ class LagNoteTests(unittest.TestCase):
 class LimitAndHoldTests(unittest.TestCase):
     def setUp(self):
         self.saved_holds = dict(dp._FRESHNESS_HOLDS)
+        self.saved_failed = dict(dp._MHD_DETAIL_FAILED)
         dp._FRESHNESS_HOLDS.clear()
+        dp._MHD_DETAIL_FAILED.clear()
 
     def tearDown(self):
         dp._FRESHNESS_HOLDS.clear()
         dp._FRESHNESS_HOLDS.update(self.saved_holds)
+        dp._MHD_DETAIL_FAILED.clear()
+        dp._MHD_DETAIL_FAILED.update(self.saved_failed)
 
     def test_limit_stops_the_search_after_enough_records(self):
         cfg = dp.MHD_METRO_JURISDICTIONS['gwinnett']
@@ -1055,3 +1069,274 @@ class LimitAndHoldTests(unittest.TestCase):
         self.assertEqual([r['source_id'] for r in records], ['F1'])
         self.assertEqual(dp._FRESHNESS_HOLDS, {'Fort Bend County Health Dept': {'2026-10-20|F2': (True, False)}},
                          'the dropped inspection holds the source, counted (it was tried)')
+        self.assertEqual(dp._MHD_DETAIL_FAILED, {}, 'one page of two is a flaky page, not a failed phase')
+
+
+# ── fix pass 2026-11-03 ──────────────────────────────────────────────────────
+
+class FakeDetailSession:
+    """A session whose GET answers one canned response for every detail page
+    (status, body), recording the requests."""
+
+    def __init__(self, status=200, text=''):
+        self.status, self.text = status, text
+        self.calls = []
+
+    def get(self, url, params=None, timeout=None):
+        self.calls.append((url, dict(params or {})))
+        return mock.Mock(status_code=self.status, text=self.text)
+
+    def post(self, *a, **kw):
+        raise AssertionError('no search expected here')
+
+    def close(self):
+        pass
+
+
+class InspectionPageMarkerTests(unittest.TestCase):
+    """A 200 that is not an inspection page is not a read (the parser would
+    read the welcome/landing page as a CLEAN inspection: risk 100 on the
+    no-score and demerit jurisdictions)."""
+
+    def test_every_detail_fixture_is_an_inspection_page(self):
+        for name in ('detail_acph_result.html', 'detail_ccbh.html', 'detail_dchd_score30.html',
+                     'detail_fbceh_score72.html', 'detail_va_clean.html', 'detail_va_henrico.html'):
+            self.assertTrue(dp._mhd_is_inspection_page(_fixture_html(name)), name)
+        # Frisco's template renders the observations from inline JS
+        self.assertTrue(dp._mhd_is_inspection_page(
+            '<script>var itemNum = "30"; var comments = `<p>Observed ...</p>`;</script>'))
+
+    def test_a_clean_inspection_page_is_still_read_as_clean(self):
+        html = _fixture_html('detail_va_clean.html')
+        session = FakeDetailSession(200, html)
+        self.assertEqual(dp._mhd_fetch_inspection_detail(session, 'va-norfolk', 'X1'), [])
+
+    def test_the_welcome_and_landing_pages_are_not_inspection_pages(self):
+        for name in ('detail_welcome_page.html', 'detail_landing_page.html'):
+            html = _fixture_html(name)
+            self.assertFalse(dp._mhd_is_inspection_page(html), name)
+            self.assertEqual(dp._mhd_parse_detail_html(html), [], 'what the parser would have shipped')
+            session = FakeDetailSession(200, html)
+            with mock.patch.object(dp.time, 'sleep'):
+                self.assertIsNone(dp._mhd_fetch_inspection_detail(session, 'va-richmond', 'X1'), name)
+        self.assertIsNone(dp._mhd_fetch_inspection_detail(FakeDetailSession(200, ''), 'plano', 'X2'))
+        self.assertIsNone(dp._mhd_fetch_inspection_detail(FakeDetailSession(200, '<html></html>'), 'plano', 'X3'))
+
+    def test_a_non_200_is_still_not_a_read(self):
+        with mock.patch.object(dp.time, 'sleep'):
+            self.assertIsNone(dp._mhd_fetch_inspection_detail(FakeDetailSession(404, 'gone'), 'plano', 'X1'))
+            self.assertIsNone(dp._mhd_fetch_inspection_detail(FakeDetailSession(500, 'oops'), 'plano', 'X1'))
+
+
+class DetailMassFailureTests(unittest.TestCase):
+    """Detail pages that mostly fail for a reason other than a ban or the
+    deadline are reported, so the group goes red instead of 'ok' on the
+    other jurisdictions' records while the held records are given up."""
+
+    def setUp(self):
+        self.saved = (dict(dp._FRESHNESS_HOLDS), dict(dp._MHD_DETAIL_FAILED), dp._MHD_PORTAL_BLOCKED,
+                      dp._MHD_DETAIL_BANNED, dp._MHD_DETAIL_BLOCK_STREAK, dp._FETCH_DEADLINE,
+                      set(dp._MHD_DEADLINE_CUT), dict(dp._GROUP_STATUS))
+        dp._FRESHNESS_HOLDS.clear()
+        dp._MHD_DETAIL_FAILED.clear()
+        dp._MHD_PORTAL_BLOCKED = False
+        dp._MHD_DETAIL_BANNED = False
+        dp._MHD_DETAIL_BLOCK_STREAK = 0
+        dp._FETCH_DEADLINE = None
+        dp._MHD_DEADLINE_CUT.clear()
+        self.cfg = dp.MHD_METRO_JURISDICTIONS['va-richmond']
+        self.day = '2026-10-20 to 2026-10-20'
+        self.rows = [_row(f'R{i}', name=f'Cafe {i}', addr=f'{i} Main St', city='Richmond', state='VA',
+                          program='Food Establishment', date='10/20/2026', score=0) for i in range(1, 4)]
+
+    def tearDown(self):
+        (holds, failed, blocked, banned, streak, deadline, cut, status) = self.saved
+        dp._FRESHNESS_HOLDS.clear()
+        dp._FRESHNESS_HOLDS.update(holds)
+        dp._MHD_DETAIL_FAILED.clear()
+        dp._MHD_DETAIL_FAILED.update(failed)
+        dp._MHD_PORTAL_BLOCKED = blocked
+        dp._MHD_DETAIL_BANNED = banned
+        dp._MHD_DETAIL_BLOCK_STREAK = streak
+        dp._FETCH_DEADLINE = deadline
+        dp._MHD_DEADLINE_CUT.clear()
+        dp._MHD_DEADLINE_CUT.update(cut)
+        dp._GROUP_STATUS.clear()
+        dp._GROUP_STATUS.update(status)
+
+    def test_the_rule(self):
+        f = dp._mhd_detail_mass_failure
+        self.assertFalse(f(0, 0))
+        self.assertFalse(f(0, 30))
+        self.assertTrue(f(1, 1), 'every page tried failed')
+        self.assertTrue(f(3, 3))
+        self.assertFalse(f(1, 3), 'one flaky page of three: held and re-read, not a red run')
+        self.assertFalse(f(2, 3), 'below the minimum only a total failure counts')
+        self.assertFalse(f(10, 20))
+        self.assertTrue(f(11, 20), 'more than half of at least MHD_DETAIL_MASS_FAILURE_MIN')
+        self.assertEqual(dp.MHD_DETAIL_MASS_FAILURE_MIN, 20)
+
+    def _fetch_with(self, session, **kw):
+        fake = FakeSearch({(self.day, '', ''): self.rows})
+        skipped = []
+        with mock.patch.object(dp, '_mhd_search_page', side_effect=fake), \
+             mock.patch.object(dp, '_mhd_session', return_value=session), \
+             mock.patch.object(dp.time, 'sleep'):
+            records = dp.fetch_dfw({'va-richmond': self.cfg}, since_date='2026-10-20',
+                                   until_date='2026-10-20', fetch_violations=True, skipped=skipped, **kw)
+        return records, skipped, session
+
+    def test_every_detail_page_a_welcome_page_drops_holds_and_reports(self):
+        records, skipped, session = self._fetch_with(
+            FakeDetailSession(200, _fixture_html('detail_welcome_page.html')))
+        self.assertEqual(records, [], 'nothing shipped as clean')
+        holds = dp._FRESHNESS_HOLDS['VDH Richmond City Health Dept']
+        self.assertEqual(holds, {f'2026-10-20|R{i}': (True, False) for i in range(1, 4)},
+                         'each inspection held on its own, counted (it was tried)')
+        self.assertEqual(dp._MHD_DETAIL_FAILED, {'VDH Richmond City': (3, 3)})
+        self.assertEqual(skipped, ['VDH Richmond City (error: 3/3 detail pages unreadable)'])
+        # tried once and retried once, nothing more
+        self.assertEqual(len(session.calls), 6)
+        self.assertTrue(all(u == f'{dp.MHD_BASE_URL}va-richmond/inspection/' for u, _ in session.calls))
+
+    def test_every_detail_page_a_404_drops_holds_and_reports(self):
+        records, skipped, _ = self._fetch_with(FakeDetailSession(404, 'not here'))
+        self.assertEqual(records, [])
+        self.assertEqual(set(dp._FRESHNESS_HOLDS['VDH Richmond City Health Dept']),
+                         {f'2026-10-20|R{i}' for i in range(1, 4)})
+        self.assertEqual(skipped, ['VDH Richmond City (error: 3/3 detail pages unreadable)'])
+
+    def test_readable_clean_pages_ship_and_report_nothing(self):
+        records, skipped, _ = self._fetch_with(FakeDetailSession(200, _fixture_html('detail_va_clean.html')))
+        self.assertEqual(sorted(r['source_id'] for r in records), ['R1', 'R2', 'R3'])
+        self.assertTrue(all(r['risk_score'] == 100 and r['violations'] == [] for r in records))
+        self.assertEqual((skipped, dp._MHD_DETAIL_FAILED, dp._FRESHNESS_HOLDS), ([], {}, {}))
+
+    def test_a_deadline_cut_detail_phase_is_skipped_not_failed(self):
+        # the deadline passes right after the search: the detail phase is
+        # never tried, so the records hold uncounted and the report says deadline
+        deadline_after_search = {'n': 0}
+        real_past = dp._past_deadline
+
+        def past():
+            deadline_after_search['n'] += 1
+            return deadline_after_search['n'] > 2
+        with mock.patch.object(dp, '_past_deadline', side_effect=past):
+            records, skipped, _ = self._fetch_with(FakeDetailSession(200, 'never read'))
+        self.assertEqual(records, [])
+        self.assertEqual(dp._MHD_DETAIL_FAILED, {})
+        self.assertEqual(skipped, ['VDH Richmond City (deadline)'])
+        self.assertIs(dp._past_deadline, real_past)
+
+    def test_main_reports_the_group_as_an_error(self):
+        # the shape main() turns the skipped entry into
+        not_fetched = ['VDH Richmond City (error: 3/3 detail pages unreadable)']
+        self.assertFalse(any('(deadline)' in x for x in not_fetched))
+        self.assertTrue(not_fetched)   # -> status 'error', detail 'fetch failed: not fetched — ...'
+
+
+class SearchBodyTests(unittest.TestCase):
+    """A 200 whose body is not a result list ({"err": true, "msg": "bad
+    request"}: a path the portal does not know, an offset past the cap) is an
+    UNREAD window, never an empty day."""
+
+    def setUp(self):
+        self.saved = (dict(dp._FRESHNESS_HOLDS), dp._MHD_PORTAL_BLOCKED, dp._FETCH_DEADLINE)
+        dp._FRESHNESS_HOLDS.clear()
+        dp._MHD_PORTAL_BLOCKED = False
+        dp._FETCH_DEADLINE = None
+
+    def tearDown(self):
+        holds, blocked, deadline = self.saved
+        dp._FRESHNESS_HOLDS.clear()
+        dp._FRESHNESS_HOLDS.update(holds)
+        dp._MHD_PORTAL_BLOCKED = blocked
+        dp._FETCH_DEADLINE = deadline
+
+    @staticmethod
+    def _session(body):
+        session = mock.Mock()
+        resp = mock.Mock(status_code=200)
+        resp.json.return_value = body
+        resp.raise_for_status.return_value = None
+        session.post.return_value = resp
+        return session
+
+    def test_an_error_object_is_an_unread_page(self):
+        with mock.patch.object(dp.time, 'sleep'):
+            self.assertIsNone(dp._mhd_search_page(self._session({'err': True, 'msg': 'bad request'}),
+                                                  'no-such-jurisdiction', '2026-10-21 to 2026-10-21', 0))
+            self.assertIsNone(dp._mhd_search_page(self._session(None), 'fbceh', '2026-10-21 to 2026-10-21', 0))
+        self.assertFalse(dp._MHD_PORTAL_BLOCKED, 'a rejected request is not a block')
+
+    def test_an_empty_list_is_an_empty_day_and_a_list_is_the_page(self):
+        rows = [_row('F1', city='Katy', state='TX', program='Food')]
+        with mock.patch.object(dp.time, 'sleep'):
+            self.assertEqual(dp._mhd_search_page(self._session([]), 'fbceh', '2026-10-25 to 2026-10-25', 0), [])
+            self.assertEqual(dp._mhd_search_page(self._session(rows), 'fbceh', '2026-10-21 to 2026-10-21', 0), rows)
+
+    def test_the_jurisdiction_fails_closed_on_an_error_object(self):
+        cfg = dp.MHD_METRO_JURISDICTIONS['fbceh']
+        session = self._session({'err': True, 'msg': 'bad request'})
+        with mock.patch.object(dp.time, 'sleep'):
+            with self.assertRaises(RuntimeError) as ctx:
+                dp._fetch_mhd_jurisdiction_api(session, 'fbceh', cfg, since_date='2026-10-21',
+                                               until_date='2026-10-21', fetch_violations=False)
+        self.assertIn('2026-10-21', str(ctx.exception))
+        self.assertEqual(list(dp._FRESHNESS_HOLDS), ['Fort Bend County Health Dept'])
+        self.assertEqual(list(dp._FRESHNESS_HOLDS['Fort Bend County Health Dept'].values()), [(False, False)])
+
+
+class DeadPestTitleTests(unittest.TestCase):
+    """Fort Bend's observation lines are Food Code wording; its item-38 text
+    ("Dead or trapped birds, insects, rodents, and other pests shall be
+    removed ...") read to the regex as "dead ... rodents" and forced F's on
+    county-scored 97s. A list that names every kind names none."""
+
+    FB = ('38: 6-501.112 Dead or trapped birds, insects, rodents, and other pests shall be removed from '
+          'control devices and the premises at a frequency that prevents their accumulation, decomposition, '
+          'or the attraction of pests. Pg. 191')
+
+    def test_fort_bend_item_38_keeps_the_official_grade(self):
+        import jev_reader as jr
+        for code in ('6-501.112', '6-501.111'):
+            line = self.FB.replace('6-501.112', code)
+            self.assertFalse(dp.has_active_pest_or_sewage(line), line)
+            self.assertEqual(dp.calculate_vetted_grade(97, line), 'A')
+            self.assertEqual(dp.calculate_vetted_grade(84, line), 'B')
+            # the Jev path resolves the bare title deterministically: a pest
+            # finding of unnamed kind, no F
+            self.assertEqual(jr.cited_pest_item(line), 'pests_unspecified', line)
+        # the same text under the outer-openings code runs on into that rule's
+        # wording: not a whole-line title (Jev reads it), but no regex F either
+        tail = self.FB.replace('6-501.112', '6-202.15(A)') + (' Outer openings, if kept open for ventilation '
+                                                               'or other purposes, shall be protected against '
+                                                               'the entry of insects and rodents')
+        self.assertIsNone(jr.cited_pest_item(tail))
+        self.assertFalse(dp.has_active_pest_or_sewage(tail))
+        self.assertEqual(dp.calculate_vetted_grade(70, tail), 'C')
+
+    def test_the_same_wording_elsewhere(self):
+        for line in ('6-501.112 Removing Dead or Trapped Birds, Insects, Rodents and other Pest',   # Delaware
+                     'Remove dead or trapped birds; insects; rodents; and other pests.',           # Fort Worth
+                     '34: 3. Dead insects, rodents and other pests have not been removed from the facility. '
+                     'OBSERVED DEAD CRICKET UNDER THREE COMPARTMENT SINK.',                          # Dallas
+                     'Dead or trapped birds, insects, rodents, and other pests shall be removed from control '
+                     'devices and the PREMISES at a frequency that prevents their accumulation, decomposition, '
+                     'or the attraction of pests.'):                                                # Detroit
+            self.assertFalse(dp.has_active_pest_or_sewage(line), line)
+
+    def test_a_named_finding_still_forces_the_f(self):
+        for line in ('34: 3. Dead insects, rodents and other pests have not been removed from the facility. '
+                     'OBSERVED DEAD ROACHES UNDER THE SINK',
+                     'Dead mice found in the dry storage area',
+                     'Observed dead roaches, insects, rodents and other pests',
+                     'INSECTS, RODENTS, & ANIMALS NOT PRESENT: Found live cockroaches in rear storage room',
+                     'Evidence of rodents or insects observed',                     # Montgomery County
+                     'Rodents and other pests observed in the kitchen. Fresh droppings found near the mice bait'):
+            self.assertTrue(dp.has_active_pest_or_sewage(line), line)
+        self.assertEqual(dp.calculate_vetted_grade(97, 'Dead mice found in the dry storage area'), 'F')
+
+    def test_the_regex_is_in_the_grading_path(self):
+        import inspect
+        self.assertIn('DEAD_PEST_TITLE_RE', inspect.getsource(dp.has_active_pest_or_sewage))

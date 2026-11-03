@@ -725,10 +725,27 @@ SEWAGE_ISSUE_RE = re.compile(
     r'sewage[^.]{0,40}(?:back|overflow|leak|expos|floor|discharg)|'
     r'(?:back|overflow|leak)[^.]{0,40}sewage',
     re.I)
+# The Food Code's dead-pest item names its pests as a list: "Dead or trapped
+# birds, insects, rodents, and other pests shall be removed ..." (6-501.112,
+# which Fort Bend County prints verbatim on every item-38 citation, Houston,
+# Detroit and Delaware as the bare title, Dallas as "Dead insects, rodents
+# and other pests have not been removed from the facility"). PEST_EVIDENCE_RE
+# read "dead ... rodents" in it as evidence and forced F's on county-scored
+# 97s (3 of 117 Fort Bend inspections, 2026-11-03). A list that names every
+# kind names none — the rule jev_reader's names_vermin already applies to
+# Jev's answers — so the construction is removed before the evidence match.
+# Measured over the 161,604 distinct lines in the Jev caches: 147 regex F's
+# go, every one this title (mostly Dallas's item 34 over dead crickets,
+# beetles and flies), none is added; a finding written after the title
+# ("... OBSERVED DEAD ROACHES UNDER THE SINK") keeps its F.
+DEAD_PEST_TITLE_RE = re.compile(
+    r'\b(?:remov(?:e|ing)\s+)?dead(?:\s*(?:or|/)\s*trapped)?\s+'
+    r'(?:(?:flies|insects?|rodents?|birds?|animals?)\s*(?:,|;|/|&|\band\b|\bor\b)\s*(?:(?:and|or)\s+)?){2,}'
+    r'(?:other\s+(?:pests?|animals?|vermin)|pests?\b)', re.I)
 
 
 def has_active_pest_or_sewage(text):
-    t = text or ''
+    t = DEAD_PEST_TITLE_RE.sub(' ', text or '')
     return bool(PEST_EVIDENCE_RE.search(t) or SEWAGE_ISSUE_RE.search(t))
 
 
@@ -5902,6 +5919,29 @@ SKIP_KNOWN_INSPECTIONS = set()
 # a broken fetch. The self-healing lookback makes this work: a quiet source
 # is re-read from its last shipped day, so the rows it still holds are seen.
 _MHD_NEWEST_SEEN = {}
+# display name -> (unreadable, tried) for a jurisdiction whose detail phase
+# failed on most of its pages this run for a reason other than a ban or the
+# deadline (a 404 after the detail path moved, a template the parser does
+# not know, the welcome page a renamed district slug serves). The records
+# are dropped and held either way; this is what makes fetch_dfw REPORT the
+# jurisdiction, so the group goes red instead of 'ok' on the other
+# jurisdictions' records while the held records are given up after
+# FRESHNESS_HOLD_GIVE_UP_RUNS quiet runs.
+_MHD_DETAIL_FAILED = {}
+# A detail phase's failures are systemic, not transient, when every page
+# tried failed, or more than half of at least this many did. One flaky page
+# among many is held and re-read next run, not a red run (the same rule as
+# OC_PDF_MASS_FAILURE_MIN for Orange County's printables).
+MHD_DETAIL_MASS_FAILURE_MIN = 20
+
+
+def _mhd_detail_mass_failure(unreadable, tried):
+    """True when `unreadable` of `tried` detail pages failing looks like the
+    jurisdiction's detail pages cannot be read at all (see _MHD_DETAIL_FAILED)."""
+    if not tried or not unreadable:
+        return False
+    return unreadable >= tried or (tried >= MHD_DETAIL_MASS_FAILURE_MIN
+                                   and unreadable * 2 > tried)
 
 
 def _mhd_session():
@@ -6101,8 +6141,16 @@ def _mhd_search_page(session, path, date_range_str, start_offset, retry_count=0,
         r.raise_for_status()
         data = r.json()
         if not isinstance(data, list):
-            log.debug(f"  MHD search returned non-list: {type(data).__name__}")
-            return []
+            # The portal answers a request it rejects with 200 and
+            # {"err": true, "msg": "bad request"} — a path it does not know
+            # (a renamed district slug), an offset past the cap (measured
+            # 2026-11-03) — while an empty day is a plain []. So this is not
+            # "no inspections today" but a window that was not read: None,
+            # which the jurisdiction fetch holds and fails closed on.
+            log.error(f"  MHD search {path} {date_range_str} start={start_offset}: the portal "
+                      f"answered {type(data).__name__} {str(data)[:100]!r}, not a result "
+                      f"list — the window is unread")
+            return None
         return data
     except requests.RequestException as e:
         if retry_count < MHD_MAX_RETRIES and not _past_deadline():
@@ -6297,6 +6345,28 @@ def _mhd_parse_detail_html(html):
     return observations
 
 
+# What the parser reads on an inspection detail page: the observations block
+# (every template probed 2026-11-03 — Fort Bend, Plano, Frisco, Dallas,
+# Tarrant, Gwinnett, Multnomah, El Paso County, Utah County, Arapahoe,
+# Cuyahoga, VDH Norfolk — renders it, Plano's inside an HTML comment, and
+# a clean inspection renders it EMPTY) or Frisco's itemNum/comments JS. The
+# portal's welcome page ('Welcome | Virginia Department of Health | My
+# Health Department', served for a district's inspection id under another
+# path) and its landing page ('My Health Department', served for a path it
+# does not know) carry neither, and nor would a template the parser no
+# longer understands: such a 200 is not a read of the inspection, and the
+# parser would otherwise read it as a CLEAN one (risk 100 on the no-score
+# and demerit jurisdictions, where the grade is nothing but this parse).
+_MHD_INSPECTION_PAGE_RE = re.compile(
+    r'observations-(?:text|header)|itemNum\s*=\s*"\d+"', re.I)
+
+
+def _mhd_is_inspection_page(html):
+    """True when `html` carries the observations block (or the itemNum JS)
+    the detail parser reads — i.e. is an inspection page, clean or not."""
+    return bool(html) and bool(_MHD_INSPECTION_PAGE_RE.search(html))
+
+
 def _mhd_fetch_inspection_detail(session, path, inspection_id, retry_count=0):
     """
     Fetch violation details for a single inspection by scraping its public
@@ -6304,7 +6374,9 @@ def _mhd_fetch_inspection_detail(session, path, inspection_id, retry_count=0):
     are rendered server-side into the page HTML, so a plain GET suffices.)
     `path` is the real portal path (_mhd_path), never a pseudo-jurisdiction key.
 
-    Returns a list of violation description strings, or empty list on failure.
+    Returns a list of violation description strings (empty for a clean
+    inspection), or None when the page could not be read — a non-200, a
+    block, or a 200 that is not an inspection page (_mhd_is_inspection_page).
     """
     global _MHD_DETAIL_BLOCK_STREAK, _MHD_DETAIL_BANNED
     if _MHD_PORTAL_BLOCKED or _MHD_DETAIL_BANNED:
@@ -6334,6 +6406,14 @@ def _mhd_fetch_inspection_detail(session, path, inspection_id, retry_count=0):
         with _MHD_BLOCK_LOCK:
             _MHD_DETAIL_BLOCK_STREAK = 0
         r.encoding = 'utf-8'  # pages omit charset; default latin-1 mangles § etc.
+        if not _mhd_is_inspection_page(r.text):
+            # The welcome/landing page, or a template without the block the
+            # parser reads: not a read, never "no violations".
+            title = re.search(r'<title>(.*?)</title>', r.text or '', re.S | re.I)
+            log.debug(f"  Detail page for {inspection_id} under {path} is not an inspection "
+                      f"page ({' '.join((title.group(1) if title else 'no title').split())[:80]}) "
+                      f"— not read")
+            return None
         return _mhd_parse_detail_html(r.text)
     except Exception as e:
         log.debug(f"  Detail fetch failed for {inspection_id}: {e}")
@@ -6479,7 +6559,8 @@ def fetch_dfw(jurisdictions=None, since_date=None, limit_per_jurisdiction=None,
 
         skipped: optional list; the display name and reason of every
             jurisdiction this call did not fetch (portal blocked, fetch
-            deadline, an exception) are appended to it, so the caller can
+            deadline, an exception) or whose detail pages mostly failed to
+            read (_MHD_DETAIL_FAILED) are appended to it, so the caller can
             report the group as partial instead of 'ok'/'empty'.
 
     Returns:
@@ -6528,6 +6609,9 @@ def fetch_dfw(jurisdictions=None, since_date=None, limit_per_jurisdiction=None,
             log.info(f"{display_name}: {len(results)} records")
             if display_name in _MHD_DEADLINE_CUT:
                 skipped.append(f"{display_name} (deadline)")
+            elif display_name in _MHD_DETAIL_FAILED:
+                n_bad, n_tried = _MHD_DETAIL_FAILED[display_name]
+                skipped.append(f"{display_name} (error: {n_bad}/{n_tried} detail pages unreadable)")
         except Exception as e:
             log.error(f"{display_name} fetch failed: {e}")
             import traceback
@@ -6787,6 +6871,14 @@ def _fetch_mhd_jurisdiction_api(session, slug, config, since_date=None, limit=No
                                 key=r.get('source_id'))
             if _past_deadline():
                 _MHD_DEADLINE_CUT.add(display_name)
+            elif counted and _mhd_detail_mass_failure(len(unreadable), len(inspections_with_id)):
+                # Tried and failed on most of the pages: the detail pages
+                # cannot be read (a moved path, a renamed slug, a new
+                # template), which fetch_dfw reports so the run goes red
+                # instead of quietly giving the records up in three runs.
+                _MHD_DETAIL_FAILED[display_name] = (len(unreadable), len(inspections_with_id))
+                log.error(f"{display_name}: {len(unreadable)}/{len(inspections_with_id)} detail "
+                          f"pages unreadable — reporting the jurisdiction as failed")
             drop = {id(r) for r in unreadable}
             all_records = [r for r in all_records if id(r) not in drop]
 
@@ -6817,7 +6909,7 @@ def _mhd_is_food_record(rec):
 def _mhd_row_date(rec):
     """A raw search row's inspection date as 'YYYY-MM-DD' ('' if none): ISO
     ('2026-10-20T00:00:00.000Z'), MM/DD/YYYY (the VDH districts) or an epoch
-    in milliseconds, each through sane_inspection_date."""
+    in milliseconds (read as UTC), each through sane_inspection_date."""
     raw_date = rec.get('inspectionDate') or rec.get('date') or ''
     date_str = sane_inspection_date(raw_date) or ''
     if not date_str and raw_date:
@@ -6826,8 +6918,11 @@ def _mhd_row_date(rec):
             date_str = sane_inspection_date(f'{m.group(3)}-{m.group(1)}-{m.group(2)}') or ''
     if not date_str and raw_date:
         try:
+            # UTC, as the Sunday runner reads it: a local-time read gives the
+            # day before on a US clock.
             date_str = sane_inspection_date(
-                datetime.fromtimestamp(int(raw_date) / 1000).strftime('%Y-%m-%d')) or ''
+                datetime.fromtimestamp(int(raw_date) / 1000, tz=timezone.utc)
+                .strftime('%Y-%m-%d')) or ''
         except Exception:
             date_str = ''
     return date_str

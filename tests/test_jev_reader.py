@@ -589,8 +589,11 @@ class PolicyTests(unittest.TestCase):
             self.assertFalse(d['forces_f'], text)
             self.assertEqual(d['chips'], ['pests'], text)
             self.assertEqual((d['summary'], d['summary_severity']), ('Pests found', 'CRITICAL'), text)
-        # the regex read "Dead ... Rodents" in Delaware's bare title as an F; a title is not an observation
-        self.assertTrue(jr.regex_reading(delaware_dead)['forces_f'])
+        # the regex used to read "Dead ... Rodents" in Delaware's bare title as an F; a title is not an
+        # observation, and the pipeline's DEAD_PEST_TITLE_RE now drops the dead-pest list before the
+        # evidence match (a finding written after the title still forces one)
+        self.assertFalse(jr.regex_reading(delaware_dead)['forces_f'])
+        self.assertTrue(jr.regex_reading(delaware_dead + ' Observed dead roaches under the sink.')['forces_f'])
         # the phrase follows the citation even when Jev picked another one
         gaps = self.judged('conditions_only', cat='pest_control', summ='Gaps/Openings (Risk of entry)')
         self.assertEqual(jr.decide('6-501.111 Controlling Pests', gaps)['summary'], 'Pests found')
