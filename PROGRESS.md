@@ -57,42 +57,45 @@ Findings:
 
 | jurisdiction | week | rows (truth) | pipeline 7-day read: missing | repeats | pages | single days unsorted: missing | sorted 7-day: missing | sorted single days: missing | permits with >1 insp | their rows lost by 7-day read | by sorted 7-day | AFTER (production path): missing | extra | searches |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
-| frisco | 2026-10-12..2026-10-18 | 56 | 5 | 5 | 3 | 0 | 0 | 0 | 0 | 0 | 0 | - | - | - |
-| frisco | 2026-10-19..2026-10-25 | 88 | 3 | 3 | 4 | 0 | 0 | 0 | 0 | 0 | 0 | - | - | - |
-| dallas | 2026-10-12..2026-10-18 | 154 | 20 | 20 | 7 | 9 | 0 | 0 | 0 | 0 | 0 | - | - | - |
-| dallas | 2026-10-19..2026-10-25 | 256 | 28 | 253 | 20 | 21 | 0 | 0 | 0 | 0 | 0 | - | - | - |
-| plano | 2026-10-12..2026-10-18 | 153 | 11 | 0 | 6 | 0 | 11 | 0 | 11 | 11 | 11 | - | - | - |
-| plano | 2026-10-19..2026-10-25 | 182 | 7 | 0 | 8 | 0 | 7 | 0 | 7 | 7 | 7 | - | - | - |
-| fort-worth-texas | 2026-10-12..2026-10-18 | 192 | 22 | 21 | 8 | 0 | 1 | 0 | 1 | 1 | 1 | - | - | - |
-| fort-worth-texas | 2026-10-19..2026-10-25 | 139 | 11 | 10 | 6 | 0 | 1 | 0 | 1 | 1 | 1 | - | - | - |
-| tarrant | 2026-10-12..2026-10-18 | 119 | 6 | 6 | 5 | 5 | 0 | 0 | 0 | 0 | 0 | - | - | - |
-| tarrant | 2026-10-19..2026-10-25 | 195 | 19 | 19 | 8 | 27 | 0 | 0 | 0 | 0 | 0 | - | - | - |
-| gwinnett | 2026-10-12..2026-10-18 | 122 | 0 | 0 | 5 | 0 | 0 | 0 | 0 | 0 | 0 | - | - | - |
-| gwinnett | 2026-10-19..2026-10-25 | 134 | 0 | 0 | 4 | 0 | 0 | 0 | 0 | 0 | 0 | - | - | - |
-| multco-eh | 2026-10-12..2026-10-18 | 238 | 10 | 232 | 19 | 0 | 3 | 0 | 3 | 4 | 3 | - | - | - |
-| multco-eh | 2026-10-19..2026-10-25 | 73 | 1 | 0 | 3 | 0 | 1 | 0 | 1 | 1 | 1 | - | - | - |
-| adcogoveh | 2026-10-12..2026-10-18 | 58 | 4 | 4 | 3 | 0 | 0 | 0 | 0 | 0 | 0 | - | - | - |
-| adcogoveh | 2026-10-19..2026-10-25 | 59 | 5 | 3 | 3 | 2 | 2 | 0 | 1 | 2 | 2 | - | - | - |
-| epcph | 2026-10-12..2026-10-18 | 65 | 3 | 3 | 3 | 0 | 0 | 0 | 0 | 0 | 0 | - | - | - |
-| epcph | 2026-10-19..2026-10-25 | 77 | 9 | 9 | 4 | 0 | 0 | 0 | 0 | 0 | 0 | - | - | - |
-| utah-utahcounty | 2026-10-12..2026-10-18 | 81 | 1 | 0 | 4 | 0 | 1 | 0 | 1 | 1 | 1 | - | - | - |
-| utah-utahcounty | 2026-10-19..2026-10-25 | 63 | 0 | 0 | 3 | 0 | 0 | 0 | 0 | 0 | 0 | - | - | - |
-| yolocountyeh | 2026-10-12..2026-10-18 | 25 | 0 | 0 | 2 | 0 | 0 | 0 | 0 | 0 | 0 | - | - | - |
-| yolocountyeh | 2026-10-19..2026-10-25 | 73 | 1 | 0 | 3 | 0 | 1 | 0 | 1 | 1 | 1 | - | - | - |
-| clarkcountywa | 2026-10-12..2026-10-18 | 72 | 5 | 5 | 3 | 0 | 0 | 0 | 0 | 0 | 0 | - | - | - |
-| clarkcountywa | 2026-10-19..2026-10-25 | 60 | 2 | 2 | 3 | 0 | 0 | 0 | 0 | 0 | 0 | - | - | - |
-| or-washington-county | 2026-10-12..2026-10-18 | 101 | 2 | 2 | 5 | 2 | 0 | 0 | 0 | 0 | 0 | - | - | - |
-| or-washington-county | 2026-10-19..2026-10-25 | 26 | 0 | 0 | 2 | 0 | 0 | 0 | 0 | 0 | 0 | - | - | - |
-| or-clackamas-county | 2026-10-12..2026-10-18 | 61 | 0 | 0 | 3 | 0 | 0 | 0 | 0 | 0 | 0 | - | - | - |
-| or-clackamas-county | 2026-10-19..2026-10-25 | 32 | 0 | 0 | 2 | 0 | 0 | 0 | 0 | 0 | 0 | - | - | - |
-| larimer-county-health | 2026-10-12..2026-10-18 | 45 | 4 | 4 | 2 | 0 | 0 | 0 | 0 | 0 | 0 | - | - | - |
-| larimer-county-health | 2026-10-19..2026-10-25 | 71 | 5 | 5 | 3 | 0 | 0 | 0 | 0 | 0 | 0 | - | - | - |
-| weldcounty | 2026-10-12..2026-10-18 | 46 | 3 | 3 | 2 | 0 | 0 | 0 | 0 | 0 | 0 | - | - | - |
-| weldcounty | 2026-10-19..2026-10-25 | 42 | 1 | 1 | 2 | 0 | 0 | 0 | 0 | 0 | 0 | - | - | - |
+| frisco | 2026-10-12..2026-10-18 | 56 | 5 | 5 | 3 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 7 |
+| frisco | 2026-10-19..2026-10-25 | 88 | 3 | 3 | 4 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 7 |
+| dallas | 2026-10-12..2026-10-18 | 154 | 20 | 20 | 7 | 9 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 11 |
+| dallas | 2026-10-19..2026-10-25 | 256 | 28 | 253 | 20 | 21 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 15 |
+| plano | 2026-10-12..2026-10-18 | 153 | 11 | 0 | 6 | 0 | 11 | 0 | 11 | 11 | 11 | 0 | 0 | 11 |
+| plano | 2026-10-19..2026-10-25 | 182 | 7 | 0 | 8 | 0 | 7 | 0 | 7 | 7 | 7 | 0 | 0 | 12 |
+| fort-worth-texas | 2026-10-12..2026-10-18 | 192 | 22 | 21 | 8 | 0 | 1 | 0 | 1 | 1 | 1 | 0 | 0 | 12 |
+| fort-worth-texas | 2026-10-19..2026-10-25 | 139 | 11 | 10 | 6 | 0 | 1 | 0 | 1 | 1 | 1 | 0 | 0 | 10 |
+| tarrant | 2026-10-12..2026-10-18 | 119 | 6 | 6 | 5 | 5 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 10 |
+| tarrant | 2026-10-19..2026-10-25 | 195 | 19 | 19 | 8 | 27 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 12 |
+| gwinnett | 2026-10-12..2026-10-18 | 122 | 0 | 0 | 5 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 10 |
+| gwinnett | 2026-10-19..2026-10-25 | 134 | 0 | 0 | 4 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 10 |
+| multco-eh | 2026-10-12..2026-10-18 | 238 | 10 | 232 | 19 | 0 | 3 | 0 | 3 | 4 | 3 | 0 | 0 | 14 |
+| multco-eh | 2026-10-19..2026-10-25 | 73 | 1 | 0 | 3 | 0 | 1 | 0 | 1 | 1 | 1 | 0 | 0 | 8 |
+| adcogoveh | 2026-10-12..2026-10-18 | 58 | 4 | 4 | 3 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 7 |
+| adcogoveh | 2026-10-19..2026-10-25 | 59 | 5 | 3 | 3 | 2 | 2 | 0 | 1 | 2 | 2 | 0 | 0 | 8 |
+| epcph | 2026-10-12..2026-10-18 | 65 | 3 | 3 | 3 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 7 |
+| epcph | 2026-10-19..2026-10-25 | 77 | 9 | 9 | 4 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 7 |
+| utah-utahcounty | 2026-10-12..2026-10-18 | 81 | 1 | 0 | 4 | 0 | 1 | 0 | 1 | 1 | 1 | 0 | 0 | 7 |
+| utah-utahcounty | 2026-10-19..2026-10-25 | 63 | 0 | 0 | 3 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 7 |
+| yolocountyeh | 2026-10-12..2026-10-18 | 25 | 0 | 0 | 2 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 7 |
+| yolocountyeh | 2026-10-19..2026-10-25 | 73 | 1 | 0 | 3 | 0 | 1 | 0 | 1 | 1 | 1 | 0 | 0 | 8 |
+| clarkcountywa | 2026-10-12..2026-10-18 | 72 | 5 | 5 | 3 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 7 |
+| clarkcountywa | 2026-10-19..2026-10-25 | 60 | 2 | 2 | 3 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 7 |
+| or-washington-county | 2026-10-12..2026-10-18 | 101 | 2 | 2 | 5 | 2 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 9 |
+| or-washington-county | 2026-10-19..2026-10-25 | 26 | 0 | 0 | 2 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 7 |
+| or-clackamas-county | 2026-10-12..2026-10-18 | 61 | 0 | 0 | 3 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 7 |
+| or-clackamas-county | 2026-10-19..2026-10-25 | 32 | 0 | 0 | 2 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 7 |
+| larimer-county-health | 2026-10-12..2026-10-18 | 45 | 4 | 4 | 2 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 7 |
+| larimer-county-health | 2026-10-19..2026-10-25 | 71 | 5 | 5 | 3 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 7 |
+| weldcounty | 2026-10-12..2026-10-18 | 46 | 3 | 3 | 2 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 7 |
+| weldcounty | 2026-10-19..2026-10-25 | 42 | 1 | 1 | 2 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 7 |
 
 TOTAL rows 3158, lost by the production 7-day unsorted read 188 (6.0%)
 
-(AFTER columns: filled by the fixed after_measure.py once it has run.)
+AFTER = the production path as committed (sorted inspectionID order, one-day
+windows, repeats guard) re-reading the same weeks: 0 rows missing and 0 extra
+in all 32 jurisdiction-weeks, at 7-15 searches per jurisdiction-week (before:
+2-20, the 20 being Dallas's cap bisection).
 
 ## Verification of the new jurisdictions (C) — live, production code path
 
@@ -165,7 +168,46 @@ details unreadable (None): 0
 
 ## Live results (D)
 
-(test-mode and 14-day runs in progress: scratchpad/mhd_live/)
+### Test mode: `python3 dinescores_pipeline.py --mode test --cities fortbend arapahoe douglas cuyahoga richmond --output /tmp/mhd_test.json`
+
+2026-11-03 03:30:47Z -> 03:34:16Z (3 min 29 s wall). 200 inspections (25 per
+jurisdiction x 8: fbceh, acph, dchd, ccbh, va-richmond, va-henrico,
+va-chesterfield, va-chickahominy), 198 restaurants saved. Both groups 'ok':
+MHD metros 75 records, MHD metros (midweek) 125. 55 search POSTs (one-day
+windows from 2026-01-01 until 25 records), 200 detail GETs, 25/25 detail
+pages parsed for every jurisdiction, no 403/429, no ban. Geocoding: Census
+batch 70/75 + 125 -> 187/198 with coordinates (11 without; one Nominatim
+connection failure during the fallback, transient). Grades plausible (the
+detail pass recomputes the demerit/no-score jurisdictions; Fort Bend keeps
+its official score):
+
+198 restaurant records in /tmp/mhd_test.json
+  Arapahoe County Health Dept          n= 25 coords= 25 with_violations= 20 grades={'A': 15, 'B': 5, 'C': 2, 'F': 3} risk min/med/max=47/90/100 official=25 out_of_range=[] results=[('Pass', 24), ('Re-Inspection Required', 1)]
+  Cuyahoga County Health Dept          n= 25 coords= 25 with_violations= 20 grades={'A': 11, 'B': 6, 'C': 1, 'F': 7} risk min/med/max=43/88/100 official=0 out_of_range=[] results=[('', 25)]
+  Douglas County CO Health Dept        n= 25 coords= 23 with_violations= 23 grades={'A': 10, 'B': 9, 'C': 2, 'F': 4} risk min/med/max=58/88/100 official=25 out_of_range=[] results=[('', 25)]
+  Fort Bend County Health Dept         n= 25 coords= 22 with_violations= 21 grades={'A': 15, 'B': 7, 'C': 3} risk min/med/max=70/95/100 official=25 out_of_range=[] results=[('', 25)]
+  VDH Chesterfield Health Dept         n= 25 coords= 19 with_violations= 21 grades={'A': 12, 'B': 7, 'C': 2, 'F': 4} risk min/med/max=29/88/100 official=0 out_of_range=[] results=[('', 25)]
+  VDH Chickahominy Health Dept         n= 24 coords= 24 with_violations= 13 grades={'A': 14, 'B': 4, 'C': 1, 'F': 5} risk min/med/max=21/95/100 official=0 out_of_range=[] results=[('', 24)]
+  VDH Henrico Health Dept              n= 24 coords= 24 with_violations= 21 grades={'A': 9, 'B': 5, 'C': 4, 'F': 6} risk min/med/max=0/85/100 official=0 out_of_range=[] results=[('', 24)]
+  VDH Richmond City Health Dept        n= 25 coords= 25 with_violations= 17 grades={'A': 14, 'B': 4, 'C': 3, 'F': 4} risk min/med/max=19/95/100 official=0 out_of_range=[] results=[('', 25)]
+   details: 1-03 03:31:00,262 INFO Fort Bend County: 25/25 inspections had violation details
+   details: 11-03 03:31:19,573 INFO Arapahoe County: 25/25 inspections had violation details
+   details: -03 03:31:40,627 INFO Douglas County CO: 25/25 inspections had violation details
+   details: 11-03 03:32:13,553 INFO Cuyahoga County: 25/25 inspections had violation details
+   details: -03 03:32:32,583 INFO VDH Richmond City: 25/25 inspections had violation details
+   details: 026-11-03 03:32:56,924 INFO VDH Henrico: 25/25 inspections had violation details
+   details: 1-03 03:33:21,407 INFO VDH Chesterfield: 25/25 inspections had violation details
+   details: 1-03 03:33:45,344 INFO VDH Chickahominy: 25/25 inspections had violation details
+   search POSTs (windows logged): 55 ; geocode lines: ['2026-11-03 03:31:43,629 INFO Geocoding 75 records missing coordinates (Census batch)...', '2026-11-03 03:32:01,059 INFO Geocoded 70/75 records', '2026-11-03 03:33:48,346 INFO Geocoding 125 records missing coordinates (Census batch)...', "2026-11-03 03:34:12,195 WARNING Geocode failed for 13747 Lake Eloise Loop, Midlothian, VA: HTTPSConnectionPool(host='nom"]
+   total records line: ['Total inspections collected: 200']
+{"name": "Liquor 4 U", "address": "11581 S Highway 6 Ste A", "city": "Sugar Land", "state": "TX", "zip": "77498-4932", "latitude": 29.6481601448, "longitude": -95.651270157795, "inspection_date": "2026-01-02", "original_score": 85, "risk_score": 85, "priority_violations": 4, "priority_foundation_violations": 5, "core_violations": 2, "total_violations": 11, "violations": [["food_handling", "priority_foundation", "2: \u00a7228.31(b) \u00a7-- RULES FOR REGULATION OF FOOD ESTABLISHMENTS IN THE UNINCORPORATED AREAS OF FORT BEND COUNTY, TEXAS A C"], ["cross_contamination", "priority", "5: 2-501.11 A food establishment shall have written procedures for employees to follow when responding to vomiting or di"]], "inspection_type": "Food Safety Inspection", "purpose": "Permit", "results": "", "source": "Fort Bend County Health Dept", "source_url": "https://inspections.myhealthdepartment.com/fbceh/i
+{"name": "Stonegate Cafe", "address": "16524 Keystone Blvd Ste F", "city": "Parker", "state": "CO", "zip": "80134-3349", "latitude": 39.528262281643, "longitude": -104.806973426956, "inspection_date": "2026-01-05", "original_score": 55, "risk_score": 75, "priority_violations": 5, "priority_foundation_violations": 0, "core_violations": 0, "total_violations": 5, "violations": [["cross_contamination", "priority", "8: 2-301.14 Employees observed not hand washing when required between high-risk activities, such as between raw and read"], ["personal_hygiene", "priority", "10: 6-301.11 A handwashing sink within the facility lacks readily available soap. The inspector observed there was no ha"]], "inspection_type": "Retail Food", "purpose": "Routine", "results": "", "source": "Douglas County CO Health Dept", "source_url": "https://inspections.myhealthdepartment.com/dchd/inspection/?inspectionID=
+{"name": "Restaurant Adarra", "address": "501 S Pine St", "city": "Richmond", "state": "VA", "zip": "23220", "latitude": 37.539087125651, "longitude": -77.450388792773, "inspection_date": "2026-01-02", "original_score": null, "risk_score": 95, "priority_violations": 1, "priority_foundation_violations": 0, "core_violations": 0, "total_violations": 1, "violations": [["cross_contamination", "priority", "15: 12VAC5-421-470.A.1.a-c Observed raw shell eggs stored over ready to eat foods cheeses, commercially cured meats in w"]], "inspection_type": "Full Service Restaurant", "purpose": "Routine", "results": "", "source": "VDH Richmond City Health Dept", "source_url": "https://inspections.myhealthdepartment.com/va-richmond/inspection/?inspectionID=BC3CEA96-7459-4C48-A881-6E2FA665EFCD", "source_id": "BC3CEA96-7459-4C48-A881-6E2FA665EFCD", "metro": "Richmond", "_id": "ff642ad9db8ff80c", "_inspecti
+
+
+### 14-day bounded run
+
+(in progress)
 
 ## Open questions / decisions
 
