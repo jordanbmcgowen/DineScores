@@ -237,28 +237,55 @@ middleware.
   `data/d1_seed*.sql.gz` into D1 and writes `wrangler.toml`. Idempotent.
   For a single new seed prefer `load-d1-seeds.yml` (automatic on merge).
 
-## Candidate sources surveyed but not added (2026-10-10)
+## Candidate sources surveyed but not added (2026-11-02)
 
-A parallel survey verified these live; each is a small-to-medium fetcher
-away if coverage should grow. MHD slugs ride the relay and the existing
-machinery (config entry + slug group): Amarillo 'aaphd', Arapahoe County
-and Douglas County CO, Roseville CA, Cuyahoga County (Cleveland suburbs),
-Akron, Toledo — all honour the date filter and stay under the 225 cap;
-'virginia' is statewide and capped like Tennessee (bucket mode would be the
-way in). Tyler 'publicportals' JSON API (facilities/{page},
-inspectionsData/{id}; no date filter, no coordinates): Louisiana statewide
-(New Orleans, Baton Rouge), Georgia statewide (Atlanta proper: Fulton,
-DeKalb, Cobb), Columbia MO. Other JSON APIs without auth: Lubbock TX and
-Tucson/Pima (Hedgerow portals), Snohomish County WA, Anchorage, Oklahoma
-City (Inspect2Go, no date filter), Indianapolis (facility list with
-coordinates only). Stale or thin: Boulder County (Socrata, last inspection
-June 2026), Alameda County (ArcGIS, quarterly, violation rows only),
-Allegheny County/Pittsburgh (CKAN, placards only, violations feed dead),
-Hawaii's Tyler portal (host resets every connection), Albuquerque (the
-daily CSV has been header-only since 2020). No machine-readable source at
-all: Denver (Accela), Salt Lake County, Charlotte/Mecklenburg, Kansas City,
-St. Louis, Milwaukee, Madison, Philadelphia's own portal, Baltimore,
-Riverside/San Bernardino DEH, Spokane, Tacoma.
+A 28-source live survey (per-source reports under
+`docs/expansion-2026-11/`) fed the November 2026 expansion; what shipped is
+in the coverage list above. Still worth building, roughly in order of
+people covered per unit of work:
+
+- **Snohomish County WA (Everett, 864k) and Anchorage AK (290k)**: the same
+  Accela EnvisionConnect "PressAgent" JSON API (`/api/pressAgentClient/`,
+  PressAgentOid in the root HTML); no date filter, so a weekly run re-reads
+  every program's inspection list (~4,700 requests Snohomish, ~2,100
+  Anchorage); search is capped at 50 rows with no paging (adaptive name
+  prefix splitting enumerates facilities); Washington violation points like
+  King County; Anchorage needs an Alaska box in `coords_plausible`, which
+  rejects everything outside CONUS today.
+- **Alabama statewide (4.1M; not Birmingham or Mobile)**: ADPH
+  `foodscores.state.al.us`, a WebForms county sweep (66 requests), OFFICIAL
+  0-100 score only, latest inspection per establishment, no violations, no
+  coordinates, no history; Tallapoosa County 500s.
+- **Akron/Summit County OH ('scph'), Placer County CA ('pchd', Roseville) and
+  Amarillo ('aaphd')** on MHD: all three need the MHD search `sort`
+  parameter and one-day windows (see the MHD invariant on pagination), and
+  Akron/Placer need an inspection-purpose filter (Pre-licensing and
+  Consultation rows have no observations). Toledo ('oh_toledolucas') is
+  NOT buildable: its date filter is ignored, observations are hidden and the
+  printable endpoint times out.
+- **Oklahoma City (816k)**: Inspect2Go, every inspection a 600 KB PDF
+  (CID fonts, new parser needed), ids dense in upload order; **Tulsa
+  (693k)**: Tyler ColdFusion portal with an inert date filter, inspection-id
+  enumeration only, every result 'Compliant'; **Pasadena CA (138k)**: JSON
+  permits + SSRS PDF reports; **Iowa statewide**: the new SAFHER (Appian)
+  portal, a fragile SAIL protocol plus PDFs; **Columbus/Franklin County OH**:
+  Columbus Public Health's PressAgent portal was down (522) during the
+  survey and Franklin County's Accela carries PDFs only; **Reno/Washoe**:
+  Accela, ~4,000 permit pages per run; **Columbia MO**: Tyler publicportals
+  with severity only in PDFs.
+- **Blocked or empty**: Kansas statewide (KDA portal behind reCAPTCHA v3 —
+  never work around it; ask KDA for an extract), Irving TX (two abandoned
+  ArcGIS snapshots; the live page is behind a Cloudflare challenge),
+  Carrollton TX (Akamai 403), Allen TX ('scores unavailable'), Garland TX
+  (portal up but nothing published since 2026-06-30), Grand Prairie TX
+  (letter grades only, no ids or dates), Collin and Denton county programs,
+  Hays County TX, Long Beach CA (nothing online), Cleveland proper (own
+  department, not on the county portal). Earlier findings stand: Boulder
+  County stale, Alameda County quarterly violation rows only, Allegheny
+  placards only, Hawaii's Tyler host resets connections, Albuquerque's CSV
+  header-only since 2020; no machine-readable source for Denver, Salt Lake
+  County, Charlotte, Kansas City, St. Louis, Milwaukee, Madison,
+  Philadelphia, Baltimore, Riverside/San Bernardino, Spokane, Tacoma.
 
 ## Hard-won invariants (violate at your peril)
 
@@ -347,6 +374,31 @@ Riverside/San Bernardino DEH, Spokane, Tacoma.
   first, then the lowest score) in both output paths, so the pick no longer
   depends on fetch order. Records kept from earlier runs keep their history
   until the restaurant is fetched again.
+- **A snapshot source re-reads instead of holding.** Williamson County's
+  zip is one GET holding the whole history, and a pre-opening inspection
+  appears in it months before its business row, so the fetcher drops the
+  orphan WITHOUT a hold and instead never starts its window later than
+  `WM_REREAD_DAYS` (180) ago: a hold would pin the group's latest at the
+  orphan's date (a false STALE flag) and give the record up after three runs,
+  sooner than the source resolves it. Re-shipping a few hundred rows a week
+  costs nothing; the merge and the D1 upserts are idempotent.
+- **McKinney's `total_score` is demerit points, and the item columns must add
+  up.** The city's ArcGIS layer carries 47 TX-form item columns that are
+  each 0 or the item's weight (3 / 2 / 1 → priority / priority foundation /
+  core; verified on every live row) and a demerit total; the fetcher ships
+  `risk_score = 100 − demerits` (the TX form score Dallas, Plano and
+  Richardson ship) and drops and holds any inspection whose points do not
+  reproduce the total, raising when more than 5% of a window disagree, so an
+  emptied column can never read as a clean 100. Permit layers 0-3 are part
+  of the complete-or-raise read: without them schools, mobile units and
+  splash pads would ship as restaurants for good. The city label stays
+  `Mckinney` (plain `.title()`, the label the Plano portal's rows already
+  carry); `McKinney` would split the town.
+- **Never disable TLS verification; ship the chain instead.** Lewisville's
+  web service omits its GoDaddy G2 intermediate; `fetch_lewisville` verifies
+  against `data/certs/lewisville_ca_bundle.pem` (certifi plus that public
+  intermediate, provenance in the file header) for that host only, and a
+  chain change makes the group red, never insecure.
 
 ## Jev violation reader
 
@@ -377,7 +429,9 @@ impact and the open policy decisions; `scripts/jev_shadow.py` reproduces it.
   not `pests_unspecified`), `SCORE_FROM_TIERS_SOURCES` / `SOURCE_TIER_SOURCES`
   / `BOUNDED_TIER_SOURCES` (which sources may be re-scored or re-tiered), the
   chip and summary-severity maps. A source-stated tier never moves (Omaha,
-  Santa Clara, San Diego and Orange County included: their counties state it).
+  Santa Clara, San Diego, Orange County and McKinney included: their
+  counties state it; McKinney's TX-form item points are the city's tiers and
+  its `risk_score` is the form score 100 − demerits, never recomputed).
 - **An F needs a named vermin and a firm answer.** A `vermin_observed` answer
   counts only when the line names one (`NAMED_VERMIN_RE`, after removing the
   negated titles counties print on every pest item and generic code-title
