@@ -7677,12 +7677,910 @@ def fetch_arlington(since_date=None, limit=None):
 # partial (_set_group_status) — it never returns a silently truncated list.
 
 # ─── GEORGIA + LOUISIANA (Tyler "publicportals" JSON APIs) ──────────────────
+# Georgia DPH (statewide food service, ga.healthinspections.us/stateofgeorgia)
+# and Louisiana LDH (statewide retail food, la.healthinspections.us) run the
+# same Tyler Technologies "publicportals" ColdFusion JSON API — a different
+# product from the search.cfm portals Houston/San Antonio/DC scrape:
+#   search/{json}/{page}      facilities whose LAST inspection falls in the
+#                             filter window; the json's values are base64, the
+#                             `keyword` key must always be present (Louisiana
+#                             answers 500 without it); 5 rows per page, page
+#                             numbers from 0, an empty list [] ends the list.
+#                             Rows are sorted last-inspection-date DESC, then
+#                             numeric facility id ASC (checked per day below).
+#   inspectionsData/{id}      every inspection of one facility, newest first,
+#                             violations inline; the id is the base64 string
+#                             exactly as the list returns it.
+#   facilities/{page}         the unfiltered list in the same order (page 0 =
+#                             the newest inspection the portal holds).
+# Neither portal publishes coordinates (main() geocodes); both hold about
+# three years of history (from Nov 2023). Probed 2026-11-02 (NOTES.md in the
+# probe captures); verified live again while building this on 2026-11-03.
+#
+# Fetch shape (shared, `_tp_fetch`): one single-day search per day from the
+# lookback start to today, oldest first, each paged to its [] terminator and
+# checked against the ordering invariant (every row dated that day, ids
+# strictly ascending and distinct); a day whose pages shifted under the run
+# is re-read, and a day that cannot be read completely RAISES — the group
+# then records an error and ships nothing rather than a partial window. The
+# date filter is on the facility's last inspection, so every listed facility
+# costs one inspectionsData call (oldest-listed first, TP_WORKERS workers)
+# and ships every inspection dated on or after the window start, deduped by
+# inspection id. A facility whose history could not be read drops its
+# inspections and holds the source's freshness at the day it was listed
+# under (key = its numeric id), so the next lookback re-reads it; deadline
+# cuts hold without counting and report the group 'skipped'. since_date=None
+# (test mode) is one open window from the portal's history floor, newest
+# first, stopped by `limit`. Weekly cost measured 2026-11-03: see PROGRESS.md.
+
+TP_PAGE_SIZE = 5           # fixed by the server (the SPA's infinite scroll)
+TP_DELAY = 0.25            # pause after every list page / detail call
+TP_WORKERS = 2             # inspectionsData and printable workers
+TP_RETRIES = 4             # attempts per request (429/5xx/timeouts/resets)
+TP_BACKOFF = 10            # seconds × attempt between retries
+TP_TIMEOUT = 90
+TP_DAY_REREADS = 2         # re-reads of a day whose pages shifted under the run
+TP_MAX_DAY_PAGES = 2000    # runaway guard for one day's list (10,000 rows)
+TP_HEADERS = {
+    'User-Agent': CHROME_UA,
+    'Accept': 'application/json, text/javascript, */*; q=0.01',
+    'X-Requested-With': 'XMLHttpRequest',
+}
+_TP_STATS = {}             # group -> {'requests', 'seconds'} for the run log
+_TP_STATS_LOCK = threading.Lock()
+_TP_ADDR_RE = re.compile(r'^\s*(.*?)\s*\r?\n\s*(.+?),\s*([A-Za-z]{2})\s+(\d{5})(?:-\d{4})?\s*$', re.S)
+_TP_DATE_RE = re.compile(r'(\d{2})-(\d{2})-(\d{4})\s*$')
+
+GA_API = 'https://ga.healthinspections.us/stateofgeorgia/API/index.cfm/'
+GA_PORTAL = 'https://ga.healthinspections.us/stateofgeorgia/'
+GA_GROUP = 'Georgia'
+GA_SOURCE = 'Georgia DPH'
+GA_HISTORY_START = '2023-11-01'     # earliest inspection seen: 2023-11-06
+GA_PERMIT_TYPE = 'Food Service'     # the other permit types are Tourist Accommodation and Swimming Pool
+# Inspection purposes that are not a fixed food establishment: 'Temporary'
+# is a festival/event booth permit (the Renaissance Festival's stands all
+# share the fairground's address).
+GA_SKIP_PURPOSES = frozenset({'Temporary'})
+# Gwinnett, Newton and Rockdale are GNR Health (the MHD 'gwinnett' slug) and
+# never appear in the statewide portal (0 rows for each county filter,
+# verified 2026-11-02 and 2026-11-03); each run re-checks the three county
+# filters over its window and drops anything they list.
+GA_EXCLUDED_COUNTIES = ('GWINNETT', 'NEWTON', 'ROCKDALE')
+# The county is not in a facility row; the only county-level signal is the
+# county Environmental Health office phone in 'For More Information Call:'.
+# One number per county (verified 2026-11-03 on 20 rows of each: 111 distinct
+# numbers across the state's 156 portal counties). Digits only -> county, for
+# the nine counties that get the 'Atlanta' metro chip.
+GA_ATLANTA_EH_PHONES = {
+    '7705207500': 'Fulton', '4045087900': 'DeKalb', '7704357815': 'Cobb',
+    '6786107469': 'Clayton', '7709207311': 'Douglas', '7704790444': 'Cherokee',
+    '7702886190': 'Henry', '9432098057': 'Fayette', '7707816909': 'Forsyth',
+}
+GA_METRO = 'Atlanta'
+# Severity is the citation's designation suffix: '(p)' priority, '(pf)'
+# priority foundation, '(c)' core, combined '(p, c)' / '(pf, c)' / '(p, pf, c)'
+# (the highest wins). 11 of 340 probed citations were null and one ended in
+# '©' instead of '(c)': those fall back to the item's Points (9 = a risk
+# factor / intervention item = priority, 4 = priority foundation, 3/2/1 =
+# good retail practices = core).
+_GA_DESIGNATION_RE = re.compile(r'\(\s*((?:pf?|c)(?:\s*,\s*(?:pf?|c))*)\s*\)\s*$', re.I)
+_GA_ITEM_CODE_RE = re.compile(r'^\s*\d{1,2}(?:-\d)?[A-Za-z]?\s*-\s*')
+# Inspector Notes carry the observation plus, often, the corrective action
+# ('CA:', 'C/A:', '(CA)', 'CA-') and the rule text pasted after its citation
+# ('511-6-1.05(7)(b) - Food Contact Surfaces ... (P, C) (b) Equipment ...').
+# Only the observation ships: rule text names pests and sewage as a matter of
+# course and must never read as evidence of them.
+_GA_NOTES_PREFIX_RE = re.compile(r'^\s*Inspector Notes:\s*', re.I)
+_GA_CODE_REF_RE = re.compile(r'Violation of Code:\s*\[[^\]]*\]\s*', re.I)
+_GA_RULE_RE = re.compile(r'\b511-6-1[-.]\s*\d')
+_GA_CA_RE = re.compile(r'(?:\bCorrective Actions?\b\s*[:\-]?|\(\s*CA\s*\)|\bC/A\b\s*[:\-]?'
+                       r'|\b[Cc][Aa]\s*[:\-–]|\bCA\s+(?=[A-Z]))')
+_GA_OBS_RE = re.compile(r'\b(?:Observed|Observation|Observations)\b\s*:?|\bCOS\b|\bCorrected on site\b', re.I)
+
+LA_API = 'https://la.healthinspections.us/API/index.cfm/'
+LA_PORTAL = 'https://la.healthinspections.us/'
+LA_GROUP = 'Louisiana'
+LA_SOURCE = 'Louisiana LDH'
+LA_HISTORY_START = '2023-11-07'     # the portal's oldest inspection
+# LDH publishes no score: the two statutory categories score the inspection
+# (calc_risk_score: 100 - 5 per Critical - 1 per Non-Critical item). Jev
+# treats the label as source_tiers (jev_reader.SOURCE_TIER_SCORE_SOURCES).
+LA_SEVERITY = {'Critical Items': 'priority', 'Non-Critical Items': 'core'}
+LA_CLEAN_MARKER = ['None']          # a clean inspection is exactly {'0': ['None']}
+LA_METRO_PARISHES = {
+    'Orleans': 'New Orleans', 'Jefferson': 'New Orleans',
+    'St. Tammany': 'New Orleans', 'St. Bernard': 'New Orleans',
+    'East Baton Rouge': 'Baton Rouge', 'West Baton Rouge': 'Baton Rouge',
+    'Ascension': 'Baton Rouge', 'Livingston': 'Baton Rouge',
+}
+# The tail of 'Permit Name: <establishment> <tail>' is free text the
+# sanitarian typed, not a permit-type vocabulary: sampled live 2026-11-03 over
+# 250 recently inspected facilities / 2,995 inspections it had 221 distinct
+# values ('Restaurant', '(RESTAURANT)', '- KITCHEN', 'Dietary', 'fast food',
+# '225', a casino's "Grotto" and "Bar 46", street names in parentheses) and
+# 378 inspections had no tail at all. LDH lists every retail food permit
+# together (restaurants with school cafeterias, day cares, hospitals, nursing
+# homes, jails), so the scope rule is a word-boundary keyword denylist over
+# the facility name plus the permit name: an institutional kitchen the public
+# cannot walk into is skipped; everything else — restaurants, bars, groceries,
+# markets, delis, bakeries, caterers, casino and hotel kitchens, mobile units
+# (LDH lists them at their base address) — ships. 'cafeteria' alone is not a
+# trigger (Piccadilly Cafeteria is a restaurant chain); 'Summer Feeding'
+# inspections (school-site meal programs) are skipped by purpose.
+_LA_INSTITUTION_RE = re.compile(
+    r"\b(?:schools?|elementary|middle school|high school|junior high|academy|kindergarten|"
+    r"pre-?k|preschool|head start|day ?cares?|child ?care|learning cent(?:er|re)|nursery|dietary|"
+    r"hospitals?|nursing|rehabilitation|rehab|health ?care|medical center|assisted living|"
+    r"retirement|senior cent(?:er|re)|council on aging|feeding site|group home|community home|"
+    r"boys'? home|girls'? home|behavioral|hospice|residential|"
+    r"jails?|prisons?|correctional|detention|penitentiary|food pantry|shelter|summer feeding)\b",
+    re.I)
+LA_SKIP_PURPOSES = frozenset({'Summer Feeding'})
+# The inspectionsData violation entries are item titles only ('75 - non-food
+# contact surfaces clean'); the inspector's narrative is in the printable
+# "Retail Food Notice of Violations" (HTML, ~5 KB): one row per violation with
+# the category, the LAC Title 51 code and '<item#> - <code> - <narrative>
+# [Repeat|Corrected]'. One printable per shipped inspection with violations
+# (roughly doubles the weekly requests; ~1,500/week), oldest first, capped by
+# the fetch deadline and LA_PRINTABLE_MAX_PER_RUN. A printable that cannot be
+# read or parsed ships the inspection with its JSON titles — the violation
+# list is already complete, only terser — and never holds the window.
+LA_PRINTABLE_MAX_PER_RUN = int(os.environ.get('LA_PRINTABLE_MAX_PER_RUN', '6000'))
+_LA_ITEM_RE = re.compile(r'^\s*(\d+)\s*-\s*(.*?)\s*$', re.S)
+_LA_PRINTABLE_ROW_RE = re.compile(
+    r'<tr>\s*<td>(?P<cat>[^<]*)</td>\s*<td>(?P<code>[^<]*)</td>\s*<td>(?P<desc>.*?)</td>\s*</tr>', re.S)
+_LA_PRINTABLE_DESC_RE = re.compile(r'^(\d+)\s*-\s*[\d.]+\s*-\s*(.*)$', re.S)
+_LA_PRINTABLE_DATE_RE = re.compile(r'Date<br>\s*(\d{2})/(\d{2})/(\d{4})')
+_LA_TAG_RE = re.compile(r'\s*\[(?:Repeat|Corrected)\]\s*', re.I)
+
+
+def _tp_count(group, seconds):
+    with _TP_STATS_LOCK:
+        s = _TP_STATS.setdefault(group, {'requests': 0, 'seconds': 0.0})
+        s['requests'] += 1
+        s['seconds'] += seconds
+
+
+def _tp_search_url(api, filters, page):
+    """The SPA's search URL: a JSON object of base64-encoded filter values
+    (keyword always present), '/' replaced by '%2F' inside the JSON, then
+    percent-encoded as one path segment, followed by the 0-based page."""
+    obj = {k: base64.b64encode(str(v).encode('utf-8')).decode('ascii') for k, v in filters.items()}
+    obj.setdefault('keyword', '')
+    js = json.dumps(obj, separators=(',', ':')).replace('/', '%2F')
+    return f'{api}search/{quote(js, safe="%")}/{page}'
+
+
+def _tp_get_json(session, url, group, referer):
+    """GET one API resource; the parsed JSON, or None once TP_RETRIES attempts
+    are exhausted. 429/5xx, timeouts, resets and non-JSON bodies are retried
+    with backoff (never past the fetch deadline); any other status is final."""
+    headers = dict(TP_HEADERS, Referer=referer)
+    last = ''
+    for attempt in range(1, TP_RETRIES + 1):
+        t0 = time.time()
+        try:
+            r = session.get(url, headers=headers, timeout=TP_TIMEOUT)
+            _tp_count(group, time.time() - t0)
+            if r.status_code == 200:
+                try:
+                    return r.json()
+                except ValueError:
+                    last = f'non-JSON body {r.text[:60]!r}'
+            elif r.status_code in (429, 500, 502, 503, 504):
+                last = f'HTTP {r.status_code}'
+            else:
+                log.warning(f"  {group}: HTTP {r.status_code} on {url[-80:]}")
+                return None
+        except requests.RequestException as e:
+            _tp_count(group, time.time() - t0)
+            last = str(e)[:80]
+        if attempt == TP_RETRIES or _past_deadline():
+            break
+        wait = TP_BACKOFF * attempt
+        log.warning(f"  {group}: {last} on {url[-80:]} — retry in {wait}s ({attempt}/{TP_RETRIES - 1})")
+        time.sleep(wait)
+    log.warning(f"  {group}: giving up on {url[-80:]}: {last}")
+    return None
+
+
+def _tp_title(s):
+    """Collapse whitespace; title-case an ALL-CAPS value keeping possessives."""
+    s = ' '.join(str(s or '').split())
+    if s.isupper():
+        s = re.sub(r"'S\b", "'s", s.title())
+    return s
+
+
+def _tp_parse_address(map_address, state):
+    """'STREET \\r\\nCITY, ST ZIP[-4]' -> (street, city, zip5), or None."""
+    m = _TP_ADDR_RE.match(str(map_address or ''))
+    if not m or m.group(3).upper() != state:
+        return None
+    street, city = _tp_title(m.group(1)), _tp_title(m.group(2))
+    if not street or not city:
+        return None
+    return street, city, m.group(4)
+
+
+def _tp_date(value):
+    """'Date: MM-DD-YYYY', 'Last Inspection Date: MM-DD-YYYY' or 'MM-DD-YYYY'
+    -> 'YYYY-MM-DD' (via sane_inspection_date), or None."""
+    m = _TP_DATE_RE.search(str(value or ''))
+    if not m:
+        return None
+    return sane_inspection_date(f'{m.group(3)}-{m.group(1)}-{m.group(2)}')
+
+
+def _tp_column(record, prefix):
+    """The value of the record column that starts with `prefix` ('' if none)."""
+    for v in (record.get('columns') or {}).values():
+        if isinstance(v, str) and v.startswith(prefix):
+            return v[len(prefix):].strip()
+    return ''
+
+
+def _tp_row_day(row):
+    return _tp_date(_tp_column(row, 'Last Inspection Date:'))
+
+
+def _tp_facility_id(b64_id):
+    """The decimal facility id behind the list's base64 id, or None."""
+    try:
+        n = base64.b64decode(str(b64_id or ''), validate=True).decode('ascii')
+        return int(n) if n.isdigit() else None
+    except (ValueError, UnicodeDecodeError):
+        return None
+
+
+def _tp_order_problem(rows, day=None):
+    """'' when `rows` obey the portal's ordering (dated `day` when given, else
+    dates non-increasing; numeric ids strictly ascending within a date and
+    distinct), otherwise a one-line description of the shift."""
+    seen, prev = set(), None
+    for i, row in enumerate(rows):
+        if not isinstance(row, dict):
+            return f'row {i} is not an object'
+        fid = _tp_facility_id(row.get('id'))
+        d = _tp_row_day(row)
+        if fid is None or not d:
+            return f'row {i} has no readable id/date'
+        if day and d != day:
+            return f'row {i} is dated {d}, not {day}'
+        if fid in seen:
+            return f'facility {fid} listed twice'
+        seen.add(fid)
+        if prev is not None:
+            if d > prev[0]:
+                return f'row {i} ({d}) is newer than the row before it ({prev[0]})'
+            if d == prev[0] and fid <= prev[1]:
+                return f'row {i} (id {fid}) is out of id order after {prev[1]}'
+        prev = (d, fid)
+    return ''
+
+
+def _tp_day_rows(session, cfg, day):
+    """Every facility whose last inspection is dated `day` (all pages of one
+    single-day search). Raises RuntimeError when a page cannot be read or the
+    day's pages kept shifting under the run."""
+    group = cfg['group']
+    problem = ''
+    for attempt in range(TP_DAY_REREADS + 1):
+        rows, page = [], 0
+        while True:
+            data = _tp_get_json(session, _tp_search_url(cfg['api'], cfg['day_filters'](day), page),
+                                group, cfg['portal'])
+            if not isinstance(data, list):
+                raise RuntimeError(f'{group}: search page {page} for {day} could not be read')
+            if not data:
+                break
+            rows.extend(data)
+            page += 1
+            if page > TP_MAX_DAY_PAGES:
+                raise RuntimeError(f'{group}: the {day} list exceeds {TP_MAX_DAY_PAGES} pages')
+            time.sleep(TP_DELAY)
+        problem = _tp_order_problem(rows, day)
+        if not problem:
+            return rows
+        log.warning(f"  {group}: the {day} list shifted under the run ({problem}) — re-reading")
+    raise RuntimeError(f'{group}: the {day} facility list kept shifting ({problem})')
+
+
+def _tp_open_rows(session, cfg, start, max_rows):
+    """The open window from `start` to today, newest first (since_date=None):
+    pages until [] or `max_rows` facilities. Returns (rows, listed_to_the_end)."""
+    group = cfg['group']
+    rows, page = [], 0
+    while True:
+        if _past_deadline():
+            raise RuntimeError(f'{group}: fetch deadline reached while listing the history')
+        data = _tp_get_json(session, _tp_search_url(cfg['api'], cfg['open_filters'](start), page),
+                            group, cfg['portal'])
+        if not isinstance(data, list):
+            raise RuntimeError(f'{group}: history list page {page} could not be read')
+        if not data:
+            return rows, True
+        rows.extend(data)
+        page += 1
+        if max_rows and len(rows) >= max_rows:
+            return rows, False
+        if page % 200 == 0:
+            log.info(f"  {group}: {len(rows)} facilities listed so far...")
+        time.sleep(TP_DELAY)
+
+
+def _tp_newest_listed(session, cfg):
+    """The newest 'Last Inspection Date' the portal holds (its unfiltered list
+    is sorted newest first), '' if the probe fails — for the lag note only."""
+    data = _tp_get_json(session, f"{cfg['api']}facilities/0", cfg['group'], cfg['portal'])
+    if not isinstance(data, list):
+        return ''
+    return max((_tp_row_day(r) or '' for r in data if isinstance(r, dict)), default='')
+
+
+def _tp_abs_url(portal, path):
+    """Absolute, percent-encoded URL for a printablePath relative to the portal."""
+    from urllib.parse import urljoin
+    path = str(path or '').strip()
+    if not path:
+        return portal
+    return requests.utils.requote_uri(urljoin(portal, path))
+
+
+def _tp_fetch(cfg, since_date, limit):
+    """Shared Tyler publicportals fetch (see the section comment). `cfg` holds
+    api, portal, group, source, history_start, day_filters(day) and
+    open_filters(start) -> search filter dicts, build(row, hist, since, day)
+    -> (records, hold_dates) for one facility, and optionally
+    excluded_ids(session, since) and enrich(session, records)."""
+    group, source = cfg['group'], cfg['source']
+    with _TP_STATS_LOCK:
+        _TP_STATS[group] = {'requests': 0, 'seconds': 0.0}
+    started = time.time()
+    since = str(since_date)[:10] if since_date else None
+    start = since or cfg['history_start']
+    today = datetime.now().strftime('%Y-%m-%d')
+    log.info(f"Fetching {group} data (since={since_date}, limit={limit})")
+    local = threading.local()
+
+    def session():
+        if not hasattr(local, 's'):
+            local.s = requests.Session()
+        return local.s
+
+    # 1. List the facilities with a last inspection in the window.
+    facilities = {}            # base64 id -> (row, day listed under)
+    complete = True            # the whole window was listed and nothing was cut
+    if since:
+        first = datetime.strptime(start, '%Y-%m-%d')
+        days = [(first + timedelta(days=i)).strftime('%Y-%m-%d')
+                for i in range((datetime.strptime(today, '%Y-%m-%d') - first).days + 1)]
+        if not days:
+            days = [start]
+        for i, day in enumerate(days):
+            if _past_deadline():
+                # Hold at the first unread day so the next lookback starts there.
+                _hold_freshness(source, day, counted=False)
+                _set_group_status(group, 'skipped',
+                                  f'fetch deadline reached; {len(days) - i} days not listed')
+                complete = False
+                break
+            for row in _tp_day_rows(session(), cfg, day):
+                facilities.setdefault(row['id'], (row, day))
+            if limit and len(facilities) >= limit:
+                complete = False
+                break
+    else:
+        rows, ended = _tp_open_rows(session(), cfg, start, limit)
+        for row in rows:
+            if isinstance(row, dict) and row.get('id'):
+                facilities.setdefault(row['id'], (row, _tp_row_day(row)))
+        complete = ended
+    log.info(f"  {group}: {len(facilities)} facilities listed since {start}"
+             f"{'' if complete else ' (bounded read)'}")
+
+    # 2. Facilities another source already covers (Georgia's GNR counties).
+    if cfg.get('excluded_ids'):
+        excluded = cfg['excluded_ids'](session(), start)
+        dropped = [fid for fid in facilities if fid in excluded]
+        for fid in dropped:
+            facilities.pop(fid)
+        if dropped:
+            log.warning(f"  {group}: dropped {len(dropped)} facilities listed under an excluded county")
+
+    # 3. Histories, oldest-listed first so a deadline cut drops the newest tail.
+    ordered = sorted(facilities, key=lambda fid: (facilities[fid][1] or '', _tp_facility_id(fid) or 0))
+
+    def work(fid):
+        if _past_deadline():
+            return fid, 'deadline'
+        data = _tp_get_json(session(), f"{cfg['api']}inspectionsData/{fid}", group, cfg['portal'])
+        time.sleep(TP_DELAY)
+        return fid, data if isinstance(data, list) else 'failed'
+
+    histories, done = {}, 0
+    if ordered:
+        with ThreadPoolExecutor(max_workers=TP_WORKERS) as pool:
+            for future in as_completed([pool.submit(work, fid) for fid in ordered]):
+                fid, hist = future.result()
+                histories[fid] = hist
+                done += 1
+                if done % 250 == 0:
+                    log.info(f"  {group}: {done}/{len(ordered)} facility histories read")
+
+    # 4. Records: every in-window inspection, deduped by inspection id; a
+    #    facility that could not be read drops and holds the day it was
+    #    listed under (counted only when it was tried).
+    records, seen, failed, cut = [], set(), 0, 0
+    for fid in ordered:
+        row, day = facilities[fid]
+        hist = histories.get(fid, 'failed')
+        key = _tp_facility_id(fid) or fid
+        if hist == 'deadline':
+            cut += 1
+            _hold_freshness(source, day, counted=False, key=key)
+            continue
+        if hist == 'failed':
+            failed += 1
+            _hold_freshness(source, day, counted=True, key=key)
+            continue
+        try:
+            recs, holds = cfg['build'](row, hist, since, day)
+        except Exception as e:  # noqa: BLE001 - one bad facility must not sink the state
+            log.warning(f"  {group}: facility {key} could not be parsed ({e}); dropped and held")
+            _hold_freshness(source, day, counted=True, key=key)
+            failed += 1
+            continue
+        for d in holds:
+            _hold_freshness(source, d, counted=True, key=key)
+        for r in recs:
+            if r['source_id'] in seen:
+                continue
+            seen.add(r['source_id'])
+            records.append(r)
+    if cut:
+        complete = False
+        _set_group_status(group, 'skipped', f'fetch deadline reached; {cut} facilities not read')
+    if failed or cut:
+        log.warning(f"  {group}: {failed} facilities could not be read{f', {cut} not read (deadline)' if cut else ''}"
+                    f" — their inspections are dropped and held for the next run")
+
+    # 5. Newest first; `limit` keeps the newest.
+    records.sort(key=lambda r: (r['inspection_date'], -r['risk_score'], r['total_violations'],
+                                r['source_id']), reverse=True)
+    if limit and len(records) > limit:
+        records = records[:limit]
+        complete = False
+
+    # 6. Per-source enrichment (Louisiana's printable narratives).
+    if records and cfg.get('enrich'):
+        cfg['enrich'](session, records)
+
+    # 7. The lag note only after a complete read (never from a bounded one).
+    if complete:
+        newest = max([d for _, d in facilities.values() if d] + [_tp_newest_listed(session(), cfg)],
+                     default='')
+        _note_source_lag(group, newest)
+    stats = _TP_STATS.get(group) or {}
+    log.info(f"{group}: {len(records)} inspections from {len(facilities)} facilities — "
+             f"{stats.get('requests', 0)} requests, {stats.get('seconds', 0):.0f}s in requests, "
+             f"{time.time() - started:.0f}s wall")
+    return records
+
+
+# ── Georgia ──────────────────────────────────────────────────────────────────
+
+def _ga_severity(citation, points):
+    """Tier from the citation's designation, else from the item's Points."""
+    m = _GA_DESIGNATION_RE.search(str(citation or ''))
+    if m:
+        tags = {t.strip().lower() for t in m.group(1).split(',')}
+        if 'p' in tags:
+            return 'priority'
+        if 'pf' in tags:
+            return 'priority_foundation'
+        return 'core'
+    pm = re.search(r'\d+', str(points or ''))
+    pts = int(pm.group()) if pm else 0
+    if pts >= 9:
+        return 'priority'
+    if pts >= 4:
+        return 'priority_foundation'
+    return 'core'
+
+
+def _ga_item_title(item):
+    """'6-1B - proper hot holding temperatures' -> 'Proper hot holding temperatures'."""
+    s = ' '.join(_GA_ITEM_CODE_RE.sub('', str(item or ''), count=1).split())
+    return s[:1].upper() + s[1:]
+
+
+def _ga_observation(notes):
+    """The inspector's observation from an 'Inspector Notes:' value, without
+    the corrective-action segments and the pasted rule text."""
+    s = _GA_NOTES_PREFIX_RE.sub('', str(notes or ''))
+    s = _GA_CODE_REF_RE.sub('', s)
+    s = ' '.join(s.split())
+    m = _GA_RULE_RE.search(s)
+    if m:
+        s = s[:m.start()]
+    kept, pos = [], 0
+    while True:
+        m = _GA_CA_RE.search(s, pos)
+        if not m:
+            kept.append(s[pos:])
+            break
+        kept.append(s[pos:m.start()])
+        nxt = _GA_OBS_RE.search(s, m.end())
+        if not nxt:
+            break
+        pos = nxt.start()
+    return ' '.join(''.join(kept).split()).strip(' .;:-,')
+
+
+def _ga_violation(line):
+    """One inspectionsData violation (a 6-string list) -> [category, severity,
+    text], or None for an unreadable entry."""
+    if not isinstance(line, list) or len(line) < 2:
+        return None
+    title = _ga_item_title(line[0])
+    obs = _ga_observation(line[5] if len(line) > 5 else '')
+    text = f'{title}: {obs}' if obs else title
+    if len(line) > 4 and str(line[4] or '').strip().lower() == 'repeat: yes':
+        text += ' (repeat violation)'
+    if not text.strip():
+        return None
+    cat, _, _ = classify_violation(text)
+    return [cat, _ga_severity(line[1], line[2] if len(line) > 2 else ''), text[:500]]
+
+
+def _ga_build(row, hist, since, day):
+    """Records for one Georgia facility: every scored Food Service inspection
+    dated on or after `since` (all when None). Returns (records, hold_dates):
+    an inspection whose violations are not readable, and a listed day missing
+    from the history, hold the window."""
+    columns = row.get('columns') or {}
+    name = _tp_title(row.get('name'))
+    parsed = _tp_parse_address(row.get('mapAddress'), 'GA')
+    if not name or not parsed:
+        log.warning(f"  Georgia: facility {row.get('id')} has no usable name/address; skipped")
+        return [], []
+    if _tp_column(row, 'Permit Type:') not in ('', GA_PERMIT_TYPE):
+        return [], []
+    street, city, zip5 = parsed
+    phone = re.sub(r'\D', '', _tp_column(row, 'For More Information Call:'))
+    metro = GA_METRO if phone in GA_ATLANTA_EH_PHONES else ''
+    out, holds, listed_seen = [], [], False
+    for insp in hist:
+        if not isinstance(insp, dict):
+            continue
+        date = _tp_date(_tp_column(insp, 'Date:'))
+        if not date:
+            continue
+        if date == day:
+            listed_seen = True
+        if since and date < since:
+            continue
+        purpose = _tp_column(insp, 'Inspection Purpose:')
+        if purpose in GA_SKIP_PURPOSES:
+            continue
+        try:
+            score = int(float(_tp_column(insp, 'Score:')))
+        except (TypeError, ValueError):
+            score = 0
+        if score <= 0:
+            continue                    # an unscored visit has no grade basis
+        viol = insp.get('violations')
+        if not isinstance(viol, dict):
+            holds.append(date)          # unreadable violations: never clean
+            continue
+        violations = []
+        for k in sorted(viol, key=lambda x: int(x) if str(x).isdigit() else 0):
+            v = _ga_violation(viol[k])
+            if v:
+                violations.append(v)
+        pv = sum(1 for v in violations if v[1] == 'priority')
+        pfv = sum(1 for v in violations if v[1] == 'priority_foundation')
+        insp_id = insp.get('inspectionId')
+        out.append({
+            'name': name,
+            'address': street,
+            'city': city,
+            'state': 'GA',
+            'zip': zip5,
+            'latitude': None,
+            'longitude': None,
+            'inspection_date': date,
+            'original_score': score,
+            'risk_score': max(0, min(100, score)),
+            'priority_violations': pv,
+            'priority_foundation_violations': pfv,
+            'core_violations': len(violations) - pv - pfv,
+            'total_violations': len(violations),
+            'violations': violations,
+            'inspection_type': purpose,
+            'results': '',
+            'source': GA_SOURCE,
+            'source_url': _tp_abs_url(GA_PORTAL, insp.get('printablePath')),
+            'source_id': f'ga_{insp_id}',
+            'metro': metro,
+        })
+    if day and not listed_seen:
+        holds.append(day)               # the inspection the list promised is not in the history
+    return out, holds
+
+
+def _ga_excluded_ids(session, start):
+    """Facility ids the three GNR counties list for the window (normally none)."""
+    excluded = set()
+    for county in GA_EXCLUDED_COUNTIES:
+        page = 0
+        while True:
+            data = _tp_get_json(session, _tp_search_url(
+                GA_API, {'county': county, 'permitType': GA_PERMIT_TYPE, 'from': start}, page),
+                GA_GROUP, GA_PORTAL)
+            if not isinstance(data, list) or not data:
+                break
+            excluded.update(r.get('id') for r in data if isinstance(r, dict))
+            page += 1
+            if page > TP_MAX_DAY_PAGES:
+                break
+            time.sleep(TP_DELAY)
+        if page:
+            log.warning(f"  Georgia: the statewide portal lists {county} facilities "
+                        f"(GNR Health, covered by the MHD 'gwinnett' slug) — dropping them")
+    return excluded
+
+
 def fetch_georgia(since_date=None, limit=None):
-    raise NotImplementedError('fetch_georgia: implemented on the tyler-portals branch')
+    """
+    Fetch Georgia DPH food service inspections statewide (156 counties:
+    Atlanta's Fulton/DeKalb/Cobb and the rest of the state; Gwinnett, Newton
+    and Rockdale are GNR Health on the MHD 'gwinnett' slug and are not in this
+    portal). Official 0-100 score (A 90+ / B 80-89 / C 70-79 / U below, the
+    same cutoffs DineScores uses) as original_score and risk_score; severity
+    from the state's (p)/(pf)/(c) citation designations; violation text = the
+    form item's title plus the inspector's observation. 'Temporary' (event
+    booth) inspections are skipped. metro 'Atlanta' for the nine core counties
+    (from the row's county EH phone), '' elsewhere. No coordinates: main()
+    geocodes. See the section comment for the window/hold/deadline rules.
+    """
+    cfg = {
+        'api': GA_API, 'portal': GA_PORTAL, 'group': GA_GROUP, 'source': GA_SOURCE,
+        'history_start': GA_HISTORY_START,
+        # inclusive on both ends
+        'day_filters': lambda day: {'permitType': GA_PERMIT_TYPE, 'from': day, 'to': day},
+        'open_filters': lambda start: {'permitType': GA_PERMIT_TYPE, 'from': start},
+        'build': _ga_build,
+        'excluded_ids': _ga_excluded_ids,
+    }
+    return _tp_fetch(cfg, since_date, limit)
+
+
+# ── Louisiana ────────────────────────────────────────────────────────────────
+
+def _la_institutional(name, permit_name):
+    """True for an institutional kitchen (see _LA_INSTITUTION_RE)."""
+    return bool(_LA_INSTITUTION_RE.search(f'{name} {permit_name}'))
+
+
+def _la_item(title):
+    """'23 - food safety certification' -> (23, 'Food safety certification')."""
+    m = _LA_ITEM_RE.match(str(title or ''))
+    if not m:
+        s = ' '.join(str(title or '').split())
+        return None, s[:1].upper() + s[1:]
+    text = ' '.join(m.group(2).split())
+    return int(m.group(1)), text[:1].upper() + text[1:]
+
+
+def _la_parse_printable(html_text):
+    """The Notice of Violations: {'date': 'YYYY-MM-DD', 'items': {item#:
+    [narrative, ...]}} in form order, or None when the page is not one."""
+    text = str(html_text or '')
+    if 'Notice of Violations' not in text:
+        return None
+    dm = _LA_PRINTABLE_DATE_RE.search(text)
+    if not dm:
+        return None
+    items = {}
+    for m in _LA_PRINTABLE_ROW_RE.finditer(text):
+        desc = ' '.join(html_lib.unescape(re.sub(r'<[^>]+>', ' ', m.group('desc'))).split())
+        dm2 = _LA_PRINTABLE_DESC_RE.match(desc)
+        if not dm2:
+            continue
+        narrative = _LA_TAG_RE.sub(' ', dm2.group(2)).replace('| ', ', ').replace('|', ',')
+        narrative = ' '.join(narrative.split()).strip(' -')
+        items.setdefault(int(dm2.group(1)), []).append(narrative)
+    return {'date': f'{dm.group(3)}-{dm.group(1)}-{dm.group(2)}', 'items': items}
+
+
+def _la_build_factory(aux):
+    """_la_build with a side table `aux`: source_id -> (printable url,
+    [item numbers]) for the narrative pass."""
+    def build(row, hist, since, day):
+        name = _tp_title(row.get('name'))
+        parsed = _tp_parse_address(row.get('mapAddress'), 'LA')
+        if not name or not parsed:
+            log.warning(f"  Louisiana: facility {row.get('id')} has no usable name/address; skipped")
+            return [], []
+        street, city, zip5 = parsed
+        parish = _tp_column(row, 'Parish:')
+        metro = LA_METRO_PARISHES.get(parish, '')
+        out, holds, listed_seen = [], [], False
+        for insp in hist:
+            if not isinstance(insp, dict):
+                continue
+            date = _tp_date((insp.get('columns') or {}).get('0'))
+            if not date:
+                continue
+            if date == day:
+                listed_seen = True
+            if since and date < since:
+                continue
+            purpose = _tp_column(insp, 'Inspection Purpose:')
+            if purpose in LA_SKIP_PURPOSES or _la_institutional(row.get('name'), _tp_column(insp, 'Permit Name:')):
+                continue
+            viol = insp.get('violations')
+            if not isinstance(viol, dict):
+                holds.append(date)
+                continue
+            lines = [viol[k] for k in sorted(viol, key=lambda x: int(x) if str(x).isdigit() else 0)]
+            violations, item_numbers, bad = [], [], False
+            if lines and all(line == LA_CLEAN_MARKER for line in lines):
+                lines = []
+            for line in lines:
+                if not isinstance(line, list) or len(line) < 2 or not line[1]:
+                    bad = True
+                    break
+                sev = LA_SEVERITY.get(str(line[0]).strip())
+                if sev is None:
+                    log.warning(f"  Louisiana: unknown severity label {line[0]!r} (read as core)")
+                    sev = 'core'
+                number, title = _la_item(line[1])
+                tag = str(line[2] or '').strip(' -').lower() if len(line) > 2 else ''
+                text = title + (' (repeat violation)' if tag == 'repeat' else '')
+                cat, _, _ = classify_violation(text)
+                violations.append([cat, sev, text[:500]])
+                item_numbers.append(number)
+            if bad:
+                holds.append(date)      # a malformed entry: never ship it as read
+                continue
+            risk, pv, pfv, cv = calc_risk_score(violations)
+            insp_id = insp.get('inspectionId')
+            sid = f'lald_{insp_id}'
+            url = _tp_abs_url(LA_PORTAL, insp.get('printablePath'))
+            aux[sid] = (url if insp.get('printablePath') else '', item_numbers)
+            out.append({
+                'name': name,
+                'address': street,
+                'city': city,
+                'state': 'LA',
+                'zip': zip5,
+                'latitude': None,
+                'longitude': None,
+                'inspection_date': date,
+                'original_score': None,     # LDH publishes no score
+                'risk_score': risk,
+                'priority_violations': pv,
+                'priority_foundation_violations': pfv,
+                'core_violations': cv,
+                'total_violations': len(violations),
+                'violations': violations,
+                'inspection_type': purpose,
+                'results': '',
+                'source': LA_SOURCE,
+                'source_url': url,
+                'source_id': sid,
+                'metro': metro,
+            })
+        if day and not listed_seen:
+            holds.append(day)
+        return out, holds
+    return build
+
+
+def _la_enrich_factory(aux):
+    """Narrative pass: GET each shipped inspection's printable (oldest first,
+    TP_WORKERS workers, within the deadline and LA_PRINTABLE_MAX_PER_RUN) and
+    put the inspector's text after each item title. Failures keep the titles."""
+    def enrich(session, records):
+        todo = [r for r in records if r['violations'] and aux.get(r['source_id'], ('', []))[0]]
+        todo.sort(key=lambda r: (r['inspection_date'], r['source_id']))
+        skipped = max(0, len(todo) - LA_PRINTABLE_MAX_PER_RUN)
+        todo = todo[:LA_PRINTABLE_MAX_PER_RUN]
+        if not todo:
+            return
+        log.info(f"  Louisiana: reading {len(todo)} printable notices for the narrative text"
+                 f"{f' ({skipped} beyond the per-run cap keep their titles)' if skipped else ''}...")
+        counts = defaultdict(int)
+
+        def work(rec):
+            if _past_deadline():
+                return rec, 'deadline'
+            url = aux[rec['source_id']][0]
+            headers = dict(TP_HEADERS, Referer=LA_PORTAL, Accept='text/html,*/*;q=0.8')
+            t0 = time.time()
+            try:
+                r = session().get(url, headers=headers, timeout=TP_TIMEOUT)
+                _tp_count(LA_GROUP, time.time() - t0)
+                time.sleep(TP_DELAY)
+                if r.status_code != 200:
+                    return rec, 'failed'
+                return rec, _la_parse_printable(r.text) or 'unparsed'
+            except requests.RequestException:
+                _tp_count(LA_GROUP, time.time() - t0)
+                time.sleep(TP_DELAY)
+                return rec, 'failed'
+
+        with ThreadPoolExecutor(max_workers=TP_WORKERS) as pool:
+            for future in as_completed([pool.submit(work, r) for r in todo]):
+                rec, parsed = future.result()
+                if not isinstance(parsed, dict):
+                    counts[parsed] += 1
+                    continue
+                if parsed['date'] != rec['inspection_date']:
+                    counts['date mismatch'] += 1
+                    continue
+                items = {k: list(v) for k, v in parsed['items'].items()}
+                numbers = aux[rec['source_id']][1]
+                for v, number in zip(rec['violations'], numbers):
+                    pool_ = items.get(number)
+                    if not pool_:
+                        continue
+                    narrative = pool_.pop(0)
+                    if not narrative:
+                        continue
+                    text = v[2]
+                    repeat = text.endswith(' (repeat violation)')
+                    title = text[:-len(' (repeat violation)')] if repeat else text
+                    text = f'{title}: {narrative}' + (' (repeat violation)' if repeat else '')
+                    v[0] = classify_violation(text)[0]
+                    v[2] = text[:500]
+                counts['read'] += 1
+        if counts.get('deadline'):
+            log.warning(f"  Louisiana: fetch deadline reached — {counts['deadline']} inspections "
+                        f"ship with item titles only")
+        log.info("  Louisiana: printables " + ', '.join(f"{n} {why}" for why, n in sorted(counts.items())))
+    return enrich
 
 
 def fetch_louisiana(since_date=None, limit=None):
-    raise NotImplementedError('fetch_louisiana: implemented on the tyler-portals branch')
+    """
+    Fetch Louisiana LDH retail food inspections statewide (all 64 parishes;
+    metro chips 'New Orleans' for Orleans/Jefferson/St. Tammany/St. Bernard
+    and 'Baton Rouge' for East/West Baton Rouge, Ascension and Livingston).
+    LDH publishes no score or grade: original_score is None and risk_score =
+    100 - 5 per Critical item - 1 per Non-Critical item (calc_risk_score over
+    the state's own two categories); a clean inspection ({'0': ['None']})
+    ships with no violations and risk 100. Violation text is the state's item
+    title with the inspector's narrative from the printable notice appended
+    (titles alone when a printable cannot be read). Institutional permit
+    types (schools, day cares, hospitals, nursing homes, jails...) are
+    skipped (_LA_INSTITUTION_RE). No coordinates: main() geocodes. See the
+    section comment for the window/hold/deadline rules; the date bounds here
+    are strictly exclusive, so one day is from=day-1, to=day+1.
+    """
+    aux = {}
+
+    def day_filters(day):
+        d = datetime.strptime(day, '%Y-%m-%d')
+        return {'keyword': '', 'from': (d - timedelta(days=1)).strftime('%Y-%m-%d'),
+                'to': (d + timedelta(days=1)).strftime('%Y-%m-%d')}
+
+    def open_filters(start):
+        d = datetime.strptime(start, '%Y-%m-%d')
+        return {'keyword': '', 'from': (d - timedelta(days=1)).strftime('%Y-%m-%d')}
+
+    cfg = {
+        'api': LA_API, 'portal': LA_PORTAL, 'group': LA_GROUP, 'source': LA_SOURCE,
+        'history_start': LA_HISTORY_START,
+        'day_filters': day_filters,
+        'open_filters': open_filters,
+        'build': _la_build_factory(aux),
+        'enrich': _la_enrich_factory(aux),
+    }
+    return _tp_fetch(cfg, since_date, limit)
 
 
 # ─── PHOENIX / MARICOPA COUNTY, AZ (envapp.maricopa.gov + county ArcGIS) ────
