@@ -481,11 +481,21 @@ people covered per unit of work:
   title (6-501.112) under whichever pest code the inspector cited, and that
   wording is registered in `CITED_PEST_ITEM_TITLES` (`_item_key` drops the
   item number and page reference); so are the bare TFER/FDA item 38 title
-  'Insects, rodents, and animals not present' that Harris County, Georgia
-  (empty notes) and Pima print and McKinney's no-observation placeholder:
-  pest chip and 'Pests found', no F, whole-line matches only. A new source
-  that prints form titles with pest words needs either a neutral heading or
-  an entry in `CITED_PEST_ITEM_TITLES`.
+  'Insects, rodents, and animals not present' that Harris County and Georgia
+  (empty notes) print, Harris's older item-34 title and McKinney's
+  no-observation placeholder: pest chip and 'Pests found', no F, whole-line
+  matches only. The regex itself removes code titles that list every kind of
+  pest after an evidence word (`DEAD_PEST_TITLE_RE`, `LISTED_PEST_TITLE_RE`:
+  "Dead or trapped birds, insects, rodents and other pests", "No Evidence of
+  Insect contamination, rodent/other animals", Ohio's "Presence of live
+  insects, rodents, and other pests" that Cuyahoga prints before every pest
+  line) and reads droppings written pest-first ("rodent droppings") unless a
+  negation precedes them in the clause (`PEST_AFTER_RE`); measured 2026-11-03
+  over 244,538 distinct lines: 228 F's gone, all from those titles, 230 come
+  in, all recorded droppings. `src/grading.js` mirrors the rule (41,952
+  lines checked identical). A new source that prints form titles with pest
+  words needs either a neutral heading or an entry in
+  `CITED_PEST_ITEM_TITLES`.
 - **Hedgerow portals have no server-side date filter.** Pima's whole
   facility list (5,177 rows, 5 MB) answers only sorted by id (the SPA's own
   name sort 500s) and the county publishes ~16 days late; Mesquite's list
@@ -523,10 +533,20 @@ people covered per unit of work:
   the same records and copies the chunk's freshness entries
   (`freshness_copy.py`: an existing group never moves backwards or picks up
   a backfill hold; a new group keeps its hold and the first weekly runs
-  re-read from it). The 2026-11 backfills ran this way, one worktree per
-  vendor family (`docs/expansion-2026-11/`). Seeds in one push load in path
+  re-read from it). A hold from a long backfill can pin the first weekly runs
+  at the oldest unreadable record of the whole history (Pima's 746
+  unpublished checklists reached back to 2024-12): `trim_holds.py` keeps
+  only the last 45 days of failures and records the rest as given up. The
+  2026-11 backfills ran this way, one worktree per vendor family
+  (`docs/expansion-2026-11/`), and data.js was then rebuilt once from
+  `main`'s file plus every chunk's records. Seeds in one push load in path
   order, so a chunk that must win (Louisiana's narratives over the
   titles-only history) needs a tag that sorts last.
+- **States are two-letter codes on output.** Portals sometimes spell the
+  state out (38 VDH rows said 'VIRGINIA'), which split a town into two
+  (city, state) buckets and skipped the state's coordinate box;
+  `state_code()` maps names to codes in `write_data_js` (kept records heal on
+  the next write) and `write_d1_sql`.
 
 ## Jev violation reader
 

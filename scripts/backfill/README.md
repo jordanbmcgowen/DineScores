@@ -21,9 +21,12 @@ scripts/backfill/seed_check.py <seed.sql.gz>
     D1 statement cap and an in-memory sqlite replay with row counts
 scripts/backfill/freshness_copy.py <wt freshness.json> <records.json.gz>
     copies the chunk's group/source entries into data/source_freshness.json
-scripts/backfill/geocode_backlog.py <out.records.json.gz> <nominatim cap> <records.json.gz>...
+scripts/backfill/geocode_backlog.py [--patch] <out.records.json.gz> <nominatim cap> <records.json.gz>...
     one more geocoding pass over the restaurants a backfill left without
-    coordinates (then absorb its output)
+    coordinates (absorb.sh runs it with --patch on every chunk)
+scripts/backfill/trim_holds.py [--horizon-days 45] <group>...
+    after a long backfill, keep only recent held failures so the first
+    weekly runs do not re-read the whole history (older ones are given up)
 ```
 
 Environment: `BACKFILL_DIR` (where chunk outputs and logs go, default
