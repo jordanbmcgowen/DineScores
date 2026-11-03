@@ -6,11 +6,33 @@ the `_mhd_*` helpers, `fetch_dfw`, `_fetch_mhd_jurisdiction_api`,
 `_parse_mhd_record`, the MHD block in `main()`, tests/test_mhd_buckets.py
 and the MHD parts of tests/test_refresh_hardening.py.
 
-## FIX PASS (2026-11-03, after two adversarial reviews) — IN PROGRESS
+## FIX PASS (2026-11-03, after two adversarial reviews) — DONE
 
-Resume here if restarted: the code fixes below are written; run the suite
-(UTC and TZ=America/Chicago), relay tests, py_compile, then the live
-test-mode run, then commit.
+Committed 4d29c26 (+ this PROGRESS update). Suite 341 green under UTC AND
+TZ=America/Chicago, relay 24 PASS, py_compile ok, both edited modules parse
+as 3.11. Live, after the fixes (direct to the portal, no relay, 0x 403/429,
+no ban):
+- `python3 dinescores_pipeline.py --mode test --cities fortbend richmond
+  --output /tmp/mhd_fixed.json`: 04:39:09Z -> 04:41:23Z (134 s), 125
+  inspections (25 x fbceh, va-richmond, va-henrico, va-chesterfield,
+  va-chickahominy), 123 restaurants, both groups 'ok', rc 0; 39 search
+  POSTs (one-day windows from 2026-01-01), 125 detail GETs, 125/125 read
+  (0 dropped, 0 non-inspection pages); Census batch geocoded 22/25 + 94/100
+  -> 114/123 with coordinates (93%; one Nominatim timeout in the fallback).
+  Grades: Fort Bend A15 B7 C3 (official 70-100, 0 text-forced F), VDH
+  Richmond City A14 B4 C3 F4, Henrico A9 B5 C4 F6, Chesterfield A12 B7 C2 F4,
+  Chickahominy A14 B4 C1 F5 (risk 0-100 computed from the observations);
+  the three text-forced F's left are named findings ("two live small
+  roaches", "multiple live roaches", "rodent feces throughout kitchen").
+  Nothing out of 0-100, no zero coordinates, no violation text with a
+  newline, >500 chars, an email or a phone number.
+- `python3 dinescores_pipeline.py --mode full --since-date 2026-10-20
+  --cities fortbend --output /tmp/fortbend_14d_fixed.json`: 04:42:01Z ->
+  04:43:26Z (85 s), 120 inspections over 15 one-day windows (15 POSTs, 120
+  detail GETs, 120/120 read), 117 restaurants, 101/120 geocoded, rc 0.
+  Grades A95 B19 C3, official 70-100, 0 text-forced F — before the fix the
+  same window was A94 B18 C2 F3: Timewise Food Store #306 (official 97) is
+  an A again, Q Zone Bar & Billards (84) a B, Sushi Hana (70) a C.
 
 | finding | verdict | fix |
 |---|---|---|
