@@ -9,7 +9,8 @@ Montgomery County MD, Detroit, Sacramento, Fairfax County, Portland OR
 metro incl. Clark County WA, Colorado Springs/Fort Collins/Greeley/Adams
 County CO, Arapahoe/Douglas County CO, Provo/Orem, Yolo County, San Jose/
 Santa Clara County, San Diego County, Omaha/Douglas County, Orange County
-CA, San Antonio, Williamson County TX, Fort Bend County TX, Nashville/
+CA, San Antonio, Williamson County TX, Fort Bend County TX, Harris County
+TX (unincorporated + Katy, Humble, Tomball, La Porte, Deer Park), Nashville/
 Memphis/Knoxville/Chattanooga, Phoenix/Maricopa County AZ, Tucson/Pima
 County AZ, Lubbock TX, Mesquite TX, Cuyahoga County OH) plus all of Florida, New York State, Delaware, South Carolina, Georgia
 (Atlanta: Fulton/DeKalb/Cobb and the other 153 counties; Gwinnett/Newton/
@@ -481,6 +482,21 @@ people covered per unit of work:
   are dropped by type (`HH_MOBILE_TYPE_RE`; 84 Pima trucks share one
   commissary address). An unread checklist drops the inspection; an unread
   facility list holds the whole window.
+- **Harris County's search field trails its inspection lists.** HCPH's
+  `lastCompletedInspectionDate` stays stuck on an earlier visit for ~2% of
+  establishments (visits 5-11 days later never reflected, months on; probed
+  2026-11-03 over 390 establishments), so `fetch_harris` reads every window
+  from `HARRIS_LC_LAG_DAYS` (28) before its start, search filter and kept
+  inspections alike — do not optimise the margin away; an unreflected visit
+  more than ~28 days after the previous reflected one is still missed until
+  the next reflected inspection. Only ACTIVE permits are searchable (a 404
+  inspection list is skipped and held; closed places' history is
+  unreachable). A score of 100 has no OUT items, so its item list is not
+  requested. 'Permitting' is the annual permit inspection of an operating
+  place, not the pre-opening visit, and ships. The county's score sits 2
+  points above 100 − demerits on ~1.5% of inspections (county score kept).
+  metro is '' like `fetch_houston`'s records: set both to 'Houston' together
+  or neither.
 - **Backfills are chunked and absorbed, not refetched.** `--output-records`
   dumps a run's inspection records (Jev reading included) and
   `--input-records` feeds such files into a later run's data.js merge and D1
@@ -521,8 +537,8 @@ impact and the open policy decisions; `scripts/jev_shadow.py` reproduces it.
   / `BOUNDED_TIER_SOURCES` (which sources may be re-scored or re-tiered), the
   chip and summary-severity maps. A source-stated tier never moves (Omaha,
   Santa Clara, San Diego, Orange County, McKinney, Georgia, Louisiana,
-  Maricopa County and the Hedgerow portals (Pima County, Lubbock, Mesquite)
-  included: their agencies state it; McKinney's TX-form item
+  Maricopa County, Harris County (P/F/C violation groups) and the Hedgerow
+  portals (Pima County, Lubbock, Mesquite) included: their agencies state it; McKinney's TX-form item
   points are the city's tiers and its `risk_score` is the form score 100 −
   demerits, never recomputed; Georgia's (p)/(pf)/(c) designations carry its
   official score; Louisiana's Critical/Non-Critical and Maricopa's
