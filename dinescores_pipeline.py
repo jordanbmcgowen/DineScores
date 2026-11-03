@@ -18,7 +18,7 @@ DFW cities:
   --cities dallas fortworth plano
 """
 
-import os, sys, json, re, time, math, hashlib, logging, argparse, base64, zlib
+import os, sys, json, re, time, math, hashlib, logging, argparse, base64, zlib, gzip
 import html as html_lib
 import threading
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -11755,6 +11755,35 @@ def save_to_json(all_inspections, output_path):
     return output
 
 
+def write_records_json(all_inspections, output_path):
+    """Dump every inspection of this run (the full fetcher dicts, Jev reading
+    included) so a backfill can be split across runs or machines and put
+    back together with --input-records. Gzipped when the path ends in .gz."""
+    opener = gzip.open if str(output_path).endswith('.gz') else open
+    with opener(output_path, 'wt', encoding='utf-8') as f:
+        json.dump(all_inspections, f, default=str)
+    log.info(f"Saved {len(all_inspections)} inspection records to {output_path}")
+
+
+def read_records_json(paths):
+    """Load inspection records written by write_records_json (any number of
+    files; a file may be gzipped). Each record must carry the fetcher
+    contract's identity and date keys or the file is refused."""
+    records = []
+    for path in paths:
+        opener = gzip.open if str(path).endswith('.gz') else open
+        with opener(path, 'rt', encoding='utf-8') as f:
+            data = json.load(f)
+        if not isinstance(data, list):
+            raise ValueError(f"{path}: expected a JSON list of inspection records")
+        for i, rec in enumerate(data):
+            if not isinstance(rec, dict) or not all(k in rec for k in ('name', 'address', 'city', 'inspection_date', 'source')):
+                raise ValueError(f"{path}: record {i} is not an inspection record")
+        log.info(f"Loaded {len(data)} inspection records from {path}")
+        records.extend(data)
+    return records
+
+
 def _load_existing_data_js(path):
     """Load records from an existing data.js file. Returns a list of compact record dicts."""
     try:
@@ -12619,7 +12648,8 @@ def _run_jev_pass(all_inspections, args):
         reader = jev_reader.JevReader.from_env(deadline=deadline)
         log.info(f"Jev pass: mode={reader.mode} decide={sorted(reader.decide_set) if reader.mode == 'decide' else []} "
                  f"budget={args.jev_deadline_minutes or 'none'} min")
-        stats = jev_reader.apply_to_inspections(all_inspections, reader, label=args.mode)
+        unread = [r for r in all_inspections if not r.get('_jev')]   # absorbed records keep their reading
+        stats = jev_reader.apply_to_inspections(unread, reader, label=args.mode)
         path = reader.flush_cache(args.mode)
         stats['cache_file'] = os.path.basename(path) if path else None
         stats['status'] = 'ok' if reader.active or reader.mode == 'off' else 'inactive'
@@ -12649,8 +12679,9 @@ def main():
     parser = argparse.ArgumentParser(description='DineScores Data Pipeline')
     parser.add_argument('--mode', choices=['full', 'weekly', 'test'], default='test',
                         help='Run mode: full (all data), weekly (last 8 days), test (25 records)')
-    parser.add_argument('--cities', nargs='+', default=['chicago', 'nyc', 'sf', 'dfw'],
-                        help='Cities to fetch (use "dfw" for all DFW metro cities, or individual slugs like "dallas", "fortworth")')
+    parser.add_argument('--cities', nargs='+', default=None,
+                        help='Cities to fetch (use "dfw" for all DFW metro cities, or individual slugs like "dallas", "fortworth"). '
+                             'Default: chicago nyc sf dfw, or nothing when --input-records is given')
     parser.add_argument('--output', default=os.path.join(os.path.dirname(os.path.abspath(__file__)), 'dinescores_data.json'),
                         help='Output JSON file path')
     parser.add_argument('--output-data-js', default=None,
@@ -12690,9 +12721,20 @@ def main():
                         help='Time budget for the Jev violation-reading pass that runs after '
                              'the fetch phase (JEV_MODE=shadow|decide). Past it, remaining '
                              'lines are read by the regex as today. Unset = no budget.')
+    parser.add_argument('--output-records', default=None,
+                        help='Also write every inspection record of this run as JSON (.gz '
+                             'allowed) so the run can be absorbed later with --input-records: '
+                             'a backfill split across machines or runs is put back together '
+                             'into one data.js merge without refetching.')
+    parser.add_argument('--input-records', nargs='+', default=None,
+                        help='Record files written by --output-records to add to this run before '
+                             'the output stage (data.js merge, D1 SQL). With no --cities nothing '
+                             'is fetched; the freshness file is not updated for absorbed records.')
     parser.add_argument('--debug', action='store_true',
                         help='Enable debug logging for network interception diagnostics')
     args = parser.parse_args()
+    if args.cities is None:
+        args.cities = [] if args.input_records else ['chicago', 'nyc', 'sf', 'dfw']
 
     if args.debug:
         logging.getLogger().setLevel(logging.DEBUG)
@@ -13079,6 +13121,9 @@ def main():
             log.error(f"{group} fetch failed: {e}")
             _record_group(group, [], 'error', str(e))
 
+    if args.input_records:
+        all_inspections.extend(read_records_json(args.input_records))
+
     # Drop coordinates that are obviously wrong before any output is written
     drop_implausible_coords(all_inspections)
 
@@ -13086,6 +13131,9 @@ def main():
     # after the fetch phase on its own budget and can only ever leave a line
     # read by today's regex; it never fails the run or drops a record.
     _run_jev_pass(all_inspections, args)
+
+    if args.output_records:
+        write_records_json(all_inspections, args.output_records)
 
     log.info(f"\nTotal inspections collected: {len(all_inspections)}")
 
