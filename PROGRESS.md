@@ -9,7 +9,7 @@ Branch `feat/maricopa`, worktree `/home/user/wt-maricopa`. Section header in
 - [x] Parsers verified against every captured page (4 permit pages, 5 detail pages, not-available page).
 - [x] Live test-mode run (25 records): see Live results.
 - [ ] Live 14-day bounded run (weekly-equivalent cost measurement).
-- [ ] Fixtures + tests/test_maricopa.py; whole suite green.
+- [x] Fixtures + tests/test_maricopa.py (44 tests); whole suite green (318 tests, node tests/test_relay.mjs, py_compile) at 01:14 UTC.
 - [ ] Final cleanup + report.
 
 ## Design decisions (so a successor does not re-derive them)
@@ -44,4 +44,8 @@ Branch `feat/maricopa`, worktree `/home/user/wt-maricopa`. Section header in
   check the log, re-run if needed.
 
 ## Open questions
-(none yet)
+- Posting lag: the 58 probe-sample permits gained 0 rows between 11/02 and
+  11/03 (expected ~0.5/day), so the one-day diff says nothing; use the
+  14-day run's newest-row dates instead.
+- Detail-date vs row-date: the ROW date ships (commit after a9e94f7); a
+  mismatch is only logged. Both come from the same county record.
