@@ -1,0 +1,27 @@
+[
+ {
+  "id": "c961e5b9-7689-4c21-a896-76c47bbe9d22",
+  "description": "Food Contact Surfaces and Returnables; Cleaned and Sanitized @____ PPM         ",
+  "result": "Corrected During Inspection",
+  "isCritical": false,
+  "writtenComment": null,
+  "responseComment": null,
+  "followUpDate": null,
+  "category": {
+   "id": "05ce4e61-17e6-4a6b-953e-92be649d26f6",
+   "description": "Protection from Contamination"
+  },
+  "cannedComments": [
+   {
+    "id": "3a1cb76a-daca-4baf-a937-217b7c014606",
+    "description": "228.113(1) - Food-contact surfaces clean to sight and touc",
+    "severity": "Priority",
+    "locationComment": null,
+    "observationComment": null,
+    "responseComment": null,
+    "readings": null,
+    "followUpDate": null
+   }
+  ]
+ }
+]

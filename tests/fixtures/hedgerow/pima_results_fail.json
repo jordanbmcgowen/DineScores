@@ -1,0 +1,74 @@
+[
+ {
+  "id": "737ca9ab-b432-4816-bba8-8e0ade6ec5b4",
+  "description": "Certified Food Protection Manager",
+  "result": "Out of Compliance",
+  "isCritical": false,
+  "writtenComment": null,
+  "responseComment": null,
+  "category": {
+   "id": "afd224a6-337f-4345-ad18-3f5f5433d588",
+   "description": "Supervision"
+  },
+  "cannedComments": [
+   {
+    "id": "e9a8f662-5a88-4b22-b3cd-3b7c9dda5ff7",
+    "description": "2-102.12 (A) At least one EMPLOYEE that has supervisory and management responsibility and the authority to direct and control FOOD preparation and service shall be a certified FOOD protection manager who has shown proficiency of required information through passing a test that is part of an ACCREDITED PROGRAM.   ",
+    "severity": "Core",
+    "locationComment": "MANAGER  CERTIFICATION",
+    "observationComment": "not addressed",
+    "responseComment": null,
+    "readings": null
+   }
+  ]
+ },
+ {
+  "id": "d8577d91-499e-4233-b870-8db54d7df1fb",
+  "description": "Required records available: shellstock tags, parasite destruction ",
+  "result": "Out of Compliance",
+  "isCritical": true,
+  "writtenComment": null,
+  "responseComment": null,
+  "category": {
+   "id": "7eb38959-4b03-42b9-ba92-b4b54f7175af",
+   "description": "Approved Source"
+  },
+  "cannedComments": [
+   {
+    "id": "bca63546-2879-4409-b445-681c15bd6c2d",
+    "description": "3-202.18 (A) SHELLSTOCK shall be obtained in containers bearing legible source identification tags or labels that are affixed by the harvester or DEALER that depurates, ships, or reships the SHELLSTOCK, as specified in the National Shellfish Sanitation Program Guide for the Control of Molluscan Shellfish, and that list: (1) Except as specified under  (C) of this section, on the harvester's tag or label, the following information in the following order: (a) The harvester's identification number that is assigned by the SHELLFISH CONTROL AUTHORITY, (b) The date of harvesting, (c) The most precise identification of the harvest location or aquaculture site that is practicable based on the system of harvest area designations that is in use by the SHELLFISH CONTROL AUTHORITY and including the abbreviation of the name of the state or country in which the shellfish are harvested, (d) The type and quantity of shellfish, and (e) The following statement in bold, capitalized type: \"This tag is required to be attached until container is empty or retagged and thereafter kept on file for 90 days”; and (2) Except as specified in  (D) of this section, on each DEALER'S tag or label, the following information in the following order: (a) The DEALER'S name and address, and the CERTIFICATION NUMBER assigned by the SHELLFISH CONTROL AUTHORITY, (b) The original shipper's CERTIFICATION NUMBER including the abbreviation of the name of the state or country in which the shellfish are harvested, (c) The same information as specified for a harvester's tag under Subparagraphs (A)(1)(b)-(d) of this section, and (d) The following statement in bold, capitalized type: \"This tag is required to be attached until container is empty and thereafter kept on file for 90 days.\"",
+    "severity": "Priority Foundation",
+    "locationComment": "RAW OYSTERS & CLAMS",
+    "observationComment": "OBSERVED:   * no tag found present for partial cased of bagged oysters in walkin cooler   * tags for previously sold clams were stored unorganized in a plastic bag  * no observed indicating of last  DATE of use on stored tags * tags must be stored in chronological order as record for 90 days minimum     Provided copy of  Health code section pertaining to required shellfish tags",
+    "responseComment": null,
+    "readings": null
+   }
+  ]
+ },
+ {
+  "id": "9110e517-4622-4075-b579-921262330b0f",
+  "description": "PIC present, demonstrates knowledge, and performs duties",
+  "result": "No Answer Selected",
+  "isCritical": true,
+  "writtenComment": null,
+  "responseComment": null,
+  "category": {
+   "id": "afd224a6-337f-4345-ad18-3f5f5433d588",
+   "description": "Supervision"
+  },
+  "cannedComments": null
+ },
+ {
+  "id": "d9d7eb8a-7c50-4819-9200-d4680e45cacd",
+  "description": "Management and food employee knowledge, and conditional employee; Knowledge, responsibility and reporting",
+  "result": "In Compliance",
+  "isCritical": true,
+  "writtenComment": null,
+  "responseComment": null,
+  "category": {
+   "id": "f07badc9-3ee9-406b-860f-596c382b94cd",
+   "description": "Employee Health"
+  },
+  "cannedComments": null
+ }
+]

@@ -1,0 +1,27 @@
+[
+ {
+  "id": "fe4fd140-0b48-4d8e-b00a-7dea1ce9526b",
+  "description": "Approved Thawing Method",
+  "result": "Corrected During Inspection",
+  "isCritical": false,
+  "writtenComment": null,
+  "responseComment": null,
+  "followUpDate": null,
+  "category": {
+   "id": "b3143148-e642-49b1-b692-e4d5f0b41b2e",
+   "description": "Prevention of Food Contamination"
+  },
+  "cannedComments": [
+   {
+    "id": "2bf5d1b1-39d8-4750-b808-6f57cb73247d",
+    "description": "228.75(c)(2) - Thawing.  under running water criteria",
+    "severity": "Core",
+    "locationComment": null,
+    "observationComment": null,
+    "responseComment": null,
+    "readings": null,
+    "followUpDate": null
+   }
+  ]
+ }
+]
