@@ -571,6 +571,43 @@ class SortGuardTests(unittest.TestCase):
         self.assertIsNone(out)
         self.assertTrue(any('repeat' in line and 'Fort Bend County' in line for line in logs.output))
 
+    def test_an_inconsistent_read_is_retried_once_before_failing(self):
+        bad = [[_row(_guid(i)) for i in range(1, 26)], [_row(_guid(25)), _row(_guid(26))]]
+        good = [[_row(_guid(i)) for i in range(1, 26)], [_row(_guid(26)), _row(_guid(27))]]
+        attempts = []
+
+        def fake(session, path, date_range, start, retry_count=0, search_str='', purpose='',
+                 sort=None):
+            if start == 0:
+                attempts.append(1)
+            pages = bad if len(attempts) == 1 else good
+            idx = start // dp.MHD_PAGE_SIZE
+            return pages[idx] if idx < len(pages) else []
+        with mock.patch.object(dp, '_mhd_search_page', side_effect=fake), \
+             mock.patch.object(dp.time, 'sleep'), \
+             self.assertLogs(dp.log, level='WARNING') as logs:
+            out = dp._mhd_search_all_pages(None, 'fbceh', '2026-10-20 to 2026-10-20',
+                                           sort=dp.MHD_SORT_INSPECTION_ID)
+        self.assertEqual(len(out), 27, 'the re-read settled it')
+        self.assertEqual(len(attempts), 2)
+        self.assertTrue(any('re-reading' in line for line in logs.output))
+
+    def test_search_all_pages_fails_after_the_retry_is_also_inconsistent(self):
+        pages = [[_row(_guid(i)) for i in range(1, 26)], [_row(_guid(25)), _row(_guid(26))]]
+        calls = []
+
+        def fake(session, path, date_range, start, retry_count=0, search_str='', purpose='',
+                 sort=None):
+            calls.append(start)
+            idx = start // dp.MHD_PAGE_SIZE
+            return pages[idx] if idx < len(pages) else []
+        with mock.patch.object(dp, '_mhd_search_page', side_effect=fake), \
+             mock.patch.object(dp.time, 'sleep'):
+            out = dp._mhd_search_all_pages(None, 'fbceh', '2026-10-20 to 2026-10-20',
+                                           sort=dp.MHD_SORT_INSPECTION_ID)
+        self.assertIsNone(out)
+        self.assertEqual(calls.count(0), dp.MHD_SORTED_READ_ATTEMPTS)
+
     def test_search_all_pages_without_a_sort_keeps_the_old_contract(self):
         # Unsorted callers dedupe by inspectionID themselves; the guard is off.
         pages = [[_row(_guid(i)) for i in range(1, 26)], [_row(_guid(25)), _row(_guid(26))]]

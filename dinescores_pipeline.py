@@ -411,17 +411,17 @@ MHD_METRO_JURISDICTIONS = {
     'va-central':           _mhd_va_district('Central Virginia', 'Lynchburg'),
     'va-central-shenandoah': _mhd_va_district('Central Shenandoah', 'Harrisonburg'),
     'va-crater':            _mhd_va_district('Crater', 'Petersburg'),
-    'va-cumberland-plateau': _mhd_va_district('Cumberland Plateau', 'Lebanon'),
+    'va-cumberland-plateau': _mhd_va_district('Cumberland Plateau', 'Tazewell'),
     'va-eastern-shore':     _mhd_va_district('Eastern Shore', 'Accomac'),
     'va-lenowisco':         _mhd_va_district('Lenowisco', 'Wise'),
     'va-lord-fairfax':      _mhd_va_district('Lord Fairfax', 'Winchester'),
-    'va-mount-rogers':      _mhd_va_district('Mount Rogers', 'Marion'),
+    'va-mount-rogers':      _mhd_va_district('Mount Rogers', 'Bristol'),
     'va-new-river':         _mhd_va_district('New River', 'Christiansburg'),
     'va-piedmont':          _mhd_va_district('Piedmont', 'Farmville'),
     'va-pittsylvania-danville': _mhd_va_district('Pittsylvania-Danville', 'Danville'),
     'va-rappahannock':      _mhd_va_district('Rappahannock', 'Fredericksburg'),
     'va-rappahannock-rapidan': _mhd_va_district('Rappahannock-Rapidan', 'Warrenton'),
-    'va-southside':         _mhd_va_district('Southside', 'Boydton'),
+    'va-southside':         _mhd_va_district('Southside', 'South Hill'),
     'va-three-rivers':      _mhd_va_district('Three Rivers', 'Saluda'),
     'va-west-piedmont':     _mhd_va_district('West Piedmont', 'Martinsville'),
 }
@@ -5984,6 +5984,10 @@ def _mhd_exclude_patterns(config):
 # in _mhd_search_page.
 MHD_SORT_INSPECTION_ID = {'field': 'inspectionID', 'direction': 'asc'}
 MHD_DEFAULT_SORT = MHD_SORT_INSPECTION_ID
+# A sorted query whose pages do not fit together is read again once (a row
+# posted between two page requests shifts the sequence by one) before the
+# window is failed.
+MHD_SORTED_READ_ATTEMPTS = 2
 
 
 def _mhd_pages_consistent(pages, sort):
@@ -6129,30 +6133,42 @@ def _mhd_search_all_pages(session, path, date_range, search_str='', purpose='',
     Returns the raw rows (len >= MHD_QUERY_CAP means the cap was hit), or
     None on permanent failure.
     """
-    rows = []
-    pages = []
-    start = 0
-    while len(rows) < MHD_QUERY_CAP:
-        page = _mhd_search_page(session, path, date_range, start,
-                                search_str=search_str, purpose=purpose, sort=sort)
-        if page is None:
-            return None  # permanent failure
-        if not page:
-            break
-        rows.extend(page)
-        pages.append(page)
-        if len(page) < MHD_PAGE_SIZE:
-            break
-        start += MHD_PAGE_SIZE
-        time.sleep(MHD_DELAY)
-    if sort and len(pages) > 1:
+    for attempt in range(MHD_SORTED_READ_ATTEMPTS):
+        rows = []
+        pages = []
+        start = 0
+        while len(rows) < MHD_QUERY_CAP:
+            page = _mhd_search_page(session, path, date_range, start,
+                                    search_str=search_str, purpose=purpose, sort=sort)
+            if page is None:
+                return None  # permanent failure
+            if not page:
+                break
+            rows.extend(page)
+            pages.append(page)
+            if len(page) < MHD_PAGE_SIZE:
+                break
+            start += MHD_PAGE_SIZE
+            time.sleep(MHD_DELAY)
+        if not (sort and len(pages) > 1):
+            return rows
         why = _mhd_pages_consistent(pages, sort)
-        if why:
-            log.error(f"  {label or path} {date_range}: sorted pages are not one stable "
-                      f"sequence ({why}: {len(pages)} pages, {len(rows)} rows) — the "
-                      f"window cannot be read completely, failing the query")
-            return None
-    return rows
+        if not why:
+            return rows
+        if attempt + 1 < MHD_SORTED_READ_ATTEMPTS and not _past_deadline():
+            # A row posted between two page requests shifts the sequence
+            # once; a re-read of the whole query settles it. Anything that
+            # repeats on the re-read is the portal, not timing.
+            log.warning(f"  {label or path} {date_range}: sorted pages are not one stable "
+                        f"sequence ({why}: {len(pages)} pages, {len(rows)} rows) — "
+                        f"re-reading the query")
+            time.sleep(MHD_DELAY)
+            continue
+        log.error(f"  {label or path} {date_range}: sorted pages are not one stable "
+                  f"sequence ({why}: {len(pages)} pages, {len(rows)} rows) — the "
+                  f"window cannot be read completely, failing the query")
+        return None
+    return None
 
 
 def _mhd_fetch_bucket_window(session, path, start_day, end_day, search_terms,
