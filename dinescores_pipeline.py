@@ -7746,7 +7746,11 @@ MCESD_METRO = 'Phoenix'
 # Food Service (child care), Food Production / Commissary / Food Jobber /
 # Refrigerated Warehouse / Ice Manufacturing / Bottled Water and Beverage
 # Plant (not open to the public), Boarding Home, Food Bank, Damaged Food
-# and Adventure Food Service.
+# and Adventure Food Service. The permit type is the only scope signal the
+# source gives: school, hospital and workplace cafeterias are permitted as
+# Eating & Drinking and ship, as they do from every other source (a name
+# filter would be guesswork); pools, body art and child care are separate
+# county programs that never appear in this search.
 MCESD_FOOD_PERMIT_TYPES = frozenset({
     'Food Establishment - Eating & Drinking',
     'Food Establishment - Retail Food',

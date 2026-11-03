@@ -12,6 +12,18 @@ Branch `feat/maricopa`, worktree `/home/user/wt-maricopa`. Section header in
 - [x] Fixtures + tests/test_maricopa.py (44 tests); whole suite green (318 tests, node tests/test_relay.mjs, py_compile) at 01:14 UTC; also green under /usr/bin/python3.11 (CI's version) with PYTHONPATH pointed at the 3.13 requests package.
 - [x] Post-run fixes: ArcGIS chunk, purpose filter, city-less concat guard
       ('1155 W OCOTILLO RD AZ 85240' parsed city 'Rd'), title==phrase dedupe.
+- [x] Successor (03:00 UTC) resumed: suite green (321 tests, relay, py_compile),
+      branch touches only the allowed region (checked `git diff --name-only 75d73d8 HEAD`;
+      jev_reader.py / src/*.js were changed by the scaffold commit only).
+- [x] ArcGIS 60-id chunk verified LIVE with the real helper: 150 permit ids from
+      the 14-day output -> 150 points in 3 queries, 1.6 s, no 404.
+- [x] F records in the 14-day output checked: all 9 text-forced F's quote a real
+      observation ("Observed multiple live roaches...", "rodent droppings", "rat
+      droppings"); no code-title boilerplate trips the regex (9 trips / 1,146 lines);
+      0 lines without an observation part; max text 500, no newlines.
+- [x] Scope rule documented in the section comment: permit type is the only
+      signal; school/hospital/workplace cafeterias ship like every other source
+      (data.js already holds 3,785 school-named entries from other sources).
 - [ ] Diagnose the 15 'unread' detail pages (find_unread.py rescan running,
       started 02:50 UTC at 10 pages/s; report -> scratchpad/live/unread_report.json).
 - [ ] Final cleanup + report.
