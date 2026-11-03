@@ -3,7 +3,7 @@
 Branch `feat/williamson`, worktree `/home/user/wt-williamson`. Section header in
 `dinescores_pipeline.py`: "WILLIAMSON COUNTY, TX (WCCHD inspection-scores zip snapshot)".
 
-## Status: FIX PASS — reviewer findings fixed, 325 tests green; live re-verification in progress
+## Status: COMPLETE after the fix pass (325 tests green, live runs re-verified 2026-11-03) — awaiting integration
 
 ## Done
 - [x] Read the recon docs (contract / wiring / tests), the probe report and the capture
@@ -92,3 +92,29 @@ Findings reproduced against the captured 2026-10-29 snapshot (`python3 -I` analy
 - REJECTED (Reviewer B should_fix) 'williamson' missing from refresh-data.yml --cities: the
   integrator's step (.github/ is outside this branch's region); listed as a follow-up.
 - Tests: 51 Williamson tests (9 new); whole suite 325 OK; relay PASS; py_compile OK.
+
+### Post-fix live results (2026-11-03, this container through the proxy; live object still the
+2026-10-29 snapshot, etag "64002b2b6ed04fbe80149ce346bd88fc")
+- `--mode test --cities williamson`: exit 0, 7 s wall, 1 GET; 25 inspections (2026-10-01..10-28) =
+  21 restaurants; geocoded 23/25 (19/21 restaurants, all inside the county); restaurant grades
+  A 1 / B 12 / C 7 / F 1; whole-file tallies: 24 orphan + 8 score<=0 rows dropped, 1312 school /
+  11 mobile / 33 test-permit / 3 duplicate rows skipped; group 'ok 25 records latest 2026-10-28'.
+- `--mode full --since-date 2026-10-20 --cities williamson`: the window is widened to 2026-05-07 by
+  the 180-day margin (logged: "367 rows since 2026-05-07 (355 of them before 2026-10-20, in the
+  re-read margin)"); exit 0, 107 s wall (106 s of it geocoding), 1 GET; 338 inspections = 280
+  restaurants in 11 towns; 5 orphans dropped, 21 school + 2 test-permit + 1 duplicate rows skipped;
+  geocoded 315/338 (93%); inspection grades A 68 / B 108 / C 87 / F 75, results Pass 263 / Fail 72 /
+  IHH 3 (capped to 55), types Routine 297 / Follow-up 41, mean risk 78.4; restaurant-newest grades
+  A 66 / B 108 / C 86 / F 20. No lag note, no hold, no partial status; 338 distinct source_ids.
+- The 21% Fail share in the window is the source's own: WCCHD's published results run 26% Fail in
+  2026Q3 and 22% in 2026Q4 (12-15% through 2025); Fail <=> score < 70 holds for every row.
+- Geocoding: the 23 misses are Texas highway designations ('16219 N RM 620 Rd', '3701 W SH 29,
+  Building 17', '560 W US 79', '183A Toll Rd', '1601 N IH 35') and new Leander streets. Two
+  restaurants were PINNED WRONG: '1908 Main St, Liberty Hill' (no zip in the feed) matched Census
+  '1908 N MAIN ST, LIBERTY, TX, 77575' (Liberty County, 300 km east) under both benchmarks, and the
+  shared `geocode_census_batch` accepts any status 'Match' without comparing the matched city; the
+  TX state box cannot catch it. Shared-helper follow-up for the integrator (not edited here).
+- Weekly cost of the margin: ~350 rows re-shipped per run at 2026 volume (~820 at 2025 volume), all
+  idempotent upserts; the Census batch re-geocodes them in seconds and ~25 persistent misses go to
+  Nominatim (~30 s). Records that gain coordinates keep them (COALESCE), so a geocoder outage costs
+  nothing.
