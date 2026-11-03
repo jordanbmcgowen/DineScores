@@ -8554,7 +8554,8 @@ def _fetch_hedgehog(slug, since_date=None, limit=None):
     with _HH_REQUESTS_LOCK:
         n_req = _HH_REQUESTS[slug]
     log.info(f"{group}: {len(results)} inspections from {len(read)} facilities "
-             f"in {time.time() - started:.0f}s ({n_req} requests; source newest {newest or 'n/a'})")
+             f"in {time.time() - started:.0f}s ({n_req} requests; source newest {newest or 'n/a'}"
+             + (f"; skipped {dict(skipped)}" if skipped else '') + ")")
     return results
 
 
