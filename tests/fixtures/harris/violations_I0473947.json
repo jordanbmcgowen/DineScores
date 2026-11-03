@@ -1,0 +1,68 @@
+[
+ {
+  "inspectionNumber": "I0473947",
+  "violationNumber": 3,
+  "violationDescription": "Management, food employees, and conditional employees; knowledge, responsibilities, and reporting",
+  "complianceResult": "Out",
+  "numberOfDemerits": 2,
+  "violationId": "829f9f51-03e8-470d-aabe-1e117b073410",
+  "violationGroup": "F",
+  "department": "General",
+  "shortDescription": "Employee Health Responsibilities"
+ },
+ {
+  "inspectionNumber": "I0473947",
+  "violationNumber": 23,
+  "violationDescription": "Proper date marking and disposition",
+  "complianceResult": "Out",
+  "numberOfDemerits": 3,
+  "violationId": "ff3e29b4-0670-40c1-b689-d4f0bed2b778",
+  "violationGroup": "F",
+  "department": "General",
+  "shortDescription": "Proper Date Marking and Food Disposition"
+ },
+ {
+  "inspectionNumber": "I0473947",
+  "violationNumber": 28,
+  "violationDescription": "Toxic substances properly identified, stored, and used",
+  "complianceResult": "Out",
+  "numberOfDemerits": 2,
+  "violationId": "dffedf56-35a9-41f0-9b7e-22441d67e955",
+  "violationGroup": "F",
+  "department": "General",
+  "shortDescription": "Toxic Substances – Labeling, Storage, and Use"
+ },
+ {
+  "inspectionNumber": "I0473947",
+  "violationNumber": 38,
+  "violationDescription": "Insects, rodents, and animals not present",
+  "complianceResult": "Out",
+  "numberOfDemerits": 2,
+  "violationId": "ee6f178d-de49-4ce8-b6e5-2d360b188f9e",
+  "violationGroup": "C",
+  "department": "General",
+  "shortDescription": "Effective pest control & Animals Prohibited"
+ },
+ {
+  "inspectionNumber": "I0473947",
+  "violationNumber": 55,
+  "violationDescription": "Physical facilities installed, maintained, and clean",
+  "complianceResult": "Out",
+  "numberOfDemerits": 1,
+  "violationId": "12c5d004-1df4-4f4b-b95c-6be8ffbc0bf0",
+  "violationGroup": "C",
+  "department": "General",
+  "shortDescription": "Physical facilities installed, maintained, and clean."
+ },
+ {
+  "inspectionNumber": "I0473947",
+  "violationNumber": 56,
+  "violationDescription": "Adequate ventilation and lighting; designated areas used",
+  "complianceResult": "Out",
+  "numberOfDemerits": 1,
+  "violationId": "147594e3-69c3-4f2b-95e0-dc68bc9a9105",
+  "violationGroup": "C",
+  "department": "General",
+  "shortDescription": "Ventilation, lighting, and employee area compliance."
+ }
+]

@@ -1,0 +1,35 @@
+[
+ {
+  "inspectionNumber": "I0475765",
+  "violationNumber": 3,
+  "violationDescription": "Management, food employees, and conditional employees; knowledge, responsibilities, and reporting",
+  "complianceResult": "Out",
+  "numberOfDemerits": 2,
+  "violationId": "829f9f51-03e8-470d-aabe-1e117b073410",
+  "violationGroup": "F",
+  "department": "General",
+  "shortDescription": "Employee Health Responsibilities"
+ },
+ {
+  "inspectionNumber": "I0475765",
+  "violationNumber": 10,
+  "violationDescription": "Adequate handwashing facilities supplied & accessible",
+  "complianceResult": "Out",
+  "numberOfDemerits": 2,
+  "violationId": "5ce899cc-8680-4ee1-b1cd-5c5d39132343",
+  "violationGroup": "P",
+  "department": "General",
+  "shortDescription": "Handwashing Facilities – Supplied and Accessible"
+ },
+ {
+  "inspectionNumber": "I0475765",
+  "violationNumber": 23,
+  "violationDescription": "Proper date marking and disposition",
+  "complianceResult": "Out",
+  "numberOfDemerits": 3,
+  "violationId": "ff3e29b4-0670-40c1-b689-d4f0bed2b778",
+  "violationGroup": "F",
+  "department": "General",
+  "shortDescription": "Proper Date Marking and Food Disposition"
+ }
+]

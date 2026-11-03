@@ -1,0 +1,46 @@
+[
+ {
+  "inspectionNumber": "I0486996",
+  "violationNumber": 2,
+  "violationDescription": "Certified Food Protection Manager / Food Handler Certificates",
+  "complianceResult": "Out",
+  "numberOfDemerits": 2,
+  "violationId": "6cc437ec-2ebe-43d7-88e2-ac91290dfcf7",
+  "violationGroup": "C",
+  "department": "General",
+  "shortDescription": "Trained Employees"
+ },
+ {
+  "inspectionNumber": "I0486996",
+  "violationNumber": 3,
+  "violationDescription": "Management, food employees, and conditional employees; knowledge, responsibilities, and reporting",
+  "complianceResult": "Out",
+  "numberOfDemerits": 2,
+  "violationId": "829f9f51-03e8-470d-aabe-1e117b073410",
+  "violationGroup": "F",
+  "department": "General",
+  "shortDescription": "Employee Health Responsibilities"
+ },
+ {
+  "inspectionNumber": "I0486996",
+  "violationNumber": 21,
+  "violationDescription": "Proper hot holding temperatures (135\u00b0F)",
+  "complianceResult": "Out",
+  "numberOfDemerits": 3,
+  "violationId": "8cf1f2c2-5491-4deb-91f1-583650c8fbef",
+  "violationGroup": "P",
+  "department": "General",
+  "shortDescription": "TCS Food Hot Holding"
+ },
+ {
+  "inspectionNumber": "I0486996",
+  "violationNumber": 35,
+  "violationDescription": "Approved thawing methods used",
+  "complianceResult": "Out",
+  "numberOfDemerits": 1,
+  "violationId": "1ec27838-7198-4695-87bf-ce5c53fc55c3",
+  "violationGroup": "C",
+  "department": "General",
+  "shortDescription": "Use of approved thawing methods"
+ }
+]

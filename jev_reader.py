@@ -270,6 +270,10 @@ SUMMARY_LEVEL_BY_PHRASE = {
     'Food not kept cold enough': RISK,
     'Food not kept hot enough': RISK,
     'Food held at unsafe temperature': RISK,      # FORM_TITLE_PHRASES only
+    'Food not protected from contamination': RISK,   # FORM_TITLE_PHRASES only
+    'No vomit/diarrhea cleanup plan': DOCS,          # FORM_TITLE_PHRASES only
+    'Surfaces not cleanable or in disrepair': MAINT,  # FORM_TITLE_PHRASES only
+    'Ventilation or lighting inadequate': MAINT,     # FORM_TITLE_PHRASES only
     'Pests found': ACTIVE,                        # cited pest items only
     'Dented/Damaged cans': RISK,
     'Missing thermometers': RISK,
@@ -585,6 +589,19 @@ FORM_TITLE_PHRASES = {
     'signs posted; last inspection report available': 'Permit not posted',
     'grade card, signs, last inspection report available': 'Permit not posted',
     'grade card, signs, last inspection report available; written operational procedures available and followed; restroom letter of agreement': 'Permit not posted',
+    # Harris County's TFER form, cited bare (the feed carries no observation).
+    # Only the titles today's regex paraphrases WRONGLY are here: "vomiting &
+    # diarrheal events" and "contamination prevented" read as a vent hood,
+    # "ventilation and lighting" as grease buildup, "surfaces cleanable,
+    # properly designed" as dirty surfaces, "thermometers ...; chemical/
+    # thermal test strips" as chemicals. The sewage (52) and pest (38) titles
+    # stay out as the rule above says; a title the regex leaves verbatim is
+    # fine as it is.
+    'procedures for responding to vomiting & diarrheal events': 'No vomit/diarrhea cleanup plan',
+    'thermometers provided, accurate, and calibrated; chemical/ thermal test strips': 'Missing thermometers',
+    'contamination prevented during food preparation, storage, and display': 'Food not protected from contamination',
+    'food and nonfood-contact surfaces cleanable, properly designed, constructed, and used': 'Surfaces not cleanable or in disrepair',
+    'adequate ventilation and lighting; designated areas used': 'Ventilation or lighting inadequate',
 }
 
 
@@ -613,6 +630,14 @@ FORM_TITLE_PHRASES = {
 # controlled", Douglas County's "... no unauthorized person", Detroit's
 # whole-section 6-501.111 paragraph.
 CITED_PEST_ITEM_TITLES = {
+    # TFER / FDA form item 38 printed bare: Harris County ("38. ..."), Georgia
+    # when the inspector left no note (a title WITH an observation is a
+    # different line and stays with Jev)
+    'Insects, rodents, and animals not present': 'pests_unspecified',
+    # the older TFER form's item 34, which Harris County printed bare before 2025
+    'No Evidence of Insect contamination, rodent/other animals': 'pests_unspecified',
+    # McKinney's placeholder for item 34 cited with no attributable sentence
+    'Pest control item cited on the inspection report; no observation recorded': 'pests_unspecified',
     # LA County; Santa Clara prints the first one bare too
     'NO RODENTS, INSECTS, BIRDS, OR ANIMALS': 'pests_unspecified',
     'NO INSECTS, RODENTS, BIRDS OR ANIMALS PRESENT': 'pests_unspecified',
@@ -640,6 +665,15 @@ CITED_PEST_ITEM_TITLES = {
     'eliminate their presence within the physical facility and its contents and on the contiguous land or '
     'property under the control of the permit holder by routinely inspecting the premises for the evidence of '
     'pests.': 'pests_unspecified',
+    # Fort Bend County (MHD) prints item 38's 6-501.112 wording under whichever pest
+    # code the inspector cited ("38: 6-501.111 Dead or trapped ... Pg. 191"; the item
+    # number and page reference are _item_key's to drop). Houston's 6-501.112 entry
+    # above covers the 6-501.112 form; the 6-501.111 form needs its own key. The
+    # same text under 6-202.15(A) continues with that rule's wording, so it is never
+    # a whole-line match and stays Jev's to read.
+    '6-501.111 Dead or trapped birds, insects, rodents, and other pests shall be removed from control devices '
+    'and the premises at a frequency that prevents their accumulation, decomposition, or the attraction of '
+    'pests': 'pests_unspecified',
     # Detroit
     'Dead or trapped birds, insects, rodents, and other pests shall be removed from control devices and the '
     'PREMISES at a frequency that prevents their accumulation, decomposition, or the attraction of pests.':
@@ -669,10 +703,13 @@ CITED_ITEM_PHRASES = {
 
 
 def _item_key(text):
-    """Lowercase, item number dropped, whitespace collapsed, the literal "\\r\\n"
-    one feed leaves at the end removed, trailing punctuation stripped."""
+    """Lowercase, item number dropped ("23. ", MyHealthDepartment's "38: "),
+    whitespace collapsed, the literal "\\r\\n" one feed leaves at the end and
+    the page reference Fort Bend County prints after every line (" Pg. 191")
+    removed, trailing punctuation stripped."""
     t = re.sub(r'(?:\\[rn])+\s*$', '', (text or '').lower())
-    t = re.sub(r'^\s*\d+[a-z]?\.\s*', '', t)
+    t = re.sub(r'^\s*\d+[a-z]?[.:]\s*', '', t)
+    t = re.sub(r'\s*\bpg\.?\s*\d+(?:\s*-\s*\d+)?\s*$', '', t)
     return re.sub(r'\s+', ' ', t).strip(' .;:')
 
 
@@ -1671,7 +1708,14 @@ SCORE_FROM_TIERS_SOURCES = frozenset({
 })
 # Computed from tiers the SOURCE stated (levels, demerit bands): the score is
 # a function of the stored tiers, but Jev's category must not move them.
-SOURCE_TIER_SCORE_SOURCES = frozenset({'Boston Open Data', 'Detroit Open Data'})
+SOURCE_TIER_SCORE_SOURCES = frozenset({
+    'Boston Open Data', 'Detroit Open Data',
+    # 2026-11 expansion: no official score, risk computed from the tiers the
+    # source states per line (LDH Critical/Non-Critical, Maricopa's and
+    # Pima's Priority / Priority Foundation / Core tags).
+    'Louisiana LDH', 'Maricopa County Environmental Services',
+    'Pima County Health Department',
+})
 # Sources whose per-line tier is stated by the source (a level, points, a
 # demerit band, a critical flag).
 SOURCE_TIER_SOURCES = frozenset({
@@ -1687,6 +1731,19 @@ SOURCE_TIER_SOURCES = frozenset({
     # The county's critical (Santa Clara) and major (San Diego) flags anchor
     # every line's tier (_scc_violation, _sd_violation).
     'Santa Clara County Open Data', 'San Diego County DEH',
+    # 2026-11 expansion sources that state each line's tier: Georgia's
+    # (p)/(pf)/(c) citation suffixes, Louisiana's Critical / Non-Critical
+    # items, Maricopa's and Harris County's Priority / Priority Foundation /
+    # Core tags, the Hedgerow portals' per-citation severity (Pima County,
+    # Lubbock, Mesquite).
+    'Georgia DPH', 'Louisiana LDH', 'Maricopa County Environmental Services',
+    'Harris County Public Health', 'Pima County Health Department',
+    'Lubbock Environmental Health', 'Mesquite Environmental Health',
+    # McKinney's per-item TX form points (3 priority / 2 priority foundation
+    # / 1 core) are the city's own tiers, and its risk_score is the TX form
+    # score (100 - the city's demerit total, kept in original_score), an
+    # official number like Richardson's: never re-scored.
+    'McKinney Health Inspections',
 })
 # Sources whose tier was bounded by a per-item rule the stored row no longer
 # carries (Chicago's item number, NYC's critical flag): a stored core line

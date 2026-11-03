@@ -1,15 +1,22 @@
 # DineScores
 
 Restaurant health-inspection scores on a map: https://dinescores.com
-~63k restaurants embedded client-side, ~243k in the database, covering ~40
-metros (NYC, Chicago, LA County, SF, Seattle, Boston, Austin, Houston, DC,
-DFW, Las Vegas, Raleigh, Miami/Tampa/Orlando, Louisville, Minneapolis,
-Cincinnati, Montgomery County MD, Detroit, Sacramento, Fairfax County,
-Portland OR metro incl. Clark County WA, Colorado Springs/Fort Collins/
-Greeley/Adams County CO, Provo/Orem, Yolo County, San Jose/Santa Clara
-County, San Diego County, Omaha/Douglas County, Orange County CA, San
-Antonio, Nashville/Memphis/Knoxville/Chattanooga, Gwinnett County GA) plus
-all of Florida, New York State, Delaware, and South Carolina.
+~67k restaurants embedded client-side (the 24 MB cap; each metro's ~500
+newest), ~350k in the database, covering ~55 metros (NYC, Chicago, LA County, SF, Seattle, Boston,
+Austin, Houston, DC, DFW incl. McKinney/Lewisville/Denton, Las Vegas,
+Raleigh, Miami/Tampa/Orlando, Louisville, Minneapolis, Cincinnati,
+Montgomery County MD, Detroit, Sacramento, Fairfax County, Portland OR
+metro incl. Clark County WA, Colorado Springs/Fort Collins/Greeley/Adams
+County CO, Arapahoe/Douglas County CO, Provo/Orem, Yolo County, San Jose/
+Santa Clara County, San Diego County, Omaha/Douglas County, Orange County
+CA, San Antonio, Williamson County TX, Fort Bend County TX, Harris County
+TX (unincorporated + Katy, Humble, Tomball, La Porte, Deer Park), Nashville/
+Memphis/Knoxville/Chattanooga, Phoenix/Maricopa County AZ, Tucson/Pima
+County AZ, Lubbock TX, Mesquite TX, Cuyahoga County OH) plus all of Florida, New York State, Delaware, South Carolina, Georgia
+(Atlanta: Fulton/DeKalb/Cobb and the other 153 counties; Gwinnett/Newton/
+Rockdale on the MHD `gwinnett` slug), Louisiana (New Orleans, Baton Rouge,
+Shreveport, Lafayette) and Virginia (33 VDH districts; Fairfax County is
+its own source).
 
 ## Architecture
 
@@ -31,7 +38,7 @@ Cloudflare Pages builds on deploy, serves public/
   button can't be clicked". Ours never disables, re-asks on every tap,
   zooms to street level and follows live until the user pans; a tap that
   finds no location shows a notice saying why. Data sources, in order: embedded
-  `public/data.js` (top ~1500/city), then viewport lazy-loading via
+  `public/data.js` (top 1,000/city, bounded by EMBED_BUDGET and the 24 MB cap), then viewport lazy-loading via
   `src/api.js` → `/api/restaurants?bbox=`, history via
   `/api/restaurants/:id/history`. All API helpers fail soft so the map
   works even if D1 is down. Basemap tiles are CARTO raster tiles, which
@@ -74,10 +81,17 @@ middleware.
 
 ## Workflows (.github/workflows/)
 
-- `refresh-data.yml` — cron, Sundays 09:17 UTC. Pulls the recent window from
-  all sources, merges data.js, applies incremental SQL to D1, commits, and
-  then FAILS the run if any fetch group was blocked, errored or skipped (the
-  last step, after the commit, so a red run never costs data). Fetchers are
+- `refresh-data.yml` — two crons, both 09:17 UTC: Sundays run every source
+  but the midweek group; Wednesdays run `cuyahoga virginia` alone (the
+  `MHD metros (midweek)` fetch group: Cuyahoga County and the 33 Virginia
+  VDH districts, ~1,200 detail pages = ~5 fifteen-minute ban windows, which
+  would not fit next to DFW on Sunday). The "Pick the sources for this run"
+  step sets `--cities` from the weekday (a manual run takes a `cities`
+  input); both runs share the same merge/commit flow and freshness file.
+  Pulls the recent window from the chosen sources, merges data.js, applies
+  incremental SQL to D1, commits, and then FAILS the run if any fetch group
+  was blocked, errored or skipped (the last step, after the commit, so a red
+  run never costs data). Fetchers are
   failure-tolerant and skip rather than ship partial data (the merge
   preserves existing records). Two guards keep a blocked portal from timing
   out the whole job (which ships nothing): a run-wide MHD circuit breaker
@@ -160,8 +174,9 @@ middleware.
     - The cooldown budget `MHD_BAN_COOLDOWNS` defaults to 16 (was 3): a
       normal week of every MHD jurisdiction is well over 1,000 detail pages,
       five or more 15-minute ban windows, which the old budget could never
-      finish. The weekly job's 240-minute fetch deadline (330-minute job)
-      is what bounds a CI run; it is a Sunday cron, so the hours are free.
+      finish. The job's 300-minute fetch deadline (350-minute job) is what
+      bounds a CI run; both crons fire at 09:17 UTC (Sunday, Wednesday), so
+      the hours are free.
     - SNHD is rate-limited, not IP-blocked: a 401/429 pauses every SNHD
       worker (`_snhd_pause_all`, `SNHD_RATE_LIMIT_WAIT`) instead of
       retrying three seconds later, and the detail phase runs at
@@ -237,38 +252,76 @@ middleware.
   `data/d1_seed*.sql.gz` into D1 and writes `wrangler.toml`. Idempotent.
   For a single new seed prefer `load-d1-seeds.yml` (automatic on merge).
 
-## Candidate sources surveyed but not added (2026-10-10)
+## Candidate sources surveyed but not added (2026-11-02)
 
-A parallel survey verified these live; each is a small-to-medium fetcher
-away if coverage should grow. MHD slugs ride the relay and the existing
-machinery (config entry + slug group): Amarillo 'aaphd', Arapahoe County
-and Douglas County CO, Roseville CA, Cuyahoga County (Cleveland suburbs),
-Akron, Toledo — all honour the date filter and stay under the 225 cap;
-'virginia' is statewide and capped like Tennessee (bucket mode would be the
-way in). Tyler 'publicportals' JSON API (facilities/{page},
-inspectionsData/{id}; no date filter, no coordinates): Louisiana statewide
-(New Orleans, Baton Rouge), Georgia statewide (Atlanta proper: Fulton,
-DeKalb, Cobb), Columbia MO. Other JSON APIs without auth: Lubbock TX and
-Tucson/Pima (Hedgerow portals), Snohomish County WA, Anchorage, Oklahoma
-City (Inspect2Go, no date filter), Indianapolis (facility list with
-coordinates only). Stale or thin: Boulder County (Socrata, last inspection
-June 2026), Alameda County (ArcGIS, quarterly, violation rows only),
-Allegheny County/Pittsburgh (CKAN, placards only, violations feed dead),
-Hawaii's Tyler portal (host resets every connection), Albuquerque (the
-daily CSV has been header-only since 2020). No machine-readable source at
-all: Denver (Accela), Salt Lake County, Charlotte/Mecklenburg, Kansas City,
-St. Louis, Milwaukee, Madison, Philadelphia's own portal, Baltimore,
-Riverside/San Bernardino DEH, Spokane, Tacoma.
+A 28-source live survey (per-source reports under
+`docs/expansion-2026-11/`) fed the November 2026 expansion; what shipped is
+in the coverage list above. Still worth building, roughly in order of
+people covered per unit of work:
+
+- **Snohomish County WA (Everett, 864k) and Anchorage AK (290k)**: the same
+  Accela EnvisionConnect "PressAgent" JSON API (`/api/pressAgentClient/`,
+  PressAgentOid in the root HTML); no date filter, so a weekly run re-reads
+  every program's inspection list (~4,700 requests Snohomish, ~2,100
+  Anchorage); search is capped at 50 rows with no paging (adaptive name
+  prefix splitting enumerates facilities); Washington violation points like
+  King County; Anchorage needs an Alaska box in `coords_plausible`, which
+  rejects everything outside CONUS today.
+- **Alabama statewide (4.1M; not Birmingham or Mobile)**: ADPH
+  `foodscores.state.al.us`, a WebForms county sweep (66 requests), OFFICIAL
+  0-100 score only, latest inspection per establishment, no violations, no
+  coordinates, no history; Tallapoosa County 500s.
+- **Akron/Summit County OH ('scph'), Placer County CA ('pchd', Roseville) and
+  Amarillo ('aaphd')** on MHD: config-only entries now that every plain
+  jurisdiction searches sorted one-day windows (see the MHD invariant on
+  pagination); Akron/Placer still need an inspection-purpose filter
+  (Pre-licensing and Consultation rows have no observations). The statewide
+  'virginia' slug is NOT usable (capped, unstable paging, bucket mode lossy);
+  the 33 `va-*` district sub-sites are ordinary uncapped jurisdictions and
+  are what ships. Toledo ('oh_toledolucas') is
+  NOT buildable: its date filter is ignored, observations are hidden and the
+  printable endpoint times out.
+- **Oklahoma City (816k)**: Inspect2Go, every inspection a 600 KB PDF
+  (CID fonts, new parser needed), ids dense in upload order; **Tulsa
+  (693k)**: Tyler ColdFusion portal with an inert date filter, inspection-id
+  enumeration only, every result 'Compliant'; **Pasadena CA (138k)**: JSON
+  permits + SSRS PDF reports; **Iowa statewide**: the new SAFHER (Appian)
+  portal, a fragile SAIL protocol plus PDFs; **Columbus/Franklin County OH**:
+  Columbus Public Health's PressAgent portal was down (522) during the
+  survey and Franklin County's Accela carries PDFs only; **Reno/Washoe**:
+  Accela, ~4,000 permit pages per run; **Columbia MO**: Tyler publicportals
+  with severity only in PDFs (the publicportals search does have a
+  server-side last-inspection-date filter at the facility level, as Georgia
+  and Louisiana use; only coordinates are missing).
+- **Blocked or empty**: Kansas statewide (KDA portal behind reCAPTCHA v3 —
+  never work around it; ask KDA for an extract), Irving TX (two abandoned
+  ArcGIS snapshots; the live page is behind a Cloudflare challenge),
+  Carrollton TX (Akamai 403), Allen TX ('scores unavailable'), Garland TX
+  (portal up but nothing published since 2026-06-30), Grand Prairie TX
+  (letter grades only, no ids or dates), Collin and Denton county programs,
+  Hays County TX, Long Beach CA (nothing online), Cleveland proper (own
+  department, not on the county portal). Earlier findings stand: Boulder
+  County stale, Alameda County quarterly violation rows only, Allegheny
+  placards only, Hawaii's Tyler host resets connections, Albuquerque's CSV
+  header-only since 2020; no machine-readable source for Denver, Salt Lake
+  County, Charlotte, Kansas City, St. Louis, Milwaukee, Madison,
+  Philadelphia, Baltimore, Riverside/San Bernardino, Spokane, Tacoma.
 
 ## Hard-won invariants (violate at your peril)
 
 - **Cloudflare Pages rejects any asset over 25 MiB**, and `public/data.js`
   is the asset that grows. `write_data_js` bounds it (EMBED_BUDGET global
-  cap + EMBED_CITY_FLOOR per-city floor) and then enforces a hard
-  `DATA_JS_MAX_BYTES` (24,000,000) by dropping the oldest records outside
-  the floors — the record budget alone let the file creep to 24.8 MB as
-  new towns added floors. A deploy that fails with no error on the commit
-  is usually this. The full dataset lives in D1.
+  cap + EMBED_CITY_FLOOR per-city floor, cities keyed by (name, state))
+  and then enforces a hard `DATA_JS_MAX_BYTES` (24,000,000); both trims
+  keep the same FRACTION of every city's newest records, never below the
+  floor (`_embed_trim`; the 2026-11-03 rebuild, 4,202 cities: every metro
+  keeps its 496 newest of up to 1,000). Dropping the globally
+  oldest records instead let a few hundred small towns' newest inspections
+  push the metros out one record at a time (Dallas would have kept ~150),
+  levelling every city to the same COUNT gave each metro ~158, and the
+  record budget alone let the file creep to 24.8 MB as new towns added
+  floors. A deploy that fails with no error on the commit is usually this.
+  The full dataset lives in D1.
 - **D1 rejects any SQL statement over 100KB** (`SQLITE_TOOBIG`), and its
   file imports are atomic. `write_d1_sql` caps multi-row INSERTs at 40 rows
   AND 80KB (`_d1_row_batches`) — keep both caps on anything that emits SQL.
@@ -289,7 +342,7 @@ Riverside/San Bernardino DEH, Spokane, Tacoma.
 - **MHD detail-page bans are temporary, search blocks are not.** The portal
   bans detail pages after a few hundred per ~15 min window and lifts it
   ~15 min later (measured Aug 2026); `_mhd_fetch_details_bulk` waits it
-  out (`MHD_BAN_COOLDOWN`=900s, `MHD_BAN_COOLDOWNS`=3 per run, only inside
+  out (`MHD_BAN_COOLDOWN`=900s, `MHD_BAN_COOLDOWNS`=16 per run, only inside
   the fetch deadline) and only then trips `_MHD_PORTAL_BLOCKED`. Don't turn
   a detail ban into a run-wide skip again.
 - **King County ids depend on `data/king_county_address_map.json`.** The
@@ -347,6 +400,153 @@ Riverside/San Bernardino DEH, Spokane, Tacoma.
   first, then the lowest score) in both output paths, so the pick no longer
   depends on fetch order. Records kept from earlier runs keep their history
   until the restaurant is fetched again.
+- **A snapshot source re-reads instead of holding.** Williamson County's
+  zip is one GET holding the whole history, and a pre-opening inspection
+  appears in it months before its business row, so the fetcher drops the
+  orphan WITHOUT a hold and instead never starts its window later than
+  `WM_REREAD_DAYS` (180) ago: a hold would pin the group's latest at the
+  orphan's date (a false STALE flag) and give the record up after three runs,
+  sooner than the source resolves it. Re-shipping a few hundred rows a week
+  costs nothing; the merge and the D1 upserts are idempotent.
+- **McKinney's `total_score` is demerit points, and the item columns must add
+  up.** The city's ArcGIS layer carries 47 TX-form item columns that are
+  each 0 or the item's weight (3 / 2 / 1 → priority / priority foundation /
+  core; verified on every live row) and a demerit total; the fetcher ships
+  `risk_score = 100 − demerits` (the TX form score Dallas, Plano and
+  Richardson ship) and drops and holds any inspection whose points do not
+  reproduce the total, raising when more than 5% of a window disagree, so an
+  emptied column can never read as a clean 100. Permit layers 0-3 are part
+  of the complete-or-raise read: without them schools, mobile units and
+  splash pads would ship as restaurants for good. The city label stays
+  `Mckinney` (plain `.title()`, the label the Plano portal's rows already
+  carry); `McKinney` would split the town.
+- **Never disable TLS verification; ship the chain instead.** Lewisville's
+  web service omits its GoDaddy G2 intermediate; `fetch_lewisville` verifies
+  against `data/certs/lewisville_ca_bundle.pem` (certifi plus that public
+  intermediate, provenance in the file header) for that host only, and a
+  chain change makes the group red, never insecure.
+- **MHD searches are one-day windows sorted on inspectionID.** Measured
+  2026-11-03 over 16 jurisdictions x 3 weeks: the portal's default order
+  (`'sort': {}`) pages unstably on inspectionDate ties — the weekly unsorted
+  7-day read lost 6-9% of each week's rows (Dallas 28/256, Fort Worth
+  22/192, Tarrant 27/190), always as rows repeated across pages — and ANY
+  multi-day window returns one row per permit (its latest inspection), so a
+  permit's Routine that earned a Follow-Up vanished (Plano 11/week).
+  `MHD_WINDOW_DAYS` is 1 and `MHD_DEFAULT_SORT` is inspectionID asc for every
+  plain jurisdiction (bucket entries keep the portal order; Orange County's
+  newest-225 poll must stay unsorted). `_mhd_pages_consistent` fails a sorted
+  query whose pages repeat a row (after one re-read) and the window then
+  RAISES so the group goes red — do not check key order: Gwinnett's sorted
+  pages are disjoint and complete but not in GUID order. Per-config `group`
+  puts heavy jurisdictions in 'MHD metros (midweek)' (one fetch group per
+  name, `_mhd_metro_groups`); per-config `exclude` drops rows by field regex;
+  `_mhd_group_lag_note` leaves the group's source-lag note. The 2026-11-03
+  backfill re-read the existing jurisdictions' last 90 days to recover the
+  lost rows.
+- **Maricopa County has no date filter outside a reCAPTCHA-gated report,
+  which is never used or worked around.** Every run re-lists all ~21.7k
+  permit pages (~52 min at `MCESD_LISTING_RATE`=7/s) before any detail page:
+  a listing cut ships nothing (held, 'skipped'), a detail cut drops the
+  newest tail (held). The county posts ~5 days late: `MCESD_POSTING_LAG_DAYS`
+  (21) widens every window and `--skip-known-inspections` keeps the re-read
+  cheap for embedded restaurants. One county item can cite several Food Code
+  sections, each its own violation line; a header Priority tally above the
+  citations read means a missed citation (page unread), below means a
+  suspension/re-inspection/corrected-on-site item the county does not tally
+  (logged). Grades are the county's voluntary cards, so `results` says 'Not
+  Participating' for ~a third of inspections while risk_score is computed.
+  Freshness has no per-permit scope: an unread permit page in a backfill run
+  holds the window at the backfill's start; `scripts/backfill/freshness_copy.py`
+  reports such a pinned entry, and for an existing group refuses to move it
+  backwards.
+- **Tyler publicportals (Georgia, Louisiana) filter on the FACILITY's last
+  inspection.** Every listed facility costs one `inspectionsData` call, a
+  facility inspected twice in the window is listed once and its earlier
+  visit comes from the history, which is why windows are single days and
+  inspections are deduped by id. Louisiana's search answers 500 without the
+  `keyword` key and treats both date bounds as strictly exclusive (one day =
+  from day-1, to day+1); its printable notices are a ~4-request token bucket
+  (one worker, Retry-After, `LA_PRINTABLE_MAX_PER_RUN`; a failed printable
+  ships the item titles, never a hold). A Georgia row has no county: the
+  county EH phone (`GA_ATLANTA_EH_PHONES`) is the only 'Atlanta' signal, and
+  Gwinnett/Newton/Rockdale are re-checked by county filter every run so they
+  stay on the MHD `gwinnett` slug.
+- **A pest item TITLE must never reach the text-F regex on its own.** The
+  Texas TFER criterion 'No evidence of Insect Contamination, Rodent, Other
+  Animals' trips the regex (an evidence word before a pest word) by itself
+  and across the '|||' join when 'Rodent' is left in a heading: 10/72
+  Lubbock and 8/136 Mesquite records were false F's before the Hedgerow
+  fetchers started shipping that criterion as 'Pests and animals:
+  <observation>' (`HH_PEST_TITLE`). Fort Bend prints the Food Code dead-pest
+  title (6-501.112) under whichever pest code the inspector cited, and that
+  wording is registered in `CITED_PEST_ITEM_TITLES` (`_item_key` drops the
+  item number and page reference); so are the bare TFER/FDA item 38 title
+  'Insects, rodents, and animals not present' that Harris County and Georgia
+  (empty notes) print, Harris's older item-34 title and McKinney's
+  no-observation placeholder: pest chip and 'Pests found', no F, whole-line
+  matches only. The regex itself removes code titles that list every kind of
+  pest after an evidence word (`DEAD_PEST_TITLE_RE`, `LISTED_PEST_TITLE_RE`:
+  "Dead or trapped birds, insects, rodents and other pests", "No Evidence of
+  Insect contamination, rodent/other animals", Ohio's "Presence of live
+  insects, rodents, and other pests" that Cuyahoga prints before every pest
+  line) and reads droppings written pest-first ("rodent droppings") unless a
+  negation precedes them in the clause (`PEST_AFTER_RE`); measured 2026-11-03
+  over 244,538 distinct lines: 228 F's gone, all from those titles, 230 come
+  in, all recorded droppings. `src/grading.js` mirrors the rule (41,952
+  lines checked identical). A new source that prints form titles with pest
+  words needs either a neutral heading or an entry in
+  `CITED_PEST_ITEM_TITLES`.
+- **Hedgerow portals have no server-side date filter.** Pima's whole
+  facility list (5,177 rows, 5 MB) answers only sorted by id (the SPA's own
+  name sort 500s) and the county publishes ~16 days late; Mesquite's list
+  hides `lastInspectionDate` and `facilityType`, so every facility's
+  inspection list is read each week (~700 requests) and its schools ship;
+  Lubbock pages newest-inspected first and stops at the window. Mobile units
+  are dropped by type (`HH_MOBILE_TYPE_RE`; 84 Pima trucks share one
+  commissary address). An unread checklist drops the inspection; an unread
+  facility list holds the whole window.
+- **Harris County's search field trails its inspection lists.** HCPH's
+  `lastCompletedInspectionDate` stays stuck on an earlier visit for ~2% of
+  establishments (visits 5-11 days later never reflected, months on; probed
+  2026-11-03 over 390 establishments), so `fetch_harris` reads every window
+  from `HARRIS_LC_LAG_DAYS` (28) before its start, search filter and kept
+  inspections alike — do not optimise the margin away; an unreflected visit
+  more than ~28 days after the previous reflected one is still missed until
+  the next reflected inspection. Only ACTIVE permits are searchable (a 404
+  inspection list is skipped and held; closed places' history is
+  unreachable). A score of 100 has no OUT items, so its item list is not
+  requested. 'Permitting' is the annual permit inspection of an operating
+  place, not the pre-opening visit, and ships. The county's score sits 2
+  points above 100 − demerits on ~1.5% of inspections (county score kept).
+  metro is '' like `fetch_houston`'s records: set both to 'Houston' together
+  or neither.
+- **Backfills are chunked and absorbed, not refetched.** `--output-records`
+  dumps a run's inspection records and `--input-records` feeds such files
+  into a later run's data.js merge and D1 SQL with nothing fetched
+  (`--cities` defaults to nothing then); a record that already carries a
+  decided Jev reading keeps it, the rest are read in the absorbing run, and
+  absorbed records never touch the freshness file. `scripts/backfill/`
+  (README there) is the tooling: `chunk.sh` runs one window in a detached
+  worktree and hands the records to `absorb.sh`, which re-merges data.js
+  (to a scratch path, moved into place after the seed and size checks), lets
+  Jev read the lines, writes `data/d1_seed_<date>_<tag>_<since>.sql.gz` from
+  the same records and copies the chunk's freshness entries
+  (`freshness_copy.py`: an existing group never moves backwards or picks up
+  a backfill hold; a new group keeps its hold and the first weekly runs
+  re-read from it). A hold from a long backfill can pin the first weekly runs
+  at the oldest unreadable record of the whole history (Pima's 746
+  unpublished checklists reached back to 2024-12): `trim_holds.py` keeps
+  only the last 45 days of failures and records the rest as given up. The
+  2026-11 backfills ran this way, one worktree per vendor family
+  (`docs/expansion-2026-11/`), and data.js was then rebuilt once from
+  `main`'s file plus every chunk's records. Seeds in one push load in path
+  order, so a chunk that must win (Louisiana's narratives over the
+  titles-only history) needs a tag that sorts last.
+- **States are two-letter codes on output.** Portals sometimes spell the
+  state out (38 VDH rows said 'VIRGINIA'), which split a town into two
+  (city, state) buckets and skipped the state's coordinate box;
+  `state_code()` maps names to codes in `write_data_js` (kept records heal on
+  the next write) and `write_d1_sql`.
 
 ## Jev violation reader
 
@@ -362,7 +562,7 @@ impact and the open policy decisions; `scripts/jev_shadow.py` reproduces it.
 
 - **One pass, after the fetch phase.** `_run_jev_pass` in `main()` calls
   `jev_reader.apply_to_inspections` over every fetched record on its own
-  `--jev-deadline-minutes` budget (20 in CI, inside the 330-minute job), then
+  `--jev-deadline-minutes` budget (20 in CI, inside the 350-minute job), then
   the output paths read the per-record `_jev` result (forces_f, chips,
   summaries). Nothing in the fetchers changed. A data.js record kept from an
   earlier run keeps the text F decision of the run that last read its full
@@ -374,10 +574,19 @@ impact and the open policy decisions; `scripts/jev_shadow.py` reproduces it.
   it; a failure of the whole pass is logged and the run continues. The
   refresh must never fail or ship less because of Jev.
 - **Policy lives in code.** `F_FORCING_HAZARDS` (vermin, sewage; not flies,
-  not `pests_unspecified`), `SCORE_FROM_TIERS_SOURCES` / `SOURCE_TIER_SOURCES`
+  not `pests_unspecified`), `SCORE_FROM_TIERS_SOURCES` / `SOURCE_TIER_SCORE_SOURCES`
+  (score computed from tiers the source states: Boston, Detroit, Louisiana,
+  Maricopa, Pima) / `SOURCE_TIER_SOURCES`
   / `BOUNDED_TIER_SOURCES` (which sources may be re-scored or re-tiered), the
   chip and summary-severity maps. A source-stated tier never moves (Omaha,
-  Santa Clara, San Diego and Orange County included: their counties state it).
+  Santa Clara, San Diego, Orange County, McKinney, Georgia, Louisiana,
+  Maricopa County, Harris County (P/F/C violation groups) and the Hedgerow
+  portals (Pima County, Lubbock, Mesquite) included: their agencies state it; McKinney's TX-form item
+  points are the city's tiers and its `risk_score` is the form score 100 −
+  demerits, never recomputed; Georgia's (p)/(pf)/(c) designations carry its
+  official score; Louisiana's Critical/Non-Critical and Maricopa's
+  Priority/Priority Foundation/Core citations are scored `100 − 5P − 2PF − C`
+  by the fetcher, never re-tiered).
 - **An F needs a named vermin and a firm answer.** A `vermin_observed` answer
   counts only when the line names one (`NAMED_VERMIN_RE`, after removing the
   negated titles counties print on every pest item and generic code-title

@@ -1,0 +1,100 @@
+{
+ "projects": [
+  {
+   "InspectionID": 241563,
+   "PermitNumber": "15-SNO-CONE",
+   "InspectionDate": "2026-03-26T00:00:00.000Z",
+   "NameAddressConcat": "JK'S SHAVED ICE 1 -- 1305 S SH 121 BUS",
+   "BusinessName": "JK'S SHAVED ICE 1",
+   "BusinessAddress": "1305 S SH 121 BUS",
+   "Score": "PASS",
+   "Lat": 33.025661206,
+   "Lng": -96.995616665,
+   "LastImported": "2026-03-26T11:31:16.637Z"
+  },
+  {
+   "InspectionID": 243637,
+   "PermitNumber": "555-SVC",
+   "InspectionDate": "2026-04-07T13:42:00.000Z",
+   "NameAddressConcat": "CATRINA GRILL -- 383 HUFFINES PLZ SUITE 303A",
+   "BusinessName": "CATRINA GRILL",
+   "BusinessAddress": "383 HUFFINES PLZ SUITE 303A",
+   "Score": "75",
+   "Lat": 33.034329028,
+   "Lng": -96.996222895,
+   "LastImported": "2026-09-15T13:26:23.373Z"
+  },
+  {
+   "InspectionID": 251498,
+   "PermitNumber": "2078",
+   "InspectionDate": "2026-05-27T15:27:00.000Z",
+   "NameAddressConcat": "LAKE PARK BASEBALL CONCESSIONS -- 1 LAKE PARK RD",
+   "BusinessName": "LAKE PARK BASEBALL CONCESSIONS",
+   "BusinessAddress": "1 LAKE PARK RD",
+   "Score": "99",
+   "Lat": 33.073741025,
+   "Lng": -97.003271837,
+   "LastImported": "2026-05-27T15:30:20.380Z"
+  },
+  {
+   "InspectionID": 251499,
+   "PermitNumber": "2078",
+   "InspectionDate": "2026-05-27T15:28:00.000Z",
+   "NameAddressConcat": "LAKE PARK BASEBALL CONCESSIONS -- 1 LAKE PARK RD",
+   "BusinessName": "LAKE PARK BASEBALL CONCESSIONS",
+   "BusinessAddress": "1 LAKE PARK RD",
+   "Score": "99",
+   "Lat": 33.073741025,
+   "Lng": -97.003271837,
+   "LastImported": "2026-05-27T15:30:20.380Z"
+  },
+  {
+   "InspectionID": 261736,
+   "PermitNumber": "2652",
+   "InspectionDate": "2026-08-12T17:18:00.000Z",
+   "NameAddressConcat": "THE LEARNING EXPERIENCE -- 1195 W FM 3040",
+   "BusinessName": "THE LEARNING EXPERIENCE",
+   "BusinessAddress": "1195 W FM 3040",
+   "Score": "NO SCORE",
+   "Lat": 33.008393455,
+   "Lng": -97.023204356,
+   "LastImported": "2026-08-12T17:22:18.373Z"
+  },
+  {
+   "InspectionID": 270819,
+   "PermitNumber": "75-SVC-RTL",
+   "InspectionDate": "2026-10-28T11:20:00.000Z",
+   "NameAddressConcat": "MILL CONVENIENCE -- 817 S MILL ST SUITE 104",
+   "BusinessName": "MILL CONVENIENCE",
+   "BusinessAddress": "817 S MILL ST SUITE 104",
+   "Score": "93",
+   "Lat": 33.037922935,
+   "Lng": -96.99324181,
+   "LastImported": "2026-10-28T11:22:22.370Z"
+  },
+  {
+   "InspectionID": 271483,
+   "PermitNumber": "1673",
+   "InspectionDate": "2026-11-02T13:44:00.000Z",
+   "NameAddressConcat": "LUCI'S BAKERY -- 1305 S SH 121 BUS SUITE 166",
+   "BusinessName": "LUCI'S BAKERY",
+   "BusinessAddress": "1305 S SH 121 BUS SUITE 166",
+   "Score": "90",
+   "Lat": 33.025486628,
+   "Lng": -96.995372584,
+   "LastImported": "2026-11-02T13:46:19.950Z"
+  },
+  {
+   "InspectionID": 271487,
+   "PermitNumber": "2127",
+   "InspectionDate": "2026-11-02T14:02:00.000Z",
+   "NameAddressConcat": "TROPICAL SMOOTHIE CAFE -- 4690 WINDHAVEN PKWY SUITE 300",
+   "BusinessName": "TROPICAL SMOOTHIE CAFE",
+   "BusinessAddress": "4690 WINDHAVEN PKWY SUITE 300",
+   "Score": "100",
+   "Lat": 33.061363866,
+   "Lng": -96.88701328,
+   "LastImported": "2026-11-02T14:06:25.880Z"
+  }
+ ]
+}

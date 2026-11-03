@@ -1,0 +1,77 @@
+[
+ {
+  "id": "8829804b-98fe-4a34-855c-c9b3dca0530a",
+  "description": "Certified Food Manager and Registered with the City of Mesquite must be present",
+  "result": "Corrected During Inspection",
+  "isCritical": false,
+  "writtenComment": null,
+  "responseComment": null,
+  "followUpDate": null,
+  "category": {
+   "id": "c72fc1a0-5a21-4303-91a5-5e45ef913114",
+   "description": "Demonstration of Knowledge/Personnel"
+  },
+  "cannedComments": [
+   {
+    "id": "a75780f4-229e-455d-916e-98918b0241c4",
+    "description": "228.33(a) - At least one employee that has supervisory and management responsibility and the authority to direct and control food preparation and service shall be a certified food protection manager who has shown proficiency of required information through passing a test that is part of an accredited program",
+    "severity": "Priority Foundation",
+    "locationComment": null,
+    "observationComment": null,
+    "responseComment": null,
+    "readings": null,
+    "followUpDate": null
+   }
+  ]
+ },
+ {
+  "id": "3a25395c-9a5d-4b8b-8b54-e8a3daba616d",
+  "description": "Physical Facilities Installed, Maintained and Cleaned",
+  "result": "Out of Compliance",
+  "isCritical": false,
+  "writtenComment": null,
+  "responseComment": null,
+  "followUpDate": null,
+  "category": {
+   "id": "cb88f696-45c5-47d0-9e5f-fbb9c6036e6e",
+   "description": "Physical Facilities"
+  },
+  "cannedComments": [
+   {
+    "id": "f5704404-ab42-4718-86c4-ea327ee6aa10",
+    "description": "228.186(f) - Drying mops",
+    "severity": "Core",
+    "locationComment": null,
+    "observationComment": null,
+    "responseComment": null,
+    "readings": null,
+    "followUpDate": null
+   }
+  ]
+ },
+ {
+  "id": "7a6b4011-be92-41fd-842e-71bf42c72a27",
+  "description": "Other Violations",
+  "result": "Out of Compliance",
+  "isCritical": false,
+  "writtenComment": null,
+  "responseComment": null,
+  "followUpDate": null,
+  "category": {
+   "id": "cb88f696-45c5-47d0-9e5f-fbb9c6036e6e",
+   "description": "Physical Facilities"
+  },
+  "cannedComments": [
+   {
+    "id": "2bdab820-2d0e-4928-847d-b46087b0986e",
+    "description": "228.175(e) - Handwashing signage",
+    "severity": "Core",
+    "locationComment": null,
+    "observationComment": null,
+    "responseComment": null,
+    "readings": null,
+    "followUpDate": null
+   }
+  ]
+ }
+]

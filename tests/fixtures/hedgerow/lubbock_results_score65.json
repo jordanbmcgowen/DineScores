@@ -1,0 +1,140 @@
+[
+ {
+  "id": "3e88cd7b-1410-4e25-ab0a-3c3ff67ca22f",
+  "description": "Proper Hot Holding Temperature (>135°F).",
+  "result": "Corrected During Inspection",
+  "isCritical": false,
+  "writtenComment": null,
+  "responseComment": null,
+  "category": {
+   "id": "20122780-5fd5-47a0-bc31-75bbf13691ef",
+   "description": "Time and Temperature for Food Safety "
+  },
+  "cannedComments": [
+   {
+    "id": "bd06960d-01d0-490f-9111-f33391069501",
+    "description": "228.75(f)(1)(A) - Time/temperature control for safety food, hot and cold holding.(1) Except during preparation, cooking, or cooling, or when time is used as the public health control as specified under subsection (i) of this section, and except as specified in paragraphs (2) and (3) of this subsection, Time/temperature control for safety food shall be maintained: (A) at 57 °C (135 °F) or above, except that roasts cooked to a temperature and for a time specified in subsection §228.71(a)(2) of this title or reheated as specified in subsection §228.73(a)(5) of this title may be held at a temperature of 54 °C (130 °F) or above.",
+    "severity": "Priority",
+    "locationComment": null,
+    "observationComment": "Roasted, sliced jalapenos held at 98F on top of hot hold unit.  PIC stated jalapenos had been prepared < 1 hour prior.",
+    "responseComment": null,
+    "readings": null
+   }
+  ]
+ },
+ {
+  "id": "a3c8448d-b39a-4457-8f81-5811683d6dda",
+  "description": "Time as a Public Health Control: Procedure and Records",
+  "result": "Corrected During Inspection",
+  "isCritical": false,
+  "writtenComment": null,
+  "responseComment": null,
+  "category": {
+   "id": "20122780-5fd5-47a0-bc31-75bbf13691ef",
+   "description": "Time and Temperature for Food Safety "
+  },
+  "cannedComments": [
+   {
+    "id": "8080f341-3616-4138-9721-52931ca94360",
+    "description": "228.75(h)(1)(B) - A food specified in subsection (g)(1) or (2) of this section shall be discarded if it is in a container or package that does not bear a date or day.",
+    "severity": "Priority",
+    "locationComment": "RIC",
+    "observationComment": "RTE barbacoa held in a package that does not bear a date or day.  RTE barbacoa prepared > 24 hours prior.",
+    "responseComment": null,
+    "readings": null
+   }
+  ]
+ },
+ {
+  "id": "fc9f8f89-0b71-48dd-91c4-2e3fedd7426d",
+  "description": "PIC present / demonstration / duties / CFM",
+  "result": "Out of Compliance",
+  "isCritical": false,
+  "writtenComment": null,
+  "responseComment": null,
+  "category": {
+   "id": "dc0ca09f-56b9-4d59-b13d-a4ea6a1de98b",
+   "description": "Demonstration of Knowledge/Personnel"
+  },
+  "cannedComments": [
+   {
+    "id": "861f6a02-b9a9-480f-ba04-b708fef00b08",
+    "description": "228.32(1) - Based on the risks inherent to the food operation, during inspections and upon request the person in charge shall demonstrate to the regulatory authority knowledge of foodborne disease prevention, application of the Hazard Analysis Critical Control Point principles, and the requirements of this rule.  The person in charge shall demonstrate this knowledge by complying with these rules by having no critical violations/priority items during the current inspection",
+    "severity": "Priority Foundation",
+    "locationComment": null,
+    "observationComment": "Due to the nature and number of violations, active managerial control not observed.",
+    "responseComment": null,
+    "readings": null
+   }
+  ]
+ },
+ {
+  "id": "45ca02ff-e135-495c-b3ed-2d5a6b405112",
+  "description": "Food Handler/ No Authorized Persons/ Personnel",
+  "result": "Out of Compliance",
+  "isCritical": false,
+  "writtenComment": null,
+  "responseComment": null,
+  "category": {
+   "id": "dc0ca09f-56b9-4d59-b13d-a4ea6a1de98b",
+   "description": "Demonstration of Knowledge/Personnel"
+  },
+  "cannedComments": [
+   {
+    "id": "1e5e123f-827d-4560-a129-fff558cfe1c1",
+    "description": "228.33(d) - All food employees, except for certified food manager, shall successfully complete an accredited food handler training course within 60 days of employment.",
+    "severity": "Priority Foundation",
+    "locationComment": null,
+    "observationComment": "Food handler certification for employees expired.",
+    "responseComment": null,
+    "readings": null
+   }
+  ]
+ },
+ {
+  "id": "851af06c-ae9d-44d4-ac0b-cc3bb5ca001c",
+  "description": "Personal Cleanliness/Eating. Drinking, or Tobacco Use",
+  "result": "Corrected During Inspection",
+  "isCritical": false,
+  "writtenComment": null,
+  "responseComment": null,
+  "category": {
+   "id": "b1559c0e-da6a-4dc0-9828-b2aa218631ba",
+   "description": "Prevention of Food Contamination"
+  },
+  "cannedComments": [
+   {
+    "id": "617b7604-8538-479d-ac2c-a3e107f4d6aa",
+    "description": "228.42(a)(1) - Eating food, chewing gum, drinking beverages, or using tobacco",
+    "severity": "Core",
+    "locationComment": null,
+    "observationComment": "Employees eating tortillas in food preparation area of kitchen.",
+    "responseComment": null,
+    "readings": null
+   }
+  ]
+ },
+ {
+  "id": "09539db0-45f6-4cfa-af43-fcef624e6dc5",
+  "description": "Wiping Cloths; Properly Used and Stored",
+  "result": "Corrected During Inspection",
+  "isCritical": false,
+  "writtenComment": null,
+  "responseComment": null,
+  "category": {
+   "id": "b1559c0e-da6a-4dc0-9828-b2aa218631ba",
+   "description": "Prevention of Food Contamination"
+  },
+  "cannedComments": [
+   {
+    "id": "071c2ff2-67ca-4bf5-95cf-4d842558a921",
+    "description": "228.68(d)(2)(A) - Cloths in-use for wiping between uses stored",
+    "severity": "Core",
+    "locationComment": null,
+    "observationComment": "Wiping cloth stored on can opener between use.",
+    "responseComment": null,
+    "readings": null
+   }
+  ]
+ }
+]

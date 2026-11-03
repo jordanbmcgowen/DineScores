@@ -1,0 +1,129 @@
+{
+ "displayFieldName": "inspection_cycle",
+ "fieldAliases": {
+  "OBJECTID": "OBJECTID",
+  "last_inspection": "last_inspection",
+  "next_inspection": "next_inspection",
+  "inspection_cycle": "inspection_cycle",
+  "link_number": "link_number",
+  "WORK_CLASS": "WORK_CLASS",
+  "PERMIT_STATUS": "PERMIT_STATUS",
+  "ADDRESS_LINE1": "ADDRESS_LINE1",
+  "PARCELNUMBER": "PARCELNUMBER",
+  "expiration_date": "expiration_date",
+  "description": "description",
+  "avg_score": "avg_score",
+  "trend": "trend",
+  "inspections": "inspections",
+  "critical_violations": "critical_violations",
+  "POINT_X": "POINT_X",
+  "POINT_Y": "POINT_Y"
+ },
+ "geometryType": "esriGeometryPoint",
+ "spatialReference": {
+  "wkid": 4326,
+  "latestWkid": 4326
+ },
+ "fields": [
+  {
+   "name": "OBJECTID",
+   "type": "esriFieldTypeOID",
+   "alias": "OBJECTID"
+  },
+  {
+   "name": "last_inspection",
+   "type": "esriFieldTypeDate",
+   "alias": "last_inspection",
+   "length": 8
+  },
+  {
+   "name": "next_inspection",
+   "type": "esriFieldTypeDate",
+   "alias": "next_inspection",
+   "length": 8
+  },
+  {
+   "name": "inspection_cycle",
+   "type": "esriFieldTypeString",
+   "alias": "inspection_cycle",
+   "length": 50
+  },
+  {
+   "name": "link_number",
+   "type": "esriFieldTypeString",
+   "alias": "link_number",
+   "length": 50
+  },
+  {
+   "name": "WORK_CLASS",
+   "type": "esriFieldTypeString",
+   "alias": "WORK_CLASS",
+   "length": 50
+  },
+  {
+   "name": "PERMIT_STATUS",
+   "type": "esriFieldTypeString",
+   "alias": "PERMIT_STATUS",
+   "length": 50
+  },
+  {
+   "name": "ADDRESS_LINE1",
+   "type": "esriFieldTypeString",
+   "alias": "ADDRESS_LINE1",
+   "length": 736
+  },
+  {
+   "name": "PARCELNUMBER",
+   "type": "esriFieldTypeString",
+   "alias": "PARCELNUMBER",
+   "length": 50
+  },
+  {
+   "name": "expiration_date",
+   "type": "esriFieldTypeDate",
+   "alias": "expiration_date",
+   "length": 8
+  },
+  {
+   "name": "description",
+   "type": "esriFieldTypeString",
+   "alias": "description",
+   "length": 1073741822
+  },
+  {
+   "name": "avg_score",
+   "type": "esriFieldTypeString",
+   "alias": "avg_score",
+   "length": 10
+  },
+  {
+   "name": "trend",
+   "type": "esriFieldTypeString",
+   "alias": "trend",
+   "length": 50
+  },
+  {
+   "name": "inspections",
+   "type": "esriFieldTypeInteger",
+   "alias": "inspections"
+  },
+  {
+   "name": "critical_violations",
+   "type": "esriFieldTypeInteger",
+   "alias": "critical_violations"
+  },
+  {
+   "name": "POINT_X",
+   "type": "esriFieldTypeString",
+   "alias": "POINT_X",
+   "length": 20
+  },
+  {
+   "name": "POINT_Y",
+   "type": "esriFieldTypeString",
+   "alias": "POINT_Y",
+   "length": 20
+  }
+ ],
+ "features": []
+}

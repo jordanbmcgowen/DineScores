@@ -1,0 +1,17 @@
+{
+ "data": [
+  {
+   "eplGlobalEntityGUID": null,
+   "eplBusinessLicenseGUID": null,
+   "permitId": "FD-00408",
+   "permitType": "Food Establishment - Eating & Drinking",
+   "businessName": "Taco Bell",
+   "businessAddressConcat": "12223 N CAVE CREEK RD PHOENIX AZ 85022",
+   "isCuttingEdgeParticipant": false,
+   "issuedDateString": null,
+   "issuedDate": null,
+   "cuttingEdgeIcon": "",
+   "notes": null
+  }
+ ]
+}

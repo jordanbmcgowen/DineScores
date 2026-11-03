@@ -70,6 +70,16 @@
    },
    "latest": "2026-10-21"
   },
+  "Denton": {
+   "last_run": {
+    "at": "2026-11-03",
+    "detail": "",
+    "latest": "2026-10-28",
+    "records": 2570,
+    "status": "ok"
+   },
+   "latest": "2026-10-28"
+  },
   "Detroit": {
    "last_run": {
     "at": "2026-11-01",
@@ -100,6 +110,26 @@
    },
    "latest": "2026-10-31"
   },
+  "Georgia": {
+   "last_run": {
+    "at": "2026-11-03",
+    "detail": "",
+    "latest": "2026-11-02",
+    "records": 12149,
+    "status": "ok"
+   },
+   "latest": "2026-09-20"
+  },
+  "Harris County": {
+   "last_run": {
+    "at": "2026-11-03",
+    "detail": "",
+    "latest": "2026-10-31",
+    "records": 25446,
+    "status": "ok"
+   },
+   "latest": "2026-10-05"
+  },
   "LA County": {
    "last_run": {
     "at": "2026-11-01",
@@ -120,6 +150,26 @@
    },
    "latest": "2026-10-31"
   },
+  "Lewisville": {
+   "last_run": {
+    "at": "2026-11-03",
+    "detail": "",
+    "latest": "2026-11-02",
+    "records": 1042,
+    "status": "ok"
+   },
+   "latest": "2026-11-02"
+  },
+  "Louisiana": {
+   "last_run": {
+    "at": "2026-11-03",
+    "detail": "",
+    "latest": "2026-10-27",
+    "records": 8506,
+    "status": "ok"
+   },
+   "latest": "2026-09-28"
+  },
   "Louisville": {
    "last_run": {
     "at": "2026-11-01",
@@ -130,15 +180,65 @@
    },
    "latest": "2026-10-23"
   },
-  "MHD metros": {
+  "Lubbock": {
    "last_run": {
-    "at": "2026-11-01",
+    "at": "2026-11-03",
     "detail": "",
-    "latest": "2026-11-01",
-    "records": 1843,
+    "latest": "2026-11-02",
+    "records": 5365,
     "status": "ok"
    },
-   "latest": "2026-11-01"
+   "latest": "2026-11-02"
+  },
+  "MHD metros": {
+   "last_run": {
+    "at": "2026-11-03",
+    "detail": "",
+    "latest": "2026-11-02",
+    "records": 1967,
+    "status": "ok"
+   },
+   "latest": "2026-11-02"
+  },
+  "MHD metros (midweek)": {
+   "last_run": {
+    "at": "2026-11-03",
+    "detail": "",
+    "latest": "2026-10-27",
+    "records": 1225,
+    "status": "ok"
+   },
+   "latest": "2026-11-02"
+  },
+  "Maricopa County": {
+   "last_run": {
+    "at": "2026-11-03",
+    "detail": "12 detail pages answered but gave no inspection (12 not readable, 0 'Inspection Not Available'); held, ids in the log",
+    "latest": "2026-10-29",
+    "records": 6186,
+    "status": "error"
+   },
+   "latest": "2026-09-20"
+  },
+  "McKinney": {
+   "last_run": {
+    "at": "2026-11-03",
+    "detail": "",
+    "latest": "2026-10-30",
+    "records": 15222,
+    "status": "ok"
+   },
+   "latest": "2026-10-30"
+  },
+  "Mesquite": {
+   "last_run": {
+    "at": "2026-11-03",
+    "detail": "",
+    "latest": "2026-11-02",
+    "records": 2511,
+    "status": "ok"
+   },
+   "latest": "2026-11-02"
   },
   "Minneapolis": {
    "last_run": {
@@ -199,6 +299,16 @@
     "status": "ok"
    },
    "latest": "2026-10-30"
+  },
+  "Pima County": {
+   "last_run": {
+    "at": "2026-11-03",
+    "detail": "",
+    "latest": "2026-10-17",
+    "records": 10380,
+    "status": "ok"
+   },
+   "latest": "2026-09-20"
   },
   "Richardson": {
    "last_run": {
@@ -280,6 +390,16 @@
    },
    "latest": "2026-10-29"
   },
+  "Williamson County": {
+   "last_run": {
+    "at": "2026-11-03",
+    "detail": "",
+    "latest": "2026-10-28",
+    "records": 5343,
+    "status": "ok"
+   },
+   "latest": "2026-10-28"
+  },
   "dc": {
    "last_run": {
     "at": "2026-11-01",
@@ -311,65 +431,14 @@
    "latest": "2026-10-29"
   }
  },
- "jev": {
-  "cache_file": "jev_20261101T174934Z_weekly.jsonl.gz",
-  "decide": [
-   "hazard",
-   "summary"
-  ],
-  "decisions": {
-   "category": {
-    "jev": 0,
-    "regex": 0
-   },
-   "hazard": {
-    "jev": 19053,
-    "regex": 3455
-   },
-   "summary": {
-    "jev": 19499,
-    "regex": 3009
-   }
-  },
-  "distinct_texts": 13147,
-  "elapsed_s": 91.4,
-  "f_vs_regex": {
-   "agree": 6004,
-   "jev_only": 24,
-   "regex_only": 70
-  },
-  "lines": 22508,
-  "lines_with_judgment": 22508,
-  "mode": "decide",
-  "model": "jev-1.13.0",
-  "question_set": "qs3",
-  "reader": {
-   "fallback_reasons": {},
-   "hazard_changed_on_verify": 11,
-   "hazard_verified_alone": 345,
-   "input_tokens": 27806436,
-   "latency_max": 1.0380067825317383,
-   "latency_total": 218.62102270126343,
-   "lines_asked": 7933,
-   "lines_cached": 5214,
-   "lines_fallback": 0,
-   "lines_judged": 7933,
-   "mode": "decide",
-   "output_tokens": 4688544,
-   "request_failures": 0,
-   "requests": 1007
-  },
-  "record_errors": 0,
-  "records": 14846,
-  "records_with_violations": 6098,
-  "rescored_records": 0,
-  "retiered_lines": 0,
-  "status": "ok"
- },
  "sources": {
   "Adams County Health Dept": {
    "group": "MHD metros",
    "latest": "2026-10-30"
+  },
+  "Arapahoe County Health Dept": {
+   "group": "MHD metros",
+   "latest": "2026-11-02"
   },
   "Arlington Open Data": {
    "group": "Arlington",
@@ -399,6 +468,10 @@
    "group": "MHD metros",
    "latest": "2026-10-31"
   },
+  "Cuyahoga County Health Dept": {
+   "group": "MHD metros (midweek)",
+   "latest": "2026-11-02"
+  },
   "DC Health": {
    "group": "dc",
    "latest": "2026-10-21"
@@ -421,9 +494,17 @@
    "group": "Delaware",
    "latest": "2026-10-21"
   },
+  "Denton Open Data": {
+   "group": "Denton",
+   "latest": "2026-10-28"
+  },
   "Detroit Open Data": {
    "group": "Detroit",
    "latest": "2026-10-15"
+  },
+  "Douglas County CO Health Dept": {
+   "group": "MHD metros",
+   "latest": "2026-11-02"
   },
   "Douglas County Health Dept": {
    "group": "Omaha",
@@ -441,6 +522,10 @@
    "group": "Florida",
    "latest": "2026-10-31"
   },
+  "Fort Bend County Health Dept": {
+   "group": "MHD metros",
+   "latest": "2026-11-02"
+  },
   "Fort Worth Health Dept": {
    "group": "DFW",
    "latest": "2026-10-31"
@@ -455,9 +540,64 @@
    },
    "latest": "2026-10-21"
   },
+  "Georgia DPH": {
+   "given_up": [
+    "2026-08-05|164556",
+    "2026-08-11|3124385",
+    "2026-08-13|163837",
+    "2026-08-20|12279458",
+    "2026-08-24|2054538",
+    "2026-09-08|12772910",
+    "2026-09-09|6349",
+    "2026-09-14|12766534",
+    "2026-09-17|13002564"
+   ],
+   "group": "Georgia",
+   "hold": {
+    "date": "2026-09-21",
+    "failures": {
+     "2026-09-21|13002900": 1,
+     "2026-09-21|3151722": 1,
+     "2026-10-07|12983723": 1,
+     "2026-10-09|12278851": 1,
+     "2026-10-23|13011414": 1,
+     "2026-10-27|13004508": 1,
+     "2026-10-27|13011414": 1,
+     "2026-10-28|3047901": 1,
+     "2026-10-29|12991107": 1,
+     "2026-10-29|2053740": 1,
+     "2026-10-30|13018498": 1
+    }
+   },
+   "latest": "2026-09-20"
+  },
   "Gwinnett County Health Dept": {
    "group": "MHD metros",
    "latest": "2026-10-31"
+  },
+  "Harris County Public Health": {
+   "given_up": [
+    "2026-03-11|667b425a-4f68-4756-9823-51b301fb3045",
+    "2026-05-06|6c371d98-fc32-4bbe-b7e3-f9ee39337647",
+    "2026-07-07|95457c27-56c6-4dcb-939b-aa42e41dc86e",
+    "2026-07-15|7584bd63-e2df-43a3-9b0b-38a339cbd745",
+    "2026-07-16|0b446fe1-2a17-4d42-8c02-d53ee6d95a07",
+    "2026-07-16|9a0d8e1f-ea34-43fd-8a06-6fff382186bd",
+    "2026-07-16|fefcb285-d664-4122-a64e-5fe4ddbf57e4",
+    "2026-07-23|fe7bed0f-fa97-4348-8f40-4ebda0513ec3",
+    "2026-08-13|e9f1e19e-752d-4722-a766-ab381b2e5766",
+    "2026-09-11|b5561943-acd7-4414-ba12-f73f75229765"
+   ],
+   "group": "Harris County",
+   "hold": {
+    "date": "2026-10-06",
+    "failures": {
+     "2026-10-06|8429d55d-29b0-47ae-b2f9-8d01ceed7b75": 1,
+     "2026-10-06|8becd8ad-66d5-4111-afa0-07a6efa62aed": 1,
+     "2026-10-16|b37c9c8d-7fc0-4c27-981d-cd736e495a4b": 1
+    }
+   },
+   "latest": "2026-10-05"
   },
   "Houston Health Dept": {
    "group": "houston",
@@ -475,9 +615,61 @@
    "group": "MHD metros",
    "latest": "2026-10-30"
   },
+  "Lewisville Environmental Health": {
+   "group": "Lewisville",
+   "latest": "2026-11-02"
+  },
+  "Louisiana LDH": {
+   "group": "Louisiana",
+   "hold": {
+    "date": "2026-10-20",
+    "failures": {
+     "2026-10-20|52293": 2,
+     "2026-10-21|8450024": 1,
+     "2026-10-22|11514233": 2
+    }
+   },
+   "latest": "2026-10-19"
+  },
   "Louisville Metro Open Data": {
    "group": "Louisville",
    "latest": "2026-10-23"
+  },
+  "Lubbock Environmental Health": {
+   "given_up": [
+    "2026-07-02|541acdfd-2d61-4168-8444-aea5652cf85d"
+   ],
+   "group": "Lubbock",
+   "latest": "2026-11-02"
+  },
+  "Maricopa County Environmental Services": {
+   "group": "Maricopa County",
+   "hold": {
+    "date": "2026-09-21",
+    "failures": {
+     "2026-09-21|INSP-070365-2026": 1,
+     "2026-09-22|INSP-113477-2026": 1,
+     "2026-09-23|INSP-116306-2026": 1,
+     "2026-09-30|INSP-183280-2026": 1,
+     "2026-10-06|INSP-190207-2026": 1,
+     "2026-10-07|INSP-103737-2026": 1,
+     "2026-10-07|INSP-121115-2026": 1,
+     "2026-10-08|INSP-128983-2026": 1,
+     "2026-10-13|INSP-086328-2026": 1,
+     "2026-10-14|INSP-193498-2026": 1,
+     "2026-10-16|INSP-072832-2026": 1,
+     "2026-10-19|INSP-040251-2026": 1
+    }
+   },
+   "latest": "2026-09-20"
+  },
+  "McKinney Health Inspections": {
+   "group": "McKinney",
+   "latest": "2026-10-30"
+  },
+  "Mesquite Environmental Health": {
+   "group": "Mesquite",
+   "latest": "2026-11-02"
   },
   "Minneapolis Open Data": {
    "group": "Minneapolis",
@@ -502,6 +694,280 @@
   "Orange County Health Care Agency": {
    "group": "Orange County",
    "latest": "2026-10-30"
+  },
+  "Pima County Health Department": {
+   "given_up": [
+    "2025-09-29|d6041e3b-f06e-4ae7-9131-eda34ce8fe60",
+    "2025-09-29|dd304396-70dd-4576-a1c1-3d69f49668ab",
+    "2025-09-30|58c16cc1-725f-46ec-949f-227f0d8adfff",
+    "2025-09-30|8a5bd701-4603-4e1b-b264-cfe295ae320a",
+    "2025-10-01|6b422c53-e8e8-4728-9b51-42e6a5848ec2",
+    "2025-10-02|246a4c89-7a5a-4ea2-a98f-ff66c5813b9f",
+    "2025-10-03|26a35e11-5347-4b34-a691-552e76b5df12",
+    "2025-10-03|a820016a-39a8-460d-b6ec-24a3667db94e",
+    "2025-10-03|c4620fa9-8478-4f78-8fda-61a746c9e567",
+    "2025-10-03|cd6db840-26a9-448c-966b-fac52b1be701",
+    "2025-10-03|e4e1d2b2-258c-4334-80ed-453960a0365a",
+    "2025-10-06|45654d28-fbc8-463d-95c5-07d179dcbe66",
+    "2025-10-06|98679715-2cfa-448d-9185-d7b8cb7dcb30",
+    "2025-10-07|13025745-41c9-411d-8d75-fa03b03a934b",
+    "2025-10-07|835a53e1-ac0f-4757-ae69-cec76828462d",
+    "2025-10-07|95d24eda-3997-48d1-a15e-cba14518f192",
+    "2025-10-08|18c34e96-e46f-40b4-a898-2876adf6ed84",
+    "2025-10-09|40cb4c30-18ac-45a9-8d0e-46f1676b4e00",
+    "2025-10-10|5a776c99-562b-47bd-aeed-c52c53551aaa",
+    "2025-10-13|fcb273df-8139-407e-8315-e43c14db0273",
+    "2025-10-14|b2ec66a9-f6c8-4a43-93b7-187e79c7ecd0",
+    "2025-10-14|ca0f9f94-818f-44dc-bb08-a7e8169af9ad",
+    "2025-10-15|43e1f399-4e88-4861-ab37-64959772c708",
+    "2025-10-15|475a20a9-32d9-4601-bd3c-09d4321584f9",
+    "2025-10-15|7063e7e5-e753-427e-931a-019b1319f606",
+    "2025-10-15|ac2df573-4dd6-4380-ad47-42d998e311aa",
+    "2025-10-15|fc22db9f-95f6-4895-a895-541051beda0f",
+    "2025-10-16|0efb8157-5528-4747-8daf-2d95e877147d",
+    "2025-10-16|2898e724-e8fb-4870-b49f-348fdb1e02df",
+    "2025-10-16|376f541d-39b7-4aad-aa37-5a9c90867d2e",
+    "2025-10-16|b1da8fbc-cf95-491a-a36f-85f4388e835b",
+    "2025-10-17|ba398789-8643-460d-891b-e691fff77d23",
+    "2025-10-17|c12d19fb-c4c5-43e5-b863-a5322c89e8fd",
+    "2025-10-21|9f8f6705-9fb8-4a28-b7b9-8e342e8c69cf",
+    "2025-10-21|a39a1e3b-3ebb-4ae1-ae69-dedea3fcabf7",
+    "2025-10-22|fd4048f9-76ca-49d9-bc11-4e5361b34ea0",
+    "2025-10-23|09f77c93-b2d5-4176-a64b-6c6d34a17d22",
+    "2025-10-23|6f3d8a90-404f-4aff-aafe-2f5c0157b6ce",
+    "2025-10-23|975cadfe-33dc-4522-be3b-bedaff047834",
+    "2025-10-24|3d9d6493-ea04-4d2a-a0c0-d45f6c454e1f",
+    "2025-10-27|183587f9-6bbd-4d87-8433-2864fcb82a8d",
+    "2025-10-27|71795b9d-ca41-454a-8ec1-285dfe053bb7",
+    "2025-10-27|ab6a414c-f298-48bc-aee1-7c6f97b9afa7",
+    "2025-10-28|85b13be7-242e-4428-bed2-e2157300ae7f",
+    "2025-10-28|c724cd86-f09b-49b3-9da3-4fdb4ad3db51",
+    "2025-10-31|00ad3348-0c47-4ff0-a529-1add933df7d7",
+    "2025-10-31|908d517f-fd8b-4201-aea6-736a7a37b008",
+    "2025-10-31|e02d51d2-34b9-4048-8472-af84add57be7",
+    "2025-11-03|1fd7b59c-f6e7-4b1c-ae72-f53d5b763dd4",
+    "2025-11-03|8c110145-4d24-4380-90bb-0e8b43e5aeea",
+    "2025-11-03|bb9543df-60a6-4914-9b93-8bf0592db68b",
+    "2025-11-06|925212c5-a88c-4fd0-b249-d47a5abe164c",
+    "2025-11-07|0831c366-b0f1-4a0f-a879-65d8d2129ea3",
+    "2025-11-07|14a5594c-95c0-4104-9534-b7cb1b2bcd8c",
+    "2025-11-07|448bb2f3-ea37-4dd9-9969-bd1d08ef42bd",
+    "2025-11-07|5584a260-cf9c-47a8-9eef-92d275d2b573",
+    "2025-11-07|76e76e37-817a-41fc-ba31-84b7fb36691d",
+    "2025-11-07|b4233bdd-b2ad-4674-8993-006250cc16f2",
+    "2025-11-10|4bd2539e-2be2-4bd1-b49f-5353ce840ba1",
+    "2025-11-13|2c57ade2-879b-4e98-a496-477b05939693",
+    "2025-11-13|8b6ef17c-866e-4b97-a4f1-b85f9753ab23",
+    "2025-11-14|83c5f55f-ecf3-489d-8bf7-cc6cd2cdc426",
+    "2025-11-18|6b88a5ed-9c2e-4395-8909-f98a55707711",
+    "2025-11-20|42463ebd-dba8-4af2-8817-d928e1391ab8",
+    "2025-11-21|bb6b07bd-414a-4c02-874f-f01a578526c9",
+    "2025-11-23|5b559edd-3b4f-4dd9-9b5c-901b1895389b",
+    "2025-11-24|3586d2f2-3df1-48a5-9443-350a2d58a621",
+    "2025-11-24|881b3e0c-2324-4c53-bbb1-7ba77e53bd11",
+    "2025-11-24|fa4ac05c-8b1c-4d04-a57e-dff4882e581e",
+    "2025-11-25|d431f935-c5e7-4ed8-99fd-a2507423908a",
+    "2025-12-02|6bfbab47-241b-4df9-8e4f-259598a28b01",
+    "2025-12-03|6da00914-272e-4108-8118-c07ed4c96782",
+    "2025-12-03|71bc3294-21ec-408e-a35a-498d1b8468a2",
+    "2025-12-03|a0ad6027-be99-492b-aae2-6a0b0201fe41",
+    "2025-12-05|0b911744-5cd7-472c-a42b-c61f09e93f5b",
+    "2025-12-08|5a7eb842-8fa9-473b-9867-ca66c36c15c5",
+    "2025-12-08|bfa5ccf0-da26-4a57-b46d-8e1d5b0a0b0b",
+    "2025-12-09|d39d0d0e-34fe-4dd1-9716-85554ade50fe",
+    "2025-12-10|703f177c-2320-46be-ac06-8ab2862af492",
+    "2025-12-11|b16440fd-1d72-427c-8cf3-ca1a7b340da1",
+    "2025-12-15|54873702-e0e4-47ad-8317-1d77fe50fb09",
+    "2025-12-15|8cb46512-881d-487d-87d2-47f1035516f3",
+    "2025-12-18|348dc877-6ab4-4ca1-ab3e-67c077710883",
+    "2025-12-19|c60d8fd0-9954-4877-98af-030357acdfae",
+    "2025-12-29|5b3d14d4-75c2-4fb3-8155-3401340c8bde",
+    "2025-12-29|d1421f93-c25e-402a-b9e0-75b516245fcf",
+    "2025-12-30|12e01efd-7031-40b8-9953-5ca39c09ee1f",
+    "2025-12-31|3033f985-0ad5-45af-b4ed-51521dd47857",
+    "2025-12-31|97313dfa-4daa-449f-ade3-dd13e40a8111",
+    "2025-12-31|d088d6cd-694f-42b2-acc8-74a10c474f23",
+    "2026-01-05|0fd3d627-0a1b-434f-ab96-337c3b8387c9",
+    "2026-01-05|7fd730a4-b3d3-4d34-aa93-b88984ada2e0",
+    "2026-01-05|8b64e4d9-11bc-4f70-aae0-db145a6c85be",
+    "2026-01-05|a892c12b-4495-4840-8de1-a2407bf2c82e",
+    "2026-01-06|c27ff4fe-9916-4572-89fa-4bc34f3c3ca0",
+    "2026-01-06|e3a86c74-3eb1-4105-b681-50195440ce9e",
+    "2026-01-07|23cde3c3-aec7-4d4c-a521-0d02c0ce9a50",
+    "2026-01-07|a3325594-acb7-475c-8f15-8baa125874ed",
+    "2026-01-07|d0241b41-c0cb-4af7-8cc0-52bda1ae2772",
+    "2026-01-08|27f0abfb-3d5d-4092-87ad-21eec263576c",
+    "2026-01-09|8c1ddb39-9427-4176-9ed5-e2e1bd3ac4a4",
+    "2026-01-13|2c2cfb7b-28f0-4cfe-b0a0-c0a6bb0b7953",
+    "2026-01-14|30d3a90b-bbc5-4718-8347-4a9a927d7b25",
+    "2026-01-14|65ba51c4-aa2b-422b-a15a-6c029126f4ee",
+    "2026-01-16|4f3a2db2-4e00-4eef-8333-e8314ac78455",
+    "2026-01-20|019814b9-e62e-4777-85c6-9525574eca00",
+    "2026-01-20|b9a2ac5a-cd79-494c-83a3-93c0ae18d8d4",
+    "2026-01-21|f1d1caa1-baac-492d-8678-80654accfb31",
+    "2026-01-23|660c0634-e1df-489f-a919-84bc2a8ea505",
+    "2026-01-23|ee3c02ad-50e2-484f-a76d-6fdb10c578e2",
+    "2026-01-23|f569aefb-4df3-4db2-b9a7-4269f2b74392",
+    "2026-01-26|12f7e5d8-50b0-4d34-bd78-7a733c6a65af",
+    "2026-01-26|1625132c-76d4-40c0-aa34-8f5fddabeeea",
+    "2026-01-28|8773be63-f098-4876-9327-ac647b9db043",
+    "2026-01-30|82d6d436-a54d-4971-adb0-4bb9c18f4cf7",
+    "2026-02-02|315c6d61-060d-4b9f-8e29-da828605f03f",
+    "2026-02-02|467eed75-4259-4934-8b44-9a45942ad013",
+    "2026-02-03|0c0bfadd-2533-44c5-b8b5-9805feae3929",
+    "2026-02-04|233b5a9e-7972-4808-8d95-1e44602d5e11",
+    "2026-02-05|fe24dc3f-3faa-4c24-b1e3-37babb46614f",
+    "2026-02-06|28940036-fc89-4830-a041-bdec5df2fba5",
+    "2026-02-06|35cf29f2-e034-4e5a-8bae-c6d2b567a4ce",
+    "2026-02-06|64110492-ef63-43cc-aca0-31e929b395fa",
+    "2026-02-06|89d4aa71-5db6-494e-a7fc-221216287a9b",
+    "2026-02-06|f5f0c7fa-05b7-48eb-9ed8-bc7acbaf921f",
+    "2026-02-09|51365764-916f-4f48-b953-cdea10fbb03f",
+    "2026-02-09|e44549da-1890-461d-9fe9-d83834e385a1",
+    "2026-02-10|9d99f426-5488-4623-b4eb-46c8ae3f37a4",
+    "2026-02-11|748d5879-6e55-4aeb-af07-e49234cdb74a",
+    "2026-02-12|52c4d683-6dde-4bae-adb7-dd99f32b586b",
+    "2026-02-12|7c5d21d3-fbb1-41bb-981d-fd46152c3fe4",
+    "2026-02-17|9e3a31aa-2ec2-478c-816e-04847a4960e3",
+    "2026-02-17|d4255841-62f8-4999-912c-9748183bcaff",
+    "2026-02-19|0976623c-419c-4b5c-971f-6c8c4fbec4ea",
+    "2026-02-19|99ffa6a3-70ca-45d0-a6c5-a807262e2a2c",
+    "2026-02-20|22174036-26bb-4d04-959f-e04f58cd5e16",
+    "2026-02-20|73513071-3eab-4ab7-a6ec-d8814fde9067",
+    "2026-02-23|e43f70e6-e798-4a36-a77b-f9ca6e8daa22",
+    "2026-02-23|fa5b3c82-2e6c-4610-8f51-0ce48a2c9f6b",
+    "2026-02-24|849eec8c-7494-45ee-b779-2bc527333deb",
+    "2026-02-24|90602437-dcf0-4d92-a88a-f4e4e5146727",
+    "2026-02-24|d05e689c-eda0-45c4-bbb3-479828cbf413",
+    "2026-02-26|c08a75b2-812e-4532-a480-9d0770d32c9f",
+    "2026-03-02|6711eaf7-afac-4762-ae29-d5c8c15afcd9",
+    "2026-03-02|a80f2e56-552d-4bd8-8518-deaa6f5071e7",
+    "2026-03-03|25586ce6-71c1-424c-92f3-8a5dab466034",
+    "2026-03-03|652443c6-fd83-4f96-812b-cbf75f668e6f",
+    "2026-03-04|1516405a-4add-4ca3-843c-88b6b5ed54b0",
+    "2026-03-04|e9d0edd3-cd73-4026-861d-321fd6df4e35",
+    "2026-03-09|cc6044c7-c6a6-4f1a-a620-1696b78e8ebd",
+    "2026-03-12|bb24d5a0-7c96-4de3-a6f9-d8448d1603fb",
+    "2026-03-16|4529dfc1-d70f-49b0-b93b-2a510a439beb",
+    "2026-03-16|9b056386-f77f-48ba-a7f9-1120abb800a4",
+    "2026-03-17|a6af01b9-45c5-4281-a95f-f13e57fafea2",
+    "2026-03-18|9ac5f3cd-8b9e-4f36-a724-75ee38cebd69",
+    "2026-03-23|1d9938f1-27f1-433f-a5db-3523ba41cdc2",
+    "2026-03-24|0e9e03d6-3d58-4fea-88f4-3bb9431e8f02",
+    "2026-03-26|55e5f72d-1e4d-4511-9acc-f4009816adca",
+    "2026-03-26|5d5dd2e2-5a6d-416b-bc4b-e9b7bbc9a4f3",
+    "2026-03-30|659e6b72-9022-44ed-acd3-4ee1fdd51c9b",
+    "2026-03-30|819f12ea-9496-48ea-bcbe-2eefbc2625bf",
+    "2026-03-31|81a81cc8-cfb6-449f-979f-b581af1c89fa",
+    "2026-04-02|22cfd987-0288-4392-9ddc-791723f1f71c",
+    "2026-04-06|24e7ac8c-d227-4ce5-bb0c-994947d65907",
+    "2026-04-06|b395cd18-aa56-4a62-969d-7bd91d0c944a",
+    "2026-04-06|cc6e93f8-d648-4772-9171-9afa06a3d49e",
+    "2026-04-07|14f2b546-215d-4acd-89b9-f455c74b54c4",
+    "2026-04-07|f343febc-20cc-4edf-94d0-7392a0d99265",
+    "2026-04-08|775d6798-6495-4209-ba73-885e6551518c",
+    "2026-04-08|ec91a3ff-af8c-43f0-8fb0-6d7b6b63d90b",
+    "2026-04-13|de74e6b7-ef83-41d4-88bc-43ed08aacadb",
+    "2026-04-14|a1d9b3f2-cb2f-455f-b860-8627646b92c1",
+    "2026-04-16|2dac0a0b-73ae-47a6-90ca-814d740dbf51",
+    "2026-04-21|e3dcdb7e-c678-4c22-a1d0-d7cf1b5eca1d",
+    "2026-04-23|8371fe7b-8131-438e-831d-219786cce6b0",
+    "2026-04-24|e0c26da6-0415-42e8-9d4b-2586bfbf678c",
+    "2026-04-30|4f961663-b13b-49e9-b76d-7a237a5d6e88",
+    "2026-05-01|5c9c1ef5-1b4a-48d5-98e3-3735536ed239",
+    "2026-05-01|88061d65-0ffc-4c39-b899-7bedbdb53f11",
+    "2026-05-01|d7c60aa3-790f-4ab7-85b8-7feecee91452",
+    "2026-05-06|0d34987d-0375-41d1-bd2d-12c65825ba83",
+    "2026-05-06|10f95839-b1ad-43a1-8b32-7ca1d846a7eb",
+    "2026-05-08|96a96852-bc22-465d-81fb-f15d65b43db5",
+    "2026-05-08|c1e591f2-9ea7-4753-bb70-7b9cf288ee55",
+    "2026-05-11|2df06af1-ad97-45e9-8653-516e7f02b929",
+    "2026-05-11|4ba86658-e8cb-4a37-ac6d-fdee4a8900e1",
+    "2026-05-13|2ac485a0-0b65-436e-8a63-2a9d2bf021e5",
+    "2026-05-13|39cf8b3e-985a-4699-af75-405de5cb396e",
+    "2026-05-14|51d2838e-9cd9-488b-bcdd-482f640d4b56",
+    "2026-05-15|f3a8bab9-2bc7-4349-b597-50f9711dbdc6",
+    "2026-05-20|10bedee1-ea1a-49d0-bacc-d3add205ab4f",
+    "2026-05-20|e28e7cb5-2b3a-4479-b6aa-7d3593c8333d",
+    "2026-05-21|30a8e580-6244-43c8-8e29-ac38c3a303ab",
+    "2026-05-22|33e7c8aa-2c38-4da6-987f-625e1b7527b7",
+    "2026-05-27|6878a1ec-1fa0-4c60-9f60-4063315ab90f",
+    "2026-05-27|9c478ffb-6a56-43fc-996b-c88c3ac62a77",
+    "2026-05-29|9350a8d2-5c1b-4a09-ae78-8ef7887482be",
+    "2026-06-01|5f9eae82-d92c-40cb-bbe3-28a6f2fa1d94",
+    "2026-06-01|a7f01c62-3531-4a5a-b5f6-a683451ab67b",
+    "2026-06-03|7259c82a-bc1f-4f0d-8167-0a76d3a5984e",
+    "2026-06-08|b24dbab9-2150-4375-a1d8-4a53cb39fbe2",
+    "2026-06-09|ba6b3346-5eb0-402b-a43e-3ae0f2c49265",
+    "2026-06-09|cfe3e05d-f367-4ec9-9f8b-30162d89c5c4",
+    "2026-06-10|0cd1719b-a236-4b2d-a01d-4d79560c3ee6",
+    "2026-06-10|3320c52d-fe4e-4e0a-97bf-32427340ba19",
+    "2026-06-11|03186f81-eb07-4cfd-a331-f296f61a99f0",
+    "2026-06-11|1259c524-2db8-43ae-bf05-50e7002674ad",
+    "2026-06-12|005309b7-795d-4d7b-859b-55a5841903c8",
+    "2026-06-12|757b41ff-caf7-4cb7-9622-eb8deac2fe95",
+    "2026-06-15|56fe8ec2-13c4-48af-b4d2-9aac314387d5",
+    "2026-06-18|d20fd38b-8d2f-47cf-9858-d311b2ccaf9c",
+    "2026-06-19|70442f10-b9da-4709-b254-a058927bb518",
+    "2026-06-22|9bf6abef-2a16-4af3-b923-4ad8a1ba49e2",
+    "2026-06-23|220a9a28-6daa-4e7f-a27d-872841f05dca",
+    "2026-06-23|27bc4082-449e-4662-bb16-75919e936954",
+    "2026-06-24|5a220289-62dd-4cbd-97b8-16b7acaf7f1c",
+    "2026-06-24|97ab85b5-9cee-4512-8f18-21261e0dcc0b",
+    "2026-06-25|0e0b325f-58e8-4bbe-bc7e-4ca6171e6e5e",
+    "2026-06-25|5d18e9ed-5322-4240-ac2b-ea1e88e7310e",
+    "2026-06-26|c003e80f-fafc-4bb2-8171-fd481c79a6f7",
+    "2026-07-01|0b996c82-1783-4c05-b11b-38ace4e5554d",
+    "2026-07-06|21bcd5d0-c652-411a-949b-1f648a628ae6",
+    "2026-07-06|461ed7c2-a8e0-491f-8633-4fdd580d69fa",
+    "2026-07-06|95180ab8-5e21-45cd-b8af-cde2f18386cf",
+    "2026-07-06|bf0b3f52-5c70-4b2f-8c71-178475eb946a",
+    "2026-07-06|f9e3328f-8ee7-4301-b048-ff4750457ccd",
+    "2026-07-06|fceb94f7-4a89-4e3a-9089-10074b0e8977",
+    "2026-07-14|cd981b05-034b-4c9d-9faf-b84f04861393",
+    "2026-07-16|1e716fce-e896-4521-a7c9-8fbc63cfa67c",
+    "2026-07-16|5bf8d030-3269-4871-a203-8ab49cebeced",
+    "2026-07-16|df7ecfcd-013e-4689-8411-b133124c7f16",
+    "2026-07-21|0164d669-0e9a-49be-9ff0-23fdee9d081f",
+    "2026-07-21|2945b999-d3ef-451c-bd6f-07ff7be2bc3a",
+    "2026-07-21|afdd20eb-92e1-43e6-8c48-8876645bff66",
+    "2026-07-24|6a06e43a-382c-45ad-a1ba-b3b3a2ccc6dd",
+    "2026-07-28|b6301f9f-1cee-487f-bf3b-2df1cf7cdda2",
+    "2026-07-28|dcfdb8fd-c733-4a69-ac61-816df0ea7ac0",
+    "2026-08-03|cf4bd54c-d001-4493-a4ce-650b7cdd40df",
+    "2026-08-11|f467355d-a7e1-4a12-a600-4e7170bbf55d",
+    "2026-08-14|8bd54c53-6b7b-4feb-826e-a7302e400530",
+    "2026-08-14|a1b030eb-44f2-411a-be3e-02bf38842bb1",
+    "2026-08-14|b064d377-32b8-4ff4-a3ff-69ab2a5ed46e",
+    "2026-08-17|a4cd0a98-90ba-412f-a818-6001ad776c5e",
+    "2026-08-21|a6028428-9150-4061-a615-4c720690c0ce",
+    "2026-08-24|8987c99d-5140-4acc-beb6-08ace59ff8ee",
+    "2026-08-25|f63a17b4-6d27-4ae6-84ea-1ceb65c96629",
+    "2026-08-27|3e0ed853-c50b-4e0f-b857-8dcb0e2cf567",
+    "2026-08-31|eb1a86f2-f8f0-469d-a4d0-82b744095883",
+    "2026-09-04|bab7a53e-033d-4c6e-bb61-462c8f4cd76b",
+    "2026-09-10|05cff62f-b16a-44ee-b4a6-a60deafbd193",
+    "2026-09-10|8ce2a115-5f50-45f3-9e73-525cec4f8a1e",
+    "2026-09-10|a463ee13-03a2-48ba-8b11-a124669bc27b",
+    "2026-09-14|826e9a31-3313-4c36-897f-faae7a64185f",
+    "2026-09-16|0d81d081-386e-4556-b664-929473832ca2",
+    "2026-09-18|f731a8e2-bdef-4203-a3b8-2cbfb9730f4c"
+   ],
+   "group": "Pima County",
+   "hold": {
+    "date": "2026-09-21",
+    "failures": {
+     "2026-09-21|936cea8b-4f19-46b0-93ce-793f536a0a08": 1,
+     "2026-09-25|e8bc101f-d32d-4c95-9115-cd679ee00d2e": 1,
+     "2026-09-28|f99c6dcc-0319-42e4-85b4-fdc32317b057": 1,
+     "2026-09-29|16010eb6-9f79-488a-82ff-868c3851ceb5": 1,
+     "2026-09-29|3290c259-3e24-44d2-a2c5-6b498a4af219": 1,
+     "2026-10-12|ef028e77-2989-4e33-bf5a-0e59975b67ad": 1,
+     "2026-10-13|1678eab6-77fb-412b-91d5-364fbb2427c3": 1,
+     "2026-10-15|67117438-7fad-48ad-9e0e-b3c1d6db3373": 1
+    }
+   },
+   "latest": "2026-09-20"
   },
   "Plano Health Dept": {
    "group": "DFW",
@@ -565,6 +1031,138 @@
    },
    "latest": "2026-10-28"
   },
+  "VDH Alexandria Health Dept": {
+   "group": "MHD metros (midweek)",
+   "latest": "2026-10-27"
+  },
+  "VDH Alleghany-Roanoke Health Dept": {
+   "group": "MHD metros (midweek)",
+   "latest": "2026-10-27"
+  },
+  "VDH Arlington Health Dept": {
+   "group": "MHD metros (midweek)",
+   "latest": "2026-10-27"
+  },
+  "VDH Blue Ridge Health Dept": {
+   "group": "MHD metros (midweek)",
+   "latest": "2026-10-27"
+  },
+  "VDH Central Shenandoah Health Dept": {
+   "group": "MHD metros (midweek)",
+   "latest": "2026-10-27"
+  },
+  "VDH Central Virginia Health Dept": {
+   "group": "MHD metros (midweek)",
+   "latest": "2026-10-27"
+  },
+  "VDH Chesapeake Health Dept": {
+   "group": "MHD metros (midweek)",
+   "latest": "2026-10-27"
+  },
+  "VDH Chesterfield Health Dept": {
+   "group": "MHD metros (midweek)",
+   "latest": "2026-10-27"
+  },
+  "VDH Chickahominy Health Dept": {
+   "group": "MHD metros (midweek)",
+   "latest": "2026-10-27"
+  },
+  "VDH Crater Health Dept": {
+   "group": "MHD metros (midweek)",
+   "latest": "2026-10-27"
+  },
+  "VDH Cumberland Plateau Health Dept": {
+   "group": "MHD metros (midweek)",
+   "latest": "2026-10-27"
+  },
+  "VDH Eastern Shore Health Dept": {
+   "group": "MHD metros (midweek)",
+   "latest": "2026-10-27"
+  },
+  "VDH Hampton Health Dept": {
+   "group": "MHD metros (midweek)",
+   "latest": "2026-10-27"
+  },
+  "VDH Henrico Health Dept": {
+   "group": "MHD metros (midweek)",
+   "latest": "2026-10-27"
+  },
+  "VDH Lenowisco Health Dept": {
+   "group": "MHD metros (midweek)",
+   "latest": "2026-10-26"
+  },
+  "VDH Lord Fairfax Health Dept": {
+   "group": "MHD metros (midweek)",
+   "latest": "2026-10-27"
+  },
+  "VDH Loudoun Health Dept": {
+   "group": "MHD metros (midweek)",
+   "latest": "2026-10-27"
+  },
+  "VDH Mount Rogers Health Dept": {
+   "group": "MHD metros (midweek)",
+   "latest": "2026-10-27"
+  },
+  "VDH New River Health Dept": {
+   "group": "MHD metros (midweek)",
+   "latest": "2026-10-27"
+  },
+  "VDH Norfolk Health Dept": {
+   "group": "MHD metros (midweek)",
+   "latest": "2026-10-27"
+  },
+  "VDH Peninsula Health Dept": {
+   "group": "MHD metros (midweek)",
+   "latest": "2026-10-27"
+  },
+  "VDH Piedmont Health Dept": {
+   "group": "MHD metros (midweek)",
+   "latest": "2026-10-23"
+  },
+  "VDH Pittsylvania-Danville Health Dept": {
+   "group": "MHD metros (midweek)",
+   "latest": "2026-10-27"
+  },
+  "VDH Portsmouth Health Dept": {
+   "group": "MHD metros (midweek)",
+   "latest": "2026-10-27"
+  },
+  "VDH Prince William Health Dept": {
+   "group": "MHD metros (midweek)",
+   "latest": "2026-10-27"
+  },
+  "VDH Rappahannock Health Dept": {
+   "group": "MHD metros (midweek)",
+   "latest": "2026-10-27"
+  },
+  "VDH Rappahannock-Rapidan Health Dept": {
+   "group": "MHD metros (midweek)",
+   "latest": "2026-10-26"
+  },
+  "VDH Richmond City Health Dept": {
+   "group": "MHD metros (midweek)",
+   "latest": "2026-10-27"
+  },
+  "VDH Southside Health Dept": {
+   "group": "MHD metros (midweek)",
+   "latest": "2026-10-27"
+  },
+  "VDH Three Rivers Health Dept": {
+   "group": "MHD metros (midweek)",
+   "latest": "2026-10-27"
+  },
+  "VDH Virginia Beach Health Dept": {
+   "group": "MHD metros (midweek)",
+   "latest": "2026-10-27"
+  },
+  "VDH West Piedmont Health Dept": {
+   "group": "MHD metros (midweek)",
+   "latest": "2026-10-27"
+  },
+  "VDH Western Tidewater Health Dept": {
+   "group": "MHD metros (midweek)",
+   "latest": "2026-10-26"
+  },
   "Wake County Open Data": {
    "group": "Wake County",
    "latest": "2026-10-29"
@@ -577,10 +1175,14 @@
    "group": "MHD metros",
    "latest": "2026-10-30"
   },
+  "Williamson County and Cities Health District": {
+   "group": "Williamson County",
+   "latest": "2026-10-28"
+  },
   "Yolo County Health Dept": {
    "group": "MHD metros",
    "latest": "2026-10-30"
   }
  },
- "updated": "2026-11-01"
+ "updated": "2026-11-03"
 }

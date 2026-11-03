@@ -1,0 +1,42 @@
+{
+ "objectIdFieldName": "OBJECTID",
+ "fields": [
+  {
+   "name": "Zip",
+   "type": "esriFieldTypeString",
+   "alias": "Zip"
+  }
+ ],
+ "features": [
+  {
+   "attributes": {
+    "Zip": "85004"
+   }
+  },
+  {
+   "attributes": {
+    "Zip": "85281"
+   }
+  },
+  {
+   "attributes": {
+    "Zip": "85022"
+   }
+  },
+  {
+   "attributes": {
+    "Zip": "85022-1234"
+   }
+  },
+  {
+   "attributes": {
+    "Zip": ""
+   }
+  },
+  {
+   "attributes": {
+    "Zip": "95040"
+   }
+  }
+ ]
+}

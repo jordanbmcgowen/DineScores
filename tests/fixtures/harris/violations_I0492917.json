@@ -1,0 +1,57 @@
+[
+ {
+  "inspectionNumber": "I0492917",
+  "violationNumber": 1,
+  "violationDescription": "Person in charge present, demonstrates knowledge, and performs duties",
+  "complianceResult": "Out",
+  "numberOfDemerits": 2,
+  "violationId": "787c82c3-0910-4f9a-bda9-55365b904ae4",
+  "violationGroup": "F",
+  "department": "General",
+  "shortDescription": "Person in Charge Responsibilities"
+ },
+ {
+  "inspectionNumber": "I0492917",
+  "violationNumber": 9,
+  "violationDescription": "No bare hand contact with RTE food or a pre-approved alternate procedure properly allowed",
+  "complianceResult": "Out",
+  "numberOfDemerits": 3,
+  "violationId": "b5e68166-ec67-4c6f-9219-b033b2e1a587",
+  "violationGroup": "P",
+  "department": "General",
+  "shortDescription": "No Bare Hand Contact with Ready-to-Eat Foods"
+ },
+ {
+  "inspectionNumber": "I0492917",
+  "violationNumber": 38,
+  "violationDescription": "Insects, rodents, and animals not present",
+  "complianceResult": "Out",
+  "numberOfDemerits": 2,
+  "violationId": "ee6f178d-de49-4ce8-b6e5-2d360b188f9e",
+  "violationGroup": "C",
+  "department": "General",
+  "shortDescription": "Effective pest control & Animals Prohibited"
+ },
+ {
+  "inspectionNumber": "I0492917",
+  "violationNumber": 56,
+  "violationDescription": "Adequate ventilation and lighting; designated areas used",
+  "complianceResult": "Out",
+  "numberOfDemerits": 1,
+  "violationId": "147594e3-69c3-4f2b-95e0-dc68bc9a9105",
+  "violationGroup": "C",
+  "department": "General",
+  "shortDescription": "Ventilation, lighting, and employee area compliance."
+ },
+ {
+  "inspectionNumber": "I0492917",
+  "violationNumber": 58,
+  "violationDescription": "Permit (Current & Valid)",
+  "complianceResult": "Out",
+  "numberOfDemerits": 1,
+  "violationId": "219af0c3-ff10-4084-a156-e7633f790da9",
+  "violationGroup": "C",
+  "department": "General",
+  "shortDescription": "Permit (Current & Valid)"
+ }
+]

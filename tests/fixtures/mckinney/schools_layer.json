@@ -1,0 +1,78 @@
+{
+ "displayFieldName": "inspection_cycle",
+ "fieldAliases": {
+  "OBJECTID": "OBJECTID",
+  "last_inspection": "last_inspection",
+  "next_inspection": "next_inspection",
+  "inspection_cycle": "inspection_cycle",
+  "link_number": "link_number",
+  "WORK_CLASS": "WORK_CLASS",
+  "PERMIT_STATUS": "PERMIT_STATUS",
+  "ADDRESS_LINE1": "ADDRESS_LINE1",
+  "PARCELNUMBER": "PARCELNUMBER",
+  "expiration_date": "expiration_date",
+  "description": "description",
+  "avg_score": "avg_score",
+  "trend": "trend",
+  "inspections": "inspections",
+  "critical_violations": "critical_violations",
+  "POINT_X": "POINT_X",
+  "POINT_Y": "POINT_Y"
+ },
+ "geometryType": "esriGeometryPoint",
+ "spatialReference": {
+  "wkid": 4326,
+  "latestWkid": 4326
+ },
+ "fields": [
+  {
+   "name": "OBJECTID",
+   "type": "esriFieldTypeOID",
+   "alias": "OBJECTID"
+  },
+  {
+   "name": "link_number",
+   "type": "esriFieldTypeString",
+   "alias": "link_number",
+   "length": 50
+  },
+  {
+   "name": "WORK_CLASS",
+   "type": "esriFieldTypeString",
+   "alias": "WORK_CLASS",
+   "length": 50
+  },
+  {
+   "name": "description",
+   "type": "esriFieldTypeString",
+   "alias": "description",
+   "length": 1073741822
+  }
+ ],
+ "features": [
+  {
+   "attributes": {
+    "OBJECTID": 747,
+    "link_number": "HEALTH2018-10153",
+    "WORK_CLASS": "MISD",
+    "description": "MCKINNEY ISD STADIUM HOME CONCESSION"
+   },
+   "geometry": {
+    "x": -96.66157238510858,
+    "y": 33.157363459764184
+   }
+  },
+  {
+   "attributes": {
+    "OBJECTID": 765,
+    "link_number": "HEALTH2017-000634",
+    "WORK_CLASS": "MISD",
+    "description": "JOHNSON MIDDLE SCHOOL CONCESSION"
+   },
+   "geometry": {
+    "x": -96.6381682644267,
+    "y": 33.234151581041395
+   }
+  }
+ ]
+}

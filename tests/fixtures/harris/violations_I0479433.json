@@ -1,0 +1,68 @@
+[
+ {
+  "inspectionNumber": "I0479433",
+  "violationNumber": 15,
+  "violationDescription": "Food separated and protected",
+  "complianceResult": "Out",
+  "numberOfDemerits": 2,
+  "violationId": "722ffebb-38f1-41f9-8bbf-ec6c7e81c6f4",
+  "violationGroup": "P",
+  "department": "General",
+  "shortDescription": "Cross-contamination prevented"
+ },
+ {
+  "inspectionNumber": "I0479433",
+  "violationNumber": 16,
+  "violationDescription": "Food-contact surfaces: cleaned & sanitized",
+  "complianceResult": "Out",
+  "numberOfDemerits": 3,
+  "violationId": "83b6adf7-0aeb-4e82-9800-7b35924dde5b",
+  "violationGroup": "P",
+  "department": "General",
+  "shortDescription": "Food-Contact Surfaces – Cleaned and Sanitized"
+ },
+ {
+  "inspectionNumber": "I0479433",
+  "violationNumber": 21,
+  "violationDescription": "Proper hot holding temperatures (135°F)",
+  "complianceResult": "Out",
+  "numberOfDemerits": 3,
+  "violationId": "8cf1f2c2-5491-4deb-91f1-583650c8fbef",
+  "violationGroup": "P",
+  "department": "General",
+  "shortDescription": "TCS Food Hot Holding"
+ },
+ {
+  "inspectionNumber": "I0479433",
+  "violationNumber": 39,
+  "violationDescription": "Contamination prevented during food preparation, storage, and display",
+  "complianceResult": "Out",
+  "numberOfDemerits": 1,
+  "violationId": "8e14b84b-6cab-4865-b933-32ca13cc78a5",
+  "violationGroup": "C",
+  "department": "General",
+  "shortDescription": "Protection of food from contamination throughout handling"
+ },
+ {
+  "inspectionNumber": "I0479433",
+  "violationNumber": 54,
+  "violationDescription": "Garbage and Refuse are properly disposed of; facilities maintained",
+  "complianceResult": "Out",
+  "numberOfDemerits": 1,
+  "violationId": "64cd50ea-8c47-4b6a-b935-4db8ab32c7ea",
+  "violationGroup": "C",
+  "department": "General",
+  "shortDescription": "Proper disposal and maintenance of garbage and refuse areas."
+ },
+ {
+  "inspectionNumber": "I0479433",
+  "violationNumber": 56,
+  "violationDescription": "Adequate ventilation and lighting; designated areas used",
+  "complianceResult": "Out",
+  "numberOfDemerits": 1,
+  "violationId": "147594e3-69c3-4f2b-95e0-dc68bc9a9105",
+  "violationGroup": "C",
+  "department": "General",
+  "shortDescription": "Ventilation, lighting, and employee area compliance."
+ }
+]

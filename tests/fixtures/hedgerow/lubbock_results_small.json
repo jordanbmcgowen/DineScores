@@ -1,0 +1,48 @@
+[
+ {
+  "id": "b2113338-5fcf-4d1f-a1d8-4a82c30df0d5",
+  "description": "Non-Food Contact Surfaces Clean",
+  "result": "Corrected During Inspection",
+  "isCritical": false,
+  "writtenComment": null,
+  "responseComment": null,
+  "category": {
+   "id": "0226802d-d87b-4b36-bd3f-768f0e53c541",
+   "description": "Physical Facilities"
+  },
+  "cannedComments": [
+   {
+    "id": "e864ddb6-816c-47b5-8b4e-99a40755ccf0",
+    "description": "228.113(3) - Nonfood-contact surfaces of equipment shall be kept free of an accumulation of dust, dirt, food residue, and other debris",
+    "severity": "Core",
+    "locationComment": "Soda Machine",
+    "observationComment": "Cabinet under soda machine had an accumulation of soda syrup and other debris. ",
+    "responseComment": null,
+    "readings": null
+   }
+  ]
+ },
+ {
+  "id": "b2113338-5fcf-4d1f-a1d8-4a82c30df0d5",
+  "description": "Non-Food Contact Surfaces Clean",
+  "result": "Corrected During Inspection",
+  "isCritical": false,
+  "writtenComment": null,
+  "responseComment": null,
+  "category": {
+   "id": "0226802d-d87b-4b36-bd3f-768f0e53c541",
+   "description": "Physical Facilities"
+  },
+  "cannedComments": [
+   {
+    "id": "e864ddb6-816c-47b5-8b4e-99a40755ccf0",
+    "description": "228.113(3) - Nonfood-contact surfaces of equipment shall be kept free of an accumulation of dust, dirt, food residue, and other debris",
+    "severity": "Core",
+    "locationComment": "Walk-in Cooler",
+    "observationComment": "Vent shrouds of walk-in cooler had an accumulation of dust. ",
+    "responseComment": null,
+    "readings": null
+   }
+  ]
+ }
+]
