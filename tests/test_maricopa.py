@@ -17,6 +17,7 @@ import time
 import unittest
 from datetime import datetime, timedelta
 from unittest import mock
+from urllib.parse import quote
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import dinescores_pipeline as dp  # noqa: E402
@@ -269,6 +270,9 @@ class DetailPageParserTests(unittest.TestCase):
                          ('20', 'Proper Cooling Time and Temperatures', 'priority',
                           'Proper Cooling Time and Temperatures: Cooling'))
         self.assertIsNone(dp._mcesd_violation(chunk.replace(' - Priority:', ' - Major:')))
+        # a code phrase that only repeats the item title is not repeated
+        same = chunk.replace('Priority: Cooling.', 'Priority: Proper Cooling Time and Temperatures.')
+        self.assertEqual(dp._mcesd_violation(same)[3], 'Proper Cooling Time and Temperatures')
 
 
 class HelperTests(unittest.TestCase):
@@ -283,6 +287,9 @@ class HelperTests(unittest.TestCase):
             ' 10  E  BUCKEYE  RD  PHOENIX  AZ  85004 ': ('10 E BUCKEYE RD', 'PHOENIX', '85004'),
             'no state or zip here': ('no state or zip here', '', ''),
             'PHOENIX AZ 85004': ('', 'PHOENIX', '85004'),            # no street: dropped as junk
+            '1155 W OCOTILLO RD AZ 85240': ('1155 W OCOTILLO RD', '', '85240'),   # the county left the city out
+            '26602 W MC 85 BUCKEYE AZ 85326': ('26602 W MC 85', 'BUCKEYE', '85326'),
+            '123 E VIA LINDA SCOTTSDALE AZ 85258': ('123 E VIA LINDA', 'SCOTTSDALE', '85258'),
             '': ('', '', ''),
         }
         for concat, expected in cases.items():
@@ -306,6 +313,22 @@ class HelperTests(unittest.TestCase):
         self.assertIsNone(dp._mcesd_permit(dict(row, businessName='')))
         self.assertIsNone(dp._mcesd_permit(dict(row, businessAddressConcat='PHOENIX AZ 85004')))
         self.assertIsNone(dp._mcesd_permit({}))
+        no_city = dp._mcesd_permit(dict(row, businessAddressConcat='1155 W OCOTILLO RD AZ 85240'))
+        self.assertEqual((no_city['address'], no_city['city'], no_city['zip']), ('1155 W Ocotillo Rd', '', '85240'))
+
+    def test_skipped_purposes(self):
+        for purpose in ('Food Advisory Inspection', 'Food AMC Trainings', 'Food Review Inspection'):
+            self.assertTrue(dp.MCESD_SKIP_PURPOSE_RE.search(purpose), purpose)
+        for purpose in ('Food Routine Inspection', 'CI Food Routine Inspection', 'Re-Inspection',
+                        'Food Complaint Inspection'):
+            self.assertFalse(dp.MCESD_SKIP_PURPOSE_RE.search(purpose), purpose)
+
+    def test_arcgis_chunk_fits_the_query_url(self):
+        # 100 ids of the longest format (2,239-char URL) answered 404 live on
+        # 2026-11-03; 75 (1,739 chars) answered 200
+        ids = [f'FD-24-{i:05d}' for i in range(dp.MCESD_ARCGIS_CHUNK)]
+        where = 'LicenseNumber IN (' + ','.join(f"'{p}'" for p in ids) + ')'
+        self.assertLess(len(dp.MCESD_ARCGIS_LAYER) + len(quote(where)) + 200, 2000)
 
     def test_results_text(self):
         cases = [(('A', 'Completed'), 'Grade A'), (('d', 'Completed'), 'Grade D'),
@@ -462,6 +485,10 @@ class RecordTests(MaricopaTestCase):
         # three static zips plus the ArcGIS list's 85281 / 85022 / 95040
         posts = [u for m, u in self.portal.calls if m == 'POST']
         self.assertEqual(len(posts), 6)
+        # FD-00777's in-window row is an advisory visit: not an inspection,
+        # never detailed, never shipped
+        self.assertEqual(self.portal.detail_requests('FD-00777'), 0)
+        self.assertEqual(dp._MCESD_LAST_STATS['skipped_purpose'], {'Food Advisory Inspection': 1})
         # one permit page per food permit, the duplicate search row collapsed,
         # the daycare and the two mobile units never requested
         gets = [u for m, u in self.portal.calls if '/Permit/PermitResults/' in u]
@@ -481,6 +508,7 @@ class RecordTests(MaricopaTestCase):
         self.assertEqual(self.by_id['mcesd_FD-00571_INSP-900001-2026']['results'], 'Grade B')
         self.assertEqual(self.by_id['mcesd_FD2602160_INSP-900002-2026']['results'], 'Grade A')
         self.assertEqual(self.by_id['mcesd_FD2602160_INSP-900002-2026']['inspection_date'], '2026-10-01')
+        self.assertEqual(self.by_id['mcesd_FD2602160_INSP-900002-2026']['inspection_type'], 'CI Food Routine Inspection')
 
     def test_same_day_visits_worst_first_and_shared_identity(self):
         a = self.by_id['mcesd_FD-00570_INSP-067508-2026']
@@ -558,9 +586,10 @@ class WindowAndLimitTests(MaricopaTestCase):
             'mcesd_FD-00408_INSP-026373-2026', 'mcesd_FD-00570_INSP-067508-2026', 'mcesd_FD-00571_INSP-900001-2026',
             'mcesd_FD-00777_INSP-055361-2026', 'mcesd_FD-02429_INSP-026626-2024', 'mcesd_FD-12738_5663423-MCESD',
             'mcesd_FD2602160_INSP-900002-2026'])
-        self.assertEqual(portal.detail_requests(), 10 + 6 + 5)
+        # 22 rows, minus FD-00570's and FD-00777's advisory visits
+        self.assertEqual(portal.detail_requests(), 20)
         holds = dp._FRESHNESS_HOLDS[SOURCE]
-        self.assertEqual(len(holds), 14)
+        self.assertEqual(len(holds), 13)
         self.assertIn('2026-04-07|INSP-179467-2025', holds)
         self.assertTrue(all(counted for counted, _ in holds.values()))    # tried and failed: counted
         self.assertNotIn(GROUP, dp._GROUP_STATUS)                           # per-record drops are not red

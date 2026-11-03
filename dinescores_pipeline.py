@@ -7775,7 +7775,20 @@ MCESD_TIMEOUT = 60
 MCESD_ATTEMPTS = 3                   # tries per request on 429/5xx/transport errors
 MCESD_BACKOFF = (3, 8)               # seconds between those tries
 MCESD_BREAKER_TRIP = 25              # consecutive unreadable pages = the portal is blocking
-MCESD_ARCGIS_CHUNK = 150             # permit ids per ArcGIS 'LicenseNumber IN (...)' query
+MCESD_ARCGIS_CHUNK = 60              # permit ids per ArcGIS 'LicenseNumber IN (...)' GET: 75 ids
+                                     # (1,739-char URL) answered 200, 100 ids (2,239 chars) 404
+# Visits that are not inspections: advisory visits (consultations, no grade,
+# zero violations on all 45 seen 2026-10-20..29), plan reviews and the
+# 'Food AMC Trainings' visit. Shipping them as 100-point inspections would
+# mask a bad routine in the weighted score. Matched on the row's purpose; an
+# unknown new purpose ships (and shows in the log) rather than vanishing.
+MCESD_SKIP_PURPOSE_RE = re.compile(r'advisory|training|review', re.I)
+# A lone last word that is a street suffix means the county left the city
+# out of the concat ('1155 W OCOTILLO RD AZ 85240'): no city, not 'Rd'.
+MCESD_STREET_SUFFIXES = frozenset({
+    'RD', 'ST', 'AVE', 'DR', 'BLVD', 'PKWY', 'LN', 'WAY', 'PL', 'HWY', 'CIR', 'CT', 'TRL',
+    'LOOP', 'FWY', 'EXPY', 'TER', 'RTE', 'PKY', 'BLV', 'AV', 'STE', 'UNIT', 'BLDG', 'SUITE',
+})
 # Multi-word place names the county prints in 'STREET CITY AZ ZIP'; a
 # single-word city needs no entry (the last word before 'AZ' is the city).
 # Longest first so 'SUN CITY WEST' wins over 'SUN CITY'.
@@ -7863,7 +7876,10 @@ def _mcesd_split_address(concat):
             return body[:-len(city)].strip(), body[-len(city):], zip5
     parts = body.rsplit(' ', 1)
     if len(parts) == 2:
-        return parts[0], parts[1], zip5
+        last = parts[1]
+        if last.upper().strip('.,') in MCESD_STREET_SUFFIXES or last.strip('#').isdigit():
+            return body, '', zip5            # the county left the city out
+        return parts[0], last, zip5
     return '', body, zip5                    # a lone word is the city; no street
 
 
@@ -8100,6 +8116,8 @@ def _mcesd_violation(chunk):
                            observation, maxsplit=1)[0]
     observation = ' '.join(observation.split()).strip()
     detail = observation or phrase
+    if detail.lower().strip('.') == title.lower().strip('.'):
+        detail = ''                          # the code phrase merely repeats the item title
     text = f'{title}: {detail}' if title and detail else (title or detail)
     return number, title, severity, text[:500]
 
@@ -8213,6 +8231,7 @@ def fetch_maricopa(since_date=None, limit=None):
     unread, newest, read_pages, cut = [], '', 0, None
     last_logged = 0
     skipped_known = 0
+    skipped_purpose = defaultdict(int)
     streak = 0
     t0 = time.time()
     batch = max(1, MCESD_LISTING_WORKERS) * 5
@@ -8248,6 +8267,9 @@ def fetch_maricopa(since_date=None, limit=None):
                     if key in seen:
                         continue
                     seen.add(key)
+                    if MCESD_SKIP_PURPOSE_RE.search(row['purpose'] or ''):
+                        skipped_purpose[row['purpose']] += 1
+                        continue
                     if SKIP_KNOWN_INSPECTIONS and (
                             make_restaurant_id(permit['name'], permit['address'], permit['city']),
                             d) in SKIP_KNOWN_INSPECTIONS:
@@ -8265,6 +8287,9 @@ def fetch_maricopa(since_date=None, limit=None):
              f"{len(candidates)} inspections since {window_start}"
              + (f", {skipped_known} already stored" if skipped_known else '')
              + (f"; newest row {newest}" if newest else ''))
+    if skipped_purpose:
+        log.info("  Maricopa: visits that are not inspections left out: " + ', '.join(
+            f"{k} ({n})" for k, n in sorted(skipped_purpose.items(), key=lambda kv: -kv[1])))
     if unread:
         # Tried twice and still not a complete permit page: that permit's
         # window is unknown. Hold the window on the permit so next run
@@ -8420,7 +8445,8 @@ def fetch_maricopa(since_date=None, limit=None):
     _MCESD_LAST_STATS.clear()
     _MCESD_LAST_STATS.update(stats.counts, permits=len(permits), permit_pages_read=read_pages,
                              permit_pages_unread=len(unread), candidates=len(candidates),
-                             skipped_known=skipped_known, details_read=len(details),
+                             skipped_known=skipped_known, skipped_purpose=dict(skipped_purpose),
+                             details_read=len(details),
                              dropped=dict(failures), records=len(results), with_point=with_point,
                              newest=newest, inventory_s=round(t_inventory),
                              listing_s=round(t_listing), details_s=round(t_details),
