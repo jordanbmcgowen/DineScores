@@ -69,6 +69,21 @@ jobs:
           probe "Austin Socrata" 'https://datahub.austintexas.gov/resource/ecmv-9xxi.json?$limit=1'
           probe "NY State Socrata" 'https://health.data.ny.gov/resource/cnih-y5dw.json?$limit=1'
           probe "Houston Tyler portal" 'https://houston-tx.healthinspections.us/'
+          # Sources added 2026-11. Probed only from a cloud container before
+          # shipping; this is where GitHub-runner reachability gets settled.
+          # A block here means the host must join the relay's allowlist
+          # (functions/api/relay.js) and the fetcher must route through it.
+          probe "Georgia Tyler publicportals" 'https://ga.healthinspections.us/stateofgeorgia/API/index.cfm/facilities/0' -H 'Accept: application/json'
+          probe "Louisiana Tyler publicportals" 'https://la.healthinspections.us/API/index.cfm/facilities/0' -H 'Accept: application/json'
+          probe "Maricopa County envapp" 'https://envapp.maricopa.gov/'
+          probe "Maricopa County ArcGIS" 'https://services.arcgis.com/ykpntM6e3tHvzKRJ/arcgis/rest/services/Restaurant_(External)/FeatureServer/0?f=json'
+          probe "Harris County HCPH portal" 'https://secureweb.hcphtx.org/fspportal/'
+          probe "Pima County Hedgerow portal" 'https://healthinspect.pima.gov/portal/'
+          probe "Lubbock Hedgerow portal" 'https://clhd-portal.hedgerowsoftware.com/'
+          probe "WCCHD inspection zip" 'https://storage.googleapis.com/ehyelp/WCCHD%20Food%20Inspections.zip' -r 0-200
+          probe "MHD Fort Bend page" 'https://inspections.myhealthdepartment.com/fbceh'
+          probe "MHD Cuyahoga page" 'https://inspections.myhealthdepartment.com/ccbh'
+          probe "MHD VDH Richmond page" 'https://inspections.myhealthdepartment.com/va-richmond'
           if [ -n "$PORTAL_PROXY_URL" ]; then
             echo "PORTAL_PROXY_URL is configured — repeating the blocked-portal probes through it"
             mhd_search " via proxy" -x "$PORTAL_PROXY_URL"

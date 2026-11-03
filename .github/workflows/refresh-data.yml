@@ -5,7 +5,20 @@ on:
     # Every Sunday at 9:17 AM UTC (4:17 AM CDT). Off the top of the hour, when
     # GitHub's scheduler is busiest: the 09:00 runs started 4.5 to 5.5 hours late.
     - cron: '17 9 * * 0'
+    # Wednesday: the heavy MyHealthDepartment jurisdictions added in November
+    # 2026 (Virginia's VDH districts, Cuyahoga County) run under their own
+    # group with their own detail-page ban budget and fetch deadline, so they
+    # cannot starve DFW and the other metros on Sunday. The "Pick the sources"
+    # step maps each cron to its --cities list.
+    - cron: '17 9 * * 3'
   workflow_dispatch:  # Allow manual trigger from GitHub Actions UI
+    inputs:
+      cities:
+        description: >-
+          Space-separated --cities slugs to fetch. Empty = the Sunday list;
+          "midweek" = the Wednesday list.
+        required: false
+        default: ''
 
 # Shared with poll-orange-county.yml so the two jobs never push at once.
 concurrency:
@@ -15,7 +28,7 @@ concurrency:
 jobs:
   refresh-data:
     runs-on: ubuntu-latest
-    timeout-minutes: 330
+    timeout-minutes: 350
     permissions:
       contents: write  # Needed to commit data.js back to the repo
       id-token: write  # Lets the job mint the GitHub OIDC token that
@@ -61,6 +74,31 @@ jobs:
           print(f'{n} stored inspections from the last 60 days will not be re-detailed')
           EOF
 
+      - name: Pick the sources for this run
+        # One workflow, two crons. Sunday fetches every source except the
+        # heavy MyHealthDepartment jurisdictions added in November 2026
+        # (Virginia's VDH districts, Cuyahoga County); those run on Wednesday
+        # under their own fetch group ('MHD metros (midweek)') so they get
+        # their own detail-page ban budget and fetch deadline instead of
+        # starving DFW and the other metros. A manual run may pass its own
+        # --cities list in the `cities` input ('midweek' = the Wednesday list).
+        env:
+          REQUESTED: ${{ inputs.cities }}
+          SCHEDULE: ${{ github.event.schedule }}
+        run: |
+          SUNDAY="chicago nyc sf austin boston seattle florida nys wake vegas la louisville minneapolis cincinnati delaware montgomery detroit sacramento southcarolina fairfax portland coloradosprings larimer weld adams utahcounty yolo santaclara sandiego omaha orangecounty gwinnett nashville memphis knoxville chattanooga houston sanantonio dc dallas plano frisco fort-worth-texas tarrant arlington richardson georgia louisiana maricopa harris pima lubbock mesquite williamson irving mckinney lewisville fortbend arapahoe douglas"
+          MIDWEEK="cuyahoga virginia"
+          if [ -n "$REQUESTED" ] && [ "$REQUESTED" != "midweek" ]; then
+            CITIES="$REQUESTED"; RUN_LABEL="manual"
+          elif [ "$REQUESTED" = "midweek" ] || [ "$SCHEDULE" = "17 9 * * 3" ]; then
+            CITIES="$MIDWEEK"; RUN_LABEL="midweek"
+          else
+            CITIES="$SUNDAY"; RUN_LABEL="weekly"
+          fi
+          echo "CITIES=$CITIES" >> "$GITHUB_ENV"
+          echo "RUN_LABEL=$RUN_LABEL" >> "$GITHUB_ENV"
+          echo "This is the $RUN_LABEL run: --cities $CITIES"
+
       - name: Run data pipeline (all covered metros)
         env:
           # Optional: raises Socrata rate limits if the secret is configured
@@ -95,18 +133,19 @@ jobs:
         run: |
           python3 dinescores_pipeline.py \
             --mode weekly \
-            --cities chicago nyc sf austin boston seattle florida nys wake vegas la louisville minneapolis cincinnati delaware montgomery detroit sacramento southcarolina fairfax portland coloradosprings larimer weld adams utahcounty yolo santaclara sandiego omaha orangecounty gwinnett nashville memphis knoxville chattanooga houston sanantonio dc dallas plano frisco fort-worth-texas tarrant arlington richardson \
+            --cities $CITIES \
             --output /tmp/dinescores_data.json \
             --output-data-js public/data.js \
             --merge-existing-data-js public/data.js \
             --output-d1-sql /tmp/dinescores_weekly.sql \
             --freshness-file data/source_freshness.json \
             --skip-known-inspections /tmp/known_inspections.tsv \
-            --deadline-minutes 240 \
+            --deadline-minutes 270 \
             --jev-deadline-minutes 20
         # --jev-deadline-minutes bounds the Jev reading pass that runs after
-        # the fetch phase (240 + 20 + outputs and the D1 upload stay inside
-        # the 330-minute job). Lines not read by then fall back to the regex;
+        # the fetch phase (270 + 20 + outputs and the D1 upload stay inside
+        # the 350-minute job; GitHub caps a job at 360). Lines not read by
+        # then fall back to the regex;
         # the pass can never fail the run or drop a record.
         # --merge-existing-data-js is essential: weekly mode only pulls the
         # recent window, and merging preserves the accumulated dataset instead
@@ -284,7 +323,7 @@ jobs:
             echo "No changes to data.js — already up to date"
           else
             TIMESTAMP=$(date -u '+%Y-%m-%d')
-            git commit -m "Auto-refresh: ${TIMESTAMP} weekly inspection data update"
+            git commit -m "Auto-refresh: ${TIMESTAMP} ${RUN_LABEL:-weekly} inspection data update"
             git pull --rebase --autostash origin main
             git push origin HEAD:main
             echo "Successfully pushed updated data.js"
