@@ -64,10 +64,22 @@ def _by_id(records):
     return {r['source_id']: r for r in records}
 
 
+def _snapshot():
+    return (dict(dp._GROUP_NOTES), dict(dp._FRESHNESS_HOLDS), dict(dp._GROUP_STATUS),
+            dp._FETCH_DEADLINE, dp.log.level)
+
+
+def _restore(saved):
+    dp._GROUP_NOTES.clear(); dp._GROUP_NOTES.update(saved[0])
+    dp._FRESHNESS_HOLDS.clear(); dp._FRESHNESS_HOLDS.update(saved[1])
+    dp._GROUP_STATUS.clear(); dp._GROUP_STATUS.update(saved[2])
+    dp._FETCH_DEADLINE = saved[3]
+    dp.log.setLevel(saved[4])
+
+
 class LewisvilleBase(unittest.TestCase):
     def setUp(self):
-        self._saved = (dict(dp._GROUP_NOTES), dict(dp._FRESHNESS_HOLDS), dict(dp._GROUP_STATUS),
-                       dp._FETCH_DEADLINE, dp.log.level)
+        self._saved = _snapshot()
         dp._GROUP_NOTES.clear()
         dp._FRESHNESS_HOLDS.clear()
         dp._GROUP_STATUS.clear()
@@ -75,11 +87,7 @@ class LewisvilleBase(unittest.TestCase):
         dp.log.setLevel(logging.WARNING)
 
     def tearDown(self):
-        dp._GROUP_NOTES.clear(); dp._GROUP_NOTES.update(self._saved[0])
-        dp._FRESHNESS_HOLDS.clear(); dp._FRESHNESS_HOLDS.update(self._saved[1])
-        dp._GROUP_STATUS.clear(); dp._GROUP_STATUS.update(self._saved[2])
-        dp._FETCH_DEADLINE = self._saved[3]
-        dp.log.setLevel(self._saved[4])
+        _restore(self._saved)
 
 
 class RequestShapeTests(LewisvilleBase):
@@ -119,7 +127,11 @@ class RequestShapeTests(LewisvilleBase):
 class RecordTests(LewisvilleBase):
     @classmethod
     def setUpClass(cls):
-        cls.records, _ = run_fetch(since='2026-01-01')
+        saved = _snapshot()                      # the class-level fetch leaves no note or hold behind
+        try:
+            cls.records, _ = run_fetch(since='2026-01-01')
+        finally:
+            _restore(saved)
         cls.by_id = _by_id(cls.records)
 
     def test_scored_record_whole_dict(self):
@@ -154,6 +166,35 @@ class RecordTests(LewisvilleBase):
         self.assertNotIn('lew_261736', self.by_id)        # 'NO SCORE' (a daycare)
         self.assertEqual(len(self.records), 6)
         self.assertTrue(all(0 < r['risk_score'] <= 100 for r in self.records))
+
+    def test_a_mostly_unscored_window_raises_instead_of_an_empty_green_run(self):
+        payload = _load('bydate.json')
+        base = payload['projects'][-1]
+        payload['projects'] = []
+        for i in range(24):                               # 24 rows, 13 with a re-typed Score
+            row = dict(base)
+            row['InspectionID'] = 900000 + i
+            row['Score'] = '95.0' if i < 13 else '95'
+            payload['projects'].append(row)
+        with self.assertRaises(RuntimeError) as ctx:
+            run_fetch(since='2026-01-01', payload=payload)
+        self.assertIn('no usable Score', str(ctx.exception))
+        for row in payload['projects'][:2]:
+            row['Score'] = '95'                           # 11 of 24: data, dropped quietly
+        records, _ = run_fetch(since='2026-01-01', payload=payload)
+        self.assertEqual(len(records), 13)
+
+    def test_school_and_child_care_kitchens_are_dropped_by_name(self):
+        payload = _load('bydate.json')
+        for row in payload['projects']:
+            if row['InspectionID'] == 271483:
+                row['BusinessName'] = 'LISD - DEGAN ELEMENTARY'
+            if row['InspectionID'] == 271487:
+                row['BusinessName'] = 'KIDDIE ACADEMY OF CASTLE HILLS'
+        by_id = _by_id(run_fetch(since='2026-01-01', payload=payload)[0])
+        self.assertNotIn('lew_271483', by_id)
+        self.assertNotIn('lew_271487', by_id)
+        self.assertEqual(by_id['lew_251498']['name'], 'Lake Park Baseball Concessions')   # a concession stays
 
     def test_same_day_visits_of_one_permit_both_ship(self):
         self.assertIn('lew_251498', self.by_id)

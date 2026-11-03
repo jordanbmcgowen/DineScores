@@ -5,7 +5,7 @@ Branch: feat/dfw-holes. Section in dinescores_pipeline.py:
 If you are a successor agent: read this file, `git diff`, run
 `python3 -m unittest discover -s tests` from the worktree root, continue.
 
-## Status: complete (2026-11-03)
+## Status: FIX pass in progress (2026-11-03) - review findings being addressed
 
 - [x] Recon read; live probes of the uncertain shapes.
 - [x] data/certs/lewisville_ca_bundle.pem (certifi 2026.07.22 + GoDaddy G2
@@ -21,6 +21,71 @@ If you are a successor agent: read this file, `git diff`, run
       (tests/test_mckinney.py, test_lewisville.py, test_denton.py): 73 tests.
 - [x] Suite green: 347 tests, node tests/test_relay.mjs, py_compile.
 - [x] Live verification (below).
+
+## FIX pass (2026-11-03), after two adversarial reviews
+
+Fixed (code + tests, suite green: 362 tests, node tests/test_relay.mjs, py_compile):
+- Date bombs: the 'fresh data: no note' assertions in test_mckinney / test_denton
+  compared fixture dates (2026-10-30 / 2026-10-28) with today; they now move the
+  fixture rows to today's date. RecordTests.setUpClass fetches (all three modules)
+  snapshot/restore _GROUP_NOTES/_FRESHNESS_HOLDS/_GROUP_STATUS so nothing leaks.
+- McKinney permit layers fail CLOSED: an unreadable layer 0/1/2/3 raises
+  RuntimeError like an unreadable layer 4 (shipping without them put schools,
+  mobile units and splash pads on the map for good and dropped permit-named rows
+  without a hold).
+- McKinney scoring: risk_score = 100 - demerits (the TX form score, what
+  Richardson, Dallas and Plano ship); original_score stays the demerit total.
+  Jev: 'McKinney Health Inspections' moved out of SOURCE_TIER_SCORE_SOURCES
+  (score 'official', tiers 'fixed'). The 5/2/1 recomputation was the DFW outlier.
+- McKinney tripwire: per inspection 3P+2PF+C must equal total_score (true on
+  503/503 live inspections); a mismatch drops + holds that inspection
+  (counted=True, key=number); >= MCK_MISMATCH_MIN (10) mismatches above
+  MCK_MISMATCH_MAX_SHARE (5%) of the window raise. Emptied item columns can
+  never read as clean 100s.
+- McKinney comment parser: '#NN' items are read in any section ('Observations:'
+  headers, repeated 'Temperatures:' headers), dash items inside a named section
+  are read when they look like observations ('34 - Observed live roaches...'),
+  '#9 Observed' (no punctuation) and inline '... supplied. #34. Observed ...'
+  markers are read, header-shaped lines (CFM/PIC/Manager/Owner/Pest Control
+  without a sentence) never join a block while sentence continuations do.
+  Live 90-day corpus (503 inspections, 1462 cited items): neutral lines
+  78 (5.3%) -> 21 (1.4%), records with every line neutral 16 -> 2, neutral
+  item-34 lines 3 -> 0, raw-text pest/sewage evidence missing from every
+  shipped line 0 -> 0; the one pre-existing line that changed is the inline
+  case (item 31 no longer swallows item 34's sentence). Residual: 2 lines of
+  the form '10, 29 - Observed ...' (two items at once) stay unattributed.
+- Hazard safety net: a CITED item 34 / 20 whose own text carries no pest /
+  sewage sentence gets the report's pest / sewage sentences (MCK_HAZARD_ITEMS),
+  so a cited pest item never hides a roach behind the neutral phrase. Not
+  applied when no pest item was cited.
+- City label 'Mckinney' (plain .title()), matching the 37 D1 rows / 20 data.js
+  records the Plano portal already wrote; 'McKinney' would have split the town
+  in cities.js, the city= filter and the embed floors. Follow-up for the owner:
+  a rename seed could move everything to 'McKinney' later.
+- Scope rule shared by the three cities (DFW_HOLE_NON_RESTAURANT_RE): schools /
+  child care by name (LISD cafeterias, Kiddie Academy, Montessori, Goddard,
+  Primrose, learning centers, early-education) + 'micro market'; McKinney also
+  drops the layer-0 class 'Micro Market - Vending Machine'. Measured: Lewisville
+  75 of 1146 rows (35 names) dropped; Denton 0; McKinney adds Applebee
+  Montessori Academy, Aramark Micromarket, Lowe's micro markets. Denton's
+  'Mobile' names all carry a fixed address (the source does not say they are
+  mobile) and are kept, documented.
+- Lewisville / Denton: a window of >= 20 rows with more than half unscored
+  raises (a re-typed Score column must be a red run, not a green 'empty').
+- Denton: ORDER BY every column (a total order; 681 of 2570 permit+date pairs
+  have several distinct rows, which a partial order could shuffle across a page
+  boundary); the new shape verified live against the WAF (200). Dead MAX()
+  fixture/harness branch removed.
+- Docstrings: full mode starts 2024-01-01 (main()), not the 2017 layer start.
+
+Rejected / not changed:
+- Reviewer B's mobile-unit scope for Denton: every Denton row has an address, so
+  the source does not let us tell; dropping by a 'Mobile' in the name would also
+  drop a fixed snack bar (TACO LADY MOBILE-SNACK BAR, 9 inspections at a suite).
+- Nursing homes, park concessions, golf courses stay (fixed-address kitchens
+  serving food; not in the task's drop list).
+
+Live post-fix runs: see the table below (filled in after the runs).
 
 ## Design (decided after the recon docs + probe captures + live probes)
 

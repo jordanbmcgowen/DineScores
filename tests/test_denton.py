@@ -4,13 +4,14 @@ is mocked with trimmed captures from the live DataStore taken 2026-11-03
 (tests/fixtures/denton/): a DISTINCT page of nine verbatim rows (a FAILED
 result, a null RESULT, a row without permit or date, rows without
 coordinates, an 8-digit and 14-digit HealthScoreDate), the matching count
-and MAX answers and the title of Cloudflare's 403 block page."""
+answer and the title of Cloudflare's 403 block page."""
 import json
 import logging
 import os
 import re
 import sys
 import unittest
+from datetime import datetime
 from unittest import mock
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -46,8 +47,8 @@ class _Resp:
 def run_fetch(since=None, limit=None, rows=None, count=None, answers=None):
     """fetch_denton with requests.get mocked. The fixture page is served in
     LIMIT/OFFSET slices so paging can be tested by patching DEN_PAGE;
-    `answers` maps 'count' | 'rows' | 'max' to a _Resp, an exception or a
-    list of those served in order."""
+    `answers` maps 'count' | 'rows' to a _Resp, an exception or a list of
+    those served in order."""
     rows = rows if rows is not None else _load('sql_rows.json')
     count = count if count is not None else _load('sql_count.json')
     answers = dict(answers or {})
@@ -66,9 +67,9 @@ def run_fetch(since=None, limit=None, rows=None, count=None, answers=None):
         calls.append({'url': url, 'sql': sql, 'verify': verify})
         if sql.startswith('SELECT COUNT'):
             return serve('count', _Resp(count))
-        if sql.startswith('SELECT MAX'):
-            return serve('max', _Resp(_load('sql_max.json')))
         m = re.search(r'LIMIT (\d+) OFFSET (\d+)$', sql)
+        if not m:
+            raise AssertionError(f'unexpected SQL shape: {sql}')
         page = json.loads(json.dumps(rows))
         lim, off = int(m.group(1)), int(m.group(2))
         page['result']['records'] = rows['result']['records'][off:off + lim]
@@ -84,10 +85,31 @@ def _by_id(records):
     return {r['source_id']: r for r in records}
 
 
+def _rows_dated(yyyymmdd, rows=None):
+    """The fixture rows with every dated row moved to `yyyymmdd`."""
+    rows = rows if rows is not None else _load('sql_rows.json')
+    for r in rows['result']['records']:
+        if r['HealthScoreDate']:
+            r['HealthScoreDate'] = f'{yyyymmdd}000000'
+    return rows
+
+
+def _snapshot():
+    return (dict(dp._GROUP_NOTES), dict(dp._FRESHNESS_HOLDS), dict(dp._GROUP_STATUS),
+            dp._FETCH_DEADLINE, dp.log.level)
+
+
+def _restore(saved):
+    dp._GROUP_NOTES.clear(); dp._GROUP_NOTES.update(saved[0])
+    dp._FRESHNESS_HOLDS.clear(); dp._FRESHNESS_HOLDS.update(saved[1])
+    dp._GROUP_STATUS.clear(); dp._GROUP_STATUS.update(saved[2])
+    dp._FETCH_DEADLINE = saved[3]
+    dp.log.setLevel(saved[4])
+
+
 class DentonBase(unittest.TestCase):
     def setUp(self):
-        self._saved = (dict(dp._GROUP_NOTES), dict(dp._FRESHNESS_HOLDS), dict(dp._GROUP_STATUS),
-                       dp._FETCH_DEADLINE, dp.log.level)
+        self._saved = _snapshot()
         dp._GROUP_NOTES.clear()
         dp._FRESHNESS_HOLDS.clear()
         dp._GROUP_STATUS.clear()
@@ -95,11 +117,7 @@ class DentonBase(unittest.TestCase):
         dp.log.setLevel(logging.WARNING)
 
     def tearDown(self):
-        dp._GROUP_NOTES.clear(); dp._GROUP_NOTES.update(self._saved[0])
-        dp._FRESHNESS_HOLDS.clear(); dp._FRESHNESS_HOLDS.update(self._saved[1])
-        dp._GROUP_STATUS.clear(); dp._GROUP_STATUS.update(self._saved[2])
-        dp._FETCH_DEADLINE = self._saved[3]
-        dp.log.setLevel(self._saved[4])
+        _restore(self._saved)
 
 
 class RequestShapeTests(DentonBase):
@@ -111,14 +129,17 @@ class RequestShapeTests(DentonBase):
         self.assertEqual(calls[0]['sql'],
                          'SELECT COUNT(*) AS n FROM (SELECT DISTINCT "PERMIT_NO","HealthScoreDate" '
                          f'FROM "{dp.DEN_RESOURCE}" WHERE "HealthScoreDate" >= \'20261004\') t')
+        # A total order: every column, so a permit+date pair with several distinct
+        # rows can never straddle a page boundary in a different order per page.
         self.assertEqual(calls[1]['sql'],
                          'SELECT DISTINCT "PERMIT_NO","Name","Address","Type","Lat","Long","RESULT",'
                          '"HealthScoreInt","HealthScoreLetter","HealthScoreDate" '
                          f'FROM "{dp.DEN_RESOURCE}" WHERE "HealthScoreDate" >= \'20261004\' '
-                         f'ORDER BY "HealthScoreDate" DESC, "PERMIT_NO" LIMIT {dp.DEN_PAGE} OFFSET 0')
-        # Only the SQL shapes verified against the WAF: no functions in the where clause.
+                         'ORDER BY "HealthScoreDate" DESC, "PERMIT_NO", "Name", "Address", "Type", "Lat", '
+                         f'"Long", "RESULT", "HealthScoreInt", "HealthScoreLetter" LIMIT {dp.DEN_PAGE} OFFSET 0')
+        # Only the SQL shapes verified against the WAF: no functions in the where clause, no MAX().
         for c in calls:
-            self.assertNotRegex(c['sql'], r'SUBSTR|TO_DATE|CAST\(')
+            self.assertNotRegex(c['sql'], r'SUBSTR|TO_DATE|CAST\(|MAX\(')
 
     def test_since_date_in_both_formats_and_the_history_floor(self):
         for since in ('2026-10-04', '2026-10-04T00:00:00'):
@@ -146,7 +167,11 @@ class RequestShapeTests(DentonBase):
 class RecordTests(DentonBase):
     @classmethod
     def setUpClass(cls):
-        cls.records, _ = run_fetch(since='2010-01-01')
+        saved = _snapshot()                      # the class-level fetch leaves no note or hold behind
+        try:
+            cls.records, _ = run_fetch(since='2010-01-01')
+        finally:
+            _restore(saved)
         cls.by_id = _by_id(cls.records)
 
     def test_scored_record_whole_dict(self):
@@ -239,20 +264,51 @@ class WindowTests(DentonBase):
         rows['result']['records'][1]['HealthScoreInt'] = '0'
         rows['result']['records'][0]['HealthScoreInt'] = None
         records, _ = run_fetch(since='2026-10-28', rows=rows)
+        self.assertEqual(records, [])                             # two rows: below the tripwire's floor
+
+    def test_a_mostly_unscored_window_raises_instead_of_an_empty_green_run(self):
+        rows = _load('sql_rows.json')
+        base = [dict(r) for r in rows['result']['records'] if r['PERMIT_NO']]
+        many = []
+        for i in range(24):                                       # 24 distinct permits, one date
+            r = dict(base[i % len(base)])
+            r['PERMIT_NO'] = f'9999-{i:04d}'
+            r['HealthScoreDate'] = '20261028000000'
+            r['HealthScoreInt'] = '95.0' if i < 13 else '95'      # 13 of 24 re-typed: int() fails
+            many.append(r)
+        rows['result']['records'] = many
+        count = _load('sql_count.json')
+        count['result']['records'] = [{'n': 24}]
+        with self.assertRaises(RuntimeError) as ctx:
+            run_fetch(since='2026-10-04', rows=rows, count=count)
+        self.assertIn('no usable HealthScoreInt', str(ctx.exception))
+        for r in many[:2]:                                        # 11 of 24: still data, dropped quietly
+            r['HealthScoreInt'] = '95'
+        records, _ = run_fetch(since='2026-10-04', rows=rows, count=count)
+        self.assertEqual(len(records), 13)
+
+    def test_school_and_child_care_names_are_dropped(self):
+        rows = _load('sql_rows.json')
+        rows['result']['records'][1]['Name'] = 'DENTON ISD - STRICKLAND MIDDLE SCHOOL'
+        rows['result']['records'][0]['Name'] = 'PRIMROSE SCHOOL OF DENTON'
+        records, _ = run_fetch(since='2026-10-28', rows=rows)
         self.assertEqual(records, [])
+        # A 'Mobile' in a Denton name is kept: every row has a fixed address, so the
+        # source does not say the unit is mobile.
+        rows = _load('sql_rows.json')
+        rows['result']['records'][1]['Name'] = 'TACO LADY MOBILE-SNACK BAR'
+        records, _ = run_fetch(since='2026-10-28', rows=rows)
+        self.assertEqual(_by_id(records)['den_1610-0672_20261028']['name'], 'Taco Lady Mobile-Snack Bar')
 
     def test_source_lag_note_when_the_export_is_behind(self):
-        rows = _load('sql_rows.json')
-        for r in rows['result']['records']:
-            if r['HealthScoreDate']:
-                r['HealthScoreDate'] = '20260115000000'
         count = _load('sql_count.json')
         count['result']['records'] = [{'n': 5}]
-        run_fetch(since='2026-01-01', rows=rows, count=count)
+        run_fetch(since='2026-01-01', rows=_rows_dated('20260115'), count=count)
         self.assertIn('Denton', dp._GROUP_NOTES)
         self.assertIn('2026-01-15', dp._GROUP_NOTES['Denton'])
         dp._GROUP_NOTES.clear()
-        run_fetch(since='2026-10-04')
+        today = datetime.now().strftime('%Y%m%d')
+        run_fetch(since='2026-10-04', rows=_rows_dated(today), count=count)   # fresh rows: no note
         self.assertNotIn('Denton', dp._GROUP_NOTES)
 
 

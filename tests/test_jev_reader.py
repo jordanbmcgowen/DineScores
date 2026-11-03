@@ -911,12 +911,15 @@ class PipelinePassTests(unittest.TestCase):
         # source states, so the score follows the stored tiers but Jev's
         # category never moves them.
         for src in ('Louisiana LDH', 'Maricopa County Environmental Services',
-                    'Pima County Health Department', 'McKinney Health Inspections'):
+                    'Pima County Health Department'):
             self.assertEqual(jr.tier_policy(src), 'fixed', src)
             self.assertEqual(jr.score_policy(src, None), 'source_tiers', src)
-        # McKinney's original_score is a demerit total, never a 0-100 score:
-        # the policy must not read it as official.
-        self.assertEqual(jr.score_policy('McKinney Health Inspections', 13), 'source_tiers')
+        # McKinney: city-stated TX form points per item (never re-tiered) and
+        # a risk_score that is the TX form score, 100 - the demerit total kept
+        # in original_score (never re-scored, like Richardson's).
+        self.assertEqual(jr.tier_policy('McKinney Health Inspections'), 'fixed')
+        self.assertEqual(jr.score_policy('McKinney Health Inspections', 13), 'official')
+        self.assertEqual(jr.score_policy('McKinney Health Inspections', None), 'official')
         # Lewisville and Denton publish an official 0-100 score and no lines.
         self.assertEqual(jr.score_policy('Lewisville Environmental Health', 93), 'official')
         self.assertEqual(jr.score_policy('Denton Open Data', 90), 'official')

@@ -7720,17 +7720,42 @@ def fetch_williamson(since_date=None, limit=None):
 # one-request JSON web service behind its Vue app, Denton a CKAN DataStore
 # refreshed daily. None has a per-record detail phase: each fetcher reads its
 # window completely or RAISES (a raise records the group 'error', keeps its
-# recorded latest where it was and the next lookback re-reads the window),
-# so no freshness holds are needed and none is ever written. Irving (the
-# largest DFW hole) has no live machine-readable source: both of its ArcGIS
-# items are abandoned snapshots (2020-02, 2024-06) and its scores page sits
-# behind a Cloudflare JavaScript challenge, so it is not fetched.
+# recorded latest where it was and the next lookback re-reads the window).
+# The only hold any of them writes is McKinney's for an inspection whose
+# item points do not add up to the city's total (see fetch_mckinney).
+# A window in which most rows carry no usable score raises too
+# (DFW_HOLE_UNSCORED_MIN): a renamed or re-typed score column must be a red
+# run, not a green 'empty' one. Irving (the largest DFW hole) has no live
+# machine-readable source: both of its ArcGIS items are abandoned snapshots
+# (2020-02, 2024-06) and its scores page sits behind a Cloudflare JavaScript
+# challenge, so it is not fetched.
+#
+# Scope, the same rule in all three cities: schools and child-care kitchens
+# are not restaurants and are dropped by name (DFW_HOLE_NON_RESTAURANT_RE,
+# the only signal Lewisville and Denton give; McKinney also has its school
+# layer and permit classes), as are workplace vending 'micro markets'.
+# Mobile units are dropped only where the source says so (McKinney's permit
+# layers and classes): every Denton row carries a fixed address, so a
+# 'Mobile' in a Denton name is left alone, and Lewisville's stands are its
+# unscored 'PASS' rows, dropped as unscored.
 
 DFW_HOLE_RETRIES = 3          # attempts per request on 429/5xx/timeouts
 DFW_HOLE_BACKOFF = 3.0        # seconds before the 2nd attempt; grows per attempt
 DFW_HOLE_TIMEOUT = 120
 DFW_HOLE_PAGE_DELAY = 0.3     # pause between pages of one layer / table
 DFW_HOLE_RETRY_STATUSES = (429, 500, 502, 503, 504)
+# A window of at least this many rows in which more than half carry no
+# usable score is a format change, not data: the fetch raises.
+DFW_HOLE_UNSCORED_MIN = 20
+# Conservative on purpose: 'academy' alone is a sporting-goods store and
+# 'school' alone a culinary one, so only the unambiguous forms are listed
+# ('LISD - ...', 'Ogle Elementary', 'Kiddie Academy', 'Applebee Montessori
+# Academy', 'Aramark Micromarket').
+DFW_HOLE_NON_RESTAURANT_RE = re.compile(
+    r"\b(?:elementary|middle school|high school|[a-z]*isd|day ?care|child ?care|pre-?school|"
+    r"learning center|early childhood|early education|montessori|kiddie academy|goddard school|"
+    r"primrose school|preparatory school|children'?s academy|christian academy|classical academy|"
+    r"micro ?markets?)\b", re.I)
 
 
 def _dfw_hole_get(url, params=None, label='', verify=True, timeout=None):
@@ -7814,13 +7839,18 @@ def _dfw_hole_scrub(text):
 # holding LOCAL wall-clock time flagged as UTC, so its UTC date is the
 # inspection's local date). total_score is DEMERIT points (lower is better),
 # never a 0-100 score: the 47 item columns hold exactly 0 or the item's TX
-# form weight (verified on 131 live rows: items 1-20 = 3 points, 21-34 = 2,
-# 35-47 = 1), so each cited item's tier comes from its points like
-# Richardson's HealthTrak (3 = priority, 2 = priority foundation, 1 = core)
-# and risk_score is calc_risk_score over those tiers; original_score keeps
-# the city's demerit total. 34-39% of inspection rows carry no geometry;
-# layer 0 'Food Permits' (738 rows with coordinates) fills most of those by
-# link_number and the rest are geocoded downstream.
+# form weight (verified on 503 live inspections: items 1-20 = 3 points,
+# 21-34 = 2, 35-47 = 1, and the points add up to total_score on every one),
+# so each cited item's tier comes from its points like Richardson's
+# HealthTrak (3 = priority, 2 = priority foundation, 1 = core) and
+# risk_score is the TX form's own score, 100 - demerits, as Richardson,
+# Dallas and Plano ship it; original_score keeps the city's demerit total.
+# The points-add-up invariant is checked per inspection: a row where they do
+# not is dropped and held, and a window where many do not raises, so a
+# change to the item columns can never read as a page of clean 100s.
+# 34-39% of inspection rows carry no geometry; layer 0 'Food Permits'
+# (738 rows with coordinates) fills most of those by link_number and the
+# rest are geocoded downstream.
 MCK_BASE = ('https://maps.mckinneytexas.org/mckinney/rest/services/MapServices/'
             'FoodPermitsAndInspections/MapServer')
 MCK_INSPECTIONS_LAYER = f'{MCK_BASE}/4'
@@ -7830,18 +7860,26 @@ MCK_PERMITS_LAYER = f'{MCK_BASE}/0'
 # 3 'Schools & Daycares' (McKinney ISD cafeterias). Their inspections are
 # dropped (see _mck_non_restaurant_permits).
 MCK_NON_RESTAURANT_LAYERS = (1, 2, 3)
-# Layer-0 work classes that are not fixed-address food establishments either.
+# Layer-0 work classes that are not fixed-address restaurants either: a
+# mobile unit, a farmers-market stall, a splash pad, a workplace vending
+# micro market (the other classes, 712 'Food Establishment', 'Restaurant',
+# 'Concession Stand' and a 'Central Preparation Facility', are kept).
 MCK_NON_RESTAURANT_CLASSES = {'Mobile Food Establishment', 'Farmers Market Temporary',
-                              'Public Interactive Water Feature'}
-# School permits that are on no permit layer at all (an elementary cafeteria
-# in the 2026-10 sample) are told by name, conservatively.
-MCK_SCHOOL_NAME_RE = re.compile(
-    r'\b(?:elementary|middle school|high school|isd|day ?care|child ?care|pre-?school)\b', re.I)
+                              'Public Interactive Water Feature', 'Micro Market - Vending Machine'}
+# School, child-care and micro-market permits that are on no permit layer at
+# all (a quarter of the 90-day inspections link to no layer-0 permit) are
+# told by name with the rule shared by the three cities.
+MCK_SCHOOL_NAME_RE = DFW_HOLE_NON_RESTAURANT_RE
 MCK_HISTORY_START = '2017-10-01'          # the layer starts 2017-10-16
 MCK_TEST_WINDOW_DAYS = 60                 # a bounded read (limit set, no since) stays one page
 MCK_PAGE = 2000                           # the server's maxRecordCount
 MCK_SKIP_STATUSES = {'Void'}              # voided inspections (19 in the history)
 MCK_SKIP_PURPOSES = {'3 - Pre-Opening'}   # permit walk-throughs of a place not yet open
+# Inspections whose item points do not add up to total_score are dropped and
+# held one by one; this many of them, making up more than this share of the
+# window, mean the item columns changed and the whole fetch raises.
+MCK_MISMATCH_MIN = 10
+MCK_MISMATCH_MAX_SHARE = 0.05
 MCK_SOURCE = 'McKinney Health Inspections'
 MCK_APP_URL = ('https://mck.maps.arcgis.com/apps/instant/basic/index.html'
                '?appid=1f11251105aa491fbb23ace023b5b61f')
@@ -7914,37 +7952,79 @@ MCK_OUT_FIELDS = ','.join(
      'main_address', 'main_address2', 'total_score', 'custom_comments', 'POINT_X', 'POINT_Y']
     + [col for col, _ in MCK_ITEMS])
 
-# custom_comments layouts seen (inspector-specific): a 'Violations:' header
-# followed by '#9. text', '#9: text', '#42:text' or '9 - text' lines, with
-# 'A)' / '\tB)' sub-observations and wrapped continuation lines; or no header
-# at all with '45 - text' lines after the temperature notes; 'Observations:'
-# / 'Temperatures:' blocks whose '38 - Ambient WIC' lines look like items;
-# and a 'Comments:' / 'COMMENTS:' tail of general remarks.
+# custom_comments layouts seen (inspector-specific), all read below: a
+# 'Violations:' header followed by '#9. text', '#9: text', '#42:text',
+# '#9 text' or '9 - text' lines, with 'A)' / '\tB)' sub-observations and
+# wrapped continuation lines; the same lines under an 'Observations:' header
+# or after a repeated 'Temperatures:' header instead (20 of 329 reports with
+# cited items in the 90-day sample); no header at all, '45 - text' lines
+# after the temperature notes, with or without a blank line between; two
+# items pasted on one line ('... supplied. #34. Observed ...');
+# 'Temperatures:' / 'Observations:' blocks whose '38 - Ambient WIC' notes
+# look like items; and a 'Comments:' / 'COMMENTS:' tail of general remarks.
 _MCK_SECTION_RE = re.compile(r'^\s*([A-Za-z][A-Za-z /&\-]{1,30}?)\s*:\s*$')
-_MCK_ITEM_LINE_RE = re.compile(r'^\s*#?\s*(\d{1,2})\s*(?:[.:)]|-)\s*(.*?)\s*$')
+# '#9. text' / '#9: text' / '#9 text' (a hash alone marks an item) or
+# '9 - text' / '9. text' / '9) text' (without a hash the separator is
+# required, so '9/26', the pest-control date, is not one, and the text must
+# start with a letter, so '12-26' is not either). Up to three digits so that
+# a '185 - Beans HH' temperature note is recognised as a note.
+_MCK_ITEM_LINE_RE = re.compile(
+    r'^\s*(?:(?P<hash>#)\s*(?P<n1>\d{1,3})\b\s*[.:)\-]?|(?P<n2>\d{1,3})\s*(?:[.:)]|-)(?=\s*[A-Za-z(\'"]|\s*$))'
+    r'\s*(?P<text>.*?)\s*$')
+_MCK_INLINE_ITEM_RE = re.compile(r'(?<=[.;!?])\s+(?=#\s*\d{1,2}\b)')
 _MCK_SUBITEM_RE = re.compile(r'^\s*[A-Za-z]\)\s*(.*?)\s*$')
-# Report-header lines (the manager's name, the pest contractor, temperature
-# notes) end any open item block and are never part of one.
+# A sentence: a word closed by sentence punctuation. Temperature notes
+# ('38 - Ambient WIC', '185 - Beans HH') carry none; observations do, or
+# start with 'Observed'.
+_MCK_SENTENCE_RE = re.compile(r'[A-Za-z)][.;!?](?:\s|$)')
+# Report-header lines: the certified food manager's or person in charge's
+# personal name, the pest contractor, temperature notes. A header-shaped
+# line (no sentence in it: 'CFM: Jane Doe 04/26', 'PIC: John Roe', 'Pest
+# Control: Acme 10/26') ends any open item block and is never part of one;
+# a continuation sentence that happens to start with one of these words
+# ('Pest control last treated 10/1; live roaches seen in dish area.') stays
+# with its item.
 _MCK_HEADER_LINE_RE = re.compile(
-    r'^\s*(?:cfm|certified food manager|pest(?: control)?|temperatures?|temps?|observations?)\b', re.I)
+    r'^\s*(?:cfm|cfh|certified food manager|pic|person in charge|manager|owner|operator|contact|'
+    r'phone|e-?mail|inspector|pest(?: control)?|temperatures?|temps?|observations?)\b', re.I)
 _MCK_VIOLATION_SECTIONS = ('violation', 'violations', 'violations observed', 'observed violations')
 _MCK_END_SECTIONS = ('comment', 'comments', 'notes', 'note', 'general comments')
+# Items whose text decides a text-forced F. When the inspector cited one and
+# the parser could not place its sentence (an unread layout, a sentence
+# pasted under another item or into the comments tail), the report's own
+# pest / sewage sentences are attached to it, so a cited pest item never
+# hides the roach it was cited for behind the neutral phrase. Only a CITED
+# item gets them: a pest mention on a report whose inspector cited no pest
+# item is left to the regex on the line it sits in.
+MCK_HAZARD_ITEMS = {20: SEWAGE_ISSUE_RE, 34: PEST_EVIDENCE_RE}
+
+
+def _mck_observation_like(text):
+    """An item line's text is an observation, not a temperature note, when it
+    starts with 'Observed' or contains a sentence."""
+    return text[:8].lower().startswith('observ') or bool(_MCK_SENTENCE_RE.search(text))
 
 
 def _mck_violation_blocks(comments):
     """{item number: [observation, ...]} parsed from a layer-4 custom_comments
-    value. Only the report's violation zone is read: when a 'Violations:'
-    header exists, the lines after it up to a 'Comments:' header; otherwise
-    every line outside a named section such as 'Temperatures:' /
-    'Observations:' (whose '38 - Ambient WIC' lines would read as items).
-    The header lines above the violations (the certified food manager's
-    personal name, the pest-control contractor) are never part of a block."""
-    lines = (comments or '').replace('\r', '').split('\n')
+    value. With a 'Violations:' header the lines after it are the violation
+    zone, up to a 'Comments:' header; without one, every line outside a
+    named section such as 'Temperatures:' / 'Observations:' is. Inside such
+    a section a line is still read as an item when it carries a hash
+    ('#10. Observed dirty can opener.') or reads as an observation
+    ('34 - Observed live roaches ...'); only its '38 - Ambient WIC' notes are
+    left out, and such a note ends an open block instead of joining it.
+    Header-shaped lines (the certified food manager's personal name, the
+    person in charge, the pest-control contractor) are never part of a
+    block."""
+    lines = []
+    for raw in (comments or '').replace('\r', '').split('\n'):
+        lines.extend(_MCK_INLINE_ITEM_RE.split(raw))    # '... supplied. #34. Observed ...'
     sections = [(_MCK_SECTION_RE.match(l).group(1).strip().lower() if _MCK_SECTION_RE.match(l) else None)
                 for l in lines]
     has_violation_header = any(s in _MCK_VIOLATION_SECTIONS for s in sections if s)
     blocks = defaultdict(list)
-    zone = not has_violation_header      # candidate lines allowed right away?
+    zone = not has_violation_header      # plain '9 - text' lines allowed right away?
     current = None                       # (item number, [text parts])
 
     def close():
@@ -7970,16 +8050,16 @@ def _mck_violation_blocks(comments):
             if not has_violation_header:
                 zone = True              # a blank line ends such a block
             continue
-        if _MCK_HEADER_LINE_RE.match(line):
+        if _MCK_HEADER_LINE_RE.match(line) and not _MCK_SENTENCE_RE.search(line):
             close()
-            continue
-        if not zone:
             continue
         m = _MCK_ITEM_LINE_RE.match(line)
-        if m and 1 <= int(m.group(1)) <= len(MCK_ITEMS):
-            close()
-            first = _MCK_SUBITEM_RE.match(m.group(2))
-            current = (int(m.group(1)), [first.group(1) if first else m.group(2)])
+        if m:
+            number, text = int(m.group('n1') or m.group('n2')), m.group('text')
+            close()                      # an item line, or a temperature note shaped like one
+            if 1 <= number <= len(MCK_ITEMS) and (zone or m.group('hash') or _mck_observation_like(text)):
+                first = _MCK_SUBITEM_RE.match(text)
+                current = (number, [first.group(1) if first else text])
             continue
         if current is None:
             continue
@@ -7989,11 +8069,32 @@ def _mck_violation_blocks(comments):
     return blocks
 
 
+def _mck_hazard_sentences(comments, hazard_re):
+    """The report's sentences that carry the hazard (item markers removed,
+    scrubbed, deduplicated), in report order."""
+    out = []
+    for raw in (comments or '').replace('\r', '').split('\n'):
+        for s in re.split(r'(?<=[.;!?])\s+', raw):
+            m = _MCK_ITEM_LINE_RE.match(s)
+            if m:
+                s = m.group('text')
+            sub = _MCK_SUBITEM_RE.match(s)
+            if sub:
+                s = sub.group(1)
+            s = _dfw_hole_scrub(s)
+            if s and hazard_re.search(s) and s not in out:
+                out.append(s)
+    return out
+
+
 def _mck_violations(attrs):
     """[category, severity, text] for every item the inspection scored,
     tiered by the points the city assessed (3 priority, 2 priority
-    foundation, 1 core), with the inspector's observation for that item."""
-    blocks = _mck_violation_blocks(attrs.get('custom_comments'))
+    foundation, 1 core), with the inspector's observation for that item. A
+    cited pest or sewage item (MCK_HAZARD_ITEMS) whose own text carries no
+    hazard sentence gets the report's, wherever the inspector wrote them."""
+    comments = attrs.get('custom_comments')
+    blocks = _mck_violation_blocks(comments)
     violations = []
     for number, (col, title) in enumerate(MCK_ITEMS, start=1):
         try:
@@ -8005,6 +8106,10 @@ def _mck_violations(attrs):
         sev = 'priority' if pts >= 3 else 'priority_foundation' if pts == 2 else 'core'
         texts = [_dfw_hole_scrub(t) for t in blocks.get(number, [])]
         texts = [t for t in texts if t]
+        hazard_re = MCK_HAZARD_ITEMS.get(number)
+        if hazard_re and not any(hazard_re.search(t) for t in texts):
+            texts.extend(s for s in _mck_hazard_sentences(comments, hazard_re)
+                         if not any(s in t for t in texts))
         if texts:
             body = ' | '.join(texts)
             desc = f'{title}: {body}' if title else body
@@ -8030,14 +8135,15 @@ _MCK_CITY_RE = re.compile(r'^\s*([^,]+?)\s*,?\s*([A-Za-z]{2})\s+(\d{5})(?:-\d{4}
 
 
 def _mck_city_state_zip(addr2):
-    """'MCKINNEY, TX 75069' -> ('McKinney', 'TX', '75069'); the city keeps
-    its capital K (plain .title() gives 'Mckinney')."""
+    """'MCKINNEY, TX 75069' -> ('Mckinney', 'TX', '75069'): the plain .title()
+    label every fetcher writes. The McKinney-addressed rows the Plano portal
+    already put in D1 and data.js are 'Mckinney', and the cities index, the
+    city= filter and the per-city embed floor all compare the label
+    byte-for-byte, so 'McKinney' would split the town in two."""
     m = _MCK_CITY_RE.match(addr2 or '')
     if not m:
-        return 'McKinney', 'TX', ''
-    city = m.group(1)
-    city = 'McKinney' if city.upper() == 'MCKINNEY' else _dfw_hole_title(city)
-    return city, m.group(2).upper(), m.group(3)
+        return 'Mckinney', 'TX', ''
+    return _dfw_hole_title(m.group(1)), m.group(2).upper(), m.group(3)
 
 
 def _mck_point(geometry, attrs):
@@ -8091,16 +8197,16 @@ def _mck_date(ts):
 
 def _mck_permits():
     """Layer 0 by link_number: {'point': (lon, lat) | None, 'name', 'class'}.
-    A failed read is logged and leaves {}: the inspections then ship without
-    the permit's coordinates (geocoded downstream) and without the
-    work-class scope rule, never nothing."""
+    An unreadable layer RAISES like an unreadable inspections layer (the same
+    host serves all five): shipping without it would put mobile units and
+    splash pads on the map for good (D1 never deletes a restaurant) and
+    drop the rows whose only name is the permit's without a hold."""
     try:
         rows = _arcgis_query_all(MCK_PERMITS_LAYER,
                                  out_fields='link_number,description,WORK_CLASS,POINT_X,POINT_Y',
                                  page_size=MCK_PAGE)
     except Exception as e:
-        log.warning(f'McKinney: permits layer unreadable ({e}); shipping without the join')
-        return {}
+        raise RuntimeError(f'McKinney: permits layer unreadable ({e}); nothing shipped') from e
     permits = {}
     for f in rows:
         a = f.get('attributes') or {}
@@ -8116,15 +8222,14 @@ def _mck_permits():
 
 def _mck_non_restaurant_permits():
     """link_numbers on the mobile/temporary, farmers-market and school layers.
-    A layer that cannot be read is logged and skipped (the rule then does not
-    apply this run; a school cafeteria shipping once is not a safety issue)."""
+    A layer that cannot be read RAISES: a school cafeteria that ships once
+    stays on the map for good, so the window is re-read instead."""
     links = set()
     for layer in MCK_NON_RESTAURANT_LAYERS:
         try:
             rows = _arcgis_query_all(f'{MCK_BASE}/{layer}', out_fields='link_number', page_size=MCK_PAGE)
         except Exception as e:
-            log.warning(f'McKinney: permit layer {layer} unreadable ({e}); its scope rule is skipped')
-            continue
+            raise RuntimeError(f'McKinney: permit layer {layer} unreadable ({e}); nothing shipped') from e
         links.update((f.get('attributes') or {}).get('link_number') or '' for f in rows)
     links.discard('')
     return links
@@ -8134,21 +8239,27 @@ def fetch_mckinney(since_date=None, limit=None):
     """
     Fetch McKinney, TX food inspections from the city's ArcGIS MapServer
     (see the section notes). One record per inspection completed on or after
-    since_date (test mode: the last MCK_TEST_WINDOW_DAYS; a full run: the
-    layer's 2017 start). The window is read with a server-side count check
-    and raises on any shortfall or request failure; nothing partial ships.
+    since_date (test mode, no since: the last MCK_TEST_WINDOW_DAYS; no since
+    and no limit: the layer's 2017 start, which main() never asks for, its
+    full mode starting 2024-01-01). The window is read with a server-side
+    count check and raises on any shortfall or request failure, including
+    an unreadable permit layer; nothing partial ships.
 
     Scoring: the city publishes demerit points, not a 0-100 score, so
-    original_score is the demerit total and risk_score is calc_risk_score
-    over the cited items, each tiered by the points the city assessed
+    original_score is the demerit total and risk_score is the TX form's
+    score, 100 - demerits (Richardson, Dallas and Plano ship the same
+    number); each cited item is tiered by the points the city assessed
     (3 = priority, 2 = priority foundation, 1 = core; TX form weights,
-    verified live). results carries the city's total and status.
+    verified live) and the tiers must add up to the total: an inspection
+    where they do not is dropped and held (MCK_SOURCE, key = its number),
+    and MCK_MISMATCH_MIN of them making up more than MCK_MISMATCH_MAX_SHARE
+    of the window raise. results carries the city's total and status.
 
     Scope: voided inspections and pre-opening walk-throughs are skipped;
     permits on the mobile/temporary, farmers-market and school layers, the
-    layer-0 work classes in MCK_NON_RESTAURANT_CLASSES and school/daycare
-    names (MCK_SCHOOL_NAME_RE) are dropped. The same inspection appears once
-    per PDF attachment in the layer; rows are deduplicated on
+    layer-0 work classes in MCK_NON_RESTAURANT_CLASSES and school/daycare/
+    micro-market names (MCK_SCHOOL_NAME_RE) are dropped. The same inspection
+    appears once per PDF attachment in the layer; rows are deduplicated on
     inspection_number.
     """
     log.info(f"Fetching McKinney data (since={since_date}, limit={limit})")
@@ -8177,7 +8288,7 @@ def fetch_mckinney(since_date=None, limit=None):
     permits = _mck_permits() if by_number else {}
     non_restaurant = _mck_non_restaurant_permits() if by_number else set()
 
-    results, newest, skipped = [], '', defaultdict(int)
+    results, newest, skipped, mismatched = [], '', defaultdict(int), []
     for number, f in by_number.items():
         a = f.get('attributes') or {}
         insp_date = _mck_date(a.get('actual_end_date'))
@@ -8207,7 +8318,10 @@ def fetch_mckinney(since_date=None, limit=None):
         except (TypeError, ValueError):
             demerits = 0
         violations = _mck_violations(a)
-        risk, pv, pfv, cv = calc_risk_score(violations)
+        _, pv, pfv, cv = calc_risk_score(violations)
+        if demerits != 3 * pv + 2 * pfv + cv:
+            mismatched.append((number, insp_date, demerits, (pv, pfv, cv)))
+            continue
         lon, lat = _mck_point(f.get('geometry'), a)
         if lon is None and permit.get('point'):
             lon, lat = permit['point']
@@ -8221,8 +8335,8 @@ def fetch_mckinney(since_date=None, limit=None):
             'latitude': lat,
             'longitude': lon,
             'inspection_date': insp_date,
-            'original_score': demerits,              # the city's demerit total (lower is better)
-            'risk_score': max(0, min(100, risk)),    # 100 - 5P - 2PF - C over the cited items
+            'original_score': demerits,                      # the city's demerit total (lower is better)
+            'risk_score': max(0, min(100, 100 - demerits)),  # the TX form score, as Richardson/Dallas/Plano
             'priority_violations': pv,
             'priority_foundation_violations': pfv,
             'core_violations': cv,
@@ -8238,6 +8352,17 @@ def fetch_mckinney(since_date=None, limit=None):
         })
     if skipped:
         log.info(f"  McKinney: skipped {dict(skipped)}")
+    if mismatched:
+        scored = len(results) + len(mismatched)
+        if len(mismatched) >= MCK_MISMATCH_MIN and len(mismatched) > MCK_MISMATCH_MAX_SHARE * scored:
+            raise RuntimeError(
+                f'McKinney: {len(mismatched)} of {scored} inspections have item points that do not add '
+                f'up to total_score (first {mismatched[0][0]}: {mismatched[0][2]} demerits, P/PF/C '
+                f'{mismatched[0][3]}); the item columns changed, not shipping')
+        log.warning(f"  McKinney: {len(mismatched)} inspection(s) dropped and held, item points do not "
+                    f"add up to total_score: {', '.join(m[0] for m in mismatched[:5])}")
+        for number, d, _, _ in mismatched:
+            _hold_freshness(MCK_SOURCE, d, counted=True, key=number)
     truncated = bool(limit) and len(results) > limit
     results.sort(key=lambda r: (r['inspection_date'], r['risk_score'], r['source_id']))
     if truncated:
@@ -8297,8 +8422,13 @@ def fetch_lewisville(since_date=None, limit=None):
 
     Scoring: the official 0-100 score is both original_score and risk_score;
     there are no violation lines. Rows whose Score is not a positive number
-    ('NO SCORE', 'PASS': unscored visits, in the sample a daycare and
-    mobile stands) are dropped rather than shipped as a grade.
+    ('NO SCORE', 'PASS': unscored visits, 19 of 1146 in a year, among them
+    the mobile stands and a few restaurants) are dropped rather than shipped
+    as a grade; a window of DFW_HOLE_UNSCORED_MIN rows that is mostly
+    unscored raises instead (a renamed or re-typed Score column). School
+    and child-care kitchens (LISD cafeterias, daycares) are dropped by name
+    (DFW_HOLE_NON_RESTAURANT_RE); nursing homes, park concessions and golf
+    courses are kept.
     """
     log.info(f"Fetching Lewisville data (since={since_date}, limit={limit})")
     since = str(since_date)[:10] if since_date else ''
@@ -8316,7 +8446,7 @@ def fetch_lewisville(since_date=None, limit=None):
     rows = payload['projects']
     log.info(f"  Lewisville: {len(rows)} rows for {since} .. {end}")
 
-    results, seen, newest, unscored = [], set(), '', 0
+    results, seen, newest, in_window, unscored, schools = [], set(), '', 0, 0, 0
     for row in rows:
         if not isinstance(row, dict):
             continue
@@ -8330,6 +8460,7 @@ def fetch_lewisville(since_date=None, limit=None):
         newest = max(newest, insp_date)
         if insp_date < since:
             continue
+        in_window += 1
         try:
             score = int(str(row.get('Score') or '').strip())
         except ValueError:
@@ -8340,6 +8471,9 @@ def fetch_lewisville(since_date=None, limit=None):
             continue
         name = _dfw_hole_title(row.get('BusinessName'))
         if not name:
+            continue
+        if DFW_HOLE_NON_RESTAURANT_RE.search(name):
+            schools += 1
             continue
         results.append({
             'name': name,
@@ -8364,8 +8498,12 @@ def fetch_lewisville(since_date=None, limit=None):
             'source_id': f'lew_{insp_id}',
             'metro': 'DFW',
         })
-    if unscored:
-        log.info(f"  Lewisville: {unscored} unscored rows ('NO SCORE' / 'PASS') dropped")
+    if in_window >= DFW_HOLE_UNSCORED_MIN and unscored * 2 > in_window:
+        raise RuntimeError(f'Lewisville: {unscored} of {in_window} rows since {since} carry no usable '
+                           f'Score (a format change?); not shipping')
+    if unscored or schools:
+        log.info(f"  Lewisville: {unscored} unscored rows ('NO SCORE' / 'PASS') and "
+                 f"{schools} school / child-care rows dropped")
     truncated = bool(limit) and len(results) > limit
     results.sort(key=lambda r: (r['inspection_date'], r['risk_score'], r['source_id']))
     if truncated:
@@ -8385,11 +8523,14 @@ def fetch_lewisville(since_date=None, limit=None):
 # column mixing 'YYYYMMDD' and 'YYYYMMDDHHMMSS', which string comparison
 # against 'YYYYMMDD' filters correctly; ~37% of rows carry no coordinates.
 # Cloudflare's WAF answers 403 (HTML) to some SQL shapes (a SUBSTR() call
-# did), so the queries below keep to the shapes verified live: COUNT over a
-# DISTINCT subquery, SELECT DISTINCT ... WHERE ... ORDER BY ... LIMIT/OFFSET,
-# MAX(). An HTML or non-200 answer raises (blocked), never ships.
-# HealthScoreLetter uses Denton's own cutoffs (A 94-100, B 87-93, C 80-86,
-# F 0-79) and is never copied: the grade is DineScores' from the score.
+# did), so the queries below keep to the two shapes verified live: COUNT over
+# a DISTINCT subquery, and SELECT DISTINCT ... WHERE ... ORDER BY <every
+# column> ... LIMIT/OFFSET (the order is total: a fifth of the permit+date
+# pairs have several distinct rows, which a partial order could shuffle
+# across a page boundary). An HTML or non-200 answer raises (blocked),
+# never ships. HealthScoreLetter uses Denton's own cutoffs (A 94-100,
+# B 87-93, C 80-86, F 0-79) and is never copied: the grade is DineScores'
+# from the score.
 DEN_API = 'https://data.cityofdenton.com/api/3/action/'
 DEN_RESOURCE = 'b596e52a-0f84-4766-b376-be9e3ee0b6df'
 DEN_DATASET_URL = 'https://data.cityofdenton.com/dataset/restaurant-health-scores'
@@ -8398,6 +8539,10 @@ DEN_PAGE = 2000
 DEN_SOURCE = 'Denton Open Data'
 DEN_COLUMNS = ('PERMIT_NO', 'Name', 'Address', 'Type', 'Lat', 'Long', 'RESULT',
                'HealthScoreInt', 'HealthScoreLetter', 'HealthScoreDate')
+# Newest first, then every other column: a total order, so LIMIT/OFFSET pages
+# never shuffle the rows of one permit+date pair.
+DEN_ORDER_BY = 'ORDER BY "HealthScoreDate" DESC, ' + ', '.join(
+    f'"{c}"' for c in DEN_COLUMNS if c != 'HealthScoreDate')
 DEN_RESULT_TEXT = {
     'APPROVED': 'Approved', 'APP W/COND': 'Approved with conditions', 'FAILED': 'Failed',
     'FAILED W/FEE': 'Failed (re-inspection fee)', 'CHECK NOTES': 'Check notes', 'PASSED': 'Passed',
@@ -8442,11 +8587,15 @@ def fetch_denton(since_date=None, limit=None):
 
     Scoring: HealthScoreInt is the official 0-100 score (original_score and
     risk_score); no violation text exists. Rows without a permit number, a
-    valid date or a positive score are skipped; the city's RESULT text goes
-    to results. One record per permit per date (the lowest score wins when
-    the export disagrees with itself). Every permit type in the data is a
-    food establishment (restaurants, bars, groceries, convenience stores),
-    so nothing is filtered by type.
+    valid date or a positive score are skipped (a window of
+    DFW_HOLE_UNSCORED_MIN rows that is mostly unscored raises instead); the
+    city's RESULT text goes to results. One record per permit per date (the
+    lowest score wins when the export disagrees with itself). Every permit
+    type in the data is a food establishment (restaurants, bars, groceries,
+    convenience stores), so nothing is filtered by type; school and
+    child-care names (DFW_HOLE_NON_RESTAURANT_RE, none in the data today)
+    are dropped like everywhere else in the metro, and the mobile units the
+    names mention all carry a fixed address, so they are kept.
     """
     log.info(f"Fetching Denton data (since={since_date}, limit={limit})")
     since = str(since_date)[:10] if since_date else DEN_HISTORY_START
@@ -8462,7 +8611,7 @@ def fetch_denton(since_date=None, limit=None):
     rows, offset, complete = [], 0, False
     while True:
         page = _den_sql(f'SELECT DISTINCT {cols} FROM "{DEN_RESOURCE}" WHERE {where} '
-                        f'ORDER BY "HealthScoreDate" DESC, "PERMIT_NO" LIMIT {DEN_PAGE} OFFSET {offset}')
+                        f'{DEN_ORDER_BY} LIMIT {DEN_PAGE} OFFSET {offset}')
         rows.extend(r for r in page if isinstance(r, dict))
         if len(page) < DEN_PAGE:
             complete = True
@@ -8477,7 +8626,7 @@ def fetch_denton(since_date=None, limit=None):
                            f'{expected} permit+date pairs since {since}; not shipping a partial window')
     log.info(f"  Denton: {len(rows)} distinct rows since {since} (server count {expected})")
 
-    by_key, newest, skipped = {}, '', defaultdict(int)
+    by_key, newest, skipped, in_window = {}, '', defaultdict(int), 0
     for row in rows:
         permit = ' '.join(str(row.get('PERMIT_NO') or '').split())
         insp_date = _den_date(row.get('HealthScoreDate'))
@@ -8487,6 +8636,7 @@ def fetch_denton(since_date=None, limit=None):
         newest = max(newest, insp_date)
         if insp_date < since:
             continue
+        in_window += 1
         try:
             score = int(str(row.get('HealthScoreInt') or '').strip())
         except ValueError:
@@ -8498,6 +8648,9 @@ def fetch_denton(since_date=None, limit=None):
         name = _dfw_hole_title(row.get('Name'))
         if not name:
             skipped['no name'] += 1
+            continue
+        if DFW_HOLE_NON_RESTAURANT_RE.search(name):
+            skipped['school / child care'] += 1
             continue
         key = (permit, insp_date)
         if key in by_key and by_key[key]['risk_score'] <= score:
@@ -8525,6 +8678,9 @@ def fetch_denton(since_date=None, limit=None):
             'source_id': f"den_{permit}_{insp_date.replace('-', '')}",
             'metro': 'DFW',
         }
+    if in_window >= DFW_HOLE_UNSCORED_MIN and skipped['unscored'] * 2 > in_window:
+        raise RuntimeError(f"Denton: {skipped['unscored']} of {in_window} rows since {since} carry no "
+                           f"usable HealthScoreInt (a format change?); not shipping")
     if skipped:
         log.info(f"  Denton: skipped {dict(skipped)}")
     results = sorted(by_key.values(), key=lambda r: (r['inspection_date'], r['risk_score'], r['source_id']))
