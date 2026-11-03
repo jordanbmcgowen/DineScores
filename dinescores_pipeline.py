@@ -7800,15 +7800,17 @@ LA_METRO_PARISHES = {
 # '225', a casino's "Grotto" and "Bar 46", street names in parentheses) and
 # 378 inspections had no tail at all. LDH lists every retail food permit
 # together (restaurants with school cafeterias, day cares, hospitals, nursing
-# homes, jails), so the scope rule is a word-boundary keyword denylist over
-# the facility name plus the permit name: an institutional kitchen the public
-# cannot walk into is skipped; everything else — restaurants, bars, groceries,
+# homes, jails), and Georgia's single 'Food Service' permit type covers its
+# school, hospice and senior-center kitchens too, so the scope rule for both
+# states is a word-boundary keyword denylist over the facility name (plus
+# Louisiana's permit name): an institutional kitchen the public cannot walk
+# into is skipped; everything else — restaurants, bars, groceries,
 # markets, delis, bakeries, caterers, casino and hotel kitchens, mobile units
 # (LDH lists them at their base address) — ships. 'cafeteria' alone is not a
 # trigger (Piccadilly Cafeteria is a restaurant chain); 'Summer Feeding'
 # inspections (school-site meal programs) are skipped by purpose.
-_LA_INSTITUTION_RE = re.compile(
-    r"\b(?:schools?|elementary|middle school|high school|junior high|academy|kindergarten|"
+TP_INSTITUTION_RE = re.compile(
+    r"\b(?:(?<!old )schools?|elementary|middle school|high school|junior high|academy|kindergarten|"
     r"pre-?k|preschool|head start|day ?cares?|child ?care|learning cent(?:er|re)|nursery|dietary|"
     r"hospitals?|nursing|rehabilitation|rehab|health ?care|medical center|assisted living|"
     r"retirement|senior cent(?:er|re)|council on aging|feeding site|group home|community home|"
@@ -7826,6 +7828,15 @@ LA_SKIP_PURPOSES = frozenset({'Summer Feeding'})
 # read or parsed ships the inspection with its JSON titles — the violation
 # list is already complete, only terser — and never holds the window.
 LA_PRINTABLE_MAX_PER_RUN = int(os.environ.get('LA_PRINTABLE_MAX_PER_RUN', '6000'))
+# The /paper/ endpoint is rate-limited like a small token bucket (measured
+# 2026-11-03: about four requests, then paired instant IIS 503s with
+# Retry-After: 3 that clear within five seconds; the JSON API is not), so the
+# printables run on ONE worker, spaced, and a 503 waits the hinted seconds
+# before one of LA_PRINTABLE_RETRIES retries. ~2.3 s per printable measured.
+LA_PRINTABLE_WORKERS = 1
+LA_PRINTABLE_DELAY = 1.2
+LA_PRINTABLE_RETRIES = 3
+LA_PRINTABLE_RETRY_WAIT = 3.5      # when the 503 carries no usable Retry-After
 _LA_ITEM_RE = re.compile(r'^\s*(\d+)\s*-\s*(.*?)\s*$', re.S)
 _LA_PRINTABLE_ROW_RE = re.compile(
     r'<tr>\s*<td>(?P<cat>[^<]*)</td>\s*<td>(?P<code>[^<]*)</td>\s*<td>(?P<desc>.*?)</td>\s*</tr>', re.S)
@@ -7882,6 +7893,11 @@ def _tp_get_json(session, url, group, referer):
         time.sleep(wait)
     log.warning(f"  {group}: giving up on {url[-80:]}: {last}")
     return None
+
+
+def _tp_institutional(name, permit_name=''):
+    """True for an institutional kitchen by name (see TP_INSTITUTION_RE)."""
+    return bool(TP_INSTITUTION_RE.search(f'{name} {permit_name}'))
 
 
 def _tp_title(s):
@@ -8245,8 +8261,8 @@ def _ga_build(row, hist, since, day):
     if not name or not parsed:
         log.warning(f"  Georgia: facility {row.get('id')} has no usable name/address; skipped")
         return [], []
-    if _tp_column(row, 'Permit Type:') not in ('', GA_PERMIT_TYPE):
-        return [], []
+    if _tp_column(row, 'Permit Type:') not in ('', GA_PERMIT_TYPE) or _tp_institutional(name):
+        return [], []           # not Food Service, or an institutional kitchen by name
     street, city, zip5 = parsed
     phone = re.sub(r'\D', '', _tp_column(row, 'For More Information Call:'))
     metro = GA_METRO if phone in GA_ATLANTA_EH_PHONES else ''
@@ -8359,9 +8375,6 @@ def fetch_georgia(since_date=None, limit=None):
 
 # ── Louisiana ────────────────────────────────────────────────────────────────
 
-def _la_institutional(name, permit_name):
-    """True for an institutional kitchen (see _LA_INSTITUTION_RE)."""
-    return bool(_LA_INSTITUTION_RE.search(f'{name} {permit_name}'))
 
 
 def _la_item(title):
@@ -8419,7 +8432,7 @@ def _la_build_factory(aux):
             if since and date < since:
                 continue
             purpose = _tp_column(insp, 'Inspection Purpose:')
-            if purpose in LA_SKIP_PURPOSES or _la_institutional(row.get('name'), _tp_column(insp, 'Permit Name:')):
+            if purpose in LA_SKIP_PURPOSES or _tp_institutional(row.get('name'), _tp_column(insp, 'Permit Name:')):
                 continue
             viol = insp.get('violations')
             if not isinstance(viol, dict):
@@ -8482,8 +8495,9 @@ def _la_build_factory(aux):
 
 def _la_enrich_factory(aux):
     """Narrative pass: GET each shipped inspection's printable (oldest first,
-    TP_WORKERS workers, within the deadline and LA_PRINTABLE_MAX_PER_RUN) and
-    put the inspector's text after each item title. Failures keep the titles."""
+    LA_PRINTABLE_WORKERS workers, within the deadline and
+    LA_PRINTABLE_MAX_PER_RUN) and put the inspector's text after each item
+    title. Failures keep the titles."""
     def enrich(session, records):
         todo = [r for r in records if r['violations'] and aux.get(r['source_id'], ('', []))[0]]
         todo.sort(key=lambda r: (r['inspection_date'], r['source_id']))
@@ -8496,24 +8510,33 @@ def _la_enrich_factory(aux):
         counts = defaultdict(int)
 
         def work(rec):
-            if _past_deadline():
-                return rec, 'deadline'
             url = aux[rec['source_id']][0]
-            headers = dict(TP_HEADERS, Referer=LA_PORTAL, Accept='text/html,*/*;q=0.8')
-            t0 = time.time()
-            try:
-                r = session().get(url, headers=headers, timeout=TP_TIMEOUT)
-                _tp_count(LA_GROUP, time.time() - t0)
-                time.sleep(TP_DELAY)
-                if r.status_code != 200:
-                    return rec, 'failed'
-                return rec, _la_parse_printable(r.text) or 'unparsed'
-            except requests.RequestException:
-                _tp_count(LA_GROUP, time.time() - t0)
-                time.sleep(TP_DELAY)
-                return rec, 'failed'
+            headers = {'User-Agent': CHROME_UA, 'Referer': LA_PORTAL}
+            for attempt in range(1, LA_PRINTABLE_RETRIES + 1):
+                if _past_deadline():
+                    return rec, 'deadline'
+                t0 = time.time()
+                try:
+                    r = session().get(url, headers=headers, timeout=TP_TIMEOUT)
+                    _tp_count(LA_GROUP, time.time() - t0)
+                    time.sleep(LA_PRINTABLE_DELAY)
+                    if r.status_code == 200:
+                        return rec, _la_parse_printable(r.text) or 'unparsed'
+                    if r.status_code not in (429, 500, 502, 503, 504):
+                        return rec, 'failed'
+                    try:
+                        wait = float(r.headers.get('Retry-After', ''))
+                    except (TypeError, ValueError):
+                        wait = LA_PRINTABLE_RETRY_WAIT
+                    wait = min(max(wait, 1.0), 10.0) + 0.5
+                except requests.RequestException:
+                    _tp_count(LA_GROUP, time.time() - t0)
+                    wait = LA_PRINTABLE_RETRY_WAIT
+                if attempt < LA_PRINTABLE_RETRIES:
+                    time.sleep(wait)
+            return rec, 'failed'
 
-        with ThreadPoolExecutor(max_workers=TP_WORKERS) as pool:
+        with ThreadPoolExecutor(max_workers=LA_PRINTABLE_WORKERS) as pool:
             for future in as_completed([pool.submit(work, r) for r in todo]):
                 rec, parsed = future.result()
                 if not isinstance(parsed, dict):
@@ -8557,7 +8580,7 @@ def fetch_louisiana(since_date=None, limit=None):
     title with the inspector's narrative from the printable notice appended
     (titles alone when a printable cannot be read). Institutional permit
     types (schools, day cares, hospitals, nursing homes, jails...) are
-    skipped (_LA_INSTITUTION_RE). No coordinates: main() geocodes. See the
+    skipped (TP_INSTITUTION_RE). No coordinates: main() geocodes. See the
     section comment for the window/hold/deadline rules; the date bounds here
     are strictly exclusive, so one day is from=day-1, to=day+1.
     """
