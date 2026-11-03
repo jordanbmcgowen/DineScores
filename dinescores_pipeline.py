@@ -7827,9 +7827,18 @@ _HH_ADDR_ZIP_STATE_RE = re.compile(
 # 'STREET City, ST 79416' (the comma after the city instead of before it)
 _HH_ADDR_CITY_IN_STREET_RE = re.compile(
     r'^(?P<street>.+?)\s+(?P<city>[A-Za-z.]+),\s*(?P<state>[A-Za-z]{2})\s+(?P<zip>\d{5})(?:-?\d{4})?\s*$')
+# 'STREET, TX 75149' (no city at all)
+_HH_ADDR_STATE_ZIP_RE = re.compile(
+    r'^(?P<street>.*?),\s*(?P<state>' + _HH_STATE_RE + r')\s+(?P<zip>\d{5})(?:-?\d{4})?\s*$', re.I)
 # 'STREET, Tucsonaz 85713' (state run into the city, or missing)
 _HH_ADDR_NOSTATE_RE = re.compile(
     r'^(?P<street>.*?),\s*(?P<city>[^,]+?)\s+(?P<zip>\d{5})(?:-?\d{4})?\s*$')
+# A word before the comma that is a street suffix is not a city ('1700 Rodeo Dr, TX 75149').
+_HH_STREET_SUFFIXES = frozenset({
+    'ave', 'avenue', 'blvd', 'boulevard', 'cir', 'circle', 'ct', 'court', 'dr', 'drive', 'fwy', 'freeway',
+    'hwy', 'highway', 'ln', 'lane', 'loop', 'pkwy', 'parkway', 'pl', 'place', 'rd', 'road', 'st', 'street',
+    'trl', 'trail', 'way', 'expy', 'expressway', 'ter', 'terrace', 'plz', 'plaza', 'sq', 'square',
+})
 _HH_ORDINAL_RE = re.compile(r'(\d)(St|Nd|Rd|Th)\b')
 _HH_PLACEHOLDER_RE = re.compile(r'\s*@?\s*_{2,}\s*(?:PPM|°F|F\b)?', re.I)
 # The Texas form's pest criterion is titled 'No evidence of Insect
@@ -7936,14 +7945,18 @@ def _hh_split_address(addr, cfg):
     addr = ' '.join(str(addr or '').split())
     if not addr:
         return None
-    m = (_HH_ADDR_RE.match(addr) or _HH_ADDR_ZIP_STATE_RE.match(addr)
-         or _HH_ADDR_CITY_IN_STREET_RE.match(addr) or _HH_ADDR_NOSTATE_RE.match(addr)
-         or _HH_ADDR_NOZIP_RE.match(addr))
+    m = _HH_ADDR_RE.match(addr) or _HH_ADDR_ZIP_STATE_RE.match(addr)
+    if not m:
+        m = _HH_ADDR_CITY_IN_STREET_RE.match(addr)
+        if m and (len(m.group('city')) < 4 or m.group('city').lower() in _HH_STREET_SUFFIXES):
+            m = _HH_ADDR_STATE_ZIP_RE.match(addr)
+    if not m:
+        m = _HH_ADDR_NOSTATE_RE.match(addr) or _HH_ADDR_NOZIP_RE.match(addr)
     if not m:
         return _hh_case(addr.strip(' ,'), cfg), cfg['default_city'], cfg['state'], ''
     g = m.groupdict()
     state = _HH_STATE_NAMES.get((g.get('state') or cfg['state']).lower(), (g.get('state') or cfg['state']).upper())
-    city = ' '.join(g['city'].split())
+    city = ' '.join((g.get('city') or '').split())
     if len(city) > 2 and city.lower().endswith(state.lower()) and not city[-3].isspace():
         city = city[:-2]                 # 'Tucsonaz'
     if len(city) == 2 and city.upper() in set(_HH_STATE_NAMES.values()) | {cfg['state']}:
