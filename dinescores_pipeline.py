@@ -7867,6 +7867,7 @@ def _tp_get_json(session, url, group, referer):
     are exhausted. 429/5xx, timeouts, resets and non-JSON bodies are retried
     with backoff (never past the fetch deadline); any other status is final."""
     headers = dict(TP_HEADERS, Referer=referer)
+    what = url.rsplit('index.cfm/', 1)[-1][:90]      # the resource, for the log
     last = ''
     for attempt in range(1, TP_RETRIES + 1):
         t0 = time.time()
@@ -7881,7 +7882,7 @@ def _tp_get_json(session, url, group, referer):
             elif r.status_code in (429, 500, 502, 503, 504):
                 last = f'HTTP {r.status_code}'
             else:
-                log.warning(f"  {group}: HTTP {r.status_code} on {url[-80:]}")
+                log.warning(f"  {group}: HTTP {r.status_code} on {what}")
                 return None
         except requests.RequestException as e:
             _tp_count(group, time.time() - t0)
@@ -7889,9 +7890,9 @@ def _tp_get_json(session, url, group, referer):
         if attempt == TP_RETRIES or _past_deadline():
             break
         wait = TP_BACKOFF * attempt
-        log.warning(f"  {group}: {last} on {url[-80:]} — retry in {wait}s ({attempt}/{TP_RETRIES - 1})")
+        log.warning(f"  {group}: {last} on {what} — retry in {wait}s ({attempt}/{TP_RETRIES - 1})")
         time.sleep(wait)
-    log.warning(f"  {group}: giving up on {url[-80:]}: {last}")
+    log.warning(f"  {group}: giving up on {what}: {last}")
     return None
 
 
