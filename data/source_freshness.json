@@ -110,6 +110,16 @@
    },
    "latest": "2026-10-31"
   },
+  "Georgia": {
+   "last_run": {
+    "at": "2026-11-03",
+    "detail": "",
+    "latest": "2026-11-02",
+    "records": 12149,
+    "status": "ok"
+   },
+   "latest": "2026-08-04"
+  },
   "Harris County": {
    "last_run": {
     "at": "2026-11-03",
@@ -160,15 +170,25 @@
    },
    "latest": "2026-10-23"
   },
-  "MHD metros": {
+  "Lubbock": {
    "last_run": {
-    "at": "2026-11-01",
+    "at": "2026-11-03",
     "detail": "",
-    "latest": "2026-11-01",
-    "records": 1843,
+    "latest": "2026-11-02",
+    "records": 5365,
     "status": "ok"
    },
-   "latest": "2026-11-01"
+   "latest": "2024-02-26"
+  },
+  "MHD metros": {
+   "last_run": {
+    "at": "2026-11-03",
+    "detail": "",
+    "latest": "2026-11-02",
+    "records": 1967,
+    "status": "ok"
+   },
+   "latest": "2026-11-02"
   },
   "McKinney": {
    "last_run": {
@@ -179,6 +199,16 @@
     "status": "ok"
    },
    "latest": "2026-10-30"
+  },
+  "Mesquite": {
+   "last_run": {
+    "at": "2026-11-03",
+    "detail": "",
+    "latest": "2026-11-02",
+    "records": 2511,
+    "status": "ok"
+   },
+   "latest": "2026-11-02"
   },
   "Minneapolis": {
    "last_run": {
@@ -366,6 +396,10 @@
    "group": "MHD metros",
    "latest": "2026-10-30"
   },
+  "Arapahoe County Health Dept": {
+   "group": "MHD metros",
+   "latest": "2026-11-02"
+  },
   "Arlington Open Data": {
    "group": "Arlington",
    "latest": "2026-10-30"
@@ -424,6 +458,10 @@
    "group": "Detroit",
    "latest": "2026-10-15"
   },
+  "Douglas County CO Health Dept": {
+   "group": "MHD metros",
+   "latest": "2026-11-02"
+  },
   "Douglas County Health Dept": {
    "group": "Omaha",
    "latest": "2026-10-30"
@@ -440,6 +478,10 @@
    "group": "Florida",
    "latest": "2026-10-31"
   },
+  "Fort Bend County Health Dept": {
+   "group": "MHD metros",
+   "latest": "2026-11-02"
+  },
   "Fort Worth Health Dept": {
    "group": "DFW",
    "latest": "2026-10-31"
@@ -453,6 +495,35 @@
     }
    },
    "latest": "2026-10-21"
+  },
+  "Georgia DPH": {
+   "group": "Georgia",
+   "hold": {
+    "date": "2026-08-05",
+    "failures": {
+     "2026-08-05|164556": 1,
+     "2026-08-11|3124385": 1,
+     "2026-08-13|163837": 1,
+     "2026-08-20|12279458": 1,
+     "2026-08-24|2054538": 1,
+     "2026-09-08|12772910": 1,
+     "2026-09-09|6349": 1,
+     "2026-09-14|12766534": 1,
+     "2026-09-17|13002564": 1,
+     "2026-09-21|13002900": 1,
+     "2026-09-21|3151722": 1,
+     "2026-10-07|12983723": 1,
+     "2026-10-09|12278851": 1,
+     "2026-10-23|13011414": 1,
+     "2026-10-27|13004508": 1,
+     "2026-10-27|13011414": 1,
+     "2026-10-28|3047901": 1,
+     "2026-10-29|12991107": 1,
+     "2026-10-29|2053740": 1,
+     "2026-10-30|13018498": 1
+    }
+   },
+   "latest": "2026-08-04"
   },
   "Gwinnett County Health Dept": {
    "group": "MHD metros",
@@ -510,9 +581,26 @@
    "group": "Louisville",
    "latest": "2026-10-23"
   },
+  "Lubbock Environmental Health": {
+   "group": "Lubbock",
+   "hold": {
+    "date": "2024-02-27",
+    "failures": {
+     "2024-02-27|0b1808c5-c8dc-4713-9a29-ae5a804e7708": 1,
+     "2024-09-11|31d078a7-9260-4568-b2a2-c221ffc08782": 1,
+     "2025-09-04|6a8b8e89-88b4-4892-a60e-3dacd3712522": 1,
+     "2026-07-02|541acdfd-2d61-4168-8444-aea5652cf85d": 1
+    }
+   },
+   "latest": "2024-02-26"
+  },
   "McKinney Health Inspections": {
    "group": "McKinney",
    "latest": "2026-10-30"
+  },
+  "Mesquite Environmental Health": {
+   "group": "Mesquite",
+   "latest": "2026-11-02"
   },
   "Minneapolis Open Data": {
    "group": "Minneapolis",
