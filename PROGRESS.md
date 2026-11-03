@@ -25,8 +25,8 @@ when resuming; never start over.
       filter and the kept inspections (evidence under "Completeness"); a cut
       still holds at the original since. 55 tests.
 - [x] whole suite green under 3.11 + 3.13 (329 tests), node tests/test_relay.mjs
-- [ ] FINAL live re-run with the margin (run_live2.sh -> live_chain2.log,
-      test_run2.log, run_14d2.log); then final PROGRESS + structured report
+- [x] FINAL live re-run with the margin done 2026-11-03 03:31-03:45 UTC (below)
+- [x] structured report returned; branch ready for the integrator (squash)
 - [ ] final cleanup + structured report
 
 ## Design decisions (so a successor does not re-litigate them)
@@ -124,6 +124,24 @@ when resuming; never start over.
   reflected one is missed until the next reflected inspection. Weekly cost
   roughly triples (~1,200 lists + ~1,100 item lists per run).
 - dateUtc - date = 0 days on all 501 (entered the day of the visit).
+- FINAL CLI runs with the margin code (HEAD): test mode exit 0, 14 s wall,
+  25 records / 21 establishments / 40 requests / 8 s fetch, 23/25 geocoded,
+  18 restaurants (A 14, B 3, C 1). `--mode full --since-date 2026-10-20`
+  (effective window 2026-09-22..): exit 0, 788 s wall = 474 s fetch + 314 s
+  geocoding; 1,861 establishments (4 search pages), 1,540 in scope (skipped
+  250 Public School, 58 Day Care, 4 pantry, 3 Hospital, 3 Detention, 2 Long
+  Term Care, 1 School); left out 123 Pre-opening, 73 Consultation, 5
+  Non-permitted, 4 pre-opening Follow-up, 2 Zero/Zero; 1,495 records from
+  2,837 requests (no 4xx/5xx); 14 score/demerit mismatches (county score
+  kept); Census + Nominatim geocoded 1,198/1,494 (Nominatim cap 150 left 201
+  for the next run, which the margin re-fetches); 1,381 restaurants, 1,099
+  with coordinates, 30 cities; latest-inspection grades A 964 / B 393 / C 21
+  / F 3; risk 55-100; types Permitting 675, Routine 561, Follow-up 72,
+  Complaint 47, Food Borne Illness 25, SV Follow-up 1; results '' 1,304,
+  'Permit not approved' 47, 'Follow-up required' 29, 'Closure required' 1.
+  Group 'ok', latest 2026-10-31. Weekly cost at this rate: ~1,500
+  establishments listed, ~1,300 lists + ~1,250 item lists, ~2,600 requests,
+  ~7-8 min fetch at 3 workers / 0.4 s.
 - Host answers plain python requests from this container (every call 200;
   no 429/403 in ~2,300 requests this session). GitHub-runner reachability
   of secureweb.hcphtx.org is UNVERIFIED; it is not in the relay allowlist.
