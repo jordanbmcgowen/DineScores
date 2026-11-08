@@ -459,6 +459,16 @@ people covered per unit of work:
   holds the window at the backfill's start; `scripts/backfill/freshness_copy.py`
   reports such a pinned entry, and for an existing group refuses to move it
   backwards.
+- **Incomplete Maricopa reports are never scored by guessing.** Some pages
+  print free-text observations or local MCEHC citations without a P/PF/C
+  tier, and a header can be followed by `Data Not Currently Available`.
+  These remain dropped, with an explicit reason, not clean. Answered but
+  incomplete reports persist in the source's `pending_details` freshness
+  metadata without the generic three-run expiry. Every weekly retry includes
+  them outside the normal date window, even if their listing disappears or
+  a different same-day inspection is already embedded. Only a complete read
+  removes one; do not clear the queue or move freshness forward by hand.
+  See `docs/maricopa-incomplete-reports-2026-11-08.md` for the 12 live cases.
 - **Tyler publicportals (Georgia, Louisiana) filter on the FACILITY's last
   inspection.** Every listed facility costs one `inspectionsData` call, a
   facility inspected twice in the window is listed once and its earlier

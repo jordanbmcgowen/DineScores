@@ -16,6 +16,7 @@ not read, captured the same day. The odd address concats in the splitter
 tests are verbatim from the 2026-11-03 inventory of every zip (21,724 food
 permit rows): one with the state twice, nine with a nine-digit or cut zip."""
 import json
+import copy
 import logging
 import os
 import sys
@@ -165,7 +166,7 @@ class MaricopaTestCase(unittest.TestCase):
     def setUp(self):
         self._saved = (dp._FRESHNESS, dict(dp._FRESHNESS_HOLDS), dict(dp._GROUP_STATUS),
                        dict(dp._GROUP_NOTES), dp._FETCH_DEADLINE, set(dp.SKIP_KNOWN_INSPECTIONS),
-                       dict(dp._MCESD_LAST_STATS), dp.log.level)
+                       dict(dp._MCESD_LAST_STATS), dp.log.level, dict(dp._RUN_GROUPS))
         dp.log.setLevel(logging.ERROR)
         dp._FRESHNESS = None
         dp._FRESHNESS_HOLDS.clear()
@@ -192,6 +193,7 @@ class MaricopaTestCase(unittest.TestCase):
         dp.SKIP_KNOWN_INSPECTIONS.clear(); dp.SKIP_KNOWN_INSPECTIONS.update(self._saved[5])
         dp._MCESD_LAST_STATS.clear(); dp._MCESD_LAST_STATS.update(self._saved[6])
         dp.log.setLevel(self._saved[7])
+        dp._RUN_GROUPS.clear(); dp._RUN_GROUPS.update(self._saved[8])
 
 
 # ── parsers ──────────────────────────────────────────────────────────────────
@@ -782,7 +784,7 @@ class WindowAndLimitTests(MaricopaTestCase):
         # MCESD_UNREAD_ERROR_MIN: red, so a blind spot cannot drain quietly
         status, detail = dp._GROUP_STATUS[GROUP]
         self.assertEqual(status, 'error')
-        self.assertIn("13 detail pages answered but gave no inspection (0 not readable, 13 'Inspection Not Available')", detail)
+        self.assertIn("13 detail pages answered but gave no inspection (0 not readable, 13 'Inspection Not Available',", detail)
         self.assertEqual(dp._MCESD_LAST_STATS['inventory_bounded'], False)
         legacy = _by_id(records)['mcesd_FD-12738_5663423-MCESD']
         self.assertEqual((legacy['priority_violations'], legacy['priority_foundation_violations'],
@@ -942,10 +944,10 @@ class FailureTests(MaricopaTestCase):
         self.assertEqual(portal.detail_requests('FD-00570'), 1)
         self.assertEqual(dp._FRESHNESS_HOLDS[SOURCE], {
             '2026-10-19|INSP-026373-2026': (True, False),
-            '2026-08-18|INSP-067508-2026': (True, False),
+            '2026-08-18|INSP-067508-2026': (False, False),
             '2026-08-18|INSP-900001-2026': (True, False),
         })
-        self.assertNotIn(GROUP, dp._GROUP_STATUS)                     # two answered-but-unread pages: below the floor
+        self.assertEqual(dp._GROUP_STATUS[GROUP][0], 'error')         # even one pending report must stay visible
         self.assertEqual(dp._MCESD_LAST_STATS['dropped'], {'download': 1, 'unread': 1, 'unavailable': 1})
         # every dropped id is in the log (a blind spot is diagnosed from it),
         # and from MCESD_UNREAD_ERROR_MIN answered-but-unread pages the group is red
@@ -955,7 +957,7 @@ class FailureTests(MaricopaTestCase):
         self.assertEqual([r['source_id'] for r in records], ['mcesd_FD2602160_INSP-900002-2026'])
         status, detail = dp._GROUP_STATUS[GROUP]
         self.assertEqual(status, 'error')
-        self.assertIn("2 detail pages answered but gave no inspection (1 not readable, 1 'Inspection Not Available')", detail)
+        self.assertIn("2 detail pages answered but gave no inspection (1 not readable, 1 'Inspection Not Available',", detail)
         joined = '\n'.join(logs.output)
         for dropped in ('download: FD-00408/INSP-026373-2026', 'unread: FD-00570/INSP-067508-2026',
                         'unavailable: FD-00571/INSP-900001-2026'):
@@ -1067,6 +1069,149 @@ class FailureTests(MaricopaTestCase):
         # the first point of a duplicated license wins
         self.assertEqual((by_id['mcesd_FD2602160_INSP-900002-2026']['latitude'],
                           by_id['mcesd_FD2602160_INSP-900002-2026']['longitude']), (33.45, -112.07))
+
+
+class IncompleteReportRetryTests(MaricopaTestCase):
+    """All 12 reports rejected by the Nov 8 production run, captured live.
+    Eleven lack P/PF/C tiers; the other is the county's temporary error page.
+    No guess at a tier or synthetic clean inspection may leave this path.
+    """
+
+    def setUp(self):
+        super().setUp()
+        self.manifest = _json('nov8_incomplete/manifest.json')
+        self.permits, self.rows = {}, {}
+        self.portal = FakePortal()
+        failures = {}
+        for item in self.manifest:
+            pid, iid = item['permit'], item['inspection']
+            page = _load('nov8_incomplete/' + iid + '.html')
+            header = {dp._mcesd_text(k): dp._mcesd_text(v) for k, v in dp.MCESD_HEADER_RE.findall(page)}
+            permit = dp._mcesd_permit({'permitId': pid, 'permitType': header['Permit Type'],
+                                     'businessName': header['Business Name'],
+                                     'businessAddressConcat': header['Business Address']})
+            self.permits[pid] = permit
+            self.rows[pid] = [{'date': header['Inspection Date'], 'purpose': header['Inspection Purpose'],
+                               'grade': header['Grade'], 'status': header['Inspection Status'],
+                               'priority': header['Priority Violation'], 'permit': pid, 'inspection': iid}]
+            self.portal.details[(pid, iid)] = FakeResponse(page)
+            failures[dp._mcesd_date(header['Inspection Date']) + '|' + iid] = 2
+        dp._FRESHNESS = {'sources': {SOURCE: {'group': GROUP, 'latest': '2026-09-20',
+                         'hold': {'date': '2026-09-21', 'failures': failures}}},
+                         'groups': {GROUP: {'latest': '2026-09-20'}}}
+
+    def fetch(self, since='2026-09-19', listing=True, limit=None, record=True):
+        with mock.patch.object(dp, '_mcesd_zip_list', return_value=['85004']), \
+                mock.patch.object(dp, '_mcesd_inventory', return_value=(self.permits, False)), \
+                mock.patch.object(dp, '_mcesd_fetch_permit_page',
+                                  side_effect=lambda s, p, pacer, stats: self.rows[p] if listing else []):
+            records, _ = run_fetch(self.portal, since=since, limit=limit, points=lambda *a, **kw: [])
+        if record:
+            dp._record_group(GROUP, records)
+        return records
+
+    def test_all_twelve_are_diagnosed_and_never_shipped_clean(self):
+        for item in self.manifest:
+            with self.subTest(item['inspection']):
+                page = _load('nov8_incomplete/' + item['inspection'] + '.html')
+                problems = []
+                self.assertIsNone(dp._mcesd_parse_detail(page, problems))
+                if item['reason'] == 'missing_tiers':
+                    self.assertEqual(problems, ['missing_tiers'])
+                else:
+                    self.assertIn(dp.MCESD_DATA_UNAVAILABLE, page)
+                    self.assertIn('3', page)
+        self.assertEqual(self.fetch(), [])
+        self.assertEqual(dp._MCESD_LAST_STATS['dropped'], {'missing_tiers': 11, 'source_unavailable': 1})
+        state = dp._FRESHNESS['sources'][SOURCE]
+        self.assertEqual(len(state['pending_details']), 12)
+        self.assertEqual(set(state['hold']['failures'].values()), {2})
+        self.assertNotIn('given_up', state)
+        self.assertEqual(dp._FRESHNESS['groups'][GROUP]['last_run']['status'], 'error')
+
+    def test_retries_survive_give_up_window_known_dates_and_absent_listing(self):
+        self.fetch()
+        # Simulate JSON persisted between runs, a lookback beyond every report,
+        # and a same-day inspection already embedded for every restaurant.
+        for p in self.permits.values():
+            row = self.rows[p['permit']][0]
+            dp.SKIP_KNOWN_INSPECTIONS.add((dp.make_restaurant_id(p['name'], p['address'], p['city']),
+                                          dp._mcesd_date(row['date'])))
+        for listing in (True, False, True, False):
+            dp._FRESHNESS = json.loads(json.dumps(dp._FRESHNESS))
+            self.assertEqual(self.fetch(since='2026-11-01', listing=listing), [])
+            state = dp._FRESHNESS['sources'][SOURCE]
+            self.assertEqual(len(state['pending_details']), 12)
+            self.assertEqual(set(state['hold']['failures'].values()), {2})
+            self.assertNotIn('given_up', state)
+            self.assertEqual(dp._MCESD_LAST_STATS['candidates'], 12)
+        self.assertEqual(self.portal.detail_requests(), 60)
+
+    def test_only_success_removes_pending_reports_and_releases_holds(self):
+        self.fetch()
+        for item in self.manifest:
+            pid, iid = item['permit'], item['inspection']
+            page = _load('inspection_INSP-055361-2026.html')
+            self.portal.details[(pid, iid)] = FakeResponse(page)
+        records = self.fetch(since='2026-11-01', listing=False)
+        self.assertEqual(len(records), 12)
+        self.assertTrue(all(r['priority_violations'] == 1 and r['risk_score'] == 95 for r in records))
+        state = dp._FRESHNESS['sources'][SOURCE]
+        self.assertNotIn('pending_details', state)
+        self.assertNotIn('hold', state)
+        self.assertNotIn('given_up', state)
+        self.assertEqual(state['latest'], '2026-10-19')
+        self.assertEqual(dp._FRESHNESS['groups'][GROUP]['last_run']['status'], 'ok')
+
+    def test_preexisting_holds_override_known_dates_before_queue_migration(self):
+        for p in self.permits.values():
+            row = self.rows[p['permit']][0]
+            dp.SKIP_KNOWN_INSPECTIONS.add((dp.make_restaurant_id(p['name'], p['address'], p['city']),
+                                          dp._mcesd_date(row['date'])))
+        self.assertEqual(self.fetch(since='2026-11-01'), [])
+        self.assertEqual(self.portal.detail_requests(), 12)
+        self.assertEqual(len(dp._FRESHNESS['sources'][SOURCE]['pending_details']), 12)
+
+    def test_late_failures_do_not_clear_parsed_but_unshipped_reports(self):
+        self.fetch()
+        before = copy.deepcopy(dp._FRESHNESS['sources'][SOURCE]['pending_details'])
+        for key in self.portal.details:
+            self.portal.details[key] = FakeResponse(_load('inspection_INSP-055361-2026.html'))
+        with mock.patch.object(dp, '_mcesd_points', side_effect=RuntimeError('late point failure')):
+            with self.assertRaisesRegex(RuntimeError, 'late point failure'):
+                self.fetch()
+        dp._record_group(GROUP, [], 'error', 'late point failure')
+        self.assertEqual(dp._FRESHNESS['sources'][SOURCE]['pending_details'], before)
+        # A later job-level failure (e.g. geocoding) after the fetcher returns
+        # also ships nothing. Successful parsing is not sufficient to retire.
+        parsed = self.fetch(record=False)
+        self.assertEqual(len(parsed), 12)
+        dp._record_group(GROUP, [], 'error', 'downstream geocoding failure')
+        self.assertEqual(dp._FRESHNESS['sources'][SOURCE]['pending_details'], before)
+        dp._record_group(GROUP, parsed)
+        self.assertNotIn('pending_details', dp._FRESHNESS['sources'][SOURCE])
+
+    def test_record_limit_prioritizes_old_pending_without_discarding_the_rest(self):
+        self.fetch()
+        self.portal.calls.clear()
+        self.fetch(since='2026-11-01', listing=False, limit=1)
+        detail_urls = [url for _, url in self.portal.calls if '/Inspection/' in url]
+        self.assertEqual(detail_urls, [self.manifest[0]['url']])
+        self.assertEqual(len(dp._FRESHNESS['sources'][SOURCE]['pending_details']), 12)
+
+    def test_deadline_or_download_failure_cannot_remove_pending_report(self):
+        self.fetch()
+        before = copy.deepcopy(dp._FRESHNESS['sources'][SOURCE]['pending_details'])
+        # Existing pending reports remain pending even if the next response is
+        # a transport failure (rather than the earlier HTTP-200 incomplete page).
+        for key in self.portal.details:
+            self.portal.details[key] = FakeResponse('temporary outage', 503)
+        self.assertEqual(self.fetch(since='2026-11-01'), [])
+        self.assertEqual(dp._FRESHNESS['sources'][SOURCE]['pending_details'], before)
+        self.assertEqual(set(dp._FRESHNESS['sources'][SOURCE]['hold']['failures'].values()), {2})
+        dp._FETCH_DEADLINE = time.time() - 1
+        self.assertEqual(self.fetch(), [])
+        self.assertEqual(dp._FRESHNESS['sources'][SOURCE]['pending_details'], before)
 
 
 class PolicyTests(unittest.TestCase):
