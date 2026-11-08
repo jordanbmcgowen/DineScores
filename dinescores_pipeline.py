@@ -9336,8 +9336,14 @@ def fetch_louisiana(since_date=None, limit=None):
 # rejects; 'unavailable': the app's 'Inspection Not Available') are dropped
 # and held like any other failure and, from MCESD_UNREAD_ERROR_MIN of them
 # in one run, make the group 'error' with every id in the log: a parser
-# blind spot is a steady percentage, not a transient, and a held record is
-# given up after FRESHNESS_HOLD_GIVE_UP_RUNS runs. An unread PERMIT page
+# blind spot is a steady percentage, not a transient. Answered but incomplete
+# reports are also persisted as pending_details in the source freshness
+# entry: no three-run expiry, retried outside the normal window and even
+# when no longer listed, removed only after a complete read. Free-text and
+# county-local citations may omit tiers; these are reported as missing
+# published tiers, never assigned a guessed severity or a clean score.
+# 'Data Not Currently Available' is a temporary county error, not the
+# historical 'Inspection Not Available' response. An unread PERMIT page
 # holds the window at the requested start (freshness has no per-permit
 # scope): free in weekly mode, whose window already reaches back
 # MCESD_POSTING_LAG_DAYS, but a --since-date backfill WITH --freshness-file
@@ -9451,6 +9457,11 @@ MCESD_TIER = {'priority': 'priority', 'p': 'priority',
               'priority foundation': 'priority_foundation', 'pf': 'priority_foundation',
               'core': 'core', 'c': 'core'}
 MCESD_UNAVAILABLE = 'alert-heading">Inspection Not Available'   # the app's page for an id it no longer serves
+MCESD_DATA_UNAVAILABLE = 'alert-heading">Data Not Currently Available'
+# An answered but incomplete report is not evidence that an inspection can
+# be abandoned. Keep its exact candidate until the county/parser can read it,
+# independently of the rolling lookback and the generic three-run give-up.
+MCESD_PENDING_OUTCOMES = frozenset({'unread', 'missing_tiers', 'source_unavailable'})
 _MCESD_LAST_STATS = {}               # the last fetch_maricopa run's counters (for measurement)
 
 
@@ -9754,7 +9765,7 @@ def _mcesd_citations(comments):
     return out
 
 
-def _mcesd_violation(chunk):
+def _mcesd_violation(chunk, problems=None):
     """[(number, title, severity, text), ...] for one 'Violation #:' entry,
     one tuple per code citation it carries; [] for an entry whose comments
     paragraph is PRESENT and empty (a re-inspection lists the re-checked
@@ -9783,6 +9794,8 @@ def _mcesd_violation(chunk):
         return []
     cites = _mcesd_citations(comments)
     if not cites:
+        if problems is not None and not MCESD_TIER_MARK_RE.search(comments) and not MCESD_CODE_RE.search(comments):
+            problems.append('missing_tiers')  # free text / local MCEHC rule, no published P/PF/C tier
         return None
     out = []
     for i, (start, tier_m) in enumerate(cites):
@@ -9829,7 +9842,7 @@ def _mcesd_violations_block(text):
     return None
 
 
-def _mcesd_parse_detail(text):
+def _mcesd_parse_detail(text, problems=None):
     """{'header': {...}, 'violations': [(num, title, severity, text), ...],
     'empty_entries': n, 'priority_mismatch': bool} for an inspection detail
     page, or None when the page is not a complete one: missing header labels
@@ -9857,7 +9870,7 @@ def _mcesd_parse_detail(text):
                 return None                 # text in the block that is not a violation
             continue
         entries += 1
-        v = _mcesd_violation(chunk)
+        v = _mcesd_violation(chunk, problems)
         if v is None:
             return None
         if not v:
@@ -9923,6 +9936,11 @@ def fetch_maricopa(since_date=None, limit=None):
     stats = _McesdStats()
     started = time.time()
     local = threading.local()
+    source_state = ((_FRESHNESS or {}).get('sources') or {}).get(MCESD_SOURCE, {})
+    # Copy: only publish queue changes after a complete listing/detail phase.
+    # A deadline, inventory error or failed D1 apply must not lose pending ids.
+    pending = dict(source_state.get('pending_details') or {})
+    prior_failures = (source_state.get('hold') or {}).get('failures') or {}
 
     def session_for():
         if not hasattr(local, 's'):
@@ -9985,7 +10003,9 @@ def fetch_maricopa(since_date=None, limit=None):
                         continue
                     if d > newest:
                         newest = d
-                    if d < window_start:
+                    pending_key = f"{row['permit']}/{row['inspection']}"
+                    retry = pending_key in pending or f"{d}|{row['inspection']}" in prior_failures
+                    if d < window_start and not retry:
                         continue
                     key = (row['permit'], row['inspection'])
                     if key in seen:
@@ -9994,7 +10014,7 @@ def fetch_maricopa(since_date=None, limit=None):
                     if MCESD_SKIP_PURPOSE_RE.search(row['purpose'] or ''):
                         skipped_purpose[row['purpose']] += 1
                         continue
-                    if SKIP_KNOWN_INSPECTIONS and (
+                    if not retry and SKIP_KNOWN_INSPECTIONS and (
                             make_restaurant_id(permit['name'], permit['address'], permit['city']),
                             d) in SKIP_KNOWN_INSPECTIONS:
                         skipped_known += 1
@@ -10044,12 +10064,30 @@ def fetch_maricopa(since_date=None, limit=None):
     if cut is None and not bounded:
         _note_source_lag(MCESD_GROUP, newest)    # every permit page of every permit was read
 
+    # The county can stop listing a pending report (or its permit) before
+    # correcting it. Retry the exact saved candidate, never a guessed URL or
+    # a clean replacement. Prefer the fresh listing/identity when present.
+    candidate_keys = {(row['permit'], row['inspection']) for _, _, row in candidates}
+    for saved in pending.values():
+        row = saved['row']
+        key = (row['permit'], row['inspection'])
+        if key not in candidate_keys:
+            candidates.append((saved['date'], saved['permit'], row))
+            candidate_keys.add(key)
+
     # 3. Details, oldest first so a deadline cut drops the newest tail.
     candidates.sort(key=lambda c: (c[0], c[1]['permit'], c[2]['inspection']), reverse=True)
     if limit:
-        candidates = candidates[:limit]
+        # Pending reports must not fall behind the same newest-N rows every
+        # run. Retain the existing newest-N policy for the remaining slots.
+        retries = [c for c in candidates if f"{c[2]['permit']}/{c[2]['inspection']}" in pending
+                   or f"{c[0]}|{c[2]['inspection']}" in prior_failures]
+        retry_keys = {(c[2]['permit'], c[2]['inspection']) for c in retries}
+        recent = [c for c in candidates if (c[2]['permit'], c[2]['inspection']) not in retry_keys]
+        candidates = (list(reversed(retries)) + recent)[:limit]
     candidates.sort(key=lambda c: (c[0], c[1]['permit'], c[2]['inspection']))
     details = {}
+    resolved_pending = set()
     failures = defaultdict(int)
     blocked = threading.Event()
     streak_lock = threading.Lock()
@@ -10070,13 +10108,16 @@ def fetch_maricopa(since_date=None, limit=None):
             outcome = 'download'
         elif MCESD_UNAVAILABLE in r.text:
             outcome = 'unavailable'     # the app no longer serves this (old) inspection
+        elif MCESD_DATA_UNAVAILABLE in r.text:
+            outcome = 'source_unavailable'  # HTTP 200, header only: county asks to try again later
         else:
-            parsed = _mcesd_parse_detail(r.text)
-            outcome = parsed if parsed is not None else 'unread'
+            problems = []
+            parsed = _mcesd_parse_detail(r.text, problems)
+            outcome = parsed if parsed is not None else ('missing_tiers' if problems else 'unread')
         with streak_lock:
             if isinstance(outcome, dict):
                 streak_box[0] = 0
-            elif outcome in ('download', 'unread', 'unavailable'):
+            elif outcome in ('download', 'unavailable') or outcome in MCESD_PENDING_OUTCOMES:
                 # any page that gave no inspection, a 'Not Available' one too:
                 # MCESD_BREAKER_TRIP of them in a row is the portal, not the page
                 streak_box[0] += 1
@@ -10088,20 +10129,31 @@ def fetch_maricopa(since_date=None, limit=None):
     with ThreadPoolExecutor(max_workers=max(1, MCESD_DETAIL_WORKERS)) as pool:
         for cand, outcome in pool.map(work, candidates):
             d, permit, row = cand
+            pending_key = f"{row['permit']}/{row['inspection']}"
             if isinstance(outcome, dict):
                 details[(row['permit'], row['inspection'])] = outcome
+                resolved_pending.add(pending_key)
                 continue
             failures[outcome] += 1
-            tried = outcome in ('download', 'unread', 'unavailable')
+            tried = outcome in ('download', 'unavailable') or outcome in MCESD_PENDING_OUTCOMES
             if tried:
                 dropped_ids[outcome].append(f"{row['permit']}/{row['inspection']}")   # every id: a blind spot is diagnosed from the log
+            if outcome in MCESD_PENDING_OUTCOMES:
+                pending[pending_key] = {'date': d, 'permit': permit, 'row': row, 'reason': outcome}
             # Dropped, never shipped clean. Tried-and-failed drops count
-            # toward the per-record give-up; a deadline or block cut does not.
-            _hold_freshness(MCESD_SOURCE, d, counted=tried, key=row['inspection'])
+            # toward the give-up only when not a persistently pending report.
+            _hold_freshness(MCESD_SOURCE, d, counted=tried and pending_key not in pending, key=row['inspection'])
+    if _FRESHNESS is not None:
+        source_state = _FRESHNESS['sources'].setdefault(MCESD_SOURCE, {'group': MCESD_GROUP})
+        if pending:
+            source_state['pending_details'] = pending
+        else:
+            source_state.pop('pending_details', None)
     t_details = time.time() - t0
+    remaining_pending = len(set(pending) - resolved_pending)
     log.info(f"  Maricopa: {len(details)} detail pages read in {t_details:.0f}s "
              f"({MCESD_DETAIL_WORKERS} workers)")
-    not_read = failures.get('unread', 0) + failures.get('unavailable', 0)
+    not_read = sum(failures.get(k, 0) for k in MCESD_PENDING_OUTCOMES | {'unavailable'})
     status = None
     if failures.get('deadline'):
         status = 'skipped'
@@ -10110,14 +10162,16 @@ def fetch_maricopa(since_date=None, limit=None):
         status = 'blocked'
         problems.append(f"portal blocked ({MCESD_BREAKER_TRIP} detail pages in a row unreadable); "
                         f"{failures['blocked']} detail pages not read")
-    if not_read >= MCESD_UNREAD_ERROR_MIN:
+    if not_read >= MCESD_UNREAD_ERROR_MIN or remaining_pending:
         # Pages the portal answered that gave no inspection are a parser
         # blind spot or a portal change, never a transient: red, with every
         # id in the log, before the holds give them up.
         status = status or 'error'
         problems.append(f"{not_read} detail pages answered but gave no inspection "
                         f"({failures.get('unread', 0)} not readable, {failures.get('unavailable', 0)} "
-                        f"'Inspection Not Available'); held, ids in the log")
+                        f"'Inspection Not Available', {failures.get('missing_tiers', 0)} missing published tiers, "
+                        f"{failures.get('source_unavailable', 0)} 'Data Not Currently Available'); "
+                        f"{remaining_pending} pending; ids in the log")
     if problems:
         _set_group_status(MCESD_GROUP, status or 'error', '; '.join(problems))
     if failures:
@@ -10197,6 +10251,7 @@ def fetch_maricopa(since_date=None, limit=None):
                              skipped_known=skipped_known, skipped_purpose=dict(skipped_purpose),
                              implausible_dates=implausible_dates,
                              details_read=len(details),
+                             pending_details=remaining_pending,
                              dropped=dict(failures), records=len(results), with_point=with_point,
                              newest=newest, inventory_s=round(t_inventory),
                              listing_s=round(t_listing), details_s=round(t_details),
@@ -14372,6 +14427,20 @@ def _record_group(group, records, status=None, detail=''):
     _RUN_GROUPS[group] = outcome
     if _FRESHNESS is None:
         return
+    # A complete parse alone is not a shipped record: result construction or
+    # geocoding can still fail after fetch_maricopa returns. Retire pending
+    # reports here, only for records the caller will actually emit. If D1
+    # application fails, the workflow does not commit this freshness file.
+    if group == MCESD_GROUP:
+        source_state = _FRESHNESS['sources'].get(MCESD_SOURCE, {})
+        pending = source_state.get('pending_details') or {}
+        shipped = {r.get('source_id') for r in records if r.get('source') == MCESD_SOURCE}
+        remaining = {k: v for k, v in pending.items()
+                     if f"mcesd_{v['row']['permit']}_{v['row']['inspection']}" not in shipped}
+        if remaining:
+            source_state['pending_details'] = remaining
+        else:
+            source_state.pop('pending_details', None)
     g = _FRESHNESS['groups'].setdefault(group, {})
     g['last_run'] = outcome
     by_source = defaultdict(str)

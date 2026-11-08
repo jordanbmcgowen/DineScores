@@ -1,0 +1,74 @@
+[
+  {
+    "permit": "FD2405224",
+    "inspection": "INSP-070365-2026",
+    "url": "https://envapp.maricopa.gov/Inspection/FD2405224/INSP-070365-2026",
+    "reason": "missing_tiers"
+  },
+  {
+    "permit": "FD-47187",
+    "inspection": "INSP-113477-2026",
+    "url": "https://envapp.maricopa.gov/Inspection/FD-47187/INSP-113477-2026",
+    "reason": "missing_tiers"
+  },
+  {
+    "permit": "FD2403961",
+    "inspection": "INSP-116306-2026",
+    "url": "https://envapp.maricopa.gov/Inspection/FD2403961/INSP-116306-2026",
+    "reason": "missing_tiers"
+  },
+  {
+    "permit": "FD2603941",
+    "inspection": "INSP-183280-2026",
+    "url": "https://envapp.maricopa.gov/Inspection/FD2603941/INSP-183280-2026",
+    "reason": "missing_tiers"
+  },
+  {
+    "permit": "FD2603598",
+    "inspection": "INSP-190207-2026",
+    "url": "https://envapp.maricopa.gov/Inspection/FD2603598/INSP-190207-2026",
+    "reason": "missing_tiers"
+  },
+  {
+    "permit": "FD-32395",
+    "inspection": "INSP-121115-2026",
+    "url": "https://envapp.maricopa.gov/Inspection/FD-32395/INSP-121115-2026",
+    "reason": "missing_tiers"
+  },
+  {
+    "permit": "FD-81600",
+    "inspection": "INSP-103737-2026",
+    "url": "https://envapp.maricopa.gov/Inspection/FD-81600/INSP-103737-2026",
+    "reason": "missing_tiers"
+  },
+  {
+    "permit": "FD-02366",
+    "inspection": "INSP-128983-2026",
+    "url": "https://envapp.maricopa.gov/Inspection/FD-02366/INSP-128983-2026",
+    "reason": "missing_tiers"
+  },
+  {
+    "permit": "FD2404110",
+    "inspection": "INSP-086328-2026",
+    "url": "https://envapp.maricopa.gov/Inspection/FD2404110/INSP-086328-2026",
+    "reason": "missing_tiers"
+  },
+  {
+    "permit": "FD2501186",
+    "inspection": "INSP-193498-2026",
+    "url": "https://envapp.maricopa.gov/Inspection/FD2501186/INSP-193498-2026",
+    "reason": "source_unavailable"
+  },
+  {
+    "permit": "FD-23-06112",
+    "inspection": "INSP-072832-2026",
+    "url": "https://envapp.maricopa.gov/Inspection/FD-23-06112/INSP-072832-2026",
+    "reason": "missing_tiers"
+  },
+  {
+    "permit": "FD-23-05901",
+    "inspection": "INSP-040251-2026",
+    "url": "https://envapp.maricopa.gov/Inspection/FD-23-05901/INSP-040251-2026",
+    "reason": "missing_tiers"
+  }
+]
