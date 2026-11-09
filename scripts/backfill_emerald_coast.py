@@ -16,6 +16,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import dinescores_pipeline as dp
 
 COUNTIES = ('Walton', 'Okaloosa', 'Bay')
+# Broad review envelope for the three counties, not a town boundary.
+COAST_REVIEW_BBOX = (-86.95, 29.8, -85.3, 31.1)
 # Verified link on DBPR's public-records page, not an inferred URL pattern.
 ARCHIVE = 'https://www2.myfloridalicense.com/hr/inspections/fdinspi_2526.xlsx'
 NS = {'m': 'http://schemas.openxmlformats.org/spreadsheetml/2006/main'}
@@ -76,7 +78,7 @@ def fetch_records(include_archive=True, rejected=None):
         response.raise_for_status()
         records.extend(dp._parse_florida_rows(workbook_rows(response.content),
                                               'FY2526', counties=COUNTIES, rejected=rejected))
-    records.extend(dp.fetch_florida(district_files=['6fdinspi.csv'], counties=COUNTIES))
+    records.extend(dp.fetch_florida(district_files=['6fdinspi.csv'], counties=COUNTIES, rejected=rejected))
     # Archive/current overlap must not weight an inspection twice. Identical
     # source IDs have the same meaning as in the statewide importer.
     unique = {}
@@ -89,23 +91,67 @@ def fetch_records(include_archive=True, rejected=None):
     return sorted(unique.values(), key=lambda r: (r['inspection_date'], r['source_id']))
 
 
+def geocode_candidates(records, existing=(), fallback_cap=None):
+    """Preserve exact-ID coordinates, geocode each remaining address once.
+
+    Return a review summary; unresolved addresses remain unpinned. Existing
+    rows use the compact record shape from the public API or a reviewed coordinate snapshot.
+    """
+    known = {r['i']: (r['lt'], r['ln']) for r in existing
+             if r.get('i') and r.get('lt') and r.get('ln')}
+    pending = {}
+    reused = 0
+    for record in records:
+        identity = dp.make_restaurant_id(record['name'], record['address'], record['city'])
+        if identity in known:
+            record['latitude'], record['longitude'] = known[identity]
+            reused += 1
+        elif not record.get('latitude') or not record.get('longitude'):
+            key = tuple(record.get(k, '') for k in ('address', 'city', 'state', 'zip'))
+            pending.setdefault(key, []).append(record)
+    representatives = [rows[0] for rows in pending.values()]
+    dp.geocode_missing_coords(representatives, nominatim_fallback_cap=fallback_cap)
+    for rows in pending.values():
+        latitude, longitude = rows[0].get('latitude'), rows[0].get('longitude')
+        for row in rows:
+            row['latitude'], row['longitude'] = latitude, longitude
+    dp.drop_implausible_coords(records)
+    west, south, east, north = COAST_REVIEW_BBOX
+    outside = 0
+    for record in records:
+        latitude, longitude = record.get('latitude'), record.get('longitude')
+        if latitude is not None and longitude is not None and not (
+                south <= latitude <= north and west <= longitude <= east):
+            record['latitude'] = record['longitude'] = None
+            outside += 1
+    if outside:
+        dp.log.warning(f'Emerald Coast: excluded {outside} out-of-region coordinate records')
+    return {'reused_coordinate_inspections': reused,
+            'geocoded_addresses_attempted': len(representatives),
+            'unresolved_addresses': sum(not r.get('latitude') or not r.get('longitude')
+                                        for r in representatives)}
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--output', required=True, help='Raw inspection JSON (not a live database)')
     parser.add_argument('--current-only', action='store_true', help='Skip the frozen FY2025-26 archive')
     parser.add_argument('--geocode', action='store_true', help='Use the pipeline geocoder before saving')
+    parser.add_argument('--coordinates-from', help='Compact JSON API roster or reviewed coordinate snapshot; preserve exact-ID coordinates')
     args = parser.parse_args()
     rejected = []
     records = fetch_records(include_archive=not args.current_only, rejected=rejected)
     if not records:
         raise RuntimeError('No coastal inspections returned; refusing an empty backfill')
+    geocode_review = None
     if args.geocode:
-        dp.geocode_missing_coords(records)
+        existing = json.loads(Path(args.coordinates_from).read_text()) if args.coordinates_from else []
+        geocode_review = geocode_candidates(records, existing)
     # All inputs must validate before opening an output file.
     report_path = args.output + '.rejected.json'
     Path(report_path).write_text(json.dumps(rejected, indent=2) + '\n')
     dp.write_records_json(records, args.output)
-    print(json.dumps({'rejected': len(rejected), 'rejection_report': report_path, 'inspections': len(records), 'cities': sorted({r['city'] for r in records}),
+    print(json.dumps({'geocode_review': geocode_review, 'rejected': len(rejected), 'rejection_report': report_path, 'inspections': len(records), 'cities': sorted({r['city'] for r in records}),
                       'oldest': records[0]['inspection_date'], 'newest': records[-1]['inspection_date'],
                       'with_coordinates': sum(r['latitude'] is not None for r in records)}, indent=2))
 

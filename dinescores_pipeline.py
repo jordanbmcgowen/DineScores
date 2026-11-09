@@ -3026,6 +3026,11 @@ def _parse_florida_rows(reader, fname, since_date=None, limit=None, counties=Non
                 'violations': [],
                 'inspection_type': row[idx['Inspection Type']].strip(),
                 'results': row[idx['Inspection Disposition']].strip(),
+                # Retain official permit identity for historical/active-license
+                # review without changing the app's stable restaurant IDs.
+                'county': row[idx['County Name']].strip(),
+                'license_number': row[idx['License Number']].strip() if 'License Number' in idx else '',
+                'license_type': row[idx['License Type Code']].strip() if 'License Type Code' in idx else '',
                 'source': 'Florida DBPR',
                 'source_url': 'https://www2.myfloridalicense.com/hotels-restaurants/public-records/inspection-records/',
                 'source_id': f"fl_{row[idx['Inspection Number']]}_{row[idx['Visit Number']]}",
@@ -3042,7 +3047,7 @@ def _parse_florida_rows(reader, fname, since_date=None, limit=None, counties=Non
     return results
 
 
-def fetch_florida(since_date=None, limit=None, district_files=None, counties=None):
+def fetch_florida(since_date=None, limit=None, district_files=None, counties=None, rejected=None):
     """
     Fetch Florida DBPR statewide food inspections (current-fiscal-year CSV
     extracts for all seven districts, updated continuously).
@@ -3059,6 +3064,8 @@ def fetch_florida(since_date=None, limit=None, district_files=None, counties=Non
     import io
 
     results = []
+    rejected = [] if rejected is None else rejected
+    rejected_start = len(rejected)
     for fname in (FL_DISTRICT_FILES if district_files is None else district_files):
         try:
             r = requests.get(FL_EXTRACTS + fname,
@@ -3068,9 +3075,20 @@ def fetch_florida(since_date=None, limit=None, district_files=None, counties=Non
             raise RuntimeError(f"Florida {fname} download failed; refusing a partial extract") from e
         reader = csv_mod.reader(io.StringIO(r.content.decode('latin-1')))
         remaining = max(0, limit - len(results)) if limit else None
-        results.extend(_parse_florida_rows(reader, fname, since_date, remaining, counties))
+        results.extend(_parse_florida_rows(reader, fname, since_date, remaining, counties, rejected))
         if limit and len(results) >= limit:
             break
+    current_rejected = rejected[rejected_start:]
+    if current_rejected:
+        for item in current_rejected:
+            # Missing official counts can be corrected later. Preserve the
+            # retry window indefinitely, without scoring the row as clean
+            # or discarding the rest of a statewide weekly refresh.
+            _hold_freshness('Florida DBPR', item['inspection_date'], counted=False,
+                            key=item['source_id'])
+        detail = f"{len(current_rejected)} inspections have unusable official counts; held for retry"
+        _GROUP_STATUS['Florida'] = ('error', detail)
+        log.warning(f"Florida: {detail}")
     log.info(f"Florida: {len(results)} inspections")
     return results
 

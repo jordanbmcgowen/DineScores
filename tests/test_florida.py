@@ -29,6 +29,9 @@ class FloridaTests(unittest.TestCase):
         self.assertEqual(r['source_id'], 'fl_'+d['Inspection Number']+'_'+d['Visit Number'])
         self.assertEqual(r['risk_score'], 100-5*int(d['Number of High Priority Violations'])-2*int(d['Number of Intermediate Violations'])-int(d['Number of Basic Violations']))
         self.assertIsNone(r['latitude']); self.assertEqual(r['violations'], [])
+        self.assertEqual(r['license_number'], d['License Number'])
+        self.assertEqual(r['license_type'], d['License Type Code'])
+        self.assertEqual(r['county'], d['County Name'])
         rows = [self.rows[0], self.rows[1].copy()]
         rows[1][self.header.index('County Name')] = 'Walton'
         rows[1][self.header.index('Location City')] = 'SANTA ROSA BEACH'
@@ -54,6 +57,72 @@ class FloridaTests(unittest.TestCase):
         with mock.patch.object(dp.requests, 'get', side_effect=[response, dp.requests.ConnectionError('down')]):
             with self.assertRaisesRegex(RuntimeError, 'partial extract'):
                 dp.fetch_florida(district_files=['6fdinspi.csv', '7fdinspi.csv'])
+    def test_unknown_current_counts_hold_only_bad_records_without_expiring(self):
+        rows = [self.rows[0], self.rows[1].copy(), self.rows[2].copy()]
+        rows[1][self.header.index('Number of High Priority Violations')] = ''
+        stream = io.StringIO()
+        csv.writer(stream).writerows(rows)
+        response = mock.Mock(content=stream.getvalue().encode('latin-1'))
+        rejected = []
+        with mock.patch.object(dp.requests, 'get', return_value=response), \
+             mock.patch.dict(dp._FRESHNESS_HOLDS, {}, clear=True), \
+             mock.patch.dict(dp._GROUP_STATUS, {}, clear=True):
+            records = dp.fetch_florida(district_files=['6fdinspi.csv'], rejected=rejected)
+            self.assertEqual(len(records), 1)
+            self.assertEqual(len(rejected), 1)
+            key = rejected[0]['inspection_date'] + '|' + rejected[0]['source_id']
+            self.assertFalse(dp._FRESHNESS_HOLDS['Florida DBPR'][key][0])
+            self.assertEqual(dp._GROUP_STATUS['Florida'][0], 'error')
+
+    def test_missing_severities_stay_pending_after_repeated_refreshes(self):
+        rows = [self.rows[0], self.rows[1].copy(), self.rows[2].copy()]
+        rows[1][self.header.index('Number of High Priority Violations')] = ''
+        stream = io.StringIO()
+        csv.writer(stream).writerows(rows)
+        response = mock.Mock(content=stream.getvalue().encode('latin-1'))
+        freshness = {'groups': {}, 'sources': {'Florida DBPR': {'group': 'Florida', 'latest': '2026-10-30'}}}
+        with mock.patch.object(dp.requests, 'get', return_value=response), \
+             mock.patch.object(dp, '_FRESHNESS', freshness), \
+             mock.patch.dict(dp._FRESHNESS_HOLDS, {}, clear=True), \
+             mock.patch.dict(dp._GROUP_STATUS, {}, clear=True), \
+             mock.patch.dict(dp._RUN_GROUPS, {}, clear=True), \
+             mock.patch.dict(dp._GROUP_NOTES, {}, clear=True):
+            rejected = []
+            for _ in range(5):
+                records = dp.fetch_florida(district_files=['6fdinspi.csv'], rejected=rejected)
+                dp._record_group('Florida', records)
+            source = freshness['sources']['Florida DBPR']
+            self.assertEqual(source['hold']['date'], rejected[0]['inspection_date'])
+            self.assertFalse(source.get('given_up'))
+            self.assertEqual(freshness['groups']['Florida']['last_run']['status'], 'error')
+
+    def test_geocoding_reuses_exact_ids_and_deduplicates_addresses(self):
+        original = self.parse(counties=bf.COUNTIES)[0]
+        records = [dict(original), dict(original, name='New Name', address='20 Example St'),
+                   dict(original, name='Another Name', address='20 Example St')]
+        identity = dp.make_restaurant_id(original['name'], original['address'], original['city'])
+        existing = [{'i': identity, 'lt': 30.2, 'ln': -85.8}]
+        def locate(rows, nominatim_fallback_cap):
+            self.assertEqual(len(rows), 1)
+            self.assertEqual(nominatim_fallback_cap, 42)
+            rows[0].update(latitude=30.3, longitude=-85.9)
+        with mock.patch.object(dp, 'geocode_missing_coords', side_effect=locate):
+            report = bf.geocode_candidates(records, existing, fallback_cap=42)
+        self.assertEqual((records[0]['latitude'], records[0]['longitude']), (30.2, -85.8))
+        self.assertEqual(records[1]['latitude'], records[2]['latitude'])
+        self.assertEqual(report, {'reused_coordinate_inspections': 1,
+                                 'geocoded_addresses_attempted': 1, 'unresolved_addresses': 0})
+
+    def test_out_of_region_geocodes_stay_unpinned(self):
+        record = self.parse(counties=bf.COUNTIES)[0]
+        def locate(rows, nominatim_fallback_cap):
+            rows[0].update(latitude=27.5, longitude=-82.5)
+        with mock.patch.object(dp, 'geocode_missing_coords', side_effect=locate):
+            report = bf.geocode_candidates([record])
+        self.assertIsNone(record['latitude'])
+        self.assertIsNone(record['longitude'])
+        self.assertEqual(report['unresolved_addresses'], 1)
+
     def test_historical_sql_keeps_newer_live_state_and_is_idempotent(self):
         record = self.parse(counties=bf.COUNTIES)[0]
         newer = dict(record, inspection_date='2026-10-27', risk_score=77,

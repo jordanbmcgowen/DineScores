@@ -32,7 +32,8 @@ history. Historical inspections do not establish that a business is still open.
 
 ```sh
 python3 scripts/backfill_emerald_coast.py \
-  --output /tmp/emerald-coast.json --geocode
+  --output /tmp/emerald-coast.json --geocode \
+  --coordinates-from data/emerald_coast_coordinates_2026-11-09.json
 
 python3 dinescores_pipeline.py --input-records /tmp/emerald-coast.json \
   --output /tmp/emerald-coast-restaurants.json \
@@ -40,6 +41,13 @@ python3 dinescores_pipeline.py --input-records /tmp/emerald-coast.json \
   --merge-existing-data-js public/data.js \
   --output-d1-sql /tmp/emerald-coast.sql
 ```
+
+Save the public API's current compact roster (or use the committed reviewed
+coordinate snapshot) with the optional
+`--coordinates-from` JSON snapshot first; omit that argument if no snapshot is
+available. Exact restaurant IDs retain their known coordinates. Only remaining
+unique addresses are geocoded, then their coordinates are shared across their
+inspection history. Names, addresses, city strings and IDs are never rewritten.
 
 The first command writes raw records and a `.rejected.json` companion report.
 The second uses the ordinary ID, scoring, merge and idempotent SQL writers; it
@@ -52,16 +60,19 @@ No output is opened until both source downloads have parsed successfully. The
 historical workbook's sparse cells retain their column positions. Exact duplicate
 inspection IDs are coalesced; conflicting records stop the import. Unknown,
 negative, fractional or inconsistent severity counts never become a score of 100.
-Historical count failures go into the companion report; without an explicit
-rejection collector, the ordinary statewide importer fails the group and retains
-its previous data rather than silently advancing past a partial district fetch.
+Historical and current count failures go into the companion report. The
+ordinary statewide importer ships valid records while holding each record with
+unusable official counts for retry without expiring it; its run reports an error
+so missing coverage stays visible. A district download or schema failure rejects
+the fetch group rather than silently advancing through a partial district set.
 
 Live validation returned **5,725 inspections for 2,435 restaurant IDs**, from
 2025-07-01 through 2026-11-06 (4,303 historical plus 1,422 current-year rows).
 This is a candidate inspection inventory, not a count of new live locations.
 The public API returned 1,201 existing records in the broader coastal bounding
-box; those are not directly comparable to whole-county counts. The candidate
-records have no coordinates until the optional geocoding pass runs.
+box; those are not directly comparable to whole-county counts. The initial candidate
+records had no coordinates; the completed review snapshot below supplies the
+usable coordinates without importing candidates into production.
 
 Two FY2025-26 inspections are quarantined for follow-up:
 
@@ -78,6 +89,57 @@ violation summaries can be inferred from category totals alone. Historical-only
 restaurants may be closed and must be displayed with their actual inspection date.
 The normal statewide Sunday refresh already includes all three counties.
 
+## Pre-merge review (2026-11-09)
+
+Current main's only intervening change was the 2026-11-09 Orange County poll;
+its sidecar merges cleanly and is preserved. Required tests were run on that
+combined tree. The focused candidates were checked against complete public city
+rosters, including records without coordinates, rather than only a map bounding
+box. Of 2,435 IDs, 1,139 already exist and 1,296 are absent from those rosters;
+1,292 have only pre-July inspections. These are candidate counts, not live additions.
+
+The three same-date score differences are documented in the review report. Each
+has multiple mobile-unit inspections for one restaurant ID on the same date;
+`_one_per_day` correctly selects that day's worst score, following the existing
+repository invariant. Older candidate dates must never replace newer live dates.
+
+[DBPR's active District 6 food licenses](https://www2.myfloridalicense.com/sto/file_download/extracts/hrfood6.csv)
+were checked using license type plus the numeric permit number (the active file
+prefixes numbers with the permit rank, such as SEA or MFD). 2,336 candidates' latest
+permits match that inventory; 99 do not. Of the matches, 293 differ in current name
+or address spelling and need identity review before any import. Exact identity
+matches number 2,043. Also, 413 candidates' latest permits are mobile units; their
+addresses can be commissaries, not public storefronts. Inventory membership does
+not prove that a business is open today.
+
+The statewide parser was also checked against all seven current district files:
+56,029 inspections validate; seven records with unusable official counts remain
+held for retry. This review caught and fixed an initial all-or-nothing count
+failure so a few bad counts cannot discard the otherwise valid statewide refresh.
+
+No D1 seed, embedded data replacement, import workflow, or separate deployment is
+part of this merge. The normal Pages build may run automatically when main changes.
+A future historical data import must separately select reviewed, current identities,
+exclude unresolved locations, and review mobile-unit treatment. The code and
+coordinate review artifacts can safely merge without importing these candidates.
+
+The completed geocoding pass reused coordinates for 3,322 inspections and
+attempted 1,238 remaining unique addresses. After geographic review, the committed
+[coordinate snapshot](../data/emerald_coast_coordinates_2026-11-09.json) covers
+**2,293 restaurant IDs**. **142 IDs remain unresolved or excluded**. One apparent
+Bay County mobile permit was geocoded to Bradenton; that out-of-region pin was
+excluded. No conflicting coordinates remained. The dedicated helper now rejects
+out-of-region results on subsequent runs as well.
+
+The [machine-readable review](emerald-coast-review-2026-11-09.json) records source
+rejections, identity/permit exceptions, and local database simulation results.
+There are **684 potential new fixed-location IDs** with usable coordinates, an
+exact current license identity, and no matching ID in the complete live city
+rosters. They still require a separately authorized production import. The
+snapshot is a reusable coordinate cache, not a D1 seed or a replacement data.js.
+The full SQL simulation applied the candidate set twice with identical results,
+preserved existing coordinates, and preserved newer live dates.
+
 ## Ennis
 
 Pending clarification: the user requested “Ennis, MO”. Confirm the intended state
@@ -86,7 +148,8 @@ implemented on an assumption.
 
 ## Checks
 
-- Offline Python suite, including captured District 6 rows.
+- 762 offline Python tests, including captured District 6 rows, persistent
+  missing-severity retries, coordinate reuse, and out-of-region rejection.
 - Relay regression suite and geographic selector tests.
 - Production frontend build; built assets remain gitignored.
 - Live official workbook/CSV validation with an explicit rejection report.
