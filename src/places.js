@@ -33,6 +33,26 @@ const FL = 'FL';
 
 export const PLACES = [
   {
+    id: 'south-walton',
+    label: 'South Walton (30A and nearby)',
+    state: FL,
+    // Discovery envelope, not an administrative boundary: Miramar Beach
+    // through Inlet Beach, including the US-98 shops and Point Washington.
+    // County tourism lists South Walton as all 16 beach neighborhoods,
+    // so the name must not resolve only to the narrower 30A corridor.
+    bbox: { w: -86.3970, s: 30.2650, e: -85.9950, n: 30.4100 },
+    aliases: ['South Walton', 'Walton County beaches', 'Beaches of South Walton', 'Near WaterColor', 'Near Seaside'],
+  },
+  {
+    id: 'panama-city-beach',
+    label: 'Panama City Beach',
+    state: FL,
+    // Nearby beach destination east of Inlet Beach. Geographic selection
+    // joins DBPR's "Panama City Bch" and "Panama City Beach" postal labels.
+    bbox: { w: -85.9950, s: 30.1200, e: -85.7400, n: 30.3200 },
+    aliases: ['Panama City Bch', 'PCB', 'Pier Park', 'Carillon Beach'],
+  },
+  {
     id: 'destin',
     label: 'Destin',
     state: FL,
@@ -66,7 +86,7 @@ export const PLACES = [
       { w: -86.1900, s: 30.3000, e: -86.0850, n: 30.3450 }, // Grayton → Seagrove / Eastern Lake
       { w: -86.0850, s: 30.2650, e: -85.9950, n: 30.3300 }, // Watersound → Inlet Beach
     ],
-    aliases: ['30A', 'Highway 30A', 'Scenic Highway 30A', 'South Walton', 'Walton County beaches', 'Beaches of South Walton', 'Emerald Coast beaches'],
+    aliases: ['30A', 'Highway 30A', 'Scenic Highway 30A', 'Emerald Coast beaches'],
   },
   // ---- 30A sub-places, west → east -------------------------------------
   {

@@ -163,6 +163,13 @@ python dinescores_pipeline.py --mode test
 | Harris County, TX (unincorporated Harris County + 23 contract cities: Katy, Humble, Tomball, La Porte, Deer Park, Bellaire, Seabrook, Jersey Village, ...; the City of Houston is covered separately) | Harris County Public Health's FSP portal JSON API (`secureweb.hcphtx.org/fspportal/api`, no auth): an establishment search filtered on `lastCompletedInspectionDate`, then each establishment's inspection list and each inspection's OUT items. That search field trails the inspection list (stuck on an earlier visit for ~2% of establishments), so every window is read from `HARRIS_LC_LAG_DAYS` (28) before its start. Score is the county's OFFICIAL `100 − demerits` (verified on 98.4% of inspections; the rest sit 2 points above); severity from the county's P / F / C violation groups (never re-tiered); violation text is the TFER item title (the county publishes no observation narrative). Ships Routine, Permitting (the annual permit inspection of an operating place), Complaint, Food Borne Illness and follow-ups of operating places; drops Pre-opening, Non-permitted, Consultation and school/day-care kitchen visits; skips schools, day care, institutions, pantries, commissaries and mobile units. Coordinates exist on 0.4% of establishments (39 of 9,138), the rest are Census/Nominatim-geocoded (~80-87%). A county-ordered closure caps the grade at F. A search page or inspection list that cannot be read fails the window; an unreadable item list drops the inspection and holds the window; a 404 inspection list skips and holds that establishment; 3 exhausted requests in a row trip a breaker ('blocked'). |
 | Geocoding | Census Bureau batch geocoder (thousands of addresses per request), Nominatim fallback for stragglers. |
 
+### Emerald Coast backfill
+
+WaterColor, Seaside and the surrounding Walton / Okaloosa / Bay county area
+use the existing statewide DBPR source. A focused command can recover
+FY2025-26 history and the current District 6 extract without changing the
+statewide refresh window. See [coverage, limitations and safe review commands](docs/emerald-coast-expansion.md).
+
 ### Weekly refresh health
 
 The refresh workflow (Sundays for every source except the midweek group,

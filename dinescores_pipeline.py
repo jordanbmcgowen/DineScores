@@ -2957,7 +2957,92 @@ FL_EXTRACTS = 'https://www2.myfloridalicense.com/sto/file_download/extracts/'
 FL_DISTRICT_FILES = [f'{i}fdinspi.csv' for i in range(1, 8)]
 
 
-def fetch_florida(since_date=None, limit=None):
+def _parse_florida_rows(reader, fname, since_date=None, limit=None, counties=None, rejected=None):
+    """Shared CSV/workbook parser; county scope never depends on postal city."""
+    results = []
+    header = next(reader, None)
+    if not header:
+        raise ValueError(f"Florida {fname}: empty extract")
+    idx = {c.strip(): i for i, c in enumerate(header)}
+    required = {"Inspection Class", "Inspection Date", "Business (DBA-Does Business As) Name",
+                "Location City", "Location Address", "Location Zip Code", "County Name",
+                "Number of High Priority Violations", "Number of Intermediate Violations",
+                "Number of Basic Violations", "Number of Total Violations",
+                "Inspection Number", "Visit Number", "Inspection Type", "Inspection Disposition"}
+    if not required <= idx.keys():
+        raise ValueError(f"Florida {fname}: missing columns {sorted(required - idx.keys())}")
+    selected_counties = {c.casefold() for c in counties} if counties is not None else None
+    kept = 0
+    for row in reader:
+        try:
+            if row[idx['Inspection Class']].strip() != 'Food':
+                continue
+            if selected_counties is not None and row[idx['County Name']].strip().casefold() not in selected_counties:
+                continue
+            raw_date = row[idx['Inspection Date']].strip()
+            insp_date = sane_inspection_date(
+                datetime.strptime(raw_date, '%m/%d/%Y').strftime('%Y-%m-%d'))
+            if not insp_date:
+                continue
+            if since_date and insp_date < str(since_date)[:10]:
+                continue
+            name = row[idx['Business (DBA-Does Business As) Name']].strip()
+            if not name:
+                continue
+            # A blank count is unknown, never an official clean inspection.
+            counts = [row[idx[c]].strip() for c in (
+                'Number of High Priority Violations', 'Number of Intermediate Violations',
+                'Number of Basic Violations', 'Number of Total Violations')]
+            reason = None
+            if not all(re.fullmatch(r'[0-9]+', c) for c in counts):
+                reason = 'missing or invalid official violation counts'
+            else:
+                hp, inter, basic, total = map(int, counts)
+                if total != hp + inter + basic:
+                    reason = 'official violation counts do not reconcile'
+            if reason:
+                if rejected is None:
+                    raise RuntimeError(f'Florida {fname}: {reason}')
+                rejected.append({'source_id': f"fl_{row[idx['Inspection Number']]}_{row[idx['Visit Number']]}",
+                                 'inspection_date': insp_date, 'county': row[idx['County Name']],
+                                 'extract': fname, 'reason': reason})
+                continue
+            city = row[idx['Location City']].strip().title()
+            results.append({
+                'name': name.title() if name.isupper() else name,
+                'address': row[idx['Location Address']].strip().title(),
+                'city': city,
+                'state': 'FL',
+                'zip': row[idx['Location Zip Code']].strip()[:5],
+                'latitude': None,
+                'longitude': None,
+                'inspection_date': insp_date,
+                'original_score': None,
+                'risk_score': max(0, 100 - hp * 5 - inter * 2 - basic * 1),
+                'priority_violations': hp,
+                'priority_foundation_violations': inter,
+                'core_violations': basic,
+                'total_violations': total or (hp + inter + basic),
+                'violations': [],
+                'inspection_type': row[idx['Inspection Type']].strip(),
+                'results': row[idx['Inspection Disposition']].strip(),
+                'source': 'Florida DBPR',
+                'source_url': 'https://www2.myfloridalicense.com/hotels-restaurants/public-records/inspection-records/',
+                'source_id': f"fl_{row[idx['Inspection Number']]}_{row[idx['Visit Number']]}",
+                'metro': '',
+            })
+            kept += 1
+            if limit and kept >= limit:
+                break
+        except (IndexError, KeyError) as e:
+            raise RuntimeError(f"Florida {fname}: truncated inspection row") from e
+        except ValueError:
+            continue
+    log.info(f"  Florida {fname}: {kept} inspections kept")
+    return results
+
+
+def fetch_florida(since_date=None, limit=None, district_files=None, counties=None):
     """
     Fetch Florida DBPR statewide food inspections (current-fiscal-year CSV
     extracts for all seven districts, updated continuously).
@@ -2974,68 +3059,16 @@ def fetch_florida(since_date=None, limit=None):
     import io
 
     results = []
-    for fname in FL_DISTRICT_FILES:
+    for fname in (FL_DISTRICT_FILES if district_files is None else district_files):
         try:
             r = requests.get(FL_EXTRACTS + fname,
                              headers={'User-Agent': CHROME_UA}, timeout=180)
             r.raise_for_status()
         except requests.RequestException as e:
-            log.error(f"  Florida {fname} download failed: {e}")
-            continue
+            raise RuntimeError(f"Florida {fname} download failed; refusing a partial extract") from e
         reader = csv_mod.reader(io.StringIO(r.content.decode('latin-1')))
-        header = next(reader, None)
-        if not header:
-            continue
-        idx = {c.strip(): i for i, c in enumerate(header)}
-        kept = 0
-        for row in reader:
-            try:
-                if row[idx['Inspection Class']].strip() != 'Food':
-                    continue
-                raw_date = row[idx['Inspection Date']].strip()
-                insp_date = sane_inspection_date(
-                    datetime.strptime(raw_date, '%m/%d/%Y').strftime('%Y-%m-%d'))
-                if not insp_date:
-                    continue
-                if since_date and insp_date < str(since_date)[:10]:
-                    continue
-                name = row[idx['Business (DBA-Does Business As) Name']].strip()
-                if not name:
-                    continue
-                hp = int(row[idx['Number of High Priority Violations']] or 0)
-                inter = int(row[idx['Number of Intermediate Violations']] or 0)
-                basic = int(row[idx['Number of Basic Violations']] or 0)
-                total = int(row[idx['Number of Total Violations']] or 0)
-                city = row[idx['Location City']].strip().title()
-                results.append({
-                    'name': name.title() if name.isupper() else name,
-                    'address': row[idx['Location Address']].strip().title(),
-                    'city': city,
-                    'state': 'FL',
-                    'zip': row[idx['Location Zip Code']].strip()[:5],
-                    'latitude': None,
-                    'longitude': None,
-                    'inspection_date': insp_date,
-                    'original_score': None,
-                    'risk_score': max(0, 100 - hp * 5 - inter * 2 - basic * 1),
-                    'priority_violations': hp,
-                    'priority_foundation_violations': inter,
-                    'core_violations': basic,
-                    'total_violations': total or (hp + inter + basic),
-                    'violations': [],
-                    'inspection_type': row[idx['Inspection Type']].strip(),
-                    'results': row[idx['Inspection Disposition']].strip(),
-                    'source': 'Florida DBPR',
-                    'source_url': 'https://www2.myfloridalicense.com/hotels-restaurants/public-records/inspection-records/',
-                    'source_id': f"fl_{row[idx['Inspection Number']]}_{row[idx['Visit Number']]}",
-                    'metro': '',
-                })
-                kept += 1
-                if limit and kept >= limit:
-                    break
-            except (IndexError, KeyError, ValueError):
-                continue
-        log.info(f"  Florida {fname}: {kept} inspections kept")
+        remaining = max(0, limit - len(results)) if limit else None
+        results.extend(_parse_florida_rows(reader, fname, since_date, remaining, counties))
         if limit and len(results) >= limit:
             break
     log.info(f"Florida: {len(results)} inspections")
