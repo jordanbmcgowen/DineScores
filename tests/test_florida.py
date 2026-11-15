@@ -54,9 +54,45 @@ class FloridaTests(unittest.TestCase):
         self.assertEqual(len(self.parse(limit=1)), 1)
     def test_download_failure_never_returns_partial_state(self):
         response = mock.Mock(content=FIXTURE.read_bytes())
-        with mock.patch.object(dp.requests, 'get', side_effect=[response, dp.requests.ConnectionError('down')]):
+        with mock.patch.object(dp.requests, 'get', side_effect=[response] + [dp.requests.ConnectionError('down')] * dp.FL_DOWNLOAD_ATTEMPTS), \
+             mock.patch.object(dp.time, 'sleep'):
             with self.assertRaisesRegex(RuntimeError, 'partial extract'):
                 dp.fetch_florida(district_files=['6fdinspi.csv', '7fdinspi.csv'])
+    def test_transient_download_recovers_without_duplicate_district_rows(self):
+        response = mock.Mock(content=FIXTURE.read_bytes())
+        with mock.patch.object(dp.requests, 'get', side_effect=[
+                dp.requests.Timeout('temporary'), response]) as get, \
+             mock.patch.object(dp.time, 'sleep') as sleep:
+            records = dp.fetch_florida(district_files=['6fdinspi.csv'])
+        self.assertEqual(records, self.parse())
+        self.assertEqual(get.call_count, 2)
+        sleep.assert_called_once_with(dp.FL_DOWNLOAD_BACKOFF)
+
+    def test_permanent_http_and_tls_failures_do_not_retry(self):
+        requests_response = mock.Mock(status_code=404)
+        for failure in (dp.requests.HTTPError('not found', response=requests_response),
+                        dp.requests.exceptions.SSLError('bad certificate')):
+            with mock.patch.object(dp.requests, 'get', side_effect=failure) as get, \
+                 mock.patch.object(dp.time, 'sleep') as sleep:
+                with self.assertRaisesRegex(RuntimeError, 'partial extract'):
+                    dp.fetch_florida(district_files=['6fdinspi.csv'])
+            self.assertEqual(get.call_count, 1)
+            sleep.assert_not_called()
+
+    def test_retryable_http_status_recovers_and_deadline_stops_retries(self):
+        response = mock.Mock(content=FIXTURE.read_bytes())
+        failure = dp.requests.HTTPError('unavailable', response=mock.Mock(status_code=503))
+        with mock.patch.object(dp.requests, 'get', side_effect=[failure, response]), \
+             mock.patch.object(dp.time, 'sleep'):
+            self.assertEqual(dp.fetch_florida(district_files=['6fdinspi.csv']), self.parse())
+        with mock.patch.object(dp.requests, 'get', side_effect=dp.requests.Timeout('slow')) as get, \
+             mock.patch.object(dp, '_past_deadline', return_value=True), \
+             mock.patch.object(dp.time, 'sleep') as sleep:
+            with self.assertRaisesRegex(RuntimeError, 'Timeout: slow'):
+                dp.fetch_florida(district_files=['6fdinspi.csv'])
+            self.assertEqual(get.call_count, 1)
+            sleep.assert_not_called()
+
     def test_unknown_current_counts_hold_only_bad_records_without_expiring(self):
         rows = [self.rows[0], self.rows[1].copy(), self.rows[2].copy()]
         rows[1][self.header.index('Number of High Priority Violations')] = ''

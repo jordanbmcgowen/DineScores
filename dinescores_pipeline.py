@@ -2950,6 +2950,8 @@ def fetch_dc(since_date=None, until_date=None, limit=None, fetch_violations=True
 # ─── FLORIDA DBPR (statewide) ────────────────────────────────────────────────
 
 FL_EXTRACTS = 'https://www2.myfloridalicense.com/sto/file_download/extracts/'
+FL_DOWNLOAD_ATTEMPTS = 3
+FL_DOWNLOAD_BACKOFF = 3.0
 # All seven DBPR district extract files = complete statewide coverage:
 # 1: Miami-Dade/Keys, 2: Broward/Palm Beach, 3: Tampa Bay/Polk,
 # 4: Orlando/Space Coast/Volusia, 5: Jacksonville/Gainesville,
@@ -3047,6 +3049,27 @@ def _parse_florida_rows(reader, fname, since_date=None, limit=None, counties=Non
     return results
 
 
+def _fl_download(fname):
+    """Retry transient downloads only; a failed district still aborts the extract."""
+    for attempt in range(1, FL_DOWNLOAD_ATTEMPTS + 1):
+        try:
+            r = requests.get(FL_EXTRACTS + fname,
+                             headers={'User-Agent': CHROME_UA}, timeout=180)
+            r.raise_for_status()
+            return r
+        except requests.RequestException as e:
+            status = e.response.status_code if e.response is not None else None
+            retryable = (not isinstance(e, requests.exceptions.SSLError)
+                         and (status is None or status in (429, 500, 502, 503, 504)))
+            if not retryable or attempt == FL_DOWNLOAD_ATTEMPTS or _past_deadline():
+                raise RuntimeError(f"Florida {fname} download failed after {attempt} attempt(s): "
+                                   f"{type(e).__name__}: {e}; refusing a partial extract") from e
+            wait = FL_DOWNLOAD_BACKOFF * attempt
+            log.warning(f"Florida {fname}: {type(e).__name__}: {e}; retry in {wait:g}s "
+                        f"({attempt}/{FL_DOWNLOAD_ATTEMPTS - 1})")
+            time.sleep(wait)
+
+
 def fetch_florida(since_date=None, limit=None, district_files=None, counties=None, rejected=None):
     """
     Fetch Florida DBPR statewide food inspections (current-fiscal-year CSV
@@ -3067,12 +3090,7 @@ def fetch_florida(since_date=None, limit=None, district_files=None, counties=Non
     rejected = [] if rejected is None else rejected
     rejected_start = len(rejected)
     for fname in (FL_DISTRICT_FILES if district_files is None else district_files):
-        try:
-            r = requests.get(FL_EXTRACTS + fname,
-                             headers={'User-Agent': CHROME_UA}, timeout=180)
-            r.raise_for_status()
-        except requests.RequestException as e:
-            raise RuntimeError(f"Florida {fname} download failed; refusing a partial extract") from e
+        r = _fl_download(fname)
         reader = csv_mod.reader(io.StringIO(r.content.decode('latin-1')))
         remaining = max(0, limit - len(results)) if limit else None
         results.extend(_parse_florida_rows(reader, fname, since_date, remaining, counties, rejected))
@@ -12545,7 +12563,8 @@ DFW_HOLE_NON_RESTAURANT_RE = re.compile(
 
 def _dfw_hole_get(url, params=None, label='', verify=True, timeout=None):
     """GET a JSON endpoint with the expansion's retry ladder. 429/5xx answers,
-    timeouts and connection resets are retried DFW_HOLE_RETRIES times with
+    timeouts, connection resets and ArcGIS operation-error payloads are retried
+    DFW_HOLE_RETRIES times with
     a growing pause (never past the fetch deadline); any other status, a
     non-JSON body (Cloudflare's HTML block page, a WAF challenge) or an
     exhausted ladder RAISES RuntimeError so the caller ships nothing rather
@@ -12571,10 +12590,18 @@ def _dfw_hole_get(url, params=None, label='', verify=True, timeout=None):
                 raise RuntimeError(f'{label}: HTTP {r.status_code} from {url}{blocked}')
             else:
                 try:
-                    return r.json()
+                    data = r.json()
                 except ValueError:
                     raise RuntimeError(f'{label}: non-JSON answer from {url} '
                                        f'({ctype or "no content-type"}, {len(r.content)} bytes)')
+                error = data.get('error') if isinstance(data, dict) else None
+                # ArcGIS can wrap a server-side failure in HTTP 200 / code 400.
+                # Retry only this generic operation failure, never invalid queries.
+                if (isinstance(error, dict)
+                        and str(error.get('message') or '').strip().lower() == 'unable to complete operation.'):
+                    last = f"ArcGIS error {error.get('code')}: {error.get('message')}"
+                else:
+                    return data
         if attempt >= DFW_HOLE_RETRIES or _past_deadline():
             break
         time.sleep(DFW_HOLE_BACKOFF * attempt)
