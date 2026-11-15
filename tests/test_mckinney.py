@@ -613,6 +613,23 @@ class FailureTests(McKinneyBase):
             run_fetch(since='2026-10-01',
                       answers={'4/count': _Resp({'error': {'code': 400, 'message': 'Invalid query'}})})
 
+    def test_arcgis_operation_failure_retries_but_never_ships_an_error(self):
+        failure = _Resp({'error': {'code': 400, 'message': 'Unable to complete operation.',
+                                   'extendedCode': -2147467261}})
+        records, calls = run_fetch(since='2026-10-01', answers={'4/count': [failure]})
+        self.assertEqual(len(records), 7)
+        self.assertEqual(sum(bool(p.get('returnCountOnly')) for _, p in calls), 2)
+        with mock.patch.object(dp.requests, 'get', return_value=failure) as get, \
+                mock.patch.object(dp.time, 'sleep'):
+            with self.assertRaisesRegex(RuntimeError, 'ArcGIS error.*after 3 attempt'):
+                dp.fetch_mckinney(since_date='2026-10-01')
+            self.assertEqual(get.call_count, dp.DFW_HOLE_RETRIES)
+        invalid = _Resp({'error': {'code': 400, 'message': 'Invalid query'}})
+        with mock.patch.object(dp.requests, 'get', return_value=invalid) as get:
+            with self.assertRaisesRegex(RuntimeError, 'Invalid query'):
+                dp.fetch_mckinney(since_date='2026-10-01')
+            self.assertEqual(get.call_count, 1)
+
     def test_html_answer_is_a_block_not_data(self):
         with self.assertRaises(RuntimeError):
             run_fetch(since='2026-10-01',
