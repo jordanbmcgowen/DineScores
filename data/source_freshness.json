@@ -202,13 +202,13 @@
   },
   "MHD metros (midweek)": {
    "last_run": {
-    "at": "2026-11-11",
-    "detail": "MHD portal blocked this run: not fetched \u2014 VDH Central Shenandoah (portal blocked), VDH Crater (portal blocked), VDH Cumberland Plateau (portal blocked), VDH Eastern Shore (portal blocked), VDH Lenowisco (portal blocked), VDH Lord Fairfax (portal blocked), VDH Mount Rogers (portal blocked), VDH New ",
-    "latest": "2026-11-04",
-    "records": 473,
-    "status": "blocked"
+    "at": "2026-11-18",
+    "detail": "",
+    "latest": "2026-11-18",
+    "records": 1407,
+    "status": "ok"
    },
-   "latest": "2026-11-04"
+   "latest": "2026-11-18"
   },
   "Maricopa County": {
    "last_run": {
@@ -432,7 +432,7 @@
   }
  },
  "jev": {
-  "cache_file": "jev_20261115T184520Z_weekly.jsonl.gz",
+  "cache_file": "jev_20261118T190349Z_weekly.jsonl.gz",
   "decide": [
    "hazard",
    "summary"
@@ -443,45 +443,45 @@
     "regex": 0
    },
    "hazard": {
-    "jev": 46380,
-    "regex": 6247
+    "jev": 2928,
+    "regex": 318
    },
    "summary": {
-    "jev": 43668,
-    "regex": 8959
+    "jev": 2998,
+    "regex": 248
    }
   },
-  "distinct_texts": 30209,
-  "elapsed_s": 121.2,
+  "distinct_texts": 3210,
+  "elapsed_s": 28.9,
   "f_vs_regex": {
-   "agree": 14239,
-   "jev_only": 24,
-   "regex_only": 126
+   "agree": 791,
+   "jev_only": 6,
+   "regex_only": 4
   },
-  "lines": 52627,
-  "lines_with_judgment": 52627,
+  "lines": 3246,
+  "lines_with_judgment": 3246,
   "mode": "decide",
   "model": "jev-1.13.0",
   "question_set": "qs3",
   "reader": {
    "fallback_reasons": {},
-   "hazard_changed_on_verify": 18,
-   "hazard_verified_alone": 485,
-   "input_tokens": 37622042,
-   "latency_max": 0.538841724395752,
-   "latency_total": 246.73582792282104,
-   "lines_asked": 10730,
-   "lines_cached": 19479,
+   "hazard_changed_on_verify": 3,
+   "hazard_verified_alone": 113,
+   "input_tokens": 10966367,
+   "latency_max": 0.39946532249450684,
+   "latency_total": 75.03001403808594,
+   "lines_asked": 3138,
+   "lines_cached": 72,
    "lines_fallback": 0,
-   "lines_judged": 10730,
+   "lines_judged": 3138,
    "mode": "decide",
-   "output_tokens": 6352836,
+   "output_tokens": 1841213,
    "request_failures": 0,
-   "requests": 1380
+   "requests": 375
   },
   "record_errors": 0,
-  "records": 24829,
-  "records_with_violations": 14389,
+  "records": 1407,
+  "records_with_violations": 801,
   "rescored_records": 0,
   "retiered_lines": 0,
   "status": "ok"
@@ -525,7 +525,7 @@
   },
   "Cuyahoga County Health Dept": {
    "group": "MHD metros (midweek)",
-   "latest": "2026-11-04"
+   "latest": "2026-11-18"
   },
   "DC Health": {
    "group": "dc",
@@ -1435,135 +1435,135 @@
   },
   "VDH Alexandria Health Dept": {
    "group": "MHD metros (midweek)",
-   "latest": "2026-11-04"
+   "latest": "2026-11-10"
   },
   "VDH Alleghany-Roanoke Health Dept": {
    "group": "MHD metros (midweek)",
-   "latest": "2026-11-04"
+   "latest": "2026-11-10"
   },
   "VDH Arlington Health Dept": {
    "group": "MHD metros (midweek)",
-   "latest": "2026-11-04"
+   "latest": "2026-11-10"
   },
   "VDH Blue Ridge Health Dept": {
    "group": "MHD metros (midweek)",
-   "latest": "2026-11-04"
+   "latest": "2026-11-10"
   },
   "VDH Central Shenandoah Health Dept": {
    "group": "MHD metros (midweek)",
-   "latest": "2026-10-28"
+   "latest": "2026-11-10"
   },
   "VDH Central Virginia Health Dept": {
    "group": "MHD metros (midweek)",
-   "latest": "2026-10-28"
+   "latest": "2026-11-10"
   },
   "VDH Chesapeake Health Dept": {
    "group": "MHD metros (midweek)",
-   "latest": "2026-11-04"
+   "latest": "2026-11-10"
   },
   "VDH Chesterfield Health Dept": {
    "group": "MHD metros (midweek)",
-   "latest": "2026-11-04"
+   "latest": "2026-11-10"
   },
   "VDH Chickahominy Health Dept": {
    "group": "MHD metros (midweek)",
-   "latest": "2026-11-04"
+   "latest": "2026-11-10"
   },
   "VDH Crater Health Dept": {
    "group": "MHD metros (midweek)",
-   "latest": "2026-10-28"
+   "latest": "2026-11-10"
   },
   "VDH Cumberland Plateau Health Dept": {
    "group": "MHD metros (midweek)",
-   "latest": "2026-10-28"
+   "latest": "2026-11-10"
   },
   "VDH Eastern Shore Health Dept": {
    "group": "MHD metros (midweek)",
-   "latest": "2026-10-28"
+   "latest": "2026-11-10"
   },
   "VDH Hampton Health Dept": {
    "group": "MHD metros (midweek)",
-   "latest": "2026-11-04"
+   "latest": "2026-11-10"
   },
   "VDH Henrico Health Dept": {
    "group": "MHD metros (midweek)",
-   "latest": "2026-11-04"
+   "latest": "2026-11-11"
   },
   "VDH Lenowisco Health Dept": {
    "group": "MHD metros (midweek)",
-   "latest": "2026-10-28"
+   "latest": "2026-11-10"
   },
   "VDH Lord Fairfax Health Dept": {
    "group": "MHD metros (midweek)",
-   "latest": "2026-10-28"
+   "latest": "2026-11-10"
   },
   "VDH Loudoun Health Dept": {
    "group": "MHD metros (midweek)",
-   "latest": "2026-11-04"
+   "latest": "2026-11-10"
   },
   "VDH Mount Rogers Health Dept": {
    "group": "MHD metros (midweek)",
-   "latest": "2026-10-28"
+   "latest": "2026-11-10"
   },
   "VDH New River Health Dept": {
    "group": "MHD metros (midweek)",
-   "latest": "2026-10-28"
+   "latest": "2026-11-06"
   },
   "VDH Norfolk Health Dept": {
    "group": "MHD metros (midweek)",
-   "latest": "2026-11-04"
+   "latest": "2026-11-10"
   },
   "VDH Peninsula Health Dept": {
    "group": "MHD metros (midweek)",
-   "latest": "2026-11-04"
+   "latest": "2026-11-10"
   },
   "VDH Piedmont Health Dept": {
    "group": "MHD metros (midweek)",
-   "latest": "2026-10-30"
+   "latest": "2026-11-09"
   },
   "VDH Pittsylvania-Danville Health Dept": {
    "group": "MHD metros (midweek)",
-   "latest": "2026-10-28"
+   "latest": "2026-11-11"
   },
   "VDH Portsmouth Health Dept": {
    "group": "MHD metros (midweek)",
-   "latest": "2026-11-04"
+   "latest": "2026-11-10"
   },
   "VDH Prince William Health Dept": {
    "group": "MHD metros (midweek)",
-   "latest": "2026-11-04"
+   "latest": "2026-11-10"
   },
   "VDH Rappahannock Health Dept": {
    "group": "MHD metros (midweek)",
-   "latest": "2026-10-28"
+   "latest": "2026-11-10"
   },
   "VDH Rappahannock-Rapidan Health Dept": {
    "group": "MHD metros (midweek)",
-   "latest": "2026-10-28"
+   "latest": "2026-11-09"
   },
   "VDH Richmond City Health Dept": {
    "group": "MHD metros (midweek)",
-   "latest": "2026-11-04"
+   "latest": "2026-11-10"
   },
   "VDH Southside Health Dept": {
    "group": "MHD metros (midweek)",
-   "latest": "2026-10-28"
+   "latest": "2026-11-06"
   },
   "VDH Three Rivers Health Dept": {
    "group": "MHD metros (midweek)",
-   "latest": "2026-10-28"
+   "latest": "2026-11-11"
   },
   "VDH Virginia Beach Health Dept": {
    "group": "MHD metros (midweek)",
-   "latest": "2026-11-04"
+   "latest": "2026-11-10"
   },
   "VDH West Piedmont Health Dept": {
    "group": "MHD metros (midweek)",
-   "latest": "2026-10-28"
+   "latest": "2026-11-10"
   },
   "VDH Western Tidewater Health Dept": {
    "group": "MHD metros (midweek)",
-   "latest": "2026-11-04"
+   "latest": "2026-11-10"
   },
   "Wake County Open Data": {
    "group": "Wake County",
@@ -1586,5 +1586,5 @@
    "latest": "2026-11-13"
   }
  },
- "updated": "2026-11-15"
+ "updated": "2026-11-18"
 }
