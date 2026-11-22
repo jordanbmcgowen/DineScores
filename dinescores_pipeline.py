@@ -460,10 +460,14 @@ MHD_METRO_JURISDICTIONS = {
     # Great Falls, Butte, Havre, Libby, Livingston and the small counties
     # are. 'Pre-opening' is left out with it. WHOLESALE FOOD (manufacturers),
     # PUBLIC ACCOMMODATIONS, campgrounds, pools and body art share the feed.
+    # A 'Routine' row can be a logged paper report too (no observations, an
+    # empty form behind it), which is what 'clean_proof' is for: see
+    # _mhd_prove_clean. Itemised reports only became common in August 2026.
     'montana':              {'display_name': 'Montana', 'default_city': 'Billings',
                              'state': 'MT', 'score_scale': 'none', 'metro': '',
                              'programs': ['RETAIL FOOD'],
                              'purpose_allow': ['Routine', 'Follow-up'],
+                             'clean_proof': 'printable-grid',
                              'exclude': {'permitType': MHD_MOBILE_PERMIT_RE},
                              'group': MHD_MIDWEEK_GROUP},
     # City of Amarillo Environmental Health, TX (Potter and Randall counties:
@@ -6973,6 +6977,122 @@ def fetch_dfw(jurisdictions=None, since_date=None, limit_per_jurisdiction=None,
     return all_results
 
 
+# ── Proof that a zero-observation inspection is a clean one ─────────────────
+# Montana's portal also carries inspections that were written on paper and
+# only logged: a row with a real purpose ('Routine'), a detail page with an
+# empty observations block — and nothing itemised behind it. Read like every
+# other MHD page it is a clean inspection, risk 100. Measured 2026-11-22: 21
+# of the first 25 Routine rows of 2026 had no observations, and two of the
+# three whose original report could be read (Billings, February and June)
+# were such logs. The portal's printable report tells the two apart: an
+# itemised inspection prints its compliance grid, one IN / OUT / N/A / N/O
+# mark per form item (21 marks on a real clean report and on a cited one),
+# a logged paper report prints none. So a config with
+# 'clean_proof': 'printable-grid' ships a zero-observation inspection only
+# once its printable shows the grid; one without a grid is not an inspection
+# report and is dropped for good, one whose printable cannot be read is
+# dropped and held like an unread detail page. Inspections with observations
+# need no proof. The PDF text comes from the stdlib reader written for
+# Orange County's printables (_oc_pdf_text_rows).
+MHD_GRID_MARK_RE = re.compile(r'^(?:IN|OUT|N/A|N/O)$')
+MHD_GRID_MIN_MARKS = 10      # a real report shows ~21; a logged paper report 0
+MHD_GRID_MIN_TEXT_RUNS = 5   # even an empty form prints its header fields; fewer = not read
+MHD_PRINTABLE_DELAY = float(os.environ.get('MHD_PRINTABLE_DELAY', '0.5'))
+
+
+def _mhd_printable_grid_marks(pdf_bytes):
+    """Compliance marks (standalone IN / OUT / N/A / N/O runs) on a printable
+    inspection report, or None when the bytes are not a PDF the reader can
+    read (the portal answers a missing printable with a short text body)."""
+    try:
+        pages = _oc_pdf_text_rows(pdf_bytes)
+    except Exception as e:
+        log.debug(f"  printable not readable: {e}")
+        return None
+    runs = [str(run[3]).strip() for rows in pages for row in rows for run in row]
+    if len(runs) < MHD_GRID_MIN_TEXT_RUNS:
+        # A PDF the reader gets no text from (a new generator, an image-only
+        # scan) was not read: it must not pass for a report without a grid.
+        return None
+    return sum(1 for text in runs if MHD_GRID_MARK_RE.match(text))
+
+
+def _mhd_fetch_printable(session, path, inspection_id, retry_count=0):
+    """Bytes of an inspection's printable PDF under portal `path`, or None
+    when it was not retrieved (a block, a timeout, a non-PDF body). The pKey
+    is the inspection id twice, as the detail page links it."""
+    if _MHD_PORTAL_BLOCKED:
+        return None
+    try:
+        r = session.get(f'{MHD_BASE_URL}{path}/print/',
+                        params={'task': 'getPrintable', 'path': path,
+                                'pKey': f'{inspection_id},{inspection_id}'},
+                        timeout=60)
+    except requests.RequestException as e:
+        if retry_count < 1 and not _past_deadline():
+            time.sleep(2)
+            return _mhd_fetch_printable(session, path, inspection_id, retry_count + 1)
+        log.debug(f"  printable {inspection_id} under {path} failed: {e}")
+        return None
+    if r.status_code in (403, 429) and retry_count < 1 and not _past_deadline():
+        time.sleep(MHD_RETRY_DELAY)
+        return _mhd_fetch_printable(session, path, inspection_id, retry_count + 1)
+    if r.status_code != 200 or not r.content.lstrip()[:5].startswith(b'%PDF'):
+        log.debug(f"  printable {inspection_id} under {path}: HTTP {r.status_code}, "
+                  f"{(r.content or b'')[:60]!r}")
+        return None
+    return r.content
+
+
+def _mhd_prove_clean(path, records, label):
+    """Apply the 'printable-grid' proof (see the note above) to `records`,
+    which have been through the detail pass: every zero-observation record
+    must show its compliance grid. Returns the records that ship — the ones
+    with observations, and the clean ones whose grid was read. A record
+    without a grid is dropped for good; one whose printable could not be
+    read is dropped and held so the next run reads it again."""
+    candidates = [r for r in records if not r.get('violations') and r.get('source_id')]
+    if not candidates:
+        return records
+    log.info(f"{label}: {len(candidates)} inspections have no observations — reading their "
+             f"printable reports for the compliance grid")
+    session = _mhd_session()
+    drop, unread, no_grid, proven = set(), [], 0, 0
+    for i, rec in enumerate(sorted(candidates, key=lambda r: str(r.get('inspection_date') or ''))):
+        if _past_deadline() or _MHD_PORTAL_BLOCKED:
+            unread.append(rec)
+            drop.add(id(rec))
+            continue
+        marks = _mhd_printable_grid_marks(
+            _mhd_fetch_printable(session, path, rec['source_id']) or b'')
+        if marks is None:
+            unread.append(rec)
+            drop.add(id(rec))
+        elif marks >= MHD_GRID_MIN_MARKS:
+            proven += 1
+        else:
+            no_grid += 1
+            drop.add(id(rec))
+        time.sleep(MHD_PRINTABLE_DELAY)
+    log.info(f"{label}: {proven} clean inspections proven by their grid, {no_grid} dropped as "
+             f"logged reports with no grid, {len(unread)} printables unread")
+    if unread:
+        cut = _past_deadline() or _MHD_PORTAL_BLOCKED
+        for rec in unread:
+            _hold_freshness(rec.get('source'), str(rec['inspection_date'])[:10], not cut,
+                            key=rec.get('source_id'))
+        if _past_deadline():
+            _MHD_DEADLINE_CUT.add(label)
+        elif not cut and _mhd_detail_mass_failure(len(unread), len(candidates)):
+            # Most printables failing is the endpoint, not the records: report
+            # the jurisdiction instead of quietly giving its clean
+            # inspections up three runs from now.
+            _MHD_DETAIL_FAILED[label] = (len(unread), len(candidates))
+            log.error(f"{label}: {len(unread)}/{len(candidates)} printable reports unreadable "
+                      f"— reporting the jurisdiction as failed")
+    return [r for r in records if id(r) not in drop]
+
+
 def _mhd_group_lag_note(group, jurisdictions, not_fetched=()):
     """Leave the fetch group's source-lag note (_note_source_lag) once, after
     a complete read: the newest inspection date any of its jurisdictions'
@@ -7258,6 +7378,8 @@ def _fetch_mhd_jurisdiction_api(session, slug, config, since_date=None, limit=No
                           f"pages unreadable — reporting the jurisdiction as failed")
             drop = {id(r) for r in unreadable}
             all_records = [r for r in all_records if id(r) not in drop]
+        if config.get('clean_proof') == 'printable-grid':
+            all_records = _mhd_prove_clean(path, all_records, display_name)
 
     if stopped_early:
         log.warning(f"{display_name}: scrape stopped early — run again to get remaining data")

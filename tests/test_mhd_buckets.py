@@ -1435,10 +1435,22 @@ class Nov22FilterTests(unittest.TestCase):
                          ('net', True, 'Smith County TX', {}))
         ama = self._detail_call('aaphd', _fixture_rows('search_aaphd.json')[0])
         self.assertEqual((ama['trust'], ama['kw']), (True, {}))
-        mt = self._detail_call('montana', _fixture_rows('search_montana.json')[0])
+        with mock.patch.object(dp, '_mhd_prove_clean', side_effect=lambda p, recs, label: recs) as proof:
+            mt = self._detail_call('montana', _fixture_rows('search_montana.json')[0])
         self.assertEqual((mt['trust'], mt['kw']), (False, {}))
+        self.assertEqual(proof.call_count, 1, 'Montana proves its zero-observation inspections')
+        self.assertEqual(proof.call_args.args[0], 'montana')
         pueblo = self._detail_call('pueblo', _fixture_rows('search_pueblo.json')[0])
         self.assertEqual(pueblo['trust'], False, 'the Colorado risk index is recomputed')
+
+    def test_only_montana_asks_for_the_clean_proof(self):
+        with_proof = [k for k, c in dp.MHD_METRO_JURISDICTIONS.items() if c.get('clean_proof')]
+        self.assertEqual(with_proof, ['montana'])
+        self.assertEqual(dp.MHD_METRO_JURISDICTIONS['montana']['clean_proof'], 'printable-grid')
+        with mock.patch.object(dp, '_mhd_prove_clean') as proof:
+            self._detail_call('aaphd', _fixture_rows('search_aaphd.json')[0])
+            self._detail_call('pueblo', _fixture_rows('search_pueblo.json')[0])
+        self.assertEqual(proof.call_count, 0)
 
     def test_observation_exclude_reaches_the_detail_phase_only_where_set(self):
         seen = self._detail_call('cheyenne-laramie', _fixture_rows('search_cheyenne_laramie.json')[0])
@@ -1765,3 +1777,136 @@ class Nov22ParseTests(unittest.TestCase):
             '38: Back door propped open. ' + rule))
         self.assertTrue(dp.has_active_pest_or_sewage(
             '38: Rodent droppings on the floor of the dry storage room. ' + rule))
+
+
+def _synthetic_pdf(texts):
+    """A minimal one-page PDF whose content stream shows each text as its own
+    run (BT .. Tm (text) Tj ET), the shape the stdlib reader reads."""
+    ops = b''.join(b'BT /F1 9 Tf 1 0 0 1 %d %d Tm (%s) Tj ET\n'
+                   % (40 + 60 * (i % 6), 700 - 14 * (i // 6), t.encode('latin-1'))
+                   for i, t in enumerate(texts))
+    objs = [b'<< /Type /Catalog /Pages 2 0 R >>',
+            b'<< /Type /Pages /Kids [3 0 R] /Count 1 >>',
+            b'<< /Type /Page /Parent 2 0 R /Resources << /Font << /F1 5 0 R >> >> /Contents 4 0 R >>',
+            b'<< /Length %d >>\nstream\n' % len(ops) + ops + b'\nendstream',
+            b'<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>']
+    return b'%PDF-1.4\n' + b''.join(b'%d 0 obj\n%s\nendobj\n' % (i + 1, o)
+                                     for i, o in enumerate(objs)) + b'%%EOF\n'
+
+
+HEADER_RUNS = ['Facility Name', 'MACS MARKET', 'Loc Add', '710 MINERAL AVE', 'City', 'LIBBY',
+               'County', 'Lincoln County', 'Lic Number', '12345']
+GRID_RUNS = ['IN'] * 14 + ['N/A'] * 5 + ['N/O'] * 2
+
+
+class CleanProofTests(unittest.TestCase):
+    """Montana: a zero-observation inspection ships only when its printable
+    report shows the compliance grid (_mhd_prove_clean)."""
+
+    def setUp(self):
+        dp._FRESHNESS_HOLDS.clear()
+        dp._MHD_DETAIL_FAILED.clear()
+        dp._MHD_DEADLINE_CUT.clear()
+        self.addCleanup(dp._FRESHNESS_HOLDS.clear)
+        self.addCleanup(dp._MHD_DETAIL_FAILED.clear)
+        self.addCleanup(dp._MHD_DEADLINE_CUT.clear)
+
+    def test_grid_marks_on_an_itemised_report(self):
+        self.assertEqual(dp._mhd_printable_grid_marks(_synthetic_pdf(HEADER_RUNS + GRID_RUNS)), 21)
+
+    def test_a_logged_paper_report_has_no_grid(self):
+        self.assertEqual(dp._mhd_printable_grid_marks(_synthetic_pdf(HEADER_RUNS)), 0)
+        # words that merely contain a mark are not marks
+        self.assertEqual(dp._mhd_printable_grid_marks(
+            _synthetic_pdf(HEADER_RUNS + ['INSPECTION', 'OUTSIDE', 'Time in', 'ROUTINE'])), 0)
+
+    def test_unreadable_bodies_are_not_a_missing_grid(self):
+        marks = dp._mhd_printable_grid_marks
+        self.assertIsNone(marks(b''))
+        self.assertIsNone(marks(b'error retrieving printable - error code g243qrfg34'))
+        self.assertIsNone(marks(b'<html><body>My Health Department</body></html>'))
+        self.assertIsNone(marks(_synthetic_pdf([])), 'a PDF with no text was not read')
+        self.assertIsNone(marks(_synthetic_pdf(['Page', '1'])), 'too little text to be the form')
+
+    def _rec(self, sid, date='2026-11-10', violations=()):
+        return {'source_id': sid, 'inspection_date': date, 'source': 'Montana Health Dept',
+                'violations': list(violations), 'name': sid}
+
+    def _prove(self, records, pdfs):
+        calls = []
+
+        def fake_fetch(session, path, inspection_id, retry_count=0):
+            calls.append((path, inspection_id))
+            return pdfs.get(inspection_id)
+        with mock.patch.object(dp, '_mhd_fetch_printable', side_effect=fake_fetch), \
+             mock.patch.object(dp, '_mhd_session', return_value=object()), \
+             mock.patch.object(dp.time, 'sleep'):
+            kept = dp._mhd_prove_clean('montana', records, 'Montana')
+        return kept, calls
+
+    def test_only_zero_observation_records_are_checked(self):
+        cited = self._rec('CITED', violations=[['pest_control', 'priority', '38: Mouse poop observed']])
+        clean = self._rec('CLEAN')
+        logged = self._rec('LOGGED')
+        kept, calls = self._prove([cited, clean, logged], {
+            'CLEAN': _synthetic_pdf(HEADER_RUNS + GRID_RUNS), 'LOGGED': _synthetic_pdf(HEADER_RUNS)})
+        self.assertEqual([r['source_id'] for r in kept], ['CITED', 'CLEAN'])
+        self.assertEqual(sorted(calls), [('montana', 'CLEAN'), ('montana', 'LOGGED')])
+        self.assertEqual(dp._FRESHNESS_HOLDS, {}, 'a report without a grid is dropped for good, not held')
+        self.assertEqual(dp._MHD_DETAIL_FAILED, {})
+
+    def test_an_unread_printable_drops_and_holds(self):
+        a, b = self._rec('A', '2026-11-10'), self._rec('B', '2026-11-12')
+        kept, _ = self._prove([a, b], {'A': None, 'B': _synthetic_pdf(HEADER_RUNS + GRID_RUNS)})
+        self.assertEqual([r['source_id'] for r in kept], ['B'])
+        self.assertEqual(dp._FRESHNESS_HOLDS, {'Montana Health Dept': {'2026-11-10|A': (True, False)}})
+        self.assertEqual(dp._MHD_DETAIL_FAILED, {}, 'one of two is not a mass failure')
+
+    def test_the_portals_error_body_is_unread_not_gridless(self):
+        a = self._rec('A')
+        kept, _ = self._prove([a], {'A': b'error retrieving printable - error code g243qrfg34'})
+        self.assertEqual(kept, [])
+        self.assertIn('2026-11-10|A', dp._FRESHNESS_HOLDS['Montana Health Dept'])
+
+    def test_mass_failure_reports_the_jurisdiction(self):
+        records = [self._rec(f'R{i:02d}') for i in range(20)]
+        kept, _ = self._prove(records, {})
+        self.assertEqual(kept, [])
+        self.assertEqual(dp._MHD_DETAIL_FAILED, {'Montana': (20, 20)})
+        self.assertEqual(len(dp._FRESHNESS_HOLDS['Montana Health Dept']), 20)
+
+    def test_the_deadline_holds_without_counting(self):
+        a = self._rec('A')
+        with mock.patch.object(dp, '_past_deadline', return_value=True):
+            kept, calls = self._prove([a], {'A': _synthetic_pdf(HEADER_RUNS + GRID_RUNS)})
+        self.assertEqual((kept, calls), ([], []))
+        self.assertEqual(dp._FRESHNESS_HOLDS, {'Montana Health Dept': {'2026-11-10|A': (False, False)}})
+        self.assertIn('Montana', dp._MHD_DEADLINE_CUT)
+        self.assertEqual(dp._MHD_DETAIL_FAILED, {})
+
+    def test_nothing_to_prove_makes_no_request(self):
+        cited = self._rec('CITED', violations=[['x', 'core', '45: floor']])
+        kept, calls = self._prove([cited], {})
+        self.assertEqual((kept, calls), ([cited], []))
+
+    def test_printable_request_shape(self):
+        class Resp:
+            status_code = 200
+            content = b'%PDF-1.5 body'
+            headers = {}
+
+        class Session:
+            def __init__(self):
+                self.calls = []
+
+            def get(self, url, params=None, timeout=None):
+                self.calls.append((url, params))
+                return Resp()
+        s = Session()
+        self.assertEqual(dp._mhd_fetch_printable(s, 'montana', 'ABC'), b'%PDF-1.5 body')
+        self.assertEqual(s.calls, [('https://inspections.myhealthdepartment.com/montana/print/',
+                                    {'task': 'getPrintable', 'path': 'montana', 'pKey': 'ABC,ABC'})])
+        Resp.content = b'error retrieving printable - error code g243qrfg34'
+        self.assertIsNone(dp._mhd_fetch_printable(s, 'montana', 'ABC'))
+        Resp.status_code, Resp.content = 500, b'%PDF-1.5'
+        self.assertIsNone(dp._mhd_fetch_printable(s, 'montana', 'ABC'))
