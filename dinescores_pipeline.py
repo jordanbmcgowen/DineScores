@@ -1259,6 +1259,11 @@ STATE_BOUNDS = {  # generous per-state boxes for the states we cover
     'VA': (36.50, 39.50, -83.70, -75.20),
     'OH': (38.40, 42.00, -84.85, -80.50),
     'CO': (36.95, 41.05, -109.10, -102.00),
+    # 2026-11-22 expansion states (Montana, Wyoming, North Dakota, Missouri).
+    'MT': (44.35, 49.00, -116.05, -104.04),
+    'WY': (40.99, 45.01, -111.06, -104.05),
+    'ND': (45.93, 49.00, -104.05, -96.55),
+    'MO': (35.99, 40.62, -95.78, -89.10),
 }
 COORD_MARGIN = 0.6  # ° of slack around state boxes (metro suburbs, borders)
 
