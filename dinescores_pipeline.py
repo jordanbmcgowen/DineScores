@@ -266,6 +266,13 @@ def _mhd_tn_bucket(metro, cities):
 # a week statewide, every one a detail page, so the districts run in the
 # midweek group.
 MHD_VA_GROUP = 'MHD metros (midweek)'
+MHD_MIDWEEK_GROUP = MHD_VA_GROUP
+# Row filters the 2026-11-22 entries share (config 'exclude' patterns).
+# A mobile unit's permit address is its commissary or its owner's home, not
+# where it serves (the Hedgerow fetchers drop them by type for the same
+# reason); a pre-opening visit is of a place that is not operating yet.
+MHD_MOBILE_PERMIT_RE = r'(?i)\bmobile\b'
+MHD_PREOPENING_PURPOSE_RE = r'(?i)^\s*(?:pre-?\s?op|opening\b)'
 
 
 def _mhd_va_district(district, default_city, metro=''):
@@ -424,6 +431,191 @@ MHD_METRO_JURISDICTIONS = {
     'va-southside':         _mhd_va_district('Southside', 'South Hill'),
     'va-three-rivers':      _mhd_va_district('Three Rivers', 'Saluda'),
     'va-west-piedmont':     _mhd_va_district('West Piedmont', 'Martinsville'),
+    #
+    # ── 2026-11-22 expansion: Texas, Montana and the states around them.
+    # Each verified live that day: full sorted single-day reads of four
+    # weekdays, a six-week vocabulary read (programs, inspection types,
+    # purposes, permit types, cities) and eight detail pages through
+    # _mhd_parse_detail_html; docs/expansion-2026-11b/mhd.md has the numbers.
+    # They run in the midweek group (the Wednesday run finished in 54 minutes
+    # of its 300 on 2026-11-18; Sunday's took three hours). Three rules these
+    # entries share: mobile units are dropped by permit type (a truck's
+    # licence address is its commissary or its owner's home), pre-opening
+    # visits of a place not yet operating are dropped by purpose, and every
+    # entry lists its food program(s) explicitly.
+    #
+    # Montana DPHHS: one statewide portal, 31-56 rows a day (24-38 of them
+    # RETAIL FOOD), never near the cap. No score of any kind (score 0 or
+    # null by county habit), so risk comes from the scraped observations
+    # ('NN: <observation> Corrective Actions: <Food Code section>: <its
+    # text>'). purpose_allow is what makes the source safe: 'Other' is 40-55%
+    # of the retail-food rows and is never an inspection report — licence
+    # notes ("did not operate this year", "changed ownership") and the
+    # placeholders of the counties that write their inspections in their own
+    # systems (every Missoula, Bozeman, Kalispell, Hamilton, Red Lodge and
+    # Lewistown row seen: no observations on the page, an empty original PDF,
+    # one comment reading "Inspection completed in Paragon"). Shipped, each
+    # would be a clean 100. So Missoula, Gallatin, Flathead, Ravalli, Carbon
+    # and Fergus counties are NOT covered by this entry; Billings, Helena,
+    # Great Falls, Butte, Havre, Libby, Livingston and the small counties
+    # are. 'Pre-opening' is left out with it. WHOLESALE FOOD (manufacturers),
+    # PUBLIC ACCOMMODATIONS, campgrounds, pools and body art share the feed.
+    'montana':              {'display_name': 'Montana', 'default_city': 'Billings',
+                             'state': 'MT', 'score_scale': 'none', 'metro': '',
+                             'programs': ['RETAIL FOOD'],
+                             'purpose_allow': ['Routine', 'Follow-up'],
+                             'exclude': {'permitType': MHD_MOBILE_PERMIT_RE},
+                             'group': MHD_MIDWEEK_GROUP},
+    # City of Amarillo Environmental Health, TX (Potter and Randall counties:
+    # Amarillo, Canyon). GENERAL FOOD INSPECTION carries the official 0-100
+    # score (71-100 over 48 rows; 100 <-> no observations, 71 <-> 19). The
+    # inspection_types allowlist is mandatory: VENDED WATER/ICE (27-30) and
+    # FARMERS MARKET (17) inspections share programName 'Food Hygiene' on
+    # other scales and would grade F; pools (261-316) and day cares (37-40)
+    # are other programs. `purpose` is blank on most rows, so there is no
+    # pre-opening filter. ~60-85 food inspections a week since 2024-03-07.
+    'aaphd':                {'display_name': 'Amarillo', 'default_city': 'Amarillo',
+                             'state': 'TX', 'score_scale': '100', 'metro': '',
+                             'programs': ['Food Hygiene'],
+                             'inspection_types': ['GENERAL FOOD INSPECTION'],
+                             'group': MHD_MIDWEEK_GROUP},
+    # Northeast Texas Public Health District (NET Health): Tyler and the
+    # rest of Smith County (Lindale, Bullard, Flint, Whitehouse, Arp).
+    # `score` is the Texas form's demerit total (0-22 over 24 rows; one
+    # cited item 3, 2 or 1 points: item 19 alone = 3, items 40+41 = 2), so
+    # 'tx-demerit' ships the form score 100 - demerits like McKinney,
+    # Dallas and Plano. The purpose sits in purpose_retail_food (Routine,
+    # Follow-Up, Complaint). ~25-45 food inspections a week. 'Child Care'
+    # is the other program on the slug.
+    'net':                  {'display_name': 'Smith County TX', 'default_city': 'Tyler',
+                             'state': 'TX', 'score_scale': 'tx-demerit', 'metro': '',
+                             'programs': ['Food'], 'group': MHD_MIDWEEK_GROUP},
+    # Orange County, TEXAS (Orange, Vidor, Bridge City; east of Beaumont).
+    # Official 0-100 score, sent as a string ('97'; 61 <-> 21 observations,
+    # 100 <-> none). ~8-12 inspections a week, half of them school kitchens.
+    # The display name must carry 'TX': 'Orange County' is the California
+    # county's fetch group.
+    'orangecotx':           {'display_name': 'Orange County TX', 'default_city': 'Orange',
+                             'state': 'TX', 'score_scale': '100', 'metro': '',
+                             'programs': ['Food'],
+                             'exclude': {'purpose': MHD_PREOPENING_PURPOSE_RE,
+                                         'permitType': MHD_MOBILE_PERMIT_RE},
+                             'group': MHD_MIDWEEK_GROUP},
+    # Wyoming. Cheyenne-Laramie County: no score (0 on every row); the
+    # 'Food' program only ('School' is the school inspection, pools and
+    # child care the rest). Every report ends in an item '999' line, the
+    # inspector's general comments ("Proper hot holding ... Facility is
+    # clean and organized") — not a violation, hence observation_exclude:
+    # it would cost every Cheyenne restaurant a point and print praise as a
+    # finding. ~35-50 food inspections a week.
+    'cheyenne-laramie':     {'display_name': 'Cheyenne-Laramie County', 'default_city': 'Cheyenne',
+                             'state': 'WY', 'score_scale': 'none', 'metro': '',
+                             'programs': ['Food'], 'observation_exclude': r'^999:',
+                             'exclude': {'purpose': MHD_PREOPENING_PURPOSE_RE,
+                                         'permitType': MHD_MOBILE_PERMIT_RE},
+                             'group': MHD_MIDWEEK_GROUP},
+    # Casper-Natrona County: no score (null, sometimes 0), 'Food' only
+    # (hotels, child care, body art and campgrounds share the slug). ~12 a
+    # week.
+    'casper-natrona':       {'display_name': 'Casper-Natrona County', 'default_city': 'Casper',
+                             'state': 'WY', 'score_scale': 'none', 'metro': '',
+                             'programs': ['Food'],
+                             'exclude': {'purpose': MHD_PREOPENING_PURPOSE_RE,
+                                         'permitType': MHD_MOBILE_PERMIT_RE},
+                             'group': MHD_MIDWEEK_GROUP},
+    # Teton County (Jackson, Wilson, Teton Village): no score, 'Food' only,
+    # ~8-10 a week; `state` is spelled 'Wyoming' on half the rows (the
+    # parser falls back to the default).
+    'tetonwy':              {'display_name': 'Teton County WY', 'default_city': 'Jackson',
+                             'state': 'WY', 'score_scale': 'none', 'metro': '',
+                             'programs': ['Food'],
+                             'exclude': {'purpose': MHD_PREOPENING_PURPOSE_RE,
+                                         'permitType': MHD_MOBILE_PERMIT_RE},
+                             'group': MHD_MIDWEEK_GROUP},
+    # First District Health Unit, ND (Minot and seven north-central
+    # counties). inspectionType 'FOOD ESTABLISHMENT' carries the official
+    # 0-100 score (96-100 over 14 rows; 96 <-> two observations) under two
+    # programs — restaurants and the kitchens of schools, child care and
+    # lodging — so the filter is the inspection type, not the program:
+    # 'SCHOOL INSPECTION' scores 0 on another form, 'FOOD SAMPLER' and 'FOOD
+    # TEMP/MOBILE' are fair vendors with home addresses in Fargo, Minnesota
+    # and Arizona (permit types SAMPLING / TEMPORARY / MOBILE, excluded too).
+    'firstdistrict':        {'display_name': 'First District ND', 'default_city': 'Minot',
+                             'state': 'ND', 'score_scale': '100', 'metro': '',
+                             'programs': ['FOOD ESTABLISHMENT', 'CHILDCARE / SCHOOL', 'LODGING'],
+                             'inspection_types': ['FOOD ESTABLISHMENT'],
+                             'exclude': {'purpose': MHD_PREOPENING_PURPOSE_RE,
+                                         'permitType': r'(?i)\bmobile\b|\btemporary\b|\bsampling\b'},
+                             'group': MHD_MIDWEEK_GROUP},
+    # City of St. Louis, MO (the city only; St. Louis County is another
+    # department). Official 0-100 score with the city's own letter in
+    # scoreDisplay (87 is the city's A; DineScores grades the number on its
+    # own cutoffs like every official score). ~60-90 inspections a week.
+    # The city is spelled 'SAINT LOUIS', 'St Louis' and 'St. Louis' on the
+    # rows, hence city_map; trucks and carts are dropped with the mobile
+    # units; 'Opening' is the pre-opening visit.
+    'mo-stlouis':           {'display_name': 'St. Louis', 'default_city': 'St. Louis',
+                             'state': 'MO', 'score_scale': '100', 'metro': '',
+                             'programs': ['Food'],
+                             'city_map': {'Saint Louis': 'St. Louis', 'St Louis': 'St. Louis',
+                                          'St. Louis': 'St. Louis'},
+                             'exclude': {'purpose': MHD_PREOPENING_PURPOSE_RE,
+                                         'permitType': r'(?i)\bmobile\b|\btruck\b|\bcart\b'},
+                             'group': MHD_MIDWEEK_GROUP},
+    # Jackson County Environmental Health, MO: the Kansas City suburbs that
+    # are not Kansas City or Independence (Lee's Summit, Blue Springs,
+    # Raytown, Grandview, Grain Valley, Oak Grove). No score (0 on every
+    # row), observations 'Item NN: MFC <section> <text>'. ~80-110 food
+    # inspections a week. 'Lodging' shares the slug; the city arrives as
+    # 'Lees Summit' and "Lee's Summit" (plus a 'Blue Spring' and a 'KCMO').
+    'mo-jackson':           {'display_name': 'Jackson County MO', 'default_city': "Lee's Summit",
+                             'state': 'MO', 'score_scale': 'none', 'metro': '',
+                             'programs': ['Food Establishment'],
+                             'city_map': {'Lees Summit': "Lee's Summit", "Lee's Summit": "Lee's Summit",
+                                          'Blue Spring': 'Blue Springs', 'KCMO': 'Kansas City'},
+                             'exclude': {'purpose': MHD_PREOPENING_PURPOSE_RE,
+                                         'permitType': MHD_MOBILE_PERMIT_RE},
+                             'group': MHD_MIDWEEK_GROUP},
+    # Colorado. CDPHE inspects for the counties without a retail-food
+    # program of their own — the mountain and plains towns: Vail, Aspen,
+    # Breckenridge, Steamboat Springs, Durango, Glenwood Springs, Gunnison,
+    # Montrose, Alamosa, Trinidad, Fort Morgan, Sterling, Craig. Same
+    # risk-index demerit total as Arapahoe and Douglas (0-117 seen; Pass
+    # 0-49, Re-Inspection Required 50-109, Closed 110+, the verdict in
+    # scoreDisplay), so the risk is recomputed from the detail pages. ~110-140
+    # inspections a week. The display name is NOT 'Colorado': the label must
+    # not read as the whole state (Denver, Boulder and Jefferson County are
+    # not on any portal DineScores reads).
+    'colorado':             {'display_name': 'Colorado CDPHE', 'default_city': 'Glenwood Springs',
+                             'state': 'CO', 'score_scale': 'demerit', 'metro': '',
+                             'programs': ['Retail Food'],
+                             'city_map': {'Canon City': 'Cañon City'},
+                             'exclude': {'purpose': MHD_PREOPENING_PURPOSE_RE,
+                                         'permitType': MHD_MOBILE_PERMIT_RE},
+                             'group': MHD_MIDWEEK_GROUP},
+    # Pueblo Department of Public Health and Environment: the same risk
+    # index (0-52 seen), programName 'Food' (child care, pools, body art
+    # and waste-tire inspections share the slug). ~40-50 a week.
+    'pueblo':               {'display_name': 'Pueblo County', 'default_city': 'Pueblo',
+                             'state': 'CO', 'score_scale': 'demerit', 'metro': '',
+                             'programs': ['Food'],
+                             'exclude': {'permitType': MHD_MOBILE_PERMIT_RE},
+                             'group': MHD_MIDWEEK_GROUP},
+    # Mesa County Public Health (Grand Junction, Clifton, Fruita, Palisade):
+    # the same risk index (0-74 seen). ~20 a week.
+    'mesacountyco':         {'display_name': 'Mesa County', 'default_city': 'Grand Junction',
+                             'state': 'CO', 'score_scale': 'demerit', 'metro': '',
+                             'programs': ['Retail Food'],
+                             'exclude': {'permitType': MHD_MOBILE_PERMIT_RE},
+                             'group': MHD_MIDWEEK_GROUP},
+    # City and County of Broomfield: the same risk index, a handful of
+    # inspections a week (inspectionType is the purpose here: 'Routine',
+    # 'Re-Inspection').
+    'broomfield':           {'display_name': 'Broomfield', 'default_city': 'Broomfield',
+                             'state': 'CO', 'score_scale': 'demerit', 'metro': '',
+                             'programs': ['Retail Food'],
+                             'exclude': {'permitType': MHD_MOBILE_PERMIT_RE},
+                             'group': MHD_MIDWEEK_GROUP},
 }
 
 MHD_DEFAULT_GROUP = 'MHD metros'   # fetch group of an entry without 'group'
@@ -457,6 +649,20 @@ MHD_METRO_SLUG_GROUPS = {
     'nova': ['va-arlington', 'va-alexandria', 'va-loudoun', 'va-prince-william'],
     # convenience: every VDH district
     'virginia': [k for k in MHD_METRO_JURISDICTIONS if k.startswith('va-')],
+    # 2026-11-22 expansion ('montana', 'pueblo' and 'broomfield' are their
+    # own table keys and need no alias)
+    'amarillo': ['aaphd'],
+    'tyler': ['net'],
+    'orangecountytx': ['orangecotx'],
+    'cheyenne': ['cheyenne-laramie'],
+    'casper': ['casper-natrona'],
+    'jacksonhole': ['tetonwy'],
+    'wyoming': ['cheyenne-laramie', 'casper-natrona', 'tetonwy'],
+    'minot': ['firstdistrict'],
+    'stlouis': ['mo-stlouis'],
+    'jacksoncountymo': ['mo-jackson'],
+    'coloradostate': ['colorado'],
+    'grandjunction': ['mesacountyco'],
 }
 
 CHROME_UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36'
@@ -6080,16 +6286,41 @@ def _mhd_norm_city(value):
     return ' '.join(str(value or '').lower().replace('-', ' ').replace('.', '').split())
 
 
-def _mhd_row_rejection(rec, programs=(), city_allow=(), exclude=()):
+def _mhd_row_purpose(rec):
+    """A raw search row's inspection purpose. Most portals carry it in
+    `purpose`; some split it by program and leave `purpose` empty (NET
+    Health: purpose_retail_food, purpose_childcare, purposepoolspa, ...;
+    Amarillo: purpose1, purpose2) — then the first non-empty purpose* field
+    in name order."""
+    value = str(rec.get('purpose') or '').strip()
+    if value:
+        return value
+    for key in sorted(k for k in rec if str(k).lower().startswith('purpose') and k != 'purpose'):
+        value = str(rec.get(key) or '').strip()
+        if value:
+            return value
+    return ''
+
+
+def _mhd_row_rejection(rec, programs=(), city_allow=(), exclude=(), inspection_types=(),
+                       purpose_allow=()):
     """Why a raw search row falls outside a jurisdiction config ('' = keep):
     'program' when the config lists programs and the row's programName is not
-    one of them, 'city' when it lists city_allow and the row's city is not
-    one of them, 'excluded' when one of the config's exclude patterns
-    ((row field, compiled regex) pairs from _mhd_exclude_patterns) matches
-    the row's field. The sets arrive pre-normalised (lower-case programs,
+    one of them, 'type' when it lists inspection_types and the row's
+    inspectionType is not one of them, 'purpose' when it lists purpose_allow
+    and the row's purpose (_mhd_row_purpose) is not one of them, 'city' when
+    it lists city_allow and the row's city is not one of them, 'excluded'
+    when one of the config's exclude patterns ((row field, compiled regex)
+    pairs from _mhd_exclude_patterns) matches the row's field. The sets
+    arrive pre-normalised (lower-case programs, types and purposes,
     _mhd_norm_city cities); an empty set means "no filter"."""
     if programs and str(rec.get('programName') or '').strip().lower() not in programs:
         return 'program'
+    if (inspection_types
+            and str(rec.get('inspectionType') or '').strip().lower() not in inspection_types):
+        return 'type'
+    if purpose_allow and _mhd_row_purpose(rec).lower() not in purpose_allow:
+        return 'purpose'
     if city_allow and _mhd_norm_city(rec.get('city')) not in city_allow:
         return 'city'
     for field, pattern in exclude:
@@ -6127,6 +6358,14 @@ def _mhd_exclude_patterns(config):
 # in _mhd_search_page.
 MHD_SORT_INSPECTION_ID = {'field': 'inspectionID', 'direction': 'asc'}
 MHD_DEFAULT_SORT = MHD_SORT_INSPECTION_ID
+# Score scales whose official number is kept as the risk score through the
+# detail pass: '100' (a real 0-100 score) and 'tx-demerit' (the Texas form's
+# demerit total, shipped as 100 - demerits). Every other scale ('demerit',
+# 'none') has its risk recomputed from the scraped observations.
+MHD_TRUSTED_SCORE_SCALES = frozenset({'100', 'tx-demerit'})
+# The Colorado risk-index verdicts, where a portal sends them in scoreDisplay
+# instead of `result` (see _parse_mhd_record).
+MHD_RESULT_DISPLAY_RE = re.compile(r'^(?:pass|closed|re-?inspection required)$', re.I)
 # A sorted query whose pages do not fit together is read again once (a row
 # posted between two page requests shifts the sequence by one) before the
 # window is failed.
@@ -6523,7 +6762,8 @@ def _mhd_fetch_inspection_detail(session, path, inspection_id, retry_count=0):
         return None
 
 
-def _mhd_fetch_details_bulk(path, records, trust_official_score=True, label=None):
+def _mhd_fetch_details_bulk(path, records, trust_official_score=True, label=None,
+                            drop_lines=None):
     """
     Fetch violation details for many inspections with a small worker pool.
     Each record with details gets its violations/risk fields updated in place.
@@ -6532,6 +6772,10 @@ def _mhd_fetch_details_bulk(path, records, trust_official_score=True, label=None
     label: name for log lines (defaults to the path; pseudo-jurisdictions
     pass their display name so four Tennessee metros don't all log as
     'tennessee').
+    drop_lines: compiled regex from a config's 'observation_exclude'; an
+    observation line it matches is not a violation and is dropped before
+    scoring (Cheyenne's '999:' general-comment line). The page still counts
+    as read: a page holding only such lines is a clean inspection.
     trust_official_score: True for 0-100 jurisdictions whose official score
     already IS a risk score; False for demerit jurisdictions, where the risk
     score is recomputed from the scraped violations instead.
@@ -6561,6 +6805,8 @@ def _mhd_fetch_details_bulk(path, records, trust_official_score=True, label=None
         return rec, texts
 
     def apply_texts(rec, texts):
+        if drop_lines is not None:
+            texts = [t for t in texts if not drop_lines.search(t)]
         violations = [classify_violation(t) for t in texts]
         computed_score, pv, pfv, cv = calc_risk_score(violations)
         rec['violations'] = [[c, s, d] for c, s, d in violations]
@@ -6765,6 +7011,9 @@ def _fetch_mhd_jurisdiction_api(session, slug, config, since_date=None, limit=No
     purposes = [str(p) for p in (config.get('purposes') or [''])]
     programs = {str(p).strip().lower() for p in (config.get('programs') or [])}
     city_allow = {_mhd_norm_city(c) for c in (config.get('city_allow') or [])}
+    inspection_types = {str(t).strip().lower() for t in (config.get('inspection_types') or [])}
+    purpose_allow = {str(p).strip().lower() for p in (config.get('purpose_allow') or [])}
+    city_map = {_mhd_norm_city(k): str(v) for k, v in (config.get('city_map') or {}).items()}
     exclude = _mhd_exclude_patterns(config)
     bucket_mode = bool(search_terms)
     # The plain date search sorts on inspectionID unless the config says
@@ -6821,6 +7070,7 @@ def _fetch_mhd_jurisdiction_api(session, slug, config, since_date=None, limit=No
     stopped_early = False
     capped_queries = 0
     dropped_by_program = dropped_by_city = dropped_by_exclude = 0
+    dropped_by_type = dropped_by_purpose = 0
     newest_seen = ''   # newest inspection date among ALL rows returned
 
     for win_idx, (win_start, win_end) in enumerate(windows):
@@ -6869,12 +7119,19 @@ def _fetch_mhd_jurisdiction_api(session, slug, config, since_date=None, limit=No
                                f"completely — nothing shipped for this jurisdiction")
         capped_queries += len(capped)
 
-        new_count = win_program = win_city = win_excluded = 0
+        new_count = win_program = win_city = win_excluded = win_type = win_purpose = 0
         for rec in raw_records:
             newest_seen = max(newest_seen, _mhd_row_date(rec))
-            why = _mhd_row_rejection(rec, programs, city_allow, exclude)
+            why = _mhd_row_rejection(rec, programs, city_allow, exclude,
+                                     inspection_types, purpose_allow)
             if why == 'program':
                 win_program += 1
+                continue
+            if why == 'type':
+                win_type += 1
+                continue
+            if why == 'purpose':
+                win_purpose += 1
                 continue
             if why == 'city':
                 win_city += 1
@@ -6884,6 +7141,11 @@ def _fetch_mhd_jurisdiction_api(session, slug, config, since_date=None, limit=No
                 continue
             parsed = _parse_mhd_record(rec, path, display_name, default_city,
                                        default_state, score_scale, metro)
+            if parsed and city_map:
+                # One town, one spelling: the id hashes the city and the
+                # city index is keyed on it ('Saint Louis' / 'St Louis' /
+                # 'St. Louis' would be three cities).
+                parsed['city'] = city_map.get(_mhd_norm_city(parsed['city']), parsed['city'])
             if parsed:
                 uid = parsed.get('source_id') or f"{parsed['name']}|{parsed['inspection_date']}"
                 if uid not in seen_ids:
@@ -6893,11 +7155,15 @@ def _fetch_mhd_jurisdiction_api(session, slug, config, since_date=None, limit=No
         dropped_by_program += win_program
         dropped_by_city += win_city
         dropped_by_exclude += win_excluded
+        dropped_by_type += win_type
+        dropped_by_purpose += win_purpose
 
         extra = ''
         if win_program or win_city or win_excluded:
             extra += (f"; dropped {win_program} by program, {win_city} by city, "
                       f"{win_excluded} excluded")
+        if win_type or win_purpose:
+            extra += f"; dropped {win_type} by inspection type, {win_purpose} by purpose"
         if capped:
             extra += f"; {len(capped)} term/purpose queries INCOMPLETE at the cap"
         log.info(f"  Window {win_idx+1}/{len(windows)} "
@@ -6910,6 +7176,9 @@ def _fetch_mhd_jurisdiction_api(session, slug, config, since_date=None, limit=No
         log.info(f"{display_name}: filtered out {dropped_by_program} rows by program, "
                  f"{dropped_by_city} by city allowlist and {dropped_by_exclude} by the "
                  f"exclude patterns")
+    if dropped_by_type or dropped_by_purpose:
+        log.info(f"{display_name}: filtered out {dropped_by_type} rows by inspection type "
+                 f"and {dropped_by_purpose} by purpose")
     if capped_queries:
         log.warning(f"{display_name}: {capped_queries} search queries hit the "
                     f"{MHD_QUERY_CAP} record cap — their buckets are incomplete and "
@@ -6955,9 +7224,14 @@ def _fetch_mhd_jurisdiction_api(session, slug, config, since_date=None, limit=No
         log.info(f"{display_name}: fetching violation details for "
                  f"{len(inspections_with_id)} inspections "
                  f"({MHD_DETAIL_WORKERS} workers)...")
+        # 'observation_exclude' is passed only when a config sets it, so the
+        # call keeps its long-standing shape for every other jurisdiction.
+        line_filter = ({'drop_lines': re.compile(str(config['observation_exclude']))}
+                       if config.get('observation_exclude') else {})
         fetched_violations, unreadable = _mhd_fetch_details_bulk(
             path, inspections_with_id,
-            trust_official_score=score_scale == '100', label=display_name)
+            trust_official_score=score_scale in MHD_TRUSTED_SCORE_SCALES, label=display_name,
+            **line_filter)
         log.info(f"{display_name}: {fetched_violations}/{len(inspections_with_id)} "
                  f"inspections had violation details")
         if unreadable:
@@ -7073,6 +7347,12 @@ def _parse_mhd_record(rec, path, display_name, default_city, default_state,
             risk_score = 70
         elif score is None:
             risk_score = 70
+        elif score_scale == 'tx-demerit':
+            # The Texas (TFER) form's demerit total: 100 - demerits IS the
+            # form's score and is kept as the risk score through the detail
+            # pass (MHD_TRUSTED_SCORE_SCALES); original_score stays the
+            # published demerit total, as McKinney's does.
+            risk_score = max(0, min(100, 100 - score))
         elif score_scale == 'demerit':
             # Demerit points: lower is better. Rough mapping until the
             # detail scrape recomputes risk from actual violations.
@@ -7088,8 +7368,15 @@ def _parse_mhd_record(rec, path, display_name, default_city, default_state,
         # publishes one (Arapahoe and Douglas County CO: 'Pass',
         # 'Re-Inspection Required', 'Closed'; most portals have no field)
         insp_type = (rec.get('inspectionType') or '').strip()
-        purpose = (rec.get('purpose') or '').strip()
+        purpose = _mhd_row_purpose(rec)
         result = str(rec.get('result') or '').strip()
+        if not result:
+            # CDPHE, Pueblo and Mesa County put the same verdict in
+            # scoreDisplay; a letter grade there (St. Louis, Gwinnett) is
+            # not a result.
+            display = str(rec.get('scoreDisplay') or '').strip()
+            if MHD_RESULT_DISPLAY_RE.match(display):
+                result = display
 
         return {
             'name': name.title(),

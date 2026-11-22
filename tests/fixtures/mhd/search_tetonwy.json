@@ -1,0 +1,38 @@
+[
+ {
+  "nick": "tchd01",
+  "inspectionID": "AC8250D8-C493-4CD3-AC5A-24AD76619771",
+  "inspectionDate": "2026-11-12T00:00:00.000Z",
+  "score": null,
+  "purpose": "Routine",
+  "comments": "",
+  "TimeIn": "1899-12-30T09:45:00.000Z",
+  "establishmentName": "Jackson Hole Middle School",
+  "addressLine1": "1230 S Park Loop Rd",
+  "addressLine2": null,
+  "city": "Jackson",
+  "state": "Wyoming",
+  "zip": "83001",
+  "permitID": "240F6290-01C6-4408-A74A-75CC2B745DBC",
+  "permitType": "Institution",
+  "programName": "Food"
+ },
+ {
+  "nick": "tchd01",
+  "inspectionID": "A30CB0DD-78CB-4265-93A2-4E16726411C1",
+  "inspectionDate": "2026-11-12T00:00:00.000Z",
+  "score": null,
+  "purpose": "Routine",
+  "comments": "",
+  "TimeIn": "1899-12-30T12:00:00.000Z",
+  "establishmentName": "Cowboy Village Resort",
+  "addressLine1": "120 S Flat Creek Dr S",
+  "addressLine2": null,
+  "city": "Jackson",
+  "state": "Wyoming",
+  "zip": "83001",
+  "permitID": "114CA245-AA76-4BCB-8231-B3E4411CE9B3",
+  "permitType": "Limited Use Pool",
+  "programName": "Recreational Water"
+ }
+]

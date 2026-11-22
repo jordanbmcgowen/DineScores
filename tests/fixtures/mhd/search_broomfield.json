@@ -1,0 +1,58 @@
+[
+ {
+  "nick": "scbroo",
+  "inspectionID": "7C3B8A06-4298-4854-BEC2-C07521EB7751",
+  "inspectionDate": "2026-11-10T00:00:00.000Z",
+  "score": 17,
+  "inspectionType": "Routine",
+  "InspectionType": [
+   "",
+   ""
+  ],
+  "inspectionTypeNRV": "",
+  "inspectionTypeCA": "",
+  "program": "Retail Food",
+  "comments": "",
+  "timein": "1899-12-30T15:30:00.000Z",
+  "establishmentName": "The Wonder Grill",
+  "addressLine1": "5450 W 120th Ave",
+  "addressLine2": null,
+  "city": "Broomfield",
+  "state": "CO",
+  "zip": "80020-5913",
+  "scoreDisplay": "",
+  "permitID": "FF1A0A66-C4ED-4EE2-B2CA-3792C2FC6A38",
+  "ConfidentialLocation": "NO",
+  "permitType": "Restaurant (0-100 seats)",
+  "programName": "Retail Food",
+  "programCode": "RFE"
+ },
+ {
+  "nick": "scbroo",
+  "inspectionID": "3469891B-B607-4E7A-B857-040E227421F2",
+  "inspectionDate": "2026-10-26T00:00:00.000Z",
+  "score": 0,
+  "inspectionType": "",
+  "InspectionType": [
+   "Routine",
+   ""
+  ],
+  "inspectionTypeNRV": "",
+  "inspectionTypeCA": "",
+  "program": "Child Care",
+  "comments": "",
+  "timein": "1899-12-30T09:48:00.000Z",
+  "establishmentName": "Kohl Preschool Integrated Preschool Program ",
+  "addressLine1": "1000 W 10th Ave",
+  "addressLine2": null,
+  "city": "Broomfield",
+  "state": "CO",
+  "zip": "80020-1854",
+  "scoreDisplay": "",
+  "permitID": "AAE1229D-4704-4D41-9980-4C8EBAE091AC",
+  "ConfidentialLocation": "NO",
+  "permitType": "Child Care Center/Preschool",
+  "programName": "Child Care",
+  "programCode": "CCF"
+ }
+]
