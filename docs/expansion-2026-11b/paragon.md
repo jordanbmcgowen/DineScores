@@ -282,9 +282,14 @@ as they were, since neither correction touches them).
   text-forced F (a failing septic system in Kalispell). 43 restaurants
   without coordinates.
 - Two inspections per county were not read (connection resets on the field
-  values request, three attempts each; all six were read in the first run)
-  and are held: Missoula 2026-11-12, Gallatin 2026-09-09, Flathead
-  2026-08-31. The first weekly run re-reads each county from its hold.
+  values request, three attempts each) and were held: Missoula 2026-11-12,
+  Gallatin 2026-09-09, Flathead 2026-08-31. A `--mode weekly` run of each
+  county against a copy of the freshness file, the same afternoon, started
+  from each hold, read all six and cleared the holds (the live test of the
+  weekly path: Missoula 33 inspections read from 2026-10-27, Gallatin 168
+  from 2026-08-24, Flathead 346 from 2026-08-15). Absorbed as
+  `d1_seed_2026-11-23_paragonmt_recheck_2026-08-15.sql.gz`; all three
+  groups now stand at 2026-11-20 with no hold.
 - Kansas City (first run, absorbed 2026-11-23): 2,871 inspections, 1,929
   restaurants, grades A 1,594 / B 256 / C 30 / F 49; 38 restaurants carry a
   text-forced F on their newest inspection (mice, roaches, and six drain
