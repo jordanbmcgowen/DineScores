@@ -420,6 +420,16 @@
    },
    "latest": "2026-11-10"
   },
+  "Wichita Falls": {
+   "last_run": {
+    "at": "2026-11-23",
+    "detail": "",
+    "latest": "2026-11-19",
+    "records": 2812,
+    "status": "ok"
+   },
+   "latest": "2026-11-19"
+  },
   "Williamson County": {
    "last_run": {
     "at": "2026-11-15",
@@ -1618,6 +1628,26 @@
   "Weld County Health Dept": {
    "group": "MHD metros",
    "latest": "2026-11-13"
+  },
+  "Wichita Falls Environmental Health": {
+   "given_up": [
+    "2025-11-10|b80c7515-f3c5-43f1-87ad-b70f58337d37",
+    "2025-11-10|e45fdee1-f4d3-441d-97df-63d7ea1dfb9f",
+    "2025-12-19|8812670b-7bab-4ece-8072-36e6c5433132",
+    "2025-12-31|8bbead4c-08f3-48a9-9af9-39dcc22df7f6",
+    "2026-03-13|d4bf4c0b-e934-4a24-8e94-403a18f4ee1a",
+    "2026-03-18|9e1ecb28-55b9-416d-a8a5-960b823d8c7d",
+    "2026-03-18|cd59cfe7-cb56-4901-b8ba-cdcf3cee0c0e",
+    "2026-05-15|257e3631-0b9f-44f4-a3b4-e9ecd98bc606",
+    "2026-05-15|83ef40ab-21cd-4617-9c82-b6fdb606f91a",
+    "2026-06-08|d68242ca-db56-4e66-ba0d-2e85b75df1d0",
+    "2026-06-22|9472c566-5c56-42a0-972d-422e27882318",
+    "2026-07-07|fa1911f2-54e5-43fd-8e30-6b52ef251ec7",
+    "2026-07-09|758549c4-8e23-48d6-8439-891194b4162b",
+    "2026-07-10|153fb04c-3c9b-423f-a5d5-45ec20639074"
+   ],
+   "group": "Wichita Falls",
+   "latest": "2026-11-19"
   },
   "Williamson County and Cities Health District": {
    "group": "Williamson County",
