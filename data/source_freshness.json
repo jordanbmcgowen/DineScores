@@ -1590,6 +1590,10 @@
    "group": "Las Vegas",
    "latest": "2026-11-14"
   },
+  "St. Louis Health Dept": {
+   "group": "MHD metros (midweek)",
+   "latest": "2026-11-20"
+  },
   "Tarrant County Health Dept": {
    "group": "DFW",
    "latest": "2026-11-14"
