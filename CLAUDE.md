@@ -636,8 +636,8 @@ read yet. The ones worth building next:
   keep their 0 (no demerits).
 - **Colorado's state library gives every cited provision a tier; score on
   it.** CDPHE's template prints it ("This is a Core item 6-501.111(A-B), and
-  (D) ..."), and the keyword classifier ignored it: 405 of 1,091 Core lines
-  and 826 of 1,135 Priority Foundation lines counted as Priority, so 119 of
+  (D) ..."), and the keyword classifier ignored it: 405 of 836 Core lines
+  and 894 of 1,238 Priority Foundation lines counted as Priority, so 119 of
   806 inspections were F's, 61 of them on a state verdict of Pass (found
   2026-11-23, before anything shipped). `'tiers': 'colorado'` in a config
   makes `_co_line_tier` read the printed designation, or for Pueblo, Mesa

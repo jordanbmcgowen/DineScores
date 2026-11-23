@@ -125,6 +125,118 @@ alone never forces an F and that named droppings before it still do.
   was not run in this session). They are in D1 and searchable, not on the
   map, until that pass runs or the place is inspected again.
 
+## Colorado: scored on the state's tier
+
+Found in the first backfill, before anything shipped. Colorado's form cites
+violations from one statewide library, and CDPHE's template prints each
+entry's designation in the line:
+
+    38: Insects, rodents and animals not present . This is a Core item
+    6-501.111(A-B), and (D) - Controlling Pests (C) Pests were present ...
+
+The detail pass scored every MHD line on keywords (`classify_violation`, the
+method for portals that state nothing) and ignored the phrase. Over CDPHE's
+3,239 lines of 2026-09-21..11-21:
+
+| the state says | lines | keyword tier: priority | priority foundation | core |
+|---|---|---|---|---|
+| Priority | 1,161 | 1,044 | 69 | 48 |
+| Priority Foundation | 1,238 | 894 | 168 | 176 |
+| Core | 836 | 405 | 368 | 63 |
+
+(4 lines, the item-57 imminent-hazard closure, state no tier.) The
+inspection grades that came out of it:
+
+| CDPHE inspections | A | B | C | F | F on a state verdict of Pass |
+|---|---|---|---|---|---|
+| keyword tiers (first read, 806) | 341 | 216 | 130 | 119 | 61 of 729 |
+| the state's tiers (re-read, 807) | 444 | 236 | 97 | 30 | 6 of 730 |
+
+The re-read returned the same lines for all 806 inspections of the first
+read; only the tiers moved (priority 2,345 to 1,164, priority foundation 605
+to 1,239, core 289 to 838). 45 inspections score lower than before: a
+keyword tier can be too soft as well as too harsh.
+
+`'tiers': 'colorado'` on a config now makes `_co_line_tier` read the printed
+designation. Pueblo, Mesa County and Broomfield use the same library and
+print the section without it (`38: 6-501.111(A-B), and (D) Pests were
+present ...`), so their lines take the tier CDPHE's lines state for that
+section: `CO_SECTION_TIERS`, 184 sections read off those 3,235 lines, none
+stated with two tiers. A line with neither a stated tier nor a known section
+keeps the keyword tier, and the fetch log counts them.
+
+| portal | lines | scored on the state's tier | inspection F's before | after |
+|---|---|---|---|---|
+| Pueblo County | 641 | 627 (98%) | 16 of 243 | 1 |
+| Mesa County | 311 | 309 (99%) | 7 of 123 | 3 |
+| Broomfield | 221 | 69 (31%) | 14 of 38 | 10 |
+
+Broomfield's inspectors mostly write the item number and their own sentence
+(`37: No method of notification of major food allergens ...`), so two thirds
+of its lines stay keyword-tiered and its grades stay the harshest of the
+group (9 of 32 restaurants an F, four of them real roach or dropping
+findings). The form's item number does not settle the tier: only 14 of the
+52 items CDPHE cited were always one tier.
+
+Not changed: the six Front Range counties (Arapahoe, Douglas, El Paso,
+Larimer, Weld, Adams). They print the same sections with no designation and
+are still keyword-scored, stored history included. Moving them is a regrade
+from a D1 export, and worth doing: the table would reach them as it reaches
+Pueblo, and the keyword method gave CDPHE four times the F's the state's own
+tiers do.
+
+The state's verdict (Pass 0-49 demerits, Re-Inspection Required 50-109,
+Closed 110+ or an imminent hazard) is shipped in `results` and does not cap
+the grade. On the state's tiers a Closed inspection can still grade A (a
+water-line break: one line). Whether Closed should force an F, as FAILED
+does in Waco, is the owner's call.
+
+## Backfill of the other thirteen, 2026-09-21 to 2026-11-21 (run 2026-11-23)
+
+One pipeline run per jurisdiction in sequence (one portal, one ban budget),
+every detail page read unless noted. Restaurant grades are after the
+violation reader; "text F" counts restaurants whose newest inspection is an F
+only because of a named pest or sewage finding.
+
+| jurisdiction | inspections | restaurants | A | B | C | F | text F | no map pin |
+|---|---|---|---|---|---|---|---|---|
+| Amarillo | 567 | 492 | 405 | 66 | 12 | 9 | 9 | 49 |
+| Tyler / Smith County | 213 | 176 | 160 | 11 | 2 | 3 | 3 | 18 |
+| Orange County TX | 43 | 43 | 40 | 1 | 0 | 2 | 1 | 9 |
+| St. Louis | 837 | 640 | 609 | 19 | 0 | 12 | 11 | 26 |
+| Jackson County MO | 654 | 538 | 382 | 122 | 25 | 9 | 5 | 53 |
+| Cheyenne, Casper, Jackson WY | 347 | 294 | 188 | 58 | 24 | 24 | 1 | 26 |
+| Minot / First District ND | 112 | 107 | 94 | 9 | 3 | 1 | 0 | 20 |
+| Pueblo County | 243 | 236 | 175 | 45 | 13 | 3 | 2 | 16 |
+| Mesa County (Grand Junction) | 123 | 117 | 81 | 29 | 5 | 2 | 1 | 13 |
+| Broomfield | 38 | 32 | 8 | 3 | 12 | 9 | 4 | 3 |
+| Colorado CDPHE (state-inspected counties) | 807 | 769 | 423 | 235 | 79 | 32 | 12 | 111 |
+
+Notes from reading them:
+
+- **Text-forced F's are findings.** Every one in Amarillo, Tyler, St. Louis,
+  Jackson County, Wyoming and the Colorado counties names live or dead
+  roaches, mice or droppings. Orange County TX had 7 of 50 rows published at
+  a score of 0 with nothing cited (the unscored-zero rule above); they do
+  not ship.
+- **Wyoming by county** (inspection grades): Cheyenne 85 / 34 / 7 / 4 of 130,
+  Casper 92 / 19 / 7 / 7 of 125, Teton 35 / 13 / 15 / 29 of 92. Teton's
+  inspectors cite a median of five items a visit, two thirds of them from
+  the form's risk-factor section, and the F share is the same under
+  form-section tiers (28) and when each form item counts once (26): it is
+  the county's citing, not the keyword method. Teton's follow-up reports
+  reprint the routine inspection's lines (Persephone 12 and 12, Hatch
+  Taqueria 13 and 13) with a dated note on the corrected ones, so a
+  follow-up grades like the visit it follows. One Teton detail page could
+  not be read and was recorded as given up.
+- **St. Louis** ships 837 rows as 663 inspections: stadium and arena stands
+  share a name and an address, and one inspection per restaurant per day is
+  kept (the worst).
+- **Bans**: Amarillo one 15-minute window (456 pages in), St. Louis two,
+  Jackson County two, CDPHE two; the small ones none. The four Colorado
+  portals were read twice (the second time on the state's tiers); only the
+  second read shipped.
+
 ## Jurisdictions that answered rows and were not added
 
 One search each, 2026-11-16..19, first page only (25+ means the page was full).

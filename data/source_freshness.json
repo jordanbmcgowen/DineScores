@@ -274,11 +274,11 @@
    "last_run": {
     "at": "2026-11-23",
     "detail": "",
-    "latest": "2026-11-20",
-    "records": 243,
+    "latest": "2026-11-23",
+    "records": 807,
     "status": "ok"
    },
-   "latest": "2026-11-20"
+   "latest": "2026-11-23"
   },
   "Maricopa County": {
    "last_run": {
@@ -646,6 +646,10 @@
   "Clark County WA Health Dept": {
    "group": "MHD metros",
    "latest": "2026-11-14"
+  },
+  "Colorado CDPHE Health Dept": {
+   "group": "MHD metros (midweek)",
+   "latest": "2026-11-23"
   },
   "Corpus Christi-Nueces County Public Health District": {
    "group": "Corpus Christi",

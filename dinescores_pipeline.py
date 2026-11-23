@@ -6782,15 +6782,15 @@ def _mhd_fetch_inspection_detail(session, path, inspection_id, retry_count=0):
 #   "38: Insects, rodents and animals not present . This is a Core item
 #    6-501.111(A-B), and (D) - Controlling Pests (C) Pests were present ..."
 # Scored on keywords instead (classify_violation, the method for portals that
-# state nothing), 405 of 1,091 Core lines and 826 of 1,135 Priority Foundation
+# state nothing), 405 of 836 Core lines and 894 of 1,238 Priority Foundation
 # lines counted as Priority: 119 of CDPHE's 806 inspections were F's, 61 of
 # them on a state verdict of 'Pass'; on the stated tiers 30 are (measured
 # 2026-11-23 over 2026-09-21..11-21). Pueblo, Mesa County and Broomfield cite
 # the same library without the designation ("38: 6-501.111(A-B), and (D)
 # Pests were present ..."), so their lines take the tier CDPHE's lines state
 # for that section: CO_SECTION_TIERS, read off the 3,235 CDPHE lines of that
-# window (184 sections, none stated with two tiers; it covers 97% of Pueblo's
-# lines, 99% of Mesa County's and 32% of Broomfield's, whose inspectors
+# window (184 sections, none stated with two tiers; it covers 98% of Pueblo's
+# lines, 99% of Mesa County's and 31% of Broomfield's, whose inspectors
 # mostly write the item number alone). The spellings are the library's own
 # ('3.306.13(B)-(C)' included). A line with neither a stated tier nor a known
 # section keeps its keyword tier and the log counts those: a growing count
