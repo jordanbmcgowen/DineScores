@@ -2,7 +2,7 @@
 public listing of the Corpus Christi-Nueces County Public Health District).
 No network: the fetcher's requests.Session is replaced by a fake serving
 captures from the live portal taken 2026-11-22 (tests/fixtures/
-corpuschristi/): the listing trimmed to 21 of its 2,203 rows (food rows the
+corpuschristi/): the listing trimmed to 22 of its 2,203 rows (food rows the
 inspection pages below belong to, plus pool, splash-pad, flea-market,
 mobile, food-truck, school and temporary-event rows the fetcher must skip)
 and 17 inspection pages verbatim (no person is named on them; the inspector
@@ -20,7 +20,10 @@ appears only on the printable PDF, which is never fetched):
   119426 an id the portal has not published (200, no name, no score)
   116310 a pool page (name, the 'no violations' sentence, no score)
   119443 Glow & Go Nutrition, a food visit in that same shape (captured
-         2026-11-23), which the listing scores 100."""
+         2026-11-23), which the listing scores 100
+  119321 / 119315 Cottens Catering, two visits on 2026-11-11 scored 96: the
+         listed one prints 'Violation information on this inspection is not
+         available' in place of its items, the other is itemised."""
 import inspect
 import logging
 import os
@@ -131,7 +134,7 @@ class ParserTests(CorpusChristiBase):
     def test_listing(self):
         with mock.patch.object(dp, 'CC_LIST_MIN_ROWS', 10):
             rows = dp._cc_parse_list(_fixture('list.html'))
-        self.assertEqual(len(rows), 21)
+        self.assertEqual(len(rows), 22)
         hunan = next(r for r in rows if r['id'] == 119211)
         self.assertEqual(hunan, {'id': 119211, 'location': 'HUNAN EXPRESS #3 - 5614 MCARDLE ST.', 'score': 89,
                                  'form': '2024 Inspections-Restaurants', 'date': '2026-11-03'})
@@ -144,7 +147,7 @@ class ParserTests(CorpusChristiBase):
         for body in ("{ 'ERROR':'Invalid Key' }", '', '<html><body>Maintenance</body></html>'):
             with self.assertRaises(ValueError):
                 dp._cc_parse_list(body)
-        with self.assertRaisesRegex(ValueError, 'only 21 rows'):
+        with self.assertRaisesRegex(ValueError, 'only 22 rows'):
             dp._cc_parse_list(_fixture('list.html'))            # the real minimum is 1,000
         bad = _fixture('list.html').replace('<td>November 03, 2026</td>', '<td>2026-11-03</td><td>x</td>')
         with mock.patch.object(dp, 'CC_LIST_MIN_ROWS', 10), self.assertRaisesRegex(ValueError, 'unknown shape'):
@@ -248,6 +251,12 @@ class CheckTests(CorpusChristiBase):
         broken['score'] = None
         self.assertEqual(dp._cc_check(broken, 119211, self.listed(119211)), 'no score on the page')
 
+    def test_score_without_its_items(self):
+        page = dp._cc_parse_detail(_page(119321))
+        self.assertEqual((page['score'], page['rows'], page['no_detail'], page['empty_note']), (96, [], True, False))
+        self.assertEqual(dp._cc_check(page, 119321, self.listed(119321)), dp.CC_NO_DETAIL)
+        self.assertIn((119315, '2026-11-11', 96), page['history'])
+
     def test_another_location_date_or_id(self):
         page = dp._cc_parse_detail(_page(119211))
         self.assertIn('another location', dp._cc_check(page, 119211, self.listed(119102)))
@@ -262,10 +271,11 @@ class WindowTests(CorpusChristiBase):
         # 2026-10-25 (CC_REREAD_DAYS before), oldest first, then the earlier
         # in-window visits their history tables name (119241 is a listing
         # row of its own and is read once)
-        self.assertEqual(calls, ['list', 119102, 119211, 119237, 119241, 119277, 119406, 119443, 119246])
+        self.assertEqual(calls, ['list', 119102, 119211, 119237, 119241, 119277, 119321, 119406, 119443,
+                                 119246, 119315])
         self.assertEqual([r['source_id'] for r in out],
-                         ['cctx_119406', 'cctx_119277', 'cctx_119237', 'cctx_119241', 'cctx_119246',
-                          'cctx_119211', 'cctx_119102'])
+                         ['cctx_119406', 'cctx_119315', 'cctx_119277', 'cctx_119237', 'cctx_119241',
+                          'cctx_119246', 'cctx_119211', 'cctx_119102'])
         self.assertEqual(dp._FRESHNESS_HOLDS, {})
         self.assertEqual(dp._GROUP_STATUS, {})
 
@@ -511,7 +521,7 @@ class FailureTests(CorpusChristiBase):
         out, calls = run_fetch(since='2026-11-01', answers={119211: _Resp('', 502)})
         self.assertEqual(calls.count(119211), dp.CC_RETRIES)
         self.assertNotIn('cctx_119211', _by_id(out))
-        self.assertEqual(len(out), 6)
+        self.assertEqual(len(out), 7)
         holds = dp._FRESHNESS_HOLDS[dp.CC_SOURCE]
         self.assertEqual(list(holds), ['2026-11-03|119211'])    # window start 11-01 + 1 + overlap, counted
         self.assertEqual(holds['2026-11-03|119211'], (True, False))
@@ -536,6 +546,15 @@ class FailureTests(CorpusChristiBase):
         self.assertEqual(dp._FRESHNESS_HOLDS, {})
         self.assertEqual(dp._GROUP_STATUS, {})
 
+    def test_score_without_items_is_skipped_and_its_history_followed(self):
+        out, calls = run_fetch(since='2026-11-15')
+        self.assertEqual(calls.count(119321), 1)
+        recs = _by_id(out)
+        self.assertNotIn('cctx_119321', recs)
+        self.assertEqual(recs['cctx_119315']['risk_score'], 96)
+        self.assertEqual(recs['cctx_119315']['violations'][1][2], 'Pests and animals: flies in mop sink area')
+        self.assertEqual(dp._FRESHNESS_HOLDS, {})
+
     def test_mostly_unscored_raises(self):
         with mock.patch.object(dp, 'CC_MISMATCH_MIN', 1), mock.patch.object(dp, 'CC_UNSCORED_MAX_SHARE', 0.2), \
                 self.assertRaisesRegex(RuntimeError, 'carry no score'):
@@ -558,7 +577,7 @@ class FailureTests(CorpusChristiBase):
             run_fetch(since='2026-11-01', listing=listing)
 
     def test_mostly_clean_window_raises(self):
-        with mock.patch.object(dp, 'CC_MASS_CLEAN_MIN', 2), mock.patch.object(dp, 'CC_MASS_CLEAN_SHARE', 0.25), \
+        with mock.patch.object(dp, 'CC_MASS_CLEAN_MIN', 2), mock.patch.object(dp, 'CC_MASS_CLEAN_SHARE', 0.2), \
                 self.assertRaisesRegex(RuntimeError, 'read as clean'):
             run_fetch(since='2026-11-01')
 
@@ -576,10 +595,10 @@ class FailureTests(CorpusChristiBase):
     def test_pages_that_are_not_inspections_trip_the_breaker(self):
         junk = _Resp('Invalid properties detected, cannot load dataset.')
         out, calls = run_fetch(since='2026-11-01', answers={i: junk for i in (119102, 119211, 119237, 119241,
-                                                                               119277, 119406, 119443)})
+                                                                               119277, 119321, 119406, 119443)})
         self.assertEqual(out, [])
         self.assertEqual(dp._GROUP_STATUS[dp.CC_GROUP][0], 'blocked')
-        self.assertLess(len(calls), 1 + 2 * 7)
+        self.assertLess(len(calls), 1 + 2 * 8)
 
     def test_deadline_cut_reports_skipped_and_holds_uncounted(self):
         dp._FETCH_DEADLINE = time.time() - 1
@@ -600,8 +619,8 @@ class FailureTests(CorpusChristiBase):
             out, calls = run_fetch(since='2026-11-01')
         self.assertNotIn(119246, calls)
         self.assertEqual(len(out), 6)
-        self.assertEqual(_hold_keys(), {'119246': False})
-        self.assertEqual(list(dp._FRESHNESS_HOLDS[dp.CC_SOURCE]), ['2026-11-05|119246'])
+        self.assertEqual(_hold_keys(), {'119246': False, '119315': False})
+        self.assertEqual(sorted(dp._FRESHNESS_HOLDS[dp.CC_SOURCE]), ['2026-11-05|119246', '2026-11-11|119315'])
         self.assertEqual(dp._GROUP_STATUS[dp.CC_GROUP][0], 'skipped')
 
 

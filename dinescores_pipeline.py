@@ -13963,7 +13963,9 @@ def fetch_denton(since_date=None, limit=None):
 # (CC_UNSCORED: Glow & Go Nutrition 2026-11-20, Rock's Discount Vitamins
 # 2026-10-07), carry the name and date with that sentence but no score: no
 # scored checklist was written, so it is skipped, not held (its history
-# table is still followed). An inspection ships only from a page that
+# table is still followed). A page that prints a score with "Violation
+# information on this inspection is not available" in place of the items
+# (CC_NO_DETAIL) is skipped the same way. An inspection ships only from a page that
 # carries the establishment, the date and a score, and they are the ones the
 # listing gave for that id.
 #
@@ -14038,7 +14040,14 @@ CC_UNKNOWN_FORM_MIN = 20     # locations on a form name the rules do not know ->
 # 2026-10-07 to 2026-11-20: a standing shape, not a publication lag). Read,
 # not shipped, not held; more than this share of the pages read raises.
 CC_UNSCORED = 'unscored visit'
-CC_UNSCORED_MAX_SHARE = 0.25
+# The verdict for a page that prints a score but, in place of the items,
+# "Violation information on this inspection is not available. However the
+# recorded score is: [ 96 / 100 ] (4 demerits)." (1 of 171 pages read
+# 2026-11-23: Cottens Catering, 2026-11-11, beside a fully itemised 96 the
+# same day). Shipping the score with no items would show a 96 with "no
+# violations"; it is read, skipped and not held, like CC_UNSCORED.
+CC_NO_DETAIL = 'score without its items'
+CC_UNSCORED_MAX_SHARE = 0.25     # of the pages read, for the two verdicts together
 CC_POINT_SEVERITY = {3: 'priority', 2: 'priority_foundation', 1: 'core'}
 CC_BANDS = ((10, 'Excellent'), (20, 'Good'), (30, 'Acceptable'))   # the district's own words; above: 'Poor'
 CC_FOOD_FORM_RE = re.compile(r'restaurant|food', re.I)
@@ -14257,7 +14266,7 @@ def _cc_parse_detail(html):
     dm = _CC_DATE_LINE_RE.search(head)
     sm = _CC_SCORE_LINE_RE.search(head)
     pm = _CC_PRINT_ID_RE.search(head)
-    rows, empty_note = [], False
+    rows, empty_note, no_detail = [], False, False
     body = re.search(r'<tbody\b[^>]*>(.*?)</tbody>', head, re.S | re.I)
     if body is None:
         raise ValueError('violations table has no body')
@@ -14265,6 +14274,9 @@ def _cc_parse_detail(html):
         cells = [_cc_text(c) for c in _CC_TD_RE.findall(inner)]
         if len(cells) == 1 and 'does not have any violations' in cells[0]:
             empty_note = True
+            continue
+        if len(cells) == 1 and 'violation information on this inspection is not available' in cells[0].lower():
+            no_detail = True
             continue
         if len(cells) != 4:
             raise ValueError(f'violation row with {len(cells)} cells: {" | ".join(cells)[:120]!r}')
@@ -14284,7 +14296,7 @@ def _cc_parse_detail(html):
         raise ValueError('history table in an unknown shape')
     return {'id': int(pm.group(1)) if pm else None, 'name': name, 'street': street,
             'date': _cc_date(dm.group(1)) if dm else None, 'score': _cc_int(sm.group(1)) if sm else None,
-            'rows': rows, 'empty_note': empty_note, 'history': history}
+            'rows': rows, 'empty_note': empty_note, 'no_detail': no_detail, 'history': history}
 
 
 def _cc_check(page, insp_id, listed):
@@ -14308,6 +14320,8 @@ def _cc_check(page, insp_id, listed):
         if page['empty_note'] and not page['rows']:
             return CC_UNSCORED            # a visit written without the scored checklist: read, never shipped
         return 'no score on the page'
+    if page['no_detail'] and not page['rows']:
+        return CC_NO_DETAIL               # a score without its items: read, never shipped
     if listed['score'] is None:
         return 'no score on the listing'
     if not page['rows']:
@@ -14404,7 +14418,7 @@ def _cc_read(session, insp_id, listed):
             why = _cc_check(page, insp_id, listed)
         except ValueError as e:
             page, why = None, str(e)
-        if not why or why == CC_UNSCORED or _past_deadline():
+        if not why or why in (CC_UNSCORED, CC_NO_DETAIL) or _past_deadline():
             break
     return page, why
 
@@ -14516,13 +14530,13 @@ def fetch_corpus_christi(since_date=None, limit=None):
                 seen.discard(insp_id)
                 return 'cut'
             page, why = None, f'request failed ({e})'
-        if why == CC_UNSCORED:
+        if why in (CC_UNSCORED, CC_NO_DETAIL):
             # read (its history table still counts), not shipped, not held:
             # re-reading it a week later shows the same page
             stats['read'] += 1
             stats['unscored'] += 1
             stats['no_page_streak'] = 0
-            skipped['unscored visit (no score on the page)'] += 1
+            skipped[why] += 1
             return page
         if why:
             stats['unread'] += 1
@@ -14609,7 +14623,7 @@ def fetch_corpus_christi(since_date=None, limit=None):
                            f"(about half are); the pages lost their rows? Not shipping")
     if stats['unscored'] >= CC_MISMATCH_MIN and stats['unscored'] > CC_UNSCORED_MAX_SHARE * stats['read']:
         raise RuntimeError(f"Corpus Christi: {stats['unscored']} of {stats['read']} inspection pages carry no "
-                           f"score (about 4% do); the page lost its Score line? Not shipping")
+                           f"score or no items (a few percent do); the page changed? Not shipping")
     no_street = skipped.get('no street address', 0)
     if no_street >= CC_MISMATCH_MIN and no_street * 2 > stats['read']:
         raise RuntimeError(f"Corpus Christi: {no_street} of {stats['read']} inspection pages carry no street "
