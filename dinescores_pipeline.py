@@ -13631,6 +13631,20 @@ ABL_SKIP_PERMIT_CLASSES = frozenset({
     'School - Biannual Inspection', 'Academy', 'Day Care', 'Nursing Home', 'Hospital',
     'Mobile Food', 'Food Demo', 'Wholesale',
 })
+# Until the school class existed (September 2026) the district kitchens held
+# 'Full Service' permits (now Inactive) and were inspected as RFE-Routine or
+# Legacy visits, told apart by neither type nor class. The Tyler fetchers'
+# institution name rule (TP_INSTITUTION_RE) catches the schools; these two
+# catch an early-childhood centre and the school district's warehouse. In the
+# 90-day backfill 17 of 499 inspections matched: 14 at schools and the
+# early-childhood centre, 2 at the warehouse, and 1 at a fast-food counter
+# inside a hospital (the shared rule's 'medical center', as for Georgia and
+# Louisiana).
+_ABL_INSTITUTION_RE = re.compile(r'\b(?:early\s+childhood|\w*isd)\b', re.I)
+
+
+def _abl_institutional(name):
+    return _tp_institutional(name) or bool(_ABL_INSTITUTION_RE.search(name or ''))
 # The agency's tier per OUT line (violationCategoryGroupName).
 ABL_GROUP_SEVERITY = (
     ('priority foundation', 'priority_foundation'),
@@ -14059,6 +14073,9 @@ def fetch_abilene(since_date=None, limit=None):
             unread_headers.append((cid, why))
             continue
         headers.append(fields)
+        if len(headers) % 200 == 0:
+            log.info(f"  Abilene: {len(headers)} of {len(rows)} inspection headers read "
+                     f"({time.time() - started:.0f}s)")
     if len(rows) >= ABL_MASS_FAILURE_MIN and len(unread_headers) > len(rows) / 2:
         raise RuntimeError(f"Abilene: {len(unread_headers)} of {len(rows)} inspection headers could not be read "
                            f"({_ABL_LAST_ERROR}); not shipping")
@@ -14170,6 +14187,9 @@ def fetch_abilene(since_date=None, limit=None):
                                          or permit.get('pageTitle') or '').split())
         if not h['name']:
             skipped['no business name'] += 1
+            continue
+        if _abl_institutional(h['name']):
+            skipped['institutional kitchen (by name)'] += 1
             continue
         info = {}
         data = _abl_request(session, ABL_SCORE_URL.format(h['case_id']), info=info)

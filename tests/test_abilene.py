@@ -445,6 +445,19 @@ class ScopeTests(AbileneTestCase):
         self.assertNotIn(CHARTWELLS, portal.routes('score'))
         self.assertIn('Academy', dp.ABL_SKIP_PERMIT_CLASSES)
 
+    def test_schools_on_old_full_service_permits_are_left_out_by_name(self):
+        # Before the school class existed the district kitchens held 'Full
+        # Service' permits and were inspected as plain routines.
+        self.fx['header'][BRAUMS_320]['companyName'] = 'DYESS ELEMENTARY'
+        self.fx['header'][FUZZYS]['companyName'] = 'AISD WAREHOUSE'
+        records, portal, _ = self.fetch()
+        self.assertEqual(set(by_id(records)), IN_WINDOW - {'abl_RFEI-ROUT-000318-2026', 'abl_RFEI-ROUT-000605-2026'})
+        self.assertNotIn(BRAUMS_320, portal.routes('score'))
+        for name in ('WYLIE HIGH SCHOOL CAFETERIA', 'Wylie Early Childhood Center', 'MANN MIDDLE SCHOOL'):
+            self.assertTrue(dp._abl_institutional(name), name)
+        for name in ('Comfort Suites University', "Braum's #320", 'Hsu - The Caf', 'Lytle Land & Cattle Co'):
+            self.assertFalse(dp._abl_institutional(name), name)
+
     def test_school_type_is_dropped_at_the_list(self):
         records, portal, _ = self.fetch(since_date=None)
         self.assertNotIn('abl_' + SCHOOL_NUMBER, by_id(records))
