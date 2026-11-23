@@ -13506,6 +13506,471 @@ def fetch_denton(since_date=None, limit=None):
     return results
 
 
+# ─── GARLAND, TX (city ArcGIS MapServer; a SNAPSHOT source) ──────────────────
+# The City of Garland Health Department (Dallas County, ~246k people, its own
+# food program) feeds its public "Restaurant Scores" map from a city-hosted
+# ArcGIS Server 11.5 MapServer (maps2.garlandtx.gov; probed live 2026-11-22,
+# no token, no robots.txt). It replaced the foodindex.garlandtx.gov grid,
+# which is still up but frozen at 2026-06-30 and is not read. Two objects:
+#   layer 4 'Restaurant Scores': one row per PERMIT holding its LATEST
+#     inspection (FACILITY_ID, PERMIT_NUMBER, PROGRAM_IDENTIFIER, NAME,
+#     ADDRESS, GIS_LATITUDE / GIS_LONGITUDE and a WGS84 point, INSPECTION_DATE,
+#     SCORE, PE); 1,143 permits over 1,022 facilities, newest two days old.
+#   table 3 'Restaurant violations': one row per cited item of that same
+#     inspection (VIOLATION_CODE 1601-1647 = Texas form items 1-47, POINTS,
+#     V_MEMO = the inspector's observation), or a single row with a null code
+#     for a clean inspection; it adds CITY / STATE / ZIP. 7,478 rows. It also
+#     holds 105 permits the layer leaves out (temporary events, stadium
+#     concessions, grease haulers), which are therefore never read.
+# Both filter server-side on INSPECTION_DATE (epoch ms at midnight UTC on
+# every row, so the UTC date is the inspection date), page by resultOffset
+# (maxRecordCount 2000) and answer a count. About 30 inspections a week.
+#
+# SNAPSHOT, no history: a re-inspection OVERWRITES the permit's row in both
+# objects (0 of 1,248 permits carry two dates), so the weekly run IS the
+# history. What that costs: an inspection that is followed by another one of
+# the same permit before a run has read it is never seen (a missed week
+# loses the earlier visit of every permit inspected twice since the last
+# run, typically the failed routine a follow-up replaced); nothing else is
+# lost by a missed run, because every run re-reads GAR_REREAD_DAYS. That
+# re-read is this source's replacement for freshness holds (the Williamson
+# rule: a snapshot re-reads instead of holding): an inspection that was
+# posted late, revised ("This report data may be under review and may be
+# revised", the city's own disclaimer), geocoded later, or dropped below
+# because its violations did not add up yet ships on a later run without any
+# bookkeeping, and re-shipping is idempotent (source_id is permit + date,
+# D1 keys inspections by restaurant + date). A hold would pin the group's
+# recorded latest at the drop and flag it STALE for a lag that is the city's.
+#
+# Scoring: SCORE is the city's official 0-100 score and ships unchanged as
+# original_score and risk_score. POINTS are the Texas form weights (items
+# 1-20 three points, 21-33 two, 34-47 one) and state each line's tier
+# (3 = priority, 2 = priority foundation, 1 = core); a row at 0 points is an
+# observation the inspector did not count ("not being counted as a
+# violation") and is not a violation line. Verified 2026-11-22 on the whole
+# layer: 100 - sum(POINTS) reproduces SCORE on every in-scope permit but
+# one (PT2896, a 2023 inspection on the city's retired 5/4/3-point form;
+# the other exceptions are out of scope: a plan review scored 0 through a
+# 79-point 'Other Violations' row, four school summer meal sites scored 100
+# with cited items). That arithmetic is checked per inspection and is what
+# keeps an emptied, stale or half-read violations table from ever reading
+# as a clean inspection: a score below 100 with no table rows, an item whose
+# points are not its form weight, a table row scored differently from the
+# layer, or points that do not add up to 100 - SCORE drops the inspection
+# (it is re-read next run), and GAR_MISMATCH_MIN of them making up more than
+# GAR_MISMATCH_MAX_SHARE of the window raise. A 100 without any table row
+# ships: no points is what a 100 means.
+#
+# Text: McKinney's public titles for the same 47 form items, then the
+# inspector's observation. Item 34 never ships the form title ('No Evidence
+# of Insect Contamination, Rodent/other Animals', what the table prints for
+# code 1634): it goes out under the Hedgerow fetchers' neutral heading
+# ('Pests and animals: <observation>'), item 20 (sewage) carries the
+# observation alone, and a cited item without an observation gets McKinney's
+# neutral phrase, so a title can never force an F. Every line ends in
+# sentence punctuation: the text-F regex never looks across a period, so an
+# evidence word closing one line ('... no soap found') cannot pair with a
+# pest word opening the next. Lines are capped at GAR_TEXT_MAX; when the cap
+# would cut off the sentence that names a pest or sewage finding (bilingual
+# memos run past 1,300 characters), those sentences are moved to the front.
+#
+# Scope (PE, the permit's program element; the labels are the old grid's):
+# full-service and fast-food restaurants, snack bars, convenience stores,
+# supermarkets, food processors, warehouses, assisted living and hospital
+# kitchens ship; child care, schools, the school district's summer meal
+# sites, mobile units and plan reviews do not, nor does any program element
+# this list does not know (logged; many of them raise). School and
+# child-care names are dropped by the rule the other DFW cities share.
+#
+# Identity: the city's own map titles a permit NAME - PROGRAM_IDENTIFIER
+# when the identifier is set ('KROGER FOOD STORE #557 - DELI', 'CORNER STOP -
+# TAQUERIA GENESIS'), and so does the record name: 121 permits share a name
+# and an address with another permit (a grocery's departments, a taqueria
+# inside a convenience store, a water park's stands), the identifier tells
+# every one of them apart, and without it a store and the kitchen inside it
+# would take turns being one restaurant's latest inspection. The address is
+# the layer's street address (the table's LOCATION adds a suite number, in
+# several formats); the city is always Garland.
+GAR_BASE = 'https://maps2.garlandtx.gov/server2/rest/services/Health/Restaurant_Scores/MapServer'
+GAR_SCORES_LAYER = f'{GAR_BASE}/4'
+GAR_VIOLATIONS_TABLE = f'{GAR_BASE}/3'
+GAR_GROUP = 'Garland'
+GAR_SOURCE = 'Garland Health Inspections'
+# The city's own report viewer for one permit (it reads table 3 client-side).
+GAR_REPORT_URL = 'https://maps2.garlandtx.gov/customgispages/restaurantviolations/'
+GAR_HISTORY_START = '2023-10-01'          # the layer's oldest row is 2023-10-04
+GAR_TEST_WINDOW_DAYS = 60                 # a bounded read (limit set, no since)
+# Every run that is given a window start reads at least this far back (see
+# SNAPSHOT above). 90 days is ~440 layer rows and ~2,800 table rows, three
+# pages in all. 0 disables the margin.
+GAR_REREAD_DAYS = 90
+GAR_PAGE = 2000                           # the server's maxRecordCount
+GAR_REQUEST_DELAY = 1.0                   # seconds between the four reads
+GAR_TEXT_MAX = 500
+# Inspections dropped because their violations could not be read completely
+# (see Scoring above) are re-read next run; this many of them, making up
+# more than this share of the scored window, mean the table or its columns
+# changed and the whole fetch raises. The same bounds apply to rows whose
+# program element is unknown.
+GAR_MISMATCH_MIN = 10
+GAR_MISMATCH_MAX_SHARE = 0.05
+# PE -> the old grid's class label. Only these ship.
+GAR_SHIP_PROGRAMS = {
+    '1601': 'Full service', '1602': 'Fast service', '1603': 'Snack bar', '1604': 'Convenience store',
+    '1605': 'Supermarket', '1606': 'Food processor', '1609': 'Warehouse', '1611': 'Assisted living',
+    '1612': 'Hospital / nursing home',
+}
+# PE -> why it is not a fixed-address restaurant. 1610 is not in the layer
+# today; 1624 is one plan review (requirements quoted from the plans, scored
+# 0) and 1628 the school district's summer meal sites at apartment
+# complexes and recreation centers (scored 100 whatever was cited).
+GAR_SKIP_PROGRAMS = {
+    '1607': 'child care', '1608': 'school', '1610': 'mobile unit', '1624': 'plan review',
+    '1628': 'school summer meal site',
+}
+# 'INSPECTIONS ONLY' / 'FOR INSPECTIONS ONLY' in PROGRAM_IDENTIFIER is an
+# office note, not a department.
+_GAR_OFFICE_NOTE_RE = re.compile(r'^(?:for\s+)?inspections?\s+only$', re.I)
+_GAR_CODE_RE = re.compile(r'^16(\d\d)$')
+# Most memos open with a dash bullet; it is dropped so the line reads
+# 'Title: Observed ...'.
+_GAR_BULLET_RE = re.compile(r'^[\s\-–—•*]+')
+GAR_PEST_ITEM = 34
+GAR_SEVERITY = {3: 'priority', 2: 'priority_foundation', 1: 'core'}
+GAR_SCORE_FIELDS = ('OBJECTID,FACILITY_ID,PERMIT_NUMBER,PROGRAM_IDENTIFIER,NAME,ADDRESS,'
+                    'GIS_LATITUDE,GIS_LONGITUDE,INSPECTION_DATE,SCORE,PE')
+GAR_VIOLATION_FIELDS = 'OBJECTID,PERMIT_NUMBER,ZIP,INSPECTION_DATE,SCORE,VIOLATION_CODE,POINTS,V_MEMO'
+
+
+def _gar_date(ts):
+    """Epoch ms (midnight UTC on every row) -> 'YYYY-MM-DD' or None."""
+    try:
+        d = datetime.fromtimestamp(int(ts) / 1000, tz=timezone.utc).strftime('%Y-%m-%d')
+    except (TypeError, ValueError, OverflowError, OSError):
+        return None
+    return sane_inspection_date(d)
+
+
+def _gar_number(v):
+    """A JSON number (or numeric string) as a float, else None."""
+    if isinstance(v, bool):
+        return None
+    try:
+        f = float(v)
+    except (TypeError, ValueError):
+        return None
+    return f if f == f and abs(f) != float('inf') else None
+
+
+def _gar_item_weight(number):
+    """The Texas form's points for item `number` (1-47)."""
+    return 3 if number <= 20 else 2 if number <= 33 else 1
+
+
+def _gar_name(attrs):
+    """The permit's name as the city's own map titles it: NAME, then
+    ' - PROGRAM_IDENTIFIER' when the identifier names a department or a
+    tenant ('0' is the layer's empty value)."""
+    name = _dfw_hole_title(attrs.get('NAME'))
+    ident = ' '.join(str(attrs.get('PROGRAM_IDENTIFIER') or '').split())
+    if name and ident and ident != '0' and not _GAR_OFFICE_NOTE_RE.match(ident):
+        name = f'{name} - {_dfw_hole_title(ident)}'
+    return name
+
+
+def _gar_point(geometry, attrs):
+    """(lon, lat) from the feature's WGS84 point or its GIS_LATITUDE /
+    GIS_LONGITUDE columns; (None, None) when the layer has neither (25 new
+    permits; geocoded downstream). Four rows carry the two columns exchanged
+    (latitude -96.57, longitude 32.85, no point): a 'latitude' beyond 90 with
+    a 'longitude' inside it is put back. Anything not plausibly in Texas is
+    not a location."""
+    lon = lat = None
+    if isinstance(geometry, dict):
+        lon, lat = _dfw_hole_coord(geometry.get('x')), _dfw_hole_coord(geometry.get('y'))
+    if lon is None or lat is None:
+        lat, lon = _dfw_hole_coord(attrs.get('GIS_LATITUDE')), _dfw_hole_coord(attrs.get('GIS_LONGITUDE'))
+    if lon is None or lat is None:
+        return None, None
+    if abs(lat) > 90 >= abs(lon):
+        lat, lon = lon, lat
+    if not coords_plausible(lat, lon, 'TX'):
+        return None, None
+    return lon, lat
+
+
+def _gar_line(number, memo):
+    """One violation line for Texas form item `number`: the public title and
+    the inspector's observation (see Text in the section notes), at most
+    GAR_TEXT_MAX characters, always closed by sentence punctuation."""
+    title = HH_PEST_TITLE if number == GAR_PEST_ITEM else MCK_ITEMS[number - 1][1]
+    memo = _GAR_BULLET_RE.sub('', memo or '')   # '- Observed flies ...', '-Keep the rear door ...'
+    if not memo:
+        text = f'{MCK_NO_OBSERVATION_TITLES.get(number, title)} {MCK_NO_OBSERVATION}'
+    else:
+        text = f'{title}: {memo}' if title else memo
+        if (len(text) > GAR_TEXT_MAX and has_active_pest_or_sewage(text)
+                and not has_active_pest_or_sewage(text[:GAR_TEXT_MAX])):
+            # The finding sits past the cap: its sentences go first.
+            sentences = re.split(r'(?<=[.!?])\s+', memo)
+            hazard = [s for s in sentences if has_active_pest_or_sewage(s)]
+            if hazard:
+                body = ' '.join(hazard + [s for s in sentences if s not in hazard])
+                text = f'{title}: {body}' if title else body
+    if len(text) > GAR_TEXT_MAX:
+        text = text[:GAR_TEXT_MAX - 3].rsplit(' ', 1)[0].rstrip(' ,;:-') + '...'
+    elif not text.endswith(('.', '!', '?')):
+        text = text.rstrip(' ,;:-') + '.'
+    return text
+
+
+def _gar_violations(rows, score):
+    """(violations, None) for one inspection's table-3 rows, or
+    (None, reason) when they cannot be the complete account of `score`:
+    an item code outside 1601-1647, points that are not the item's form
+    weight, a row scored differently from the layer, or points that do not
+    add up to 100 - score. A null code is the table's 'no violations' row
+    and 0 points an observation the inspector did not count; neither is a
+    line. Lines keep the report viewer's order (item, then row)."""
+    violations, points = [], 0
+    for a in sorted(rows, key=lambda a: (str(a.get('VIOLATION_CODE') or ''), _gar_number(a.get('OBJECTID')) or 0)):
+        row_score = _gar_number(a.get('SCORE'))
+        if row_score is not None and row_score != score:
+            return None, f'the violations table scores it {row_score:g}, the layer {score:g}'
+        code = str(a.get('VIOLATION_CODE') or '').strip()
+        if not code:
+            continue
+        m = _GAR_CODE_RE.match(code)
+        number = int(m.group(1)) if m else 0
+        if not 1 <= number <= len(MCK_ITEMS):
+            return None, f'unknown item code {code!r}'
+        pts = _gar_number(a.get('POINTS'))
+        if pts is None:
+            return None, f'item {number} carries no points'
+        if pts == 0:
+            continue
+        weight = _gar_item_weight(number)
+        if pts != weight:
+            return None, f'item {number} carries {pts:g} points, the Texas form weighs it {weight}'
+        text = _gar_line(number, _dfw_hole_scrub(a.get('V_MEMO')))
+        cat, _, _ = classify_violation(text)
+        violations.append([cat, GAR_SEVERITY[weight], text])
+        points += weight
+    if points != 100 - score:
+        return None, f'{points} points cited for a score of {score:g}'
+    return violations, None
+
+
+def _gar_count(url, where, label):
+    data = _dfw_hole_get(url + '/query', params={'where': where, 'returnCountOnly': 'true', 'f': 'json'},
+                         label=label)
+    if not isinstance(data, dict) or 'error' in data:
+        raise RuntimeError(f'{label}: ArcGIS error or unexpected answer {str(data)[:160]}')
+    count = data.get('count')
+    if isinstance(count, bool) or not isinstance(count, int) or count < 0:
+        raise RuntimeError(f'{label}: no count in {str(data)[:120]}')
+    return count
+
+
+def _gar_read(url, where, out_fields, what, expected):
+    """Every row of one object for the window: paged in OBJECTID order with
+    the pager's strict checks (a page without a feature list, or ids that do
+    not advance, raise) and compared with the server's own count. Anything
+    short of a complete read raises; nothing partial ships."""
+    try:
+        feats = _arcgis_query_all(url, where=where, out_fields=out_fields, page_size=GAR_PAGE, strict=True)
+        rows = [(f.get('attributes'), f.get('geometry')) for f in feats]
+    except Exception as e:
+        raise RuntimeError(f'Garland: {what} unreadable ({e}); nothing shipped') from e
+    if any(not isinstance(a, dict) for a, _ in rows):
+        raise RuntimeError(f'Garland: {what} answered rows without attributes; nothing shipped')
+    if len(rows) < expected:
+        raise RuntimeError(f'Garland: read {len(rows)} of {expected} rows of the {what}; '
+                           f'not shipping a partial window')
+    return rows
+
+
+def _gar_newest():
+    """The layer's newest inspection date ('' when the probe fails; the lag
+    note is then simply not left)."""
+    try:
+        data = _dfw_hole_get(GAR_SCORES_LAYER + '/query', params={
+            'where': '1=1', 'outFields': 'INSPECTION_DATE', 'orderByFields': 'INSPECTION_DATE DESC',
+            'resultRecordCount': 1, 'returnGeometry': 'false', 'f': 'json',
+        }, label='Garland newest')
+        return _gar_date(data['features'][0]['attributes']['INSPECTION_DATE']) or ''
+    except Exception as e:
+        log.debug(f'Garland: newest-row probe failed: {e}')
+        return ''
+
+
+def fetch_garland(since_date=None, limit=None):
+    """
+    Fetch Garland, TX food inspections from the city's ArcGIS MapServer (see
+    the section notes): one record per permit whose latest inspection is on
+    or after the window start. The start is since_date, but never later
+    than GAR_REREAD_DAYS ago (the snapshot re-read; test mode, no since: the
+    last GAR_TEST_WINDOW_DAYS; no since and no limit: everything). Four
+    requests for a weekly window: a count and a read of the scores layer,
+    then of the violations table, each read checked against its count. Any
+    request failure, shortfall or unexpected shape raises and nothing ships;
+    past the fetch deadline nothing is requested and the group is 'skipped'.
+
+    Scoring: the city's official 0-100 SCORE is original_score and
+    risk_score; each cited item is one line tiered by the points the city
+    assessed (3 priority / 2 priority foundation / 1 core), and the points
+    must add up to 100 - SCORE or the inspection is dropped and re-read
+    next run (many of them raise). No hold is written: the next window
+    covers the drop anyway.
+
+    Scope: the program elements in GAR_SHIP_PROGRAMS, minus school and
+    child-care names. Coordinates are the layer's; the few permits without
+    any are left for the geocoder.
+    """
+    requested = str(since_date)[:10] if since_date else None
+    since = requested
+    if since and GAR_REREAD_DAYS:
+        floor = (datetime.now() - timedelta(days=GAR_REREAD_DAYS)).strftime('%Y-%m-%d')
+        if since > floor:
+            since = floor
+    if not since:
+        since = ((datetime.now() - timedelta(days=GAR_TEST_WINDOW_DAYS)).strftime('%Y-%m-%d')
+                 if limit else GAR_HISTORY_START)
+    log.info(f"Fetching Garland data (since={since}"
+             + (f", widened from {requested} by the {GAR_REREAD_DAYS}-day snapshot re-read"
+                if requested and since != requested else '') + f", limit={limit})")
+    if _past_deadline():
+        _set_group_status(GAR_GROUP, 'skipped', 'fetch deadline reached before the layer was read')
+        return []
+    where = f"INSPECTION_DATE >= DATE '{since}'"
+    expected = _gar_count(GAR_SCORES_LAYER, where, 'Garland scores count')
+    time.sleep(GAR_REQUEST_DELAY)
+    layer_rows = _gar_read(GAR_SCORES_LAYER, where, GAR_SCORE_FIELDS, 'scores layer', expected)
+    log.info(f"  Garland: {len(layer_rows)} permits inspected since {since} (server count {expected})")
+
+    by_inspection = defaultdict(list)       # (permit, date) -> table-3 rows
+    if layer_rows:
+        time.sleep(GAR_REQUEST_DELAY)
+        expected = _gar_count(GAR_VIOLATIONS_TABLE, where, 'Garland violations count')
+        time.sleep(GAR_REQUEST_DELAY)
+        table_rows = _gar_read(GAR_VIOLATIONS_TABLE, where, GAR_VIOLATION_FIELDS, 'violations table', expected)
+        for a, _ in table_rows:
+            by_inspection[(str(a.get('PERMIT_NUMBER') or '').strip(), _gar_date(a.get('INSPECTION_DATE')))].append(a)
+        log.info(f"  Garland: {len(table_rows)} violation rows since {since} (server count {expected})")
+
+    results, newest, skipped, unread, seen = [], '', defaultdict(int), [], set()
+    in_scope = unscored = unknown_pe = no_rows_100 = 0
+    for a, geometry in layer_rows:
+        permit = str(a.get('PERMIT_NUMBER') or '').strip()
+        insp_date = _gar_date(a.get('INSPECTION_DATE'))
+        if not permit or not insp_date:
+            skipped['no permit number or date'] += 1
+            continue
+        newest = max(newest, insp_date)
+        if insp_date < since or (permit, insp_date) in seen:
+            continue
+        seen.add((permit, insp_date))
+        pe = str(a.get('PE') or '').strip()
+        if pe in GAR_SKIP_PROGRAMS:
+            skipped[GAR_SKIP_PROGRAMS[pe]] += 1
+            continue
+        if pe not in GAR_SHIP_PROGRAMS:
+            unknown_pe += 1
+            skipped[f'unknown program element {pe or "(none)"}'] += 1
+            continue
+        name = _gar_name(a)
+        address = _dfw_hole_title(a.get('ADDRESS'))
+        if not name or not address:
+            skipped['no name or address'] += 1
+            continue
+        if DFW_HOLE_NON_RESTAURANT_RE.search(name):
+            skipped['school / child care name'] += 1
+            continue
+        in_scope += 1
+        score = _gar_number(a.get('SCORE'))
+        if score is None or not 0 < score <= 100:
+            unscored += 1
+            continue
+        rows = by_inspection.get((permit, insp_date)) or []
+        if rows:
+            violations, problem = _gar_violations(rows, score)
+        elif score == 100:
+            violations, problem = [], None      # no points is what a 100 means
+            no_rows_100 += 1
+        else:
+            violations, problem = None, 'no row in the violations table'
+        if problem:
+            unread.append((permit, insp_date, problem))
+            continue
+        _, pv, pfv, cv = calc_risk_score(violations)
+        lon, lat = _gar_point(geometry, a)
+        facility = str(a.get('FACILITY_ID') or '').strip()
+        zip_code = next((m.group(0) for m in (re.match(r'\d{5}', str(r.get('ZIP') or '').strip())
+                                              for r in rows) if m), '')
+        official = int(score) if float(score).is_integer() else score
+        results.append({
+            'name': name,
+            'address': address,
+            'city': 'Garland',
+            'state': 'TX',
+            'zip': zip_code,
+            'latitude': lat,
+            'longitude': lon,
+            'inspection_date': insp_date,
+            'original_score': official,                      # the city's official 0-100 score
+            'risk_score': max(0, min(100, int(round(score)))),   # the same number, never recomputed
+            'priority_violations': pv,
+            'priority_foundation_violations': pfv,
+            'core_violations': cv,
+            'total_violations': len(violations),
+            'violations': violations,
+            'inspection_type': '',                           # the layer does not state one
+            'results': '',
+            'source': GAR_SOURCE,
+            'source_url': GAR_REPORT_URL + '?' + urlencode({'facilityid': facility, 'permitid': permit}),
+            'source_id': f"garland_{permit}_{insp_date.replace('-', '')}",
+            'metro': 'DFW',
+        })
+    if skipped:
+        log.info(f"  Garland: skipped {dict(skipped)}")
+    if no_rows_100:
+        log.info(f"  Garland: {no_rows_100} inspection(s) scored 100 have no row in the violations table")
+    window = in_scope + sum(skipped.values())
+    if unknown_pe >= GAR_MISMATCH_MIN and unknown_pe > GAR_MISMATCH_MAX_SHARE * window:
+        raise RuntimeError(f'Garland: {unknown_pe} of {window} permits carry a program element outside '
+                           f'{sorted(GAR_SHIP_PROGRAMS) + sorted(GAR_SKIP_PROGRAMS)}; the PE column '
+                           f'changed, not shipping')
+    if in_scope >= DFW_HOLE_UNSCORED_MIN and unscored * 2 > in_scope:
+        raise RuntimeError(f'Garland: {unscored} of {in_scope} permits since {since} carry no usable SCORE '
+                           f'(a format change?); not shipping')
+    if unscored:
+        log.info(f"  Garland: {unscored} permit(s) without a score between 1 and 100 dropped")
+    if unread:
+        scored = len(results) + len(unread)
+        first = unread[0]
+        if len(unread) >= GAR_MISMATCH_MIN and len(unread) > GAR_MISMATCH_MAX_SHARE * scored:
+            raise RuntimeError(
+                f'Garland: the violations of {len(unread)} of {scored} inspections cannot be read completely '
+                f'(first {first[0]} of {first[1]}: {first[2]}); the violations table changed or is '
+                f'behind the layer, not shipping')
+        log.warning(f"  Garland: {len(unread)} inspection(s) dropped until their violations add up "
+                    f"(re-read next run): "
+                    + '; '.join(f'{p} {d}: {why}' for p, d, why in unread[:5]))
+    truncated = bool(limit) and len(results) > limit
+    results.sort(key=lambda r: (r['inspection_date'], r['risk_score'], r['source_id']))
+    if truncated:
+        results = results[-limit:]              # the newest `limit` inspections
+    if not truncated:
+        _note_source_lag(GAR_GROUP, newest or _gar_newest())
+    if unread:
+        _GROUP_NOTES[GAR_GROUP] = '; '.join(x for x in (
+            _GROUP_NOTES.get(GAR_GROUP),
+            f"{len(unread)} inspection(s) not shipped until their violations add up to the score "
+            f"({', '.join(p for p, _, _ in unread[:5])}); re-read next run") if x)
+    log.info(f"Garland: {len(results)} inspections (source newest {newest or 'n/a'})")
+    return results
+
+
 def geocode_census_batch(records, benchmark='Public_AR_Current'):
     """
     Batch-geocode US street addresses with the free Census Bureau geocoder
@@ -14925,7 +15390,8 @@ def main():
             (('williamson',), 'Williamson County', fetch_williamson),
             (('denton', 'dfw'), 'Denton', fetch_denton),
             (('mckinney', 'dfw'), 'McKinney', fetch_mckinney),
-            (('lewisville', 'dfw'), 'Lewisville', fetch_lewisville)):
+            (('lewisville', 'dfw'), 'Lewisville', fetch_lewisville),
+            (('garland', 'dfw'), GAR_GROUP, fetch_garland)):
         if any(s in args.cities for s in slugs):
             socrata_jobs[group] = _expansion_job(group, fetcher)
 

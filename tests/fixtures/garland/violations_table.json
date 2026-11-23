@@ -1,0 +1,3092 @@
+{
+ "displayFieldName": "NAME",
+ "fieldAliases": {
+  "OBJECTID": "OBJECTID",
+  "FACILITY_ID": "FACILITY_ID",
+  "NAME": "NAME",
+  "LOCATION": "LOCATION",
+  "CITY": "CITY",
+  "STATE": "STATE",
+  "ZIP": "ZIP",
+  "PERMIT_NUMBER": "PERMIT_NUMBER",
+  "INSPECTION_DATE": "INSPECTION_DATE",
+  "SCORE": "SCORE",
+  "VIOLATION_CODE": "VIOLATION_CODE",
+  "POINTS": "POINTS",
+  "VIOLATION_DESCRIPTION": "VIOLATION_DESCRIPTION",
+  "V_MEMO": "V_MEMO"
+ },
+ "fields": [
+  {
+   "name": "OBJECTID",
+   "type": "esriFieldTypeOID",
+   "alias": "OBJECTID"
+  },
+  {
+   "name": "FACILITY_ID",
+   "type": "esriFieldTypeString",
+   "alias": "FACILITY_ID",
+   "length": 9
+  },
+  {
+   "name": "NAME",
+   "type": "esriFieldTypeString",
+   "alias": "NAME",
+   "length": 100
+  },
+  {
+   "name": "LOCATION",
+   "type": "esriFieldTypeString",
+   "alias": "LOCATION",
+   "length": 47
+  },
+  {
+   "name": "CITY",
+   "type": "esriFieldTypeString",
+   "alias": "CITY",
+   "length": 60
+  },
+  {
+   "name": "STATE",
+   "type": "esriFieldTypeString",
+   "alias": "STATE",
+   "length": 2
+  },
+  {
+   "name": "ZIP",
+   "type": "esriFieldTypeString",
+   "alias": "ZIP",
+   "length": 10
+  },
+  {
+   "name": "PERMIT_NUMBER",
+   "type": "esriFieldTypeString",
+   "alias": "PERMIT_NUMBER",
+   "length": 12
+  },
+  {
+   "name": "INSPECTION_DATE",
+   "type": "esriFieldTypeDate",
+   "alias": "INSPECTION_DATE",
+   "length": 8
+  },
+  {
+   "name": "SCORE",
+   "type": "esriFieldTypeSingle",
+   "alias": "SCORE"
+  },
+  {
+   "name": "VIOLATION_CODE",
+   "type": "esriFieldTypeString",
+   "alias": "VIOLATION_CODE",
+   "length": 4
+  },
+  {
+   "name": "POINTS",
+   "type": "esriFieldTypeSingle",
+   "alias": "POINTS"
+  },
+  {
+   "name": "VIOLATION_DESCRIPTION",
+   "type": "esriFieldTypeString",
+   "alias": "VIOLATION_DESCRIPTION",
+   "length": 100
+  },
+  {
+   "name": "V_MEMO",
+   "type": "esriFieldTypeString",
+   "alias": "V_MEMO",
+   "length": 1073741822
+  }
+ ],
+ "features": [
+  {
+   "attributes": {
+    "OBJECTID": 1,
+    "FACILITY_ID": "FA0002418",
+    "NAME": "OK MINI MART",
+    "LOCATION": "3022 S SHILOH RD A",
+    "CITY": "GARLAND",
+    "STATE": "TX",
+    "ZIP": "75041",
+    "PERMIT_NUMBER": "PT2896",
+    "INSPECTION_DATE": 1696377600000,
+    "SCORE": 89.0,
+    "VIOLATION_CODE": "1602",
+    "POINTS": 5.0,
+    "VIOLATION_DESCRIPTION": "Proper Handwashing: Soap/Paper Towel Provided/Bare Hand Contact",
+    "V_MEMO": "Ensure handwash stations have soap and paper towels at all times"
+   }
+  },
+  {
+   "attributes": {
+    "OBJECTID": 2,
+    "FACILITY_ID": "FA0002418",
+    "NAME": "OK MINI MART",
+    "LOCATION": "3022 S SHILOH RD A",
+    "CITY": "GARLAND",
+    "STATE": "TX",
+    "ZIP": "75041",
+    "PERMIT_NUMBER": "PT2896",
+    "INSPECTION_DATE": 1696377600000,
+    "SCORE": 89.0,
+    "VIOLATION_CODE": "1616",
+    "POINTS": 2.0,
+    "VIOLATION_DESCRIPTION": "Warewashing Facilities: Designed/Maintained/Used",
+    "V_MEMO": "Provide a second drain stopper for your three part sink"
+   }
+  },
+  {
+   "attributes": {
+    "OBJECTID": 3,
+    "FACILITY_ID": "FA0002418",
+    "NAME": "OK MINI MART",
+    "LOCATION": "3022 S SHILOH RD A",
+    "CITY": "GARLAND",
+    "STATE": "TX",
+    "ZIP": "75041",
+    "PERMIT_NUMBER": "PT2896",
+    "INSPECTION_DATE": 1696377600000,
+    "SCORE": 89.0,
+    "VIOLATION_CODE": "1620",
+    "POINTS": 1.0,
+    "VIOLATION_DESCRIPTION": "Nonfood-Contact Surfaces Clean",
+    "V_MEMO": "Clean shelving throughout establishment. Remove extra boxes and other debris from establishment."
+   }
+  },
+  {
+   "attributes": {
+    "OBJECTID": 4,
+    "FACILITY_ID": "FA0002418",
+    "NAME": "OK MINI MART",
+    "LOCATION": "3022 S SHILOH RD A",
+    "CITY": "GARLAND",
+    "STATE": "TX",
+    "ZIP": "75041",
+    "PERMIT_NUMBER": "PT2896",
+    "INSPECTION_DATE": 1696377600000,
+    "SCORE": 89.0,
+    "VIOLATION_CODE": "1632",
+    "POINTS": 1.0,
+    "VIOLATION_DESCRIPTION": "Floors: Constructed/Good Repair/Clean",
+    "V_MEMO": "Repair flooring in the walk-in cooler before considering to open the kitchen for food sales."
+   }
+  },
+  {
+   "attributes": {
+    "OBJECTID": 5,
+    "FACILITY_ID": "FA0002418",
+    "NAME": "OK MINI MART",
+    "LOCATION": "3022 S SHILOH RD A",
+    "CITY": "GARLAND",
+    "STATE": "TX",
+    "ZIP": "75041",
+    "PERMIT_NUMBER": "PT2896",
+    "INSPECTION_DATE": 1696377600000,
+    "SCORE": 89.0,
+    "VIOLATION_CODE": "1640",
+    "POINTS": 3.0,
+    "VIOLATION_DESCRIPTION": "Toxic Items Properly Labeled/Stored/Used",
+    "V_MEMO": "Do not use RAID or other non-food-grade-safe pesticides within the establishment."
+   }
+  },
+  {
+   "attributes": {
+    "OBJECTID": 6,
+    "FACILITY_ID": "FA0002418",
+    "NAME": "OK MINI MART",
+    "LOCATION": "3022 S SHILOH RD A",
+    "CITY": "GARLAND",
+    "STATE": "TX",
+    "ZIP": "75041",
+    "PERMIT_NUMBER": "PT2896",
+    "INSPECTION_DATE": 1696377600000,
+    "SCORE": 89.0,
+    "VIOLATION_CODE": "1646",
+    "POINTS": 0.0,
+    "VIOLATION_DESCRIPTION": "Approved Liquid Waste Transporter/Trip Ticket Available",
+    "V_MEMO": "Provide a current liquid waste hauler service ticket. Though not too much waste has been generated, grease interceptors must be serviced at least every six months."
+   }
+  },
+  {
+   "attributes": {
+    "OBJECTID": 22,
+    "FACILITY_ID": "FA0003844",
+    "NAME": "CURTIS CULWELL CENTER CONCESSIONS",
+    "LOCATION": "4999 NAAMAN FOREST BLVD",
+    "CITY": "GARLAND",
+    "STATE": "TX",
+    "ZIP": "75040",
+    "PERMIT_NUMBER": "PT4453",
+    "INSPECTION_DATE": 1718323200000,
+    "SCORE": 97.0,
+    "VIOLATION_CODE": "1631",
+    "POINTS": 2.0,
+    "VIOLATION_DESCRIPTION": "Adequate Hand Washing Facilities: Accessible and Properly Supplied",
+    "V_MEMO": "Provide hand washing station, along with water, soap and paper towels  "
+   }
+  },
+  {
+   "attributes": {
+    "OBJECTID": 23,
+    "FACILITY_ID": "FA0003844",
+    "NAME": "CURTIS CULWELL CENTER CONCESSIONS",
+    "LOCATION": "4999 NAAMAN FOREST BLVD",
+    "CITY": "GARLAND",
+    "STATE": "TX",
+    "ZIP": "75040",
+    "PERMIT_NUMBER": "PT4453",
+    "INSPECTION_DATE": 1718323200000,
+    "SCORE": 97.0,
+    "VIOLATION_CODE": "1645",
+    "POINTS": 1.0,
+    "VIOLATION_DESCRIPTION": "Physical Facilities Installed, Maintained, and Clean",
+    "V_MEMO": "Clean concession stands, wipe down equipment"
+   }
+  },
+  {
+   "attributes": {
+    "OBJECTID": 137,
+    "FACILITY_ID": "FA0003844",
+    "NAME": "CURTIS CULWELL CENTER CONCESSIONS",
+    "LOCATION": "4999 NAAMAN FOREST BLVD",
+    "CITY": "GARLAND",
+    "STATE": "TX",
+    "ZIP": "75040",
+    "PERMIT_NUMBER": "PT4830",
+    "INSPECTION_DATE": 1755648000000,
+    "SCORE": 91.0,
+    "VIOLATION_CODE": "1610",
+    "POINTS": 3.0,
+    "VIOLATION_DESCRIPTION": "Food Contact Surfaces; Cleaned and Sanitized",
+    "V_MEMO": "Observation:\nObserved mold growth on top of the Dippin’ Dots cart.\n\n\r\nRecommendation:\nDetail clean and sanitize the entire cart. Discard any exposed or contaminated food products."
+   }
+  },
+  {
+   "attributes": {
+    "OBJECTID": 138,
+    "FACILITY_ID": "FA0003844",
+    "NAME": "CURTIS CULWELL CENTER CONCESSIONS",
+    "LOCATION": "4999 NAAMAN FOREST BLVD",
+    "CITY": "GARLAND",
+    "STATE": "TX",
+    "ZIP": "75040",
+    "PERMIT_NUMBER": "PT4830",
+    "INSPECTION_DATE": 1755648000000,
+    "SCORE": 91.0,
+    "VIOLATION_CODE": "1631",
+    "POINTS": 2.0,
+    "VIOLATION_DESCRIPTION": "Adequate Hand Washing Facilities: Accessible and Properly Supplied",
+    "V_MEMO": "Observation:\nThe push cart is located in front of one of the concession stands and does not have an adequate handwash sink within 25 feet.\r\n\n\nRecommendation:\nEnsure the push cart is positioned within 25 feet of an accessible handwash sink to comply with handwashing requirements."
+   }
+  },
+  {
+   "attributes": {
+    "OBJECTID": 139,
+    "FACILITY_ID": "FA0003844",
+    "NAME": "CURTIS CULWELL CENTER CONCESSIONS",
+    "LOCATION": "4999 NAAMAN FOREST BLVD",
+    "CITY": "GARLAND",
+    "STATE": "TX",
+    "ZIP": "75040",
+    "PERMIT_NUMBER": "PT4830",
+    "INSPECTION_DATE": 1755648000000,
+    "SCORE": 91.0,
+    "VIOLATION_CODE": "1632",
+    "POINTS": 2.0,
+    "VIOLATION_DESCRIPTION": "Food and Non-food Contact surfaces Cleanable, Properly Designed, Constructed, and Used",
+    "V_MEMO": "Observation:\nPush carts require cleaning; mold and food debris were observed on food-contact and non–food-contact surfaces.\r\n\n\nRecommendation:\nDetail clean and sanitize push carts. Ensure food-contact surfaces are free of mold and food debris, and non–food-contact surfaces are maintained in a clean condition."
+   }
+  },
+  {
+   "attributes": {
+    "OBJECTID": 140,
+    "FACILITY_ID": "FA0003844",
+    "NAME": "CURTIS CULWELL CENTER CONCESSIONS",
+    "LOCATION": "4999 NAAMAN FOREST BLVD",
+    "CITY": "GARLAND",
+    "STATE": "TX",
+    "ZIP": "75040",
+    "PERMIT_NUMBER": "PT4830",
+    "INSPECTION_DATE": 1755648000000,
+    "SCORE": 91.0,
+    "VIOLATION_CODE": "1641",
+    "POINTS": 1.0,
+    "VIOLATION_DESCRIPTION": "Original Container (Bulk Food); Food Labeled",
+    "V_MEMO": "Observation: \r\nObserved food containers missing labels identifying the common name of the food.\r\nRecommendation/Corrective Action:\r\n Ensure all food containers are clearly labeled with the common name of the food. Proper labeling helps staff easily identify items, prevents \r\nmix-ups, and supports safe food handling practices."
+   }
+  },
+  {
+   "attributes": {
+    "OBJECTID": 141,
+    "FACILITY_ID": "FA0003844",
+    "NAME": "CURTIS CULWELL CENTER CONCESSIONS",
+    "LOCATION": "4999 NAAMAN FOREST BLVD",
+    "CITY": "GARLAND",
+    "STATE": "TX",
+    "ZIP": "75040",
+    "PERMIT_NUMBER": "PT4830",
+    "INSPECTION_DATE": 1755648000000,
+    "SCORE": 91.0,
+    "VIOLATION_CODE": "1647",
+    "POINTS": 1.0,
+    "VIOLATION_DESCRIPTION": "Other Violations",
+    "V_MEMO": "Provide and post food permit and manager certificate visible to the public. "
+   }
+  },
+  {
+   "attributes": {
+    "OBJECTID": 142,
+    "FACILITY_ID": "FA0003844",
+    "NAME": "CURTIS CULWELL CENTER CONCESSIONS",
+    "LOCATION": "4999 NAAMAN FOREST BLVD",
+    "CITY": "GARLAND",
+    "STATE": "TX",
+    "ZIP": "75040",
+    "PERMIT_NUMBER": "PT4454",
+    "INSPECTION_DATE": 1755648000000,
+    "SCORE": 95.0,
+    "VIOLATION_CODE": "1631",
+    "POINTS": 2.0,
+    "VIOLATION_DESCRIPTION": "Adequate Hand Washing Facilities: Accessible and Properly Supplied",
+    "V_MEMO": "Observation:\r\nThe push cart is located in front of one of the concession stands and does not have an adequate handwash sink within 25 feet.\r\nRecommendation:\r\nEnsure the push cart is positioned within 25 feet of an accessible handwash sink to comply with handwashing requirements."
+   }
+  },
+  {
+   "attributes": {
+    "OBJECTID": 143,
+    "FACILITY_ID": "FA0003844",
+    "NAME": "CURTIS CULWELL CENTER CONCESSIONS",
+    "LOCATION": "4999 NAAMAN FOREST BLVD",
+    "CITY": "GARLAND",
+    "STATE": "TX",
+    "ZIP": "75040",
+    "PERMIT_NUMBER": "PT4454",
+    "INSPECTION_DATE": 1755648000000,
+    "SCORE": 95.0,
+    "VIOLATION_CODE": "1632",
+    "POINTS": 2.0,
+    "VIOLATION_DESCRIPTION": "Food and Non-food Contact surfaces Cleanable, Properly Designed, Constructed, and Used",
+    "V_MEMO": "Observation:\r\nPush carts require cleaning; mold and food debris were observed on food-contact and non–food-contact surfaces.\r\n\r\nRecommendation:\r\nDetail clean and sanitize push carts. Ensure food-contact surfaces are free of mold and food debris, and non–food-contact surfaces are \r\nmaintained in a clean condition"
+   }
+  },
+  {
+   "attributes": {
+    "OBJECTID": 144,
+    "FACILITY_ID": "FA0003844",
+    "NAME": "CURTIS CULWELL CENTER CONCESSIONS",
+    "LOCATION": "4999 NAAMAN FOREST BLVD",
+    "CITY": "GARLAND",
+    "STATE": "TX",
+    "ZIP": "75040",
+    "PERMIT_NUMBER": "PT4454",
+    "INSPECTION_DATE": 1755648000000,
+    "SCORE": 95.0,
+    "VIOLATION_CODE": "1647",
+    "POINTS": 1.0,
+    "VIOLATION_DESCRIPTION": "Other Violations",
+    "V_MEMO": "Provide and post food permit and manager certificate visible to the public"
+   }
+  },
+  {
+   "attributes": {
+    "OBJECTID": 212,
+    "FACILITY_ID": "FA0000109",
+    "NAME": "STARBUCKS COFFEE #1489",
+    "LOCATION": "5301 N GARLAND AVE",
+    "CITY": "GARLAND",
+    "STATE": "TX",
+    "ZIP": "75040",
+    "PERMIT_NUMBER": "PT0106",
+    "INSPECTION_DATE": 1759881600000,
+    "SCORE": 91.0,
+    "VIOLATION_CODE": "1602",
+    "POINTS": 3.0,
+    "VIOLATION_DESCRIPTION": "Proper Cold Holding temperature(41øF/45øF)",
+    "V_MEMO": "Person in charge stated it is facility policy not to insert the probe thermometer into any foods as they will have to be discarded even if the thermometer is properly sanitized. Milk is poured into a container for temperature checks (acceptable), but a milk container was observed at 44°F. Solid or assembled TCS foods (e.g., breakfast sandwiches) must be probed in the thickest part to verify internal temperatures; breakfast sandwiches were observed at 47°F in a separate reach-in cooler.\nFacility must ensure all TCS foods are properly temped using a probe thermometer. Internal temperatures must be maintained at 41°F or below for cold foods. If temperatures are not holding, adjustments to storage or equipment must be made, and staff must be trained to verify temperatures correctly."
+   }
+  },
+  {
+   "attributes": {
+    "OBJECTID": 213,
+    "FACILITY_ID": "FA0000109",
+    "NAME": "STARBUCKS COFFEE #1489",
+    "LOCATION": "5301 N GARLAND AVE",
+    "CITY": "GARLAND",
+    "STATE": "TX",
+    "ZIP": "75040",
+    "PERMIT_NUMBER": "PT0106",
+    "INSPECTION_DATE": 1759881600000,
+    "SCORE": 91.0,
+    "VIOLATION_CODE": "1627",
+    "POINTS": 2.0,
+    "VIOLATION_DESCRIPTION": "Proper Cooling Method used;   Equipment Adequate to Maintain Product Temperature",
+    "V_MEMO": "Reach-in coolers are not maintaining temperatures at 41°F or below. The person in charge stated this could be due to the defrosting schedule. Understand that even during defrost cycles, TCS foods must be maintained at 41°F or below. If defrosting causes temperatures to rise, provide supporting documentation for the Health Department to review and potentially approve an alternative procedure. Until approval is granted, ensure all TCS foods are maintained at 41°F or below."
+   }
+  },
+  {
+   "attributes": {
+    "OBJECTID": 214,
+    "FACILITY_ID": "FA0000109",
+    "NAME": "STARBUCKS COFFEE #1489",
+    "LOCATION": "5301 N GARLAND AVE",
+    "CITY": "GARLAND",
+    "STATE": "TX",
+    "ZIP": "75040",
+    "PERMIT_NUMBER": "PT0106",
+    "INSPECTION_DATE": 1759881600000,
+    "SCORE": 91.0,
+    "VIOLATION_CODE": "1628",
+    "POINTS": 0.0,
+    "VIOLATION_DESCRIPTION": "Proper Date Marking and Disposition",
+    "V_MEMO": "Milk must be date-labeled with the date of opening. At this time, this observation is not being counted as a violation, as many businesses are not aware this is part of the code. Milk and other TCS items must be discarded within 7 days of opening. Label all items with the date of opening to ensure compliance."
+   }
+  },
+  {
+   "attributes": {
+    "OBJECTID": 215,
+    "FACILITY_ID": "FA0000109",
+    "NAME": "STARBUCKS COFFEE #1489",
+    "LOCATION": "5301 N GARLAND AVE",
+    "CITY": "GARLAND",
+    "STATE": "TX",
+    "ZIP": "75040",
+    "PERMIT_NUMBER": "PT0106",
+    "INSPECTION_DATE": 1759881600000,
+    "SCORE": 91.0,
+    "VIOLATION_CODE": "1629",
+    "POINTS": 2.0,
+    "VIOLATION_DESCRIPTION": "Thermometers Provided, Accurate, and Calibrated; Chemical/ Thermal Test Strips",
+    "V_MEMO": "Reach-in coolers storing TCS items are missing thermometers.\n Provide properly functioning thermometers in all reach-in coolers storing TCS foods to monitor and ensure temperatures remain at 41°F or below."
+   }
+  },
+  {
+   "attributes": {
+    "OBJECTID": 216,
+    "FACILITY_ID": "FA0000109",
+    "NAME": "STARBUCKS COFFEE #1489",
+    "LOCATION": "5301 N GARLAND AVE",
+    "CITY": "GARLAND",
+    "STATE": "TX",
+    "ZIP": "75040",
+    "PERMIT_NUMBER": "PT0106",
+    "INSPECTION_DATE": 1759881600000,
+    "SCORE": 91.0,
+    "VIOLATION_CODE": "1645",
+    "POINTS": 1.0,
+    "VIOLATION_DESCRIPTION": "Physical Facilities Installed, Maintained, and Clean",
+    "V_MEMO": "Clean floors in walk in cooler. "
+   }
+  },
+  {
+   "attributes": {
+    "OBJECTID": 217,
+    "FACILITY_ID": "FA0000109",
+    "NAME": "STARBUCKS COFFEE #1489",
+    "LOCATION": "5301 N GARLAND AVE",
+    "CITY": "GARLAND",
+    "STATE": "TX",
+    "ZIP": "75040",
+    "PERMIT_NUMBER": "PT0106",
+    "INSPECTION_DATE": 1759881600000,
+    "SCORE": 91.0,
+    "VIOLATION_CODE": "1647",
+    "POINTS": 1.0,
+    "VIOLATION_DESCRIPTION": "Other Violations",
+    "V_MEMO": "- Current manager certificate needs to be posted to public."
+   }
+  },
+  {
+   "attributes": {
+    "OBJECTID": 1110,
+    "FACILITY_ID": "FA0002862",
+    "NAME": "TACO BELL #35446",
+    "LOCATION": "3178 LAVON DR",
+    "CITY": "GARLAND",
+    "STATE": "TX",
+    "ZIP": "75040",
+    "PERMIT_NUMBER": "PT3261",
+    "INSPECTION_DATE": 1766016000000,
+    "SCORE": 93.0,
+    "VIOLATION_CODE": "1634",
+    "POINTS": 1.0,
+    "VIOLATION_DESCRIPTION": "No Evidence of Insect Contamination, Rodent/other Animals",
+    "V_MEMO": "- Observed air curtain at the drive-through window not functioning. Repair or replace to prevent the entry of insects, rodents, and other contaminants."
+   }
+  },
+  {
+   "attributes": {
+    "OBJECTID": 1111,
+    "FACILITY_ID": "FA0002862",
+    "NAME": "TACO BELL #35446",
+    "LOCATION": "3178 LAVON DR",
+    "CITY": "GARLAND",
+    "STATE": "TX",
+    "ZIP": "75040",
+    "PERMIT_NUMBER": "PT3261",
+    "INSPECTION_DATE": 1766016000000,
+    "SCORE": 93.0,
+    "VIOLATION_CODE": "1637",
+    "POINTS": 1.0,
+    "VIOLATION_DESCRIPTION": "Environmental Contamination",
+    "V_MEMO": "-Observed prep table with dry fruit storage being splashed by water from the adjacent handwash sink. Install an approved splash guard at the sink or relocate the prep area and dry fruit storage to prevent contamination."
+   }
+  },
+  {
+   "attributes": {
+    "OBJECTID": 1112,
+    "FACILITY_ID": "FA0002862",
+    "NAME": "TACO BELL #35446",
+    "LOCATION": "3178 LAVON DR",
+    "CITY": "GARLAND",
+    "STATE": "TX",
+    "ZIP": "75040",
+    "PERMIT_NUMBER": "PT3261",
+    "INSPECTION_DATE": 1766016000000,
+    "SCORE": 93.0,
+    "VIOLATION_CODE": "1639",
+    "POINTS": 1.0,
+    "VIOLATION_DESCRIPTION": "Utensils, Equipment, & Linens; Stored, Dried, Handled/ In use Utensils; Properly Used",
+    "V_MEMO": "-Observed scooper stored with the handle in direct contact with the food product. \n\nUtensils must be stored in a clean and dry location to prevent contamination. \n\nIf stored in the same container as the food, the handle must be positioned above the product and not touching the food."
+   }
+  },
+  {
+   "attributes": {
+    "OBJECTID": 1113,
+    "FACILITY_ID": "FA0002862",
+    "NAME": "TACO BELL #35446",
+    "LOCATION": "3178 LAVON DR",
+    "CITY": "GARLAND",
+    "STATE": "TX",
+    "ZIP": "75040",
+    "PERMIT_NUMBER": "PT3261",
+    "INSPECTION_DATE": 1766016000000,
+    "SCORE": 93.0,
+    "VIOLATION_CODE": "1642",
+    "POINTS": 1.0,
+    "VIOLATION_DESCRIPTION": "Non-Food Contact Surfaces Clean",
+    "V_MEMO": "- Clean inside reach in coolers. "
+   }
+  },
+  {
+   "attributes": {
+    "OBJECTID": 1114,
+    "FACILITY_ID": "FA0002862",
+    "NAME": "TACO BELL #35446",
+    "LOCATION": "3178 LAVON DR",
+    "CITY": "GARLAND",
+    "STATE": "TX",
+    "ZIP": "75040",
+    "PERMIT_NUMBER": "PT3261",
+    "INSPECTION_DATE": 1766016000000,
+    "SCORE": 93.0,
+    "VIOLATION_CODE": "1644",
+    "POINTS": 1.0,
+    "VIOLATION_DESCRIPTION": "Garbage and Refuse Properly Disposed; Facilities Maintained",
+    "V_MEMO": "- Clean dumpster area. "
+   }
+  },
+  {
+   "attributes": {
+    "OBJECTID": 1115,
+    "FACILITY_ID": "FA0002862",
+    "NAME": "TACO BELL #35446",
+    "LOCATION": "3178 LAVON DR",
+    "CITY": "GARLAND",
+    "STATE": "TX",
+    "ZIP": "75040",
+    "PERMIT_NUMBER": "PT3261",
+    "INSPECTION_DATE": 1766016000000,
+    "SCORE": 93.0,
+    "VIOLATION_CODE": "1645",
+    "POINTS": 1.0,
+    "VIOLATION_DESCRIPTION": "Physical Facilities Installed, Maintained, and Clean",
+    "V_MEMO": "- Clean floors in walk in coolers and freezers. "
+   }
+  },
+  {
+   "attributes": {
+    "OBJECTID": 1116,
+    "FACILITY_ID": "FA0002862",
+    "NAME": "TACO BELL #35446",
+    "LOCATION": "3178 LAVON DR",
+    "CITY": "GARLAND",
+    "STATE": "TX",
+    "ZIP": "75040",
+    "PERMIT_NUMBER": "PT3261",
+    "INSPECTION_DATE": 1766016000000,
+    "SCORE": 93.0,
+    "VIOLATION_CODE": "1647",
+    "POINTS": 1.0,
+    "VIOLATION_DESCRIPTION": "Other Violations",
+    "V_MEMO": "- Provide most recent grease trap ticket. \r\n\r\n- Food handler certificates and employee health agreement must be accessible by recheck.\r\n\r\n-Post new permit.\r\n"
+   }
+  },
+  {
+   "attributes": {
+    "OBJECTID": 1141,
+    "FACILITY_ID": "FA0000521",
+    "NAME": "PEARL C ANDERSON CHILDCARE GROUP",
+    "LOCATION": "625 E AVENUE B",
+    "CITY": "GARLAND",
+    "STATE": "TX",
+    "ZIP": "75040",
+    "PERMIT_NUMBER": "PT0507",
+    "INSPECTION_DATE": 1766016000000,
+    "SCORE": 84.0,
+    "VIOLATION_CODE": "1603",
+    "POINTS": 3.0,
+    "VIOLATION_DESCRIPTION": "Proper Hot Holding temperature(135øF)",
+    "V_MEMO": "Observation:\nSandwiches/hamburgers were observed at 109°F, sitting on trays on top of the stove at room temperature. Per the cook, food was prepared around 8:30 a.m. for a 10:30 a.m. lunch and reheated approximately 10 minutes prior to service. Hot foods were not maintained at 135°F or above as required.\r\n\r\n\n\nCorrective Action:\nCook was informed that hot foods must be held at 135°F or higher or prepared 15–20 minutes prior to service. Food must not be held at room temperature for extended periods. Management shall retrain food service staff on proper hot-holding temperatures and time/temperature control, with emphasis on protecting children, a highly susceptible population. Compliance with food code requirements is required at all times."
+   }
+  },
+  {
+   "attributes": {
+    "OBJECTID": 1142,
+    "FACILITY_ID": "FA0000521",
+    "NAME": "PEARL C ANDERSON CHILDCARE GROUP",
+    "LOCATION": "625 E AVENUE B",
+    "CITY": "GARLAND",
+    "STATE": "TX",
+    "ZIP": "75040",
+    "PERMIT_NUMBER": "PT0507",
+    "INSPECTION_DATE": 1766016000000,
+    "SCORE": 84.0,
+    "VIOLATION_CODE": "1610",
+    "POINTS": 3.0,
+    "VIOLATION_DESCRIPTION": "Food Contact Surfaces; Cleaned and Sanitized",
+    "V_MEMO": "Observation:\r\n\r\nMold was observed inside the ice machine.\r\n\r\n\n\nCorrective Action:\r\n\r\nEnsure the ice machine is thoroughly cleaned and sanitized. Implement and maintain a regular cleaning schedule to prevent mold growth in the future.\r"
+   }
+  },
+  {
+   "attributes": {
+    "OBJECTID": 1143,
+    "FACILITY_ID": "FA0000521",
+    "NAME": "PEARL C ANDERSON CHILDCARE GROUP",
+    "LOCATION": "625 E AVENUE B",
+    "CITY": "GARLAND",
+    "STATE": "TX",
+    "ZIP": "75040",
+    "PERMIT_NUMBER": "PT0507",
+    "INSPECTION_DATE": 1766016000000,
+    "SCORE": 84.0,
+    "VIOLATION_CODE": "1622",
+    "POINTS": 2.0,
+    "VIOLATION_DESCRIPTION": "Food Handler/No Unauthorized Persons/ Personnel",
+    "V_MEMO": "Observation:\nFood handler certificate(s) were not available for review at the time of inspection.\n\n\r\n\r\nCorrective Action:\nEnsure all food employees possess valid food handler certificates and that certificates are readily available for inspection at all times. Certificates may be stored in a designated folder (optional), organized alphabetically with dividers, and provided upon request during each inspection."
+   }
+  },
+  {
+   "attributes": {
+    "OBJECTID": 1144,
+    "FACILITY_ID": "FA0000521",
+    "NAME": "PEARL C ANDERSON CHILDCARE GROUP",
+    "LOCATION": "625 E AVENUE B",
+    "CITY": "GARLAND",
+    "STATE": "TX",
+    "ZIP": "75040",
+    "PERMIT_NUMBER": "PT0507",
+    "INSPECTION_DATE": 1766016000000,
+    "SCORE": 84.0,
+    "VIOLATION_CODE": "1628",
+    "POINTS": 2.0,
+    "VIOLATION_DESCRIPTION": "Proper Date Marking and Disposition",
+    "V_MEMO": "Observation:\nObserved food items in the reach-in coolers missing date labels.\r\n\r\nCorrective Action:\n The prep or open date counts as Day 1, and items may be held for up to 7 days when properly refrigerated. Maintain uniform labeling practices by using either a prep/open date or a discard date, but not both, to prevent confusion and reduce the risk of using expired products."
+   }
+  },
+  {
+   "attributes": {
+    "OBJECTID": 1145,
+    "FACILITY_ID": "FA0000521",
+    "NAME": "PEARL C ANDERSON CHILDCARE GROUP",
+    "LOCATION": "625 E AVENUE B",
+    "CITY": "GARLAND",
+    "STATE": "TX",
+    "ZIP": "75040",
+    "PERMIT_NUMBER": "PT0507",
+    "INSPECTION_DATE": 1766016000000,
+    "SCORE": 84.0,
+    "VIOLATION_CODE": "1629",
+    "POINTS": 2.0,
+    "VIOLATION_DESCRIPTION": "Thermometers Provided, Accurate, and Calibrated; Chemical/ Thermal Test Strips",
+    "V_MEMO": "Observation:\nThe facility did not have chemical test strips or dish plate/thermal test strips available to check food contact surface sanitizer levels or dishwasher rinse temperatures.\n\n\r\n\r\nCorrective Action:\nProvide approved chemical test strips and dish plate or thermal test strips to verify sanitizer concentration on food contact surfaces and dishwasher rinse temperatures. Train staff to use and document test results to ensure proper cleaning and sanitation."
+   }
+  },
+  {
+   "attributes": {
+    "OBJECTID": 1146,
+    "FACILITY_ID": "FA0000521",
+    "NAME": "PEARL C ANDERSON CHILDCARE GROUP",
+    "LOCATION": "625 E AVENUE B",
+    "CITY": "GARLAND",
+    "STATE": "TX",
+    "ZIP": "75040",
+    "PERMIT_NUMBER": "PT0507",
+    "INSPECTION_DATE": 1766016000000,
+    "SCORE": 84.0,
+    "VIOLATION_CODE": "1632",
+    "POINTS": 2.0,
+    "VIOLATION_DESCRIPTION": "Food and Non-food Contact surfaces Cleanable, Properly Designed, Constructed, and Used",
+    "V_MEMO": "Observation:\nObserved absorbent materials such as paper towels, cardboard, or rags being used as liners.\r\n\r\n\n\nCorrective Action:\nDo not use any absorbent materials as liners in food contact areas. Use only approved food-grade liners to prevent contamination."
+   }
+  },
+  {
+   "attributes": {
+    "OBJECTID": 1147,
+    "FACILITY_ID": "FA0000521",
+    "NAME": "PEARL C ANDERSON CHILDCARE GROUP",
+    "LOCATION": "625 E AVENUE B",
+    "CITY": "GARLAND",
+    "STATE": "TX",
+    "ZIP": "75040",
+    "PERMIT_NUMBER": "PT0507",
+    "INSPECTION_DATE": 1766016000000,
+    "SCORE": 84.0,
+    "VIOLATION_CODE": "1636",
+    "POINTS": 1.0,
+    "VIOLATION_DESCRIPTION": "Wiping Cloths; Properly Used and Stored",
+    "V_MEMO": "Observation:\nA wiping cloth was observed stored on the counter without sanitizer.\n\n\r\n\r\nCorrective Action:\nStore all wiping cloths in buckets with sanitizer when not in use. Ensure the sanitizer is at the correct concentration to effectively prevent cross-contamination and maintain proper sanitation."
+   }
+  },
+  {
+   "attributes": {
+    "OBJECTID": 1148,
+    "FACILITY_ID": "FA0000521",
+    "NAME": "PEARL C ANDERSON CHILDCARE GROUP",
+    "LOCATION": "625 E AVENUE B",
+    "CITY": "GARLAND",
+    "STATE": "TX",
+    "ZIP": "75040",
+    "PERMIT_NUMBER": "PT0507",
+    "INSPECTION_DATE": 1766016000000,
+    "SCORE": 84.0,
+    "VIOLATION_CODE": "1642",
+    "POINTS": 1.0,
+    "VIOLATION_DESCRIPTION": "Non-Food Contact Surfaces Clean",
+    "V_MEMO": "Observation:\nObserved dirty door gaskets on equipment.\n\n\r\n\r\nCorrective Action:\nClean and sanitize all door gaskets regularly to prevent accumulation of debris and ensure proper sanitation."
+   }
+  },
+  {
+   "attributes": {
+    "OBJECTID": 1149,
+    "FACILITY_ID": "FA0004095",
+    "NAME": "EGGSQUISITE CAFE",
+    "LOCATION": "5325 N PRES. GEORGE BUSH HWY 100",
+    "CITY": "GARLAND",
+    "STATE": "TX",
+    "ZIP": "75040",
+    "PERMIT_NUMBER": "PT5031",
+    "INSPECTION_DATE": 1766966400000,
+    "SCORE": 0.0,
+    "VIOLATION_CODE": "1619",
+    "POINTS": 3.0,
+    "VIOLATION_DESCRIPTION": "Water from Approved Source; Plumbing Installed; Proper Backflow Device",
+    "V_MEMO": "All sinks shall be installed without cross-connections to prevent backflow. Any spray device connected to a water hose shall be provided with an approved backflow prevention device. All drain lines shall discharge through a properly sized and approved air gap into a floor sink or floor drain, in full compliance with applicable plumbing and building codes."
+   }
+  },
+  {
+   "attributes": {
+    "OBJECTID": 1150,
+    "FACILITY_ID": "FA0004095",
+    "NAME": "EGGSQUISITE CAFE",
+    "LOCATION": "5325 N PRES. GEORGE BUSH HWY 100",
+    "CITY": "GARLAND",
+    "STATE": "TX",
+    "ZIP": "75040",
+    "PERMIT_NUMBER": "PT5031",
+    "INSPECTION_DATE": 1766966400000,
+    "SCORE": 0.0,
+    "VIOLATION_CODE": "1620",
+    "POINTS": 3.0,
+    "VIOLATION_DESCRIPTION": "Approved Sewage/Wastewater Disposal System, Proper Disposal",
+    "V_MEMO": "Observed on page 29  of the plan review, an existing grease trap with a capacity of 250 gallons is indicated. Also observed calculation on page 31. However this grease trap size is not approved.\n\nPlease provide Food Menu and the following information in accordance with the Uniform Plumbing Code (UPC) to verify the correct grease trap sizing:\n\nFacility Information Required:\n\nSeating Capacity: Please provide the total number of seats.\n\nMeal Factor: Select one of the following:\n\nRestaurant – 60 minutes\n\nFast Food – 45 minutes\n\nLeisure Dining – 90 minutes\n\nDinner Club – 120 minutes\n\nWaste Flow Rate: Select one of the following:\n\nWith a dishwashing machine\n\nWithout a dishwashing machine\n\nHeat-and-serve (no food preparation) kitchen\n\nFood waste disposer only\n\nRetention Time: Select one of the following: \n\nDishwashing machine\n\nSingle-service kitchen\n\nStorage Factor: Select one of the following:\n\nFully equipped commercial kitchen: 8, 12, 16, or 24 hours\n\nSingle-service kitchen.\r\nAdditionally, the grease trap must be installed exterior and underground.\r\n\n\nPlease contact me with any questions prior to installing any additional grease trap equipment."
+   }
+  },
+  {
+   "attributes": {
+    "OBJECTID": 1151,
+    "FACILITY_ID": "FA0004095",
+    "NAME": "EGGSQUISITE CAFE",
+    "LOCATION": "5325 N PRES. GEORGE BUSH HWY 100",
+    "CITY": "GARLAND",
+    "STATE": "TX",
+    "ZIP": "75040",
+    "PERMIT_NUMBER": "PT5031",
+    "INSPECTION_DATE": 1766966400000,
+    "SCORE": 0.0,
+    "VIOLATION_CODE": "1623",
+    "POINTS": 2.0,
+    "VIOLATION_DESCRIPTION": "Hot and Cold Water available; Adequate Pressure; Safe Water",
+    "V_MEMO": "The food establishment must be provided with both hot and cold running water at all required sinks and fixtures."
+   }
+  },
+  {
+   "attributes": {
+    "OBJECTID": 1152,
+    "FACILITY_ID": "FA0004095",
+    "NAME": "EGGSQUISITE CAFE",
+    "LOCATION": "5325 N PRES. GEORGE BUSH HWY 100",
+    "CITY": "GARLAND",
+    "STATE": "TX",
+    "ZIP": "75040",
+    "PERMIT_NUMBER": "PT5031",
+    "INSPECTION_DATE": 1766966400000,
+    "SCORE": 0.0,
+    "VIOLATION_CODE": "1630",
+    "POINTS": 2.0,
+    "VIOLATION_DESCRIPTION": "Establishment Permit",
+    "V_MEMO": "The menu has not been received. Please provide with Menu. Additionally, please let us know if any special food processes will be performed, such as : \r\nSmoking for preservation, \r\nCuring, \r\nReduced-oxygen packaging (ROP)\r\n, Sprouting seeds or beans, \r\nFermentation,\r\n Acidification, \r\nCustom processing of animals\r\nTime/temperature control processes\r\nIf any of these processes will be used, please ensure your HACCP plan is available for review."
+   }
+  },
+  {
+   "attributes": {
+    "OBJECTID": 1153,
+    "FACILITY_ID": "FA0004095",
+    "NAME": "EGGSQUISITE CAFE",
+    "LOCATION": "5325 N PRES. GEORGE BUSH HWY 100",
+    "CITY": "GARLAND",
+    "STATE": "TX",
+    "ZIP": "75040",
+    "PERMIT_NUMBER": "PT5031",
+    "INSPECTION_DATE": 1766966400000,
+    "SCORE": 0.0,
+    "VIOLATION_CODE": "1631",
+    "POINTS": 2.0,
+    "VIOLATION_DESCRIPTION": "Adequate Hand Washing Facilities: Accessible and Properly Supplied",
+    "V_MEMO": "Hand wash Sink Requirements :\r\n\r\nHand wash sinks must be free-standing and equipped with at least four (4) inch wing-style handles.\r\nObserved both hand wash sinks shown on page 5 appear to be in good locations. However, it is difficult to determine how close they are to other \r\nstructures, such as prep tables or ice bins. Please ensure that a splash guard is installed to prevent contamination from splashing.\r\nI did not observe the soap and paper towel dispensers listed for each hand wash sink. Please ensure that soap and paper towel dispensers are \r\nprovided at every hand wash sink as required."
+   }
+  },
+  {
+   "attributes": {
+    "OBJECTID": 1154,
+    "FACILITY_ID": "FA0004095",
+    "NAME": "EGGSQUISITE CAFE",
+    "LOCATION": "5325 N PRES. GEORGE BUSH HWY 100",
+    "CITY": "GARLAND",
+    "STATE": "TX",
+    "ZIP": "75040",
+    "PERMIT_NUMBER": "PT5031",
+    "INSPECTION_DATE": 1766966400000,
+    "SCORE": 0.0,
+    "VIOLATION_CODE": "1632",
+    "POINTS": 2.0,
+    "VIOLATION_DESCRIPTION": "Food and Non-food Contact surfaces Cleanable, Properly Designed, Constructed, and Used",
+    "V_MEMO": "Equipment Specifications and Requirements:\r\nAll food contact surfaces must be stainless steel, with the exception of certain approved polymer cutting boards. Baking tables may be an \r\napproved hard, close-grained wood (such as maple, walnut, mahogany, bamboo, pecan). \r\nCabinets, tables, or other similar equipment made of wood, particle board, or formica must not be allowed in areas subject to moisture. Shelving \r\nand racks in food preparation, processing, and utensil washing areas must be commercial, food service grade, non-corrosive metal, or \r\nequivalent as approved by the Health Department. Enamel or epoxy painted (light-colored) wood shelving is acceptable in dry storage and \r\nwarehouse areas.\r\nShelving and racks in walk-in coolers and freezers must be stainless steel, or epoxy coated non-corrosive metal or equivalent as approved by \r\nHealth Department. Wood is prohibited as a shelving material in walk-in coolers and freezers.\r\nThe plan does not indicate whether the cold holding coolers are on caster wheels or sealed to the floor. Also, ensure any warmers or hot holding \r\ndevices installed are ANSI-certified.\r\nSneeze guards must be required on all customer self-service lines"
+   }
+  },
+  {
+   "attributes": {
+    "OBJECTID": 1155,
+    "FACILITY_ID": "FA0004095",
+    "NAME": "EGGSQUISITE CAFE",
+    "LOCATION": "5325 N PRES. GEORGE BUSH HWY 100",
+    "CITY": "GARLAND",
+    "STATE": "TX",
+    "ZIP": "75040",
+    "PERMIT_NUMBER": "PT5031",
+    "INSPECTION_DATE": 1766966400000,
+    "SCORE": 0.0,
+    "VIOLATION_CODE": "1633",
+    "POINTS": 2.0,
+    "VIOLATION_DESCRIPTION": "Warewashing Facilities; Installed, Maintained, Used; Service sink/Curbed Cleaning Facility Provided",
+    "V_MEMO": "Equipment Specifications and Requirements:\r\nAll food contact surfaces must be stainless steel, with the exception of certain approved polymer cutting boards. Baking tables may be an \r\napproved hard, close-grained wood (such as maple, walnut, mahogany, bamboo, pecan). \r\nCabinets, tables, or other similar equipment made of wood, particle board, or formica must not be allowed in areas subject to moisture. Shelving \r\nand racks in food preparation, processing, and utensil washing areas must be commercial, food service grade, non-corrosive metal, or \r\nequivalent as approved by the Health Department. Enamel or epoxy painted (light-colored) wood shelving is acceptable in dry storage and \r\nwarehouse areas.\r\nShelving and racks in walk-in coolers and freezers must be stainless steel, or epoxy coated non-corrosive metal or equivalent as approved by \r\nHealth Department. Wood is prohibited as a shelving material in walk-in coolers and freezers.\r\nThe plan does not indicate whether the cold holding coolers are on caster wheels or sealed to the floor. Also, ensure any warmers or hot holding \r\ndevices installed are ANSI-certified.\r\nSneeze guards must be required on all customer self-service lines"
+   }
+  },
+  {
+   "attributes": {
+    "OBJECTID": 1156,
+    "FACILITY_ID": "FA0004095",
+    "NAME": "EGGSQUISITE CAFE",
+    "LOCATION": "5325 N PRES. GEORGE BUSH HWY 100",
+    "CITY": "GARLAND",
+    "STATE": "TX",
+    "ZIP": "75040",
+    "PERMIT_NUMBER": "PT5031",
+    "INSPECTION_DATE": 1766966400000,
+    "SCORE": 0.0,
+    "VIOLATION_CODE": "1634",
+    "POINTS": 1.0,
+    "VIOLATION_DESCRIPTION": "No Evidence of Insect Contamination, Rodent/other Animals",
+    "V_MEMO": "Requirement:\r\n Receiving doors must be equipped with automatic air curtains and have a self closing device. \r\nAll exterior doors must be self-closing."
+   }
+  },
+  {
+   "attributes": {
+    "OBJECTID": 1157,
+    "FACILITY_ID": "FA0004095",
+    "NAME": "EGGSQUISITE CAFE",
+    "LOCATION": "5325 N PRES. GEORGE BUSH HWY 100",
+    "CITY": "GARLAND",
+    "STATE": "TX",
+    "ZIP": "75040",
+    "PERMIT_NUMBER": "PT5031",
+    "INSPECTION_DATE": 1766966400000,
+    "SCORE": 0.0,
+    "VIOLATION_CODE": "1643",
+    "POINTS": 1.0,
+    "VIOLATION_DESCRIPTION": "Adequate Ventilation and Lighting; Designated Areas Used",
+    "V_MEMO": "Lighting Safety:\r\nBulbs in areas with exposed food, clean equipment, utensils, linens, or unwrapped items must be shielded, coated, or shatter-resistant.\r\nHeat lamps (infrared/other) must have a protective shield leaving only the bulb face exposed.\r\nLight Intensity:\r\nFood prep & warewashing surfaces: 50-foot candles\r\nHandwashing, service areas, storage, toilet rooms, inside equipment: 20-foot candles.\r\nWalk-in coolers/freezers, dry storage, cleaning areas: 10-foot candles.\r\nChemical Storage:\r\nDesignate a separate area for poisonous or cleaning chemicals, away from food, food storage, and utensils.\r\nPersonal Items:\r\nDesignate an area for employees to store personal items like bags and coats. This area cannot be above or near food, food prep areas, or \r\nutensils.\r"
+   }
+  },
+  {
+   "attributes": {
+    "OBJECTID": 1158,
+    "FACILITY_ID": "FA0004095",
+    "NAME": "EGGSQUISITE CAFE",
+    "LOCATION": "5325 N PRES. GEORGE BUSH HWY 100",
+    "CITY": "GARLAND",
+    "STATE": "TX",
+    "ZIP": "75040",
+    "PERMIT_NUMBER": "PT5031",
+    "INSPECTION_DATE": 1766966400000,
+    "SCORE": 0.0,
+    "VIOLATION_CODE": "1644",
+    "POINTS": 1.0,
+    "VIOLATION_DESCRIPTION": "Garbage and Refuse Properly Disposed; Facilities Maintained",
+    "V_MEMO": "Trash and Waste Management:\r\nEnsure enough trash cans are placed throughout the kitchen.\r\nDumpster must be clean, with lids and doors closed.\r\nEnsure dumpster is not leaking or contaminating surrounding areas.\r\nProvide a trash can at each hand washing sink (or for each group of adjacent sinks) when disposable towels are used. This supports proper. \r\nhand hygiene and prevents used towels from being discarded improperly."
+   }
+  },
+  {
+   "attributes": {
+    "OBJECTID": 1159,
+    "FACILITY_ID": "FA0004095",
+    "NAME": "EGGSQUISITE CAFE",
+    "LOCATION": "5325 N PRES. GEORGE BUSH HWY 100",
+    "CITY": "GARLAND",
+    "STATE": "TX",
+    "ZIP": "75040",
+    "PERMIT_NUMBER": "PT5031",
+    "INSPECTION_DATE": 1766966400000,
+    "SCORE": 0.0,
+    "VIOLATION_CODE": "1645",
+    "POINTS": 1.0,
+    "VIOLATION_DESCRIPTION": "Physical Facilities Installed, Maintained, and Clean",
+    "V_MEMO": "I observed on page 5, that the room schedule generally meets the required construction standards for health. However, on page 11, in the restroom, I noticed that black vinyl cove was installed instead of the specified ceramic cove. Please ensure that the room schedule specifications are followed as indicated on the page.\n\nAdditionally, I did not observe a designated dry storage area for dry goods. Please ensure that a storage area is added or designated if one has not yet been assigned. It is important that the storage area be sized adequately to accommodate the amount of dry goods that will be stored, depending on the number of days between deliveries, to ensure proper organization, accessibility, and compliance with food safety standards.\r\n\r\n\n\nIn the following information, I will provide specific construction standards for your reference.\r\n\r\n Please see below:\r\n\r\nFloor Requirements:\r\n\r\nFood preparation, tableware and utensil washing, customer service areas (including buffets), and toilet rooms must have quarry or ceramic tile floors with epoxy-containing, acid-resistant grout.Floors must have a covered floor-wall interface of at least four (4) inches in height, constructed of quarry or ceramic tile.\r\nDry storage rooms and areas around mop sinks must have sealed concrete or vinyl composition tile (VCT) floors. Floor-wall interface must include four (4) inch vinyl base coving when floor is concrete or VCT tile.\r\n\r\nWall Requirements:\r\n\r\nFood preparation, tableware and utensil washing, and customer service areas (including self-service beverage areas) must have walls constructed of FRP panels, ceramic tile, or certain types of brick sealed with light-colored epoxy paint, or equivalent materials approved by the Health Department. Wall surfaces must extend eight (8) feet in height or to the ceiling if less than eight feet. Surfaces above paneling or tile must be light-colored, smooth, and washable.\r\n\r\nDry storage room walls must be taped and bedded sheetrock painted with light-colored epoxy or enamel paint to eight (8) feet, or use equivalent \r\napproved materials.\r\n\r\nToilet room walls must be FRP, ceramic tile, or certain types of brick sealed with epoxy paint to a minimum height of four (4) feet. Surfaces above must be light-colored, smooth, and cleanable.\r\n\r\nWalls adjacent to the mop sink (if not in areas listed above) must have FRP or ceramic tile extending from floor to at least three (3) feet above the sink and on all sides.\r\n\r\nCeiling Requirements:\r\n\r\nCeilings in food preparation, customer service, tableware and utensil washing, mop sink, toilet rooms, and dry storage areas must be light-colored, smooth, relatively non-absorbent, and easily cleanable. Acceptable materials include vinyl-coated sheetrock panels, taped and bedded sheetrock with light-colored epoxy/enamel paint, or FRP panels.\r\n\r\nAdditional Requirements:\r\n\r\nAll restroom doors must have self-closing devices.\r\nAll restroom floors must have floor drains to allow proper drainage and cleaning.\r\r\n\r\n"
+   }
+  },
+  {
+   "attributes": {
+    "OBJECTID": 1160,
+    "FACILITY_ID": "FA0004095",
+    "NAME": "EGGSQUISITE CAFE",
+    "LOCATION": "5325 N PRES. GEORGE BUSH HWY 100",
+    "CITY": "GARLAND",
+    "STATE": "TX",
+    "ZIP": "75040",
+    "PERMIT_NUMBER": "PT5031",
+    "INSPECTION_DATE": 1766966400000,
+    "SCORE": 0.0,
+    "VIOLATION_CODE": "1646",
+    "POINTS": 1.0,
+    "VIOLATION_DESCRIPTION": "Toilet Facilities; Properly Constructed, Supplied, and Clean",
+    "V_MEMO": "Handwash Signs: \r\n“Employees must wash hands before returning to work” signs must be posted at each toilet room sink.\r\nTrashcans:\r\nMust be provided in all toilet rooms.\r\nFemale or unisex toilets must have at least one covered trashcan for disposal of sanitary pads and tampons.\r"
+   }
+  },
+  {
+   "attributes": {
+    "OBJECTID": 1161,
+    "FACILITY_ID": "FA0004095",
+    "NAME": "EGGSQUISITE CAFE",
+    "LOCATION": "5325 N PRES. GEORGE BUSH HWY 100",
+    "CITY": "GARLAND",
+    "STATE": "TX",
+    "ZIP": "75040",
+    "PERMIT_NUMBER": "PT5031",
+    "INSPECTION_DATE": 1766966400000,
+    "SCORE": 0.0,
+    "VIOLATION_CODE": "1647",
+    "POINTS": 79.0,
+    "VIOLATION_DESCRIPTION": "Other Violations",
+    "V_MEMO": "Smoking Requirements:\r\nSmoking prohibited in all newly-constructed and newly-owned food establishments.\r\nNo smoking within 25 feet of doors, operable windows, vents, or other openings to indoor areas.\r\nSmoking allowed on patios only if:\r\nPatio is uncovered, and Less than 40% of perimeter is enclosed by walls or other coverings.\r\n“No Smoking” signs must be posted at each public entrance:\r\nEither “No Smoking, City of Garland Ordinance” or international “No Smoking” symbol.\r\nBold lettering at least 1-inch in height.\r\nHand wash sinks must display “Employees Must Wash Hands” signs, which are not currently listed in the plan."
+   }
+  },
+  {
+   "attributes": {
+    "OBJECTID": 1200,
+    "FACILITY_ID": "FA0003035",
+    "NAME": "FENG CHA GARLAND",
+    "LOCATION": "2645 ARAPAHO RD 125",
+    "CITY": "GARLAND",
+    "STATE": "TX",
+    "ZIP": "75044",
+    "PERMIT_NUMBER": "PT3447",
+    "INSPECTION_DATE": 1767744000000,
+    "SCORE": 81.0,
+    "VIOLATION_CODE": "1610",
+    "POINTS": 3.0,
+    "VIOLATION_DESCRIPTION": "Food Contact Surfaces; Cleaned and Sanitized",
+    "V_MEMO": "-Provide an approved sanitizer for food-contact surfaces and maintain it at the proper concentration for effective sanitization."
+   }
+  },
+  {
+   "attributes": {
+    "OBJECTID": 1201,
+    "FACILITY_ID": "FA0003035",
+    "NAME": "FENG CHA GARLAND",
+    "LOCATION": "2645 ARAPAHO RD 125",
+    "CITY": "GARLAND",
+    "STATE": "TX",
+    "ZIP": "75044",
+    "PERMIT_NUMBER": "PT3447",
+    "INSPECTION_DATE": 1767744000000,
+    "SCORE": 81.0,
+    "VIOLATION_CODE": "1620",
+    "POINTS": 3.0,
+    "VIOLATION_DESCRIPTION": "Approved Sewage/Wastewater Disposal System, Proper Disposal",
+    "V_MEMO": "-Observed drains backing up and overflowing with wastewater. Per the person in charge, this occurs approximately once a month when a plumber services the pipes. Wastewater may not back up or overflow into the facility. Food preparation must cease if this condition occurs and may not resume until the issue is fully corrected. The drainage issue was unclogged and resolved before the inspection was completed."
+   }
+  },
+  {
+   "attributes": {
+    "OBJECTID": 1202,
+    "FACILITY_ID": "FA0003035",
+    "NAME": "FENG CHA GARLAND",
+    "LOCATION": "2645 ARAPAHO RD 125",
+    "CITY": "GARLAND",
+    "STATE": "TX",
+    "ZIP": "75044",
+    "PERMIT_NUMBER": "PT3447",
+    "INSPECTION_DATE": 1767744000000,
+    "SCORE": 81.0,
+    "VIOLATION_CODE": "1629",
+    "POINTS": 2.0,
+    "VIOLATION_DESCRIPTION": "Thermometers Provided, Accurate, and Calibrated; Chemical/ Thermal Test Strips",
+    "V_MEMO": "Provide a stem thermometer for checking food temperatures, a thermometer for the reach-in cooler, and test strips for measuring sanitizer concentration."
+   }
+  },
+  {
+   "attributes": {
+    "OBJECTID": 1203,
+    "FACILITY_ID": "FA0003035",
+    "NAME": "FENG CHA GARLAND",
+    "LOCATION": "2645 ARAPAHO RD 125",
+    "CITY": "GARLAND",
+    "STATE": "TX",
+    "ZIP": "75044",
+    "PERMIT_NUMBER": "PT3447",
+    "INSPECTION_DATE": 1767744000000,
+    "SCORE": 81.0,
+    "VIOLATION_CODE": "1631",
+    "POINTS": 2.0,
+    "VIOLATION_DESCRIPTION": "Adequate Hand Washing Facilities: Accessible and Properly Supplied",
+    "V_MEMO": "Install a paper towel dispenser or provide an approved method to dispense paper towels at the front area without causing contamination."
+   }
+  },
+  {
+   "attributes": {
+    "OBJECTID": 1204,
+    "FACILITY_ID": "FA0003035",
+    "NAME": "FENG CHA GARLAND",
+    "LOCATION": "2645 ARAPAHO RD 125",
+    "CITY": "GARLAND",
+    "STATE": "TX",
+    "ZIP": "75044",
+    "PERMIT_NUMBER": "PT3447",
+    "INSPECTION_DATE": 1767744000000,
+    "SCORE": 81.0,
+    "VIOLATION_CODE": "1632",
+    "POINTS": 2.0,
+    "VIOLATION_DESCRIPTION": "Food and Non-food Contact surfaces Cleanable, Properly Designed, Constructed, and Used",
+    "V_MEMO": "-Observed a heavily soiled crate being used for chemical storage and general storage. Crates must be removed and not used for storage. \r\n-Cardboard boxes used to store products must be replaced with clean, commercial, washable containers. \r\n-Observed a blue knife with peeling paint. Damaged utensils must be removed from use and replaced with smooth, non-absorbent, easily cleanable utensils.\r\n\r\n-Remove, resurface, or replace all rusted surfaces in the kitchen and storage areas to ensure surfaces are smooth, nonabsorbent, and easily cleanable.\r\n"
+   }
+  },
+  {
+   "attributes": {
+    "OBJECTID": 1205,
+    "FACILITY_ID": "FA0003035",
+    "NAME": "FENG CHA GARLAND",
+    "LOCATION": "2645 ARAPAHO RD 125",
+    "CITY": "GARLAND",
+    "STATE": "TX",
+    "ZIP": "75044",
+    "PERMIT_NUMBER": "PT3447",
+    "INSPECTION_DATE": 1767744000000,
+    "SCORE": 81.0,
+    "VIOLATION_CODE": "1635",
+    "POINTS": 1.0,
+    "VIOLATION_DESCRIPTION": "Personal Cleanliness/ Eating, Drinking or Tobacco Use",
+    "V_MEMO": "-Food handlers must wear hats, hairnets, or other hair coverings that fully cover the crown of the head during food preparation and service."
+   }
+  },
+  {
+   "attributes": {
+    "OBJECTID": 1206,
+    "FACILITY_ID": "FA0003035",
+    "NAME": "FENG CHA GARLAND",
+    "LOCATION": "2645 ARAPAHO RD 125",
+    "CITY": "GARLAND",
+    "STATE": "TX",
+    "ZIP": "75044",
+    "PERMIT_NUMBER": "PT3447",
+    "INSPECTION_DATE": 1767744000000,
+    "SCORE": 81.0,
+    "VIOLATION_CODE": "1636",
+    "POINTS": 1.0,
+    "VIOLATION_DESCRIPTION": "Wiping Cloths; Properly Used and Stored",
+    "V_MEMO": "Observed wiping cloths stored in a container at the three-compartment sink with sanitizer measuring 0 ppm. Wiping cloths must be stored in sanitizer solution at the correct concentration during food preparation and service, and sanitizer buckets must be maintained in these areas. Wiping cloths may not be stored on the floor."
+   }
+  },
+  {
+   "attributes": {
+    "OBJECTID": 1207,
+    "FACILITY_ID": "FA0003035",
+    "NAME": "FENG CHA GARLAND",
+    "LOCATION": "2645 ARAPAHO RD 125",
+    "CITY": "GARLAND",
+    "STATE": "TX",
+    "ZIP": "75044",
+    "PERMIT_NUMBER": "PT3447",
+    "INSPECTION_DATE": 1767744000000,
+    "SCORE": 81.0,
+    "VIOLATION_CODE": "1639",
+    "POINTS": 1.0,
+    "VIOLATION_DESCRIPTION": "Utensils, Equipment, & Linens; Stored, Dried, Handled/ In use Utensils; Properly Used",
+    "V_MEMO": "Observed in-use utensils at the front service area stored in standing water at room temperature. In-use utensils may be stored in the food with handles above the food, in running water, at 135°F or above, on a clean and dry surface, or in a clean container. Utensils may not be stored in standing water."
+   }
+  },
+  {
+   "attributes": {
+    "OBJECTID": 1208,
+    "FACILITY_ID": "FA0003035",
+    "NAME": "FENG CHA GARLAND",
+    "LOCATION": "2645 ARAPAHO RD 125",
+    "CITY": "GARLAND",
+    "STATE": "TX",
+    "ZIP": "75044",
+    "PERMIT_NUMBER": "PT3447",
+    "INSPECTION_DATE": 1767744000000,
+    "SCORE": 81.0,
+    "VIOLATION_CODE": "1641",
+    "POINTS": 1.0,
+    "VIOLATION_DESCRIPTION": "Original Container (Bulk Food); Food Labeled",
+    "V_MEMO": "Label all containers that are missing labels, including salt, sugar, and other food items."
+   }
+  },
+  {
+   "attributes": {
+    "OBJECTID": 1209,
+    "FACILITY_ID": "FA0003035",
+    "NAME": "FENG CHA GARLAND",
+    "LOCATION": "2645 ARAPAHO RD 125",
+    "CITY": "GARLAND",
+    "STATE": "TX",
+    "ZIP": "75044",
+    "PERMIT_NUMBER": "PT3447",
+    "INSPECTION_DATE": 1767744000000,
+    "SCORE": 81.0,
+    "VIOLATION_CODE": "1642",
+    "POINTS": 1.0,
+    "VIOLATION_DESCRIPTION": "Non-Food Contact Surfaces Clean",
+    "V_MEMO": "-Observed drains containing heavy buildup of soiled material. Drains must be deep cleaned to remove buildup and maintained in a clean and sanitary condition.\r\n\r\n- Detail clean all non-food contact surfaces, including equipment exteriors, shelves, storage racks, doors, handles, and areas behind and under equipment, to prevent buildup of grease, dust, and debris."
+   }
+  },
+  {
+   "attributes": {
+    "OBJECTID": 1210,
+    "FACILITY_ID": "FA0003035",
+    "NAME": "FENG CHA GARLAND",
+    "LOCATION": "2645 ARAPAHO RD 125",
+    "CITY": "GARLAND",
+    "STATE": "TX",
+    "ZIP": "75044",
+    "PERMIT_NUMBER": "PT3447",
+    "INSPECTION_DATE": 1767744000000,
+    "SCORE": 81.0,
+    "VIOLATION_CODE": "1645",
+    "POINTS": 1.0,
+    "VIOLATION_DESCRIPTION": "Physical Facilities Installed, Maintained, and Clean",
+    "V_MEMO": "Clean walls and floors throughout the facility, with focus on areas behind and under equipment. Repair and fill all gaps in walls. Organize back-of-house areas to allow and facilitate proper cleaning."
+   }
+  },
+  {
+   "attributes": {
+    "OBJECTID": 1211,
+    "FACILITY_ID": "FA0003035",
+    "NAME": "FENG CHA GARLAND",
+    "LOCATION": "2645 ARAPAHO RD 125",
+    "CITY": "GARLAND",
+    "STATE": "TX",
+    "ZIP": "75044",
+    "PERMIT_NUMBER": "PT3447",
+    "INSPECTION_DATE": 1767744000000,
+    "SCORE": 81.0,
+    "VIOLATION_CODE": "1647",
+    "POINTS": 1.0,
+    "VIOLATION_DESCRIPTION": "Other Violations",
+    "V_MEMO": "-Provide the most recent grease trap service ticket. Serviced the last 90 days.  \r\n-Post all signage emailed by the inspector; if unsure of placement, have signage available at re-inspection. \r\n\r\n-Post the inspection score at the front entrance of the establishment."
+   }
+  },
+  {
+   "attributes": {
+    "OBJECTID": 1460,
+    "FACILITY_ID": "FA0002988",
+    "NAME": "THE BLUE RAT THAI KITCHEN",
+    "LOCATION": "608 MAIN ST",
+    "CITY": "GARLAND",
+    "STATE": "TX",
+    "ZIP": "75040",
+    "PERMIT_NUMBER": "PT3390",
+    "INSPECTION_DATE": 1769040000000,
+    "SCORE": 71.0,
+    "VIOLATION_CODE": "1602",
+    "POINTS": 3.0,
+    "VIOLATION_DESCRIPTION": "Proper Cold Holding temperature(41øF/45øF)",
+    "V_MEMO": "Sprouts at prep cooler were observed at 51 °F, noodles in the same prep cooler were observed at 49 °F. Both items were stored in the top portion of the prep cooler in bags that were above the max fill height of the cooler. \r\n-- The sprouts were discarded. \r\n\r\n\r\nObserved additional sprouts at reach in cooler at 46F. \r\n-- Sprouts are a TCS food and must be kept at 41F or below for safety. \r\n\r\n\r\nChef has a practice of moving entire bag of noodles from prep cooler to cook station before returning the entire bag of prepared noodles to the prep cooler; the cook used a similar practice with a bag of ground meat. This is an indication of temperature abuse and provides context to the observation above. \r\n-- Temperature abuse is when TCS foods remain in the danger zone for too long between brief periods of storage in cold holding. "
+   }
+  },
+  {
+   "attributes": {
+    "OBJECTID": 1461,
+    "FACILITY_ID": "FA0002988",
+    "NAME": "THE BLUE RAT THAI KITCHEN",
+    "LOCATION": "608 MAIN ST",
+    "CITY": "GARLAND",
+    "STATE": "TX",
+    "ZIP": "75040",
+    "PERMIT_NUMBER": "PT3390",
+    "INSPECTION_DATE": 1769040000000,
+    "SCORE": 71.0,
+    "VIOLATION_CODE": "1609",
+    "POINTS": 3.0,
+    "VIOLATION_DESCRIPTION": "Food Separated & Protected, Prevented during food preparation, storage, and display",
+    "V_MEMO": "Raw chicken was stored in the top portion of the prep cooler, above produce which was located in the bottom portion of the prep cooler. \r\n-- Foods must be stored in order of their cooking temperatures. \r\n-- Store ready-to-eat foods on top shelves > unwashed produce > whole seafood > whole raw meats > ground meats > raw poultry on the bottom shelf.\r\n\r\n\r\nObserved chef not change gloves after touching raw chicken and before continuing food prep of other items which have a lower cooking temperature or ready to eat foods. \r\n-- Gloves must be changed after touching things that need to be cooked to a higher temperature and before continuing food prep of things that require a lower cooking temperature. \r\n-- Generally gloves should be changed after handling any raw poultry. "
+   }
+  },
+  {
+   "attributes": {
+    "OBJECTID": 1462,
+    "FACILITY_ID": "FA0002988",
+    "NAME": "THE BLUE RAT THAI KITCHEN",
+    "LOCATION": "608 MAIN ST",
+    "CITY": "GARLAND",
+    "STATE": "TX",
+    "ZIP": "75040",
+    "PERMIT_NUMBER": "PT3390",
+    "INSPECTION_DATE": 1769040000000,
+    "SCORE": 71.0,
+    "VIOLATION_CODE": "1610",
+    "POINTS": 3.0,
+    "VIOLATION_DESCRIPTION": "Food Contact Surfaces; Cleaned and Sanitized",
+    "V_MEMO": "Observed chef reuse a plastic container for food storage without sanitizing it first. The container was used to store produce. \r\n-- Equipment must be sanitized after use, including after use as storage containers. \r\n\r\n\r\nA kitchen knife was used to cut open a box of eggs, and was put back onto in-use storage location for food prep. \r\n-- If in-use food contact equipment and utensils come into contact with items that are not clean, they must be cleaned and sanitized. "
+   }
+  },
+  {
+   "attributes": {
+    "OBJECTID": 1463,
+    "FACILITY_ID": "FA0002988",
+    "NAME": "THE BLUE RAT THAI KITCHEN",
+    "LOCATION": "608 MAIN ST",
+    "CITY": "GARLAND",
+    "STATE": "TX",
+    "ZIP": "75040",
+    "PERMIT_NUMBER": "PT3390",
+    "INSPECTION_DATE": 1769040000000,
+    "SCORE": 71.0,
+    "VIOLATION_CODE": "1614",
+    "POINTS": 3.0,
+    "VIOLATION_DESCRIPTION": "Hands Cleaned and Properly Washed/ Gloves Used Properly",
+    "V_MEMO": "Food handler did not wash hands prior to preparing fried egg rolls. \r\n-- Wash hands prior to prepping food. \r\n\r\n\r\nChef does not change gloves when required, such as touching body and food prep or touching raw foods and foods that are ready to eat. Instead of changing gloves, the chef was observed rinsing the gloves at the hand wash sink, but use of sink was not entirely consistent with times gloves needed to be changed. \r\n-- Gloves must be changed when switching tasks, when they are torn or dirty, after 4 hours of use, and after touching face or body. \r\n\r\nObserved male chef not wash hands prior to putting on gloves for food prep / prepping food in general. "
+   }
+  },
+  {
+   "attributes": {
+    "OBJECTID": 1464,
+    "FACILITY_ID": "FA0002988",
+    "NAME": "THE BLUE RAT THAI KITCHEN",
+    "LOCATION": "608 MAIN ST",
+    "CITY": "GARLAND",
+    "STATE": "TX",
+    "ZIP": "75040",
+    "PERMIT_NUMBER": "PT3390",
+    "INSPECTION_DATE": 1769040000000,
+    "SCORE": 71.0,
+    "VIOLATION_CODE": "1615",
+    "POINTS": 3.0,
+    "VIOLATION_DESCRIPTION": "No Bare Hand Contact with RTE foods or Approved Alternate Method",
+    "V_MEMO": "The Food Manager touched a head of ready to eat lettuce used for salads with bare hands when placing it into a plastic bag. The food manager placed the head of lettuce into the plastic bag only after he saw the inspector enter the kitchen. It was stored in the bottom of the prep cooler without a covering prior to inspection. \r\n-- Any foods that are ready to be eaten by the customer must be prepared using utensils (e.g. tongs) or gloves. "
+   }
+  },
+  {
+   "attributes": {
+    "OBJECTID": 1465,
+    "FACILITY_ID": "FA0002988",
+    "NAME": "THE BLUE RAT THAI KITCHEN",
+    "LOCATION": "608 MAIN ST",
+    "CITY": "GARLAND",
+    "STATE": "TX",
+    "ZIP": "75040",
+    "PERMIT_NUMBER": "PT3390",
+    "INSPECTION_DATE": 1769040000000,
+    "SCORE": 71.0,
+    "VIOLATION_CODE": "1618",
+    "POINTS": 3.0,
+    "VIOLATION_DESCRIPTION": "Toxic Substances Properly Identified, Stored and Used",
+    "V_MEMO": "Observed a can of Raid pesticide in the kitchen, on the floor to the right of the broken reach in cooler. \r\n-- Pesticide, when used in a kitchen, can become a toxic item when not applied by a pest control professional. Raid is also not listed and labeled for commercial kitchen use. "
+   }
+  },
+  {
+   "attributes": {
+    "OBJECTID": 1466,
+    "FACILITY_ID": "FA0002988",
+    "NAME": "THE BLUE RAT THAI KITCHEN",
+    "LOCATION": "608 MAIN ST",
+    "CITY": "GARLAND",
+    "STATE": "TX",
+    "ZIP": "75040",
+    "PERMIT_NUMBER": "PT3390",
+    "INSPECTION_DATE": 1769040000000,
+    "SCORE": 71.0,
+    "VIOLATION_CODE": "1621",
+    "POINTS": 2.0,
+    "VIOLATION_DESCRIPTION": "PIC Present, Demonstration of Knowledge, and Perform Duties/(CFM)",
+    "V_MEMO": "Observed 6 priority violations, this demonstrates the lack of active managerial control within the facility.\r\n\r\nManagerial control is the purposeful incorporation of specific actions or procedures by industry management into the operations of their business to attain control over foodborne illness risk factors. Managers should ensure that food handlers are performing all food safety measures to lower the risk of foodborne illness events including:\r\n(2) - Proper temperature control.\r\n(9) - Ensuring proper storage guidelines are followed to prevent cross-contamination potential.\r\n(10) - Ensuring food contact surfaces, utensils, and equipment, are thoroughly cleaned and sanitized.\r\n(14) - Ensuring food handlers are washing their hands and using gloves correctly to prevent potential employee contamination.\r\n(15) – Ensuring food handlers are not utilizing bare-hand contact with ready-to-eat foods.\r\n(18) – Ensuring toxic substances are identified, stored, and approved for food establishment use to prevent potential contamination of food or food contact surfaces."
+   }
+  },
+  {
+   "attributes": {
+    "OBJECTID": 1467,
+    "FACILITY_ID": "FA0002988",
+    "NAME": "THE BLUE RAT THAI KITCHEN",
+    "LOCATION": "608 MAIN ST",
+    "CITY": "GARLAND",
+    "STATE": "TX",
+    "ZIP": "75040",
+    "PERMIT_NUMBER": "PT3390",
+    "INSPECTION_DATE": 1769040000000,
+    "SCORE": 71.0,
+    "VIOLATION_CODE": "1628",
+    "POINTS": 2.0,
+    "VIOLATION_DESCRIPTION": "Proper Date Marking and Disposition",
+    "V_MEMO": "Various TCS foods in prep cooler were being held longer than 24 hours, but were not provided with a date label until the staff observed the inspector enter the kitchen. \r\n-- Ensure that date marking is consistent \r\n\r\n\r\nInspector observed additional food in the prep cooler that the chef stated was prepared the day prior. The date marking stated it was prepared 1/18/26. The certified food manager confirmed that the food was prepared the day prior but the previous date sticker was not replaced. \r\n-- Ensure that date marking is consistent "
+   }
+  },
+  {
+   "attributes": {
+    "OBJECTID": 1468,
+    "FACILITY_ID": "FA0002988",
+    "NAME": "THE BLUE RAT THAI KITCHEN",
+    "LOCATION": "608 MAIN ST",
+    "CITY": "GARLAND",
+    "STATE": "TX",
+    "ZIP": "75040",
+    "PERMIT_NUMBER": "PT3390",
+    "INSPECTION_DATE": 1769040000000,
+    "SCORE": 71.0,
+    "VIOLATION_CODE": "1634",
+    "POINTS": 1.0,
+    "VIOLATION_DESCRIPTION": "No Evidence of Insect Contamination, Rodent/other Animals",
+    "V_MEMO": "Observed a large cockroach crawling in kitchen. \r\nObserved ants crawling on a broken chef base cooler which holds a blender, rice warmer and microwave. In the carbon copy of the report, the broken chef base cooler was initially described as a prep table. \r\n\r\nContact a pest control professional, ensure that all breeding grounds for pests are removed. Remove unncessary equipment, ensure that receiving door properly seals, ensure that all food scraps and debris are removed from floors walls and ceilings. "
+   }
+  },
+  {
+   "attributes": {
+    "OBJECTID": 1469,
+    "FACILITY_ID": "FA0002988",
+    "NAME": "THE BLUE RAT THAI KITCHEN",
+    "LOCATION": "608 MAIN ST",
+    "CITY": "GARLAND",
+    "STATE": "TX",
+    "ZIP": "75040",
+    "PERMIT_NUMBER": "PT3390",
+    "INSPECTION_DATE": 1769040000000,
+    "SCORE": 71.0,
+    "VIOLATION_CODE": "1635",
+    "POINTS": 1.0,
+    "VIOLATION_DESCRIPTION": "Personal Cleanliness/ Eating, Drinking or Tobacco Use",
+    "V_MEMO": "Personal food stored with consumer food in bottom portion of prep cooler. \r\nPersonal items, such as tablets, chargers and more, were stored on prep table during food prep. \r\n\r\n\r\nA commercial kitchen is not a personal kitchen. Personal items should be stored in a designated location away from food storage and prep areas. Personal food must be stored below any other foods for customers. "
+   }
+  },
+  {
+   "attributes": {
+    "OBJECTID": 1470,
+    "FACILITY_ID": "FA0002988",
+    "NAME": "THE BLUE RAT THAI KITCHEN",
+    "LOCATION": "608 MAIN ST",
+    "CITY": "GARLAND",
+    "STATE": "TX",
+    "ZIP": "75040",
+    "PERMIT_NUMBER": "PT3390",
+    "INSPECTION_DATE": 1769040000000,
+    "SCORE": 71.0,
+    "VIOLATION_CODE": "1637",
+    "POINTS": 1.0,
+    "VIOLATION_DESCRIPTION": "Environmental Contamination",
+    "V_MEMO": "Observed a head of lettuce that was used for salads stored in the bottom of the prep cooler without a covering. The food manager placed the head of lettuce into the plastic bag only after he saw the inspector enter the kitchen \r\n-- Ensure that foods are covered while in storage with either plastic wrap or within a container with a lid. \r\n\r\n\r\nA box of eggs and a box of chicken were left on the ground outside the establishment when the second came back to the kitchen after a supply run. The staff did not make an effort to put items into cold holding until after instructed by the inspector. \r\n-- Ensure that all foods are moved into storage quickly during receiving, do not allow foods to be stored on the ground or in locations that are not secure from tampering. "
+   }
+  },
+  {
+   "attributes": {
+    "OBJECTID": 1471,
+    "FACILITY_ID": "FA0002988",
+    "NAME": "THE BLUE RAT THAI KITCHEN",
+    "LOCATION": "608 MAIN ST",
+    "CITY": "GARLAND",
+    "STATE": "TX",
+    "ZIP": "75040",
+    "PERMIT_NUMBER": "PT3390",
+    "INSPECTION_DATE": 1769040000000,
+    "SCORE": 71.0,
+    "VIOLATION_CODE": "1639",
+    "POINTS": 1.0,
+    "VIOLATION_DESCRIPTION": "Utensils, Equipment, & Linens; Stored, Dried, Handled/ In use Utensils; Properly Used",
+    "V_MEMO": "Facility has a habit of storing in-use kitchen knives on a dirty rolling cart, located in front of fryer. \r\n-- Clean utensils must be stored in a clean location. \r\n\r\n\r\nRice scoops stored in room temperature, still water. When the Food Manager saw inspector enter the building, he added a scoop of ice to the water. \r\n\r\n-- Rice scoops, when not currently in use must be stored using one of the following methods: \r\n(a) on a clean portion of the food preparation table or cooking equipment if both the scoop and location are cleaned and sanitized every 4 hours. \r\n(b) running water of sufficient velocity to flush particulates to the drain\r\n(c) in a container of water if the water is maintained at a temperature of at least 135 °F\r\n(d) in a container of water if the water is maintained at a temperature no greater than 41 °F\r\n"
+   }
+  },
+  {
+   "attributes": {
+    "OBJECTID": 1472,
+    "FACILITY_ID": "FA0002988",
+    "NAME": "THE BLUE RAT THAI KITCHEN",
+    "LOCATION": "608 MAIN ST",
+    "CITY": "GARLAND",
+    "STATE": "TX",
+    "ZIP": "75040",
+    "PERMIT_NUMBER": "PT3390",
+    "INSPECTION_DATE": 1769040000000,
+    "SCORE": 71.0,
+    "VIOLATION_CODE": "1642",
+    "POINTS": 1.0,
+    "VIOLATION_DESCRIPTION": "Non-Food Contact Surfaces Clean",
+    "V_MEMO": "Excessive food debris was observed on equipment throughout the kitchen. Areas to note include prep tables, rolling carts, prep cooler, and more. \r\n-- Remove all food debris. Clean all surfaces of equipment throughout kitchen. "
+   }
+  },
+  {
+   "attributes": {
+    "OBJECTID": 1473,
+    "FACILITY_ID": "FA0002988",
+    "NAME": "THE BLUE RAT THAI KITCHEN",
+    "LOCATION": "608 MAIN ST",
+    "CITY": "GARLAND",
+    "STATE": "TX",
+    "ZIP": "75040",
+    "PERMIT_NUMBER": "PT3390",
+    "INSPECTION_DATE": 1769040000000,
+    "SCORE": 71.0,
+    "VIOLATION_CODE": "1645",
+    "POINTS": 1.0,
+    "VIOLATION_DESCRIPTION": "Physical Facilities Installed, Maintained, and Clean",
+    "V_MEMO": "Items and equipment in facility are not organized or stored in a way to facilitate cleaning. Unused equipment and items that are not used for the establishment create breeding grounds and hiding locations for pests. \r\n-- Remove all unused equipment and organize the remaining equipment in a way that facilitates cleaning. "
+   }
+  },
+  {
+   "attributes": {
+    "OBJECTID": 1474,
+    "FACILITY_ID": "FA0002988",
+    "NAME": "THE BLUE RAT THAI KITCHEN",
+    "LOCATION": "608 MAIN ST",
+    "CITY": "GARLAND",
+    "STATE": "TX",
+    "ZIP": "75040",
+    "PERMIT_NUMBER": "PT3390",
+    "INSPECTION_DATE": 1769040000000,
+    "SCORE": 71.0,
+    "VIOLATION_CODE": "1647",
+    "POINTS": 1.0,
+    "VIOLATION_DESCRIPTION": "Other Violations",
+    "V_MEMO": "The current permit was not posted to the public. \r\n\r\n\r\nThe hand sinks were not provided with reminders to inform manager of reportable illnesses and symptoms. \r\nLink: \r\nhttps://www.dshs.texas.gov/sites/default/files/foodestablishments/pdf/GuidanceDocs/E23-13282FoodEmployeeReportingSign.pdf"
+   }
+  },
+  {
+   "attributes": {
+    "OBJECTID": 2393,
+    "FACILITY_ID": "FA0000034",
+    "NAME": "GRILL 64",
+    "LOCATION": "600 W CAMPBELL RD",
+    "CITY": "GARLAND",
+    "STATE": "TX",
+    "ZIP": "75044",
+    "PERMIT_NUMBER": "PT0034",
+    "INSPECTION_DATE": 1776124800000,
+    "SCORE": 85.0,
+    "VIOLATION_CODE": "1610",
+    "POINTS": 3.0,
+    "VIOLATION_DESCRIPTION": "Food Contact Surfaces; Cleaned and Sanitized",
+    "V_MEMO": "Sanitizer found at 0 ppm. Sanitizer is not dispensing at the 3-compartment sink. Repair unit. Until repaired, manually prepare sanitizer and ensure it is tested with appropriate test strips prior to use."
+   }
+  },
+  {
+   "attributes": {
+    "OBJECTID": 2394,
+    "FACILITY_ID": "FA0000034",
+    "NAME": "GRILL 64",
+    "LOCATION": "600 W CAMPBELL RD",
+    "CITY": "GARLAND",
+    "STATE": "TX",
+    "ZIP": "75044",
+    "PERMIT_NUMBER": "PT0034",
+    "INSPECTION_DATE": 1776124800000,
+    "SCORE": 85.0,
+    "VIOLATION_CODE": "1618",
+    "POINTS": 3.0,
+    "VIOLATION_DESCRIPTION": "Toxic Substances Properly Identified, Stored and Used",
+    "V_MEMO": "Pesticide observed in kitchen. Remove. Only approved pesticides labeled for use in food establishments may be used and must be applied according to label instructions."
+   }
+  },
+  {
+   "attributes": {
+    "OBJECTID": 2395,
+    "FACILITY_ID": "FA0000034",
+    "NAME": "GRILL 64",
+    "LOCATION": "600 W CAMPBELL RD",
+    "CITY": "GARLAND",
+    "STATE": "TX",
+    "ZIP": "75044",
+    "PERMIT_NUMBER": "PT0034",
+    "INSPECTION_DATE": 1776124800000,
+    "SCORE": 85.0,
+    "VIOLATION_CODE": "1628",
+    "POINTS": 2.0,
+    "VIOLATION_DESCRIPTION": "Proper Date Marking and Disposition",
+    "V_MEMO": "Date mark sandwiches with the date of preparation or opening. Moving forward, ensure all TCS foods are properly date labeled and within the 7-day use limit."
+   }
+  },
+  {
+   "attributes": {
+    "OBJECTID": 2396,
+    "FACILITY_ID": "FA0000034",
+    "NAME": "GRILL 64",
+    "LOCATION": "600 W CAMPBELL RD",
+    "CITY": "GARLAND",
+    "STATE": "TX",
+    "ZIP": "75044",
+    "PERMIT_NUMBER": "PT0034",
+    "INSPECTION_DATE": 1776124800000,
+    "SCORE": 85.0,
+    "VIOLATION_CODE": "1629",
+    "POINTS": 2.0,
+    "VIOLATION_DESCRIPTION": "Thermometers Provided, Accurate, and Calibrated; Chemical/ Thermal Test Strips",
+    "V_MEMO": "Date mark sandwiches with the date of preparation or opening. Moving forward, ensure all TCS foods are properly date labeled and within the 7-day use limit."
+   }
+  },
+  {
+   "attributes": {
+    "OBJECTID": 2397,
+    "FACILITY_ID": "FA0000034",
+    "NAME": "GRILL 64",
+    "LOCATION": "600 W CAMPBELL RD",
+    "CITY": "GARLAND",
+    "STATE": "TX",
+    "ZIP": "75044",
+    "PERMIT_NUMBER": "PT0034",
+    "INSPECTION_DATE": 1776124800000,
+    "SCORE": 85.0,
+    "VIOLATION_CODE": "1632",
+    "POINTS": 2.0,
+    "VIOLATION_DESCRIPTION": "Food and Non-food Contact surfaces Cleanable, Properly Designed, Constructed, and Used",
+    "V_MEMO": "Resurface or replace cutting boards with deep score marks and stains. Ensure all food-contact surfaces are smooth, cleanable, and in good condition."
+   }
+  },
+  {
+   "attributes": {
+    "OBJECTID": 2398,
+    "FACILITY_ID": "FA0000034",
+    "NAME": "GRILL 64",
+    "LOCATION": "600 W CAMPBELL RD",
+    "CITY": "GARLAND",
+    "STATE": "TX",
+    "ZIP": "75044",
+    "PERMIT_NUMBER": "PT0034",
+    "INSPECTION_DATE": 1776124800000,
+    "SCORE": 85.0,
+    "VIOLATION_CODE": "1634",
+    "POINTS": 1.0,
+    "VIOLATION_DESCRIPTION": "No Evidence of Insect Contamination, Rodent/other Animals",
+    "V_MEMO": "Observed rodent droppings and traps throughout facility. Ensure pest control is effectively addressing rodent activity. Clean and sanitize affected areas and continue monitoring."
+   }
+  },
+  {
+   "attributes": {
+    "OBJECTID": 2399,
+    "FACILITY_ID": "FA0000034",
+    "NAME": "GRILL 64",
+    "LOCATION": "600 W CAMPBELL RD",
+    "CITY": "GARLAND",
+    "STATE": "TX",
+    "ZIP": "75044",
+    "PERMIT_NUMBER": "PT0034",
+    "INSPECTION_DATE": 1776124800000,
+    "SCORE": 85.0,
+    "VIOLATION_CODE": "1642",
+    "POINTS": 1.0,
+    "VIOLATION_DESCRIPTION": "Non-Food Contact Surfaces Clean",
+    "V_MEMO": "Clean exterior surfaces throughout facility. Clean interior of coolers, racks, and all food-contact/non-food-contact surfaces. Maintain in a clean and sanitary condition."
+   }
+  },
+  {
+   "attributes": {
+    "OBJECTID": 2400,
+    "FACILITY_ID": "FA0000034",
+    "NAME": "GRILL 64",
+    "LOCATION": "600 W CAMPBELL RD",
+    "CITY": "GARLAND",
+    "STATE": "TX",
+    "ZIP": "75044",
+    "PERMIT_NUMBER": "PT0034",
+    "INSPECTION_DATE": 1776124800000,
+    "SCORE": 85.0,
+    "VIOLATION_CODE": "1645",
+    "POINTS": 1.0,
+    "VIOLATION_DESCRIPTION": "Physical Facilities Installed, Maintained, and Clean",
+    "V_MEMO": "Clean floors under equipment and racks. Organize facility to allow proper cleaning access. Remove any unnecessary or non-working items."
+   }
+  },
+  {
+   "attributes": {
+    "OBJECTID": 2627,
+    "FACILITY_ID": "FA0000401",
+    "NAME": "GARLAND ISD WAREHOUSE",
+    "LOCATION": "701 N FIRST ST",
+    "CITY": "GARLAND",
+    "STATE": "TX",
+    "ZIP": "75040",
+    "PERMIT_NUMBER": "PT0388",
+    "INSPECTION_DATE": 1778716800000,
+    "SCORE": 99.0,
+    "VIOLATION_CODE": "1645",
+    "POINTS": 1.0,
+    "VIOLATION_DESCRIPTION": "Physical Facilities Installed, Maintained, and Clean",
+    "V_MEMO": "Hot Running Water was not supplied to mop sink. \r\n-- Mop sinks must plumbed with both hot and cool running water. "
+   }
+  },
+  {
+   "attributes": {
+    "OBJECTID": 3147,
+    "FACILITY_ID": "FA0004161",
+    "NAME": "GARLAND ISD STUDENT NUTRITION SERVICES",
+    "LOCATION": "720 STADIUM DR",
+    "CITY": "GARLAND",
+    "STATE": "TX",
+    "ZIP": "75040",
+    "PERMIT_NUMBER": "PT5192",
+    "INSPECTION_DATE": 1783468800000,
+    "SCORE": 100.0,
+    "VIOLATION_CODE": "1602",
+    "POINTS": 3.0,
+    "VIOLATION_DESCRIPTION": "Proper Cold Holding temperature(41øF/45øF)",
+    "V_MEMO": "At the time of the inspection, inspector observed the turkey wraps above cold holding temperature. The turkey wraps were recorded from 58-62 degrees. \r\n\r\nInspector advised the people in charge to remove the cambro holding shelve underneath the cover and directly apply the ice packet to the turkey wraps in order to be in compliance. \r\n\r\nEnsure that all cold holding TCS items are below 41 degrees or below. "
+   }
+  },
+  {
+   "attributes": {
+    "OBJECTID": 3148,
+    "FACILITY_ID": "FA0004161",
+    "NAME": "GARLAND ISD STUDENT NUTRITION SERVICES",
+    "LOCATION": "720 STADIUM DR",
+    "CITY": "GARLAND",
+    "STATE": "TX",
+    "ZIP": "75040",
+    "PERMIT_NUMBER": "PT5192",
+    "INSPECTION_DATE": 1783468800000,
+    "SCORE": 100.0,
+    "VIOLATION_CODE": "1636",
+    "POINTS": 1.0,
+    "VIOLATION_DESCRIPTION": "Wiping Cloths; Properly Used and Stored",
+    "V_MEMO": "Observed no sanitizing wipes available at the facility. \r\n\r\nEnsure sanitizing wipes approved for use on food-contact surfaces are maintained on site and readily available for proper cleaning and sanitizing of food-contact surfaces. "
+   }
+  },
+  {
+   "attributes": {
+    "OBJECTID": 3326,
+    "FACILITY_ID": "FA0000444",
+    "NAME": "BLUE IVEY SCHOOL",
+    "LOCATION": "2101 FIREWHEEL PKWY",
+    "CITY": "GARLAND",
+    "STATE": "TX",
+    "ZIP": "75040",
+    "PERMIT_NUMBER": "PT0431",
+    "INSPECTION_DATE": 1784160000000,
+    "SCORE": 97.0,
+    "VIOLATION_CODE": "1610",
+    "POINTS": 3.0,
+    "VIOLATION_DESCRIPTION": "Food Contact Surfaces; Cleaned and Sanitized",
+    "V_MEMO": "Observation:\nObserved the dish machine dispensing 0 ppm chlorine sanitizer. The dish machine was not providing the required sanitizer concentration for proper operation.\n\n\r\n\r\nActive Corrective Action:\nFacility was instructed to repair the dish machine and ensure it is dispensing 50 ppm chlorine sanitizer as required for proper sanitizing of utensils and food-contact surfaces. Discontinue the use of reusable plates, utensils, and other items until the dish machine has been repaired and is operating properly. Use disposable utensils and single-service items until corrective action is completed.\n\nFacility was instructed to notify the inspector by email or phone once the dish machine has been repaired and is ready for verification."
+   }
+  },
+  {
+   "attributes": {
+    "OBJECTID": 3481,
+    "FACILITY_ID": "FA0003844",
+    "NAME": "CURTIS CULWELL CENTER CONCESSIONS",
+    "LOCATION": "4999 NAAMAN FOREST BLVD",
+    "CITY": "GARLAND",
+    "STATE": "TX",
+    "ZIP": "75040",
+    "PERMIT_NUMBER": "PT4449",
+    "INSPECTION_DATE": 1784592000000,
+    "SCORE": 93.0,
+    "VIOLATION_CODE": "1610",
+    "POINTS": 3.0,
+    "VIOLATION_DESCRIPTION": "Food Contact Surfaces; Cleaned and Sanitized",
+    "V_MEMO": "Observation:\nObserved pink buildup inside the ice machine.\r\n\r\n\n\nCorrective Action:\nEnsure the ice machine is thoroughly cleaned and sanitized. Establish and maintain a periodic cleaning schedule to prevent future buildup and ensure the ice machine remains in a sanitary condition."
+   }
+  },
+  {
+   "attributes": {
+    "OBJECTID": 3482,
+    "FACILITY_ID": "FA0003844",
+    "NAME": "CURTIS CULWELL CENTER CONCESSIONS",
+    "LOCATION": "4999 NAAMAN FOREST BLVD",
+    "CITY": "GARLAND",
+    "STATE": "TX",
+    "ZIP": "75040",
+    "PERMIT_NUMBER": "PT4449",
+    "INSPECTION_DATE": 1784592000000,
+    "SCORE": 93.0,
+    "VIOLATION_CODE": "1629",
+    "POINTS": 2.0,
+    "VIOLATION_DESCRIPTION": "Thermometers Provided, Accurate, and Calibrated; Chemical/ Thermal Test Strips",
+    "V_MEMO": "Observation:\nFacility was missing chemical test strips to verify sanitizer concentration.\r\n\r\n\n\nCorrective Action:\nProvide the appropriate chemical test strips and ensure sanitizer concentration is routinely checked and maintained at the required level to verify proper sanitation."
+   }
+  },
+  {
+   "attributes": {
+    "OBJECTID": 3483,
+    "FACILITY_ID": "FA0003844",
+    "NAME": "CURTIS CULWELL CENTER CONCESSIONS",
+    "LOCATION": "4999 NAAMAN FOREST BLVD",
+    "CITY": "GARLAND",
+    "STATE": "TX",
+    "ZIP": "75040",
+    "PERMIT_NUMBER": "PT4449",
+    "INSPECTION_DATE": 1784592000000,
+    "SCORE": 93.0,
+    "VIOLATION_CODE": "1642",
+    "POINTS": 1.0,
+    "VIOLATION_DESCRIPTION": "Non-Food Contact Surfaces Clean",
+    "V_MEMO": "Observation:\nObserved black buildup/microbial growth inside the gaskets of most reach-in coolers.\r\n\r\n\n\nCorrective Action:\nEnsure all affected cooler gaskets are thoroughly cleaned and sanitized. Establish a routine cleaning schedule to prevent future buildup and maintain equipment in a sanitary condition."
+   }
+  },
+  {
+   "attributes": {
+    "OBJECTID": 3484,
+    "FACILITY_ID": "FA0003844",
+    "NAME": "CURTIS CULWELL CENTER CONCESSIONS",
+    "LOCATION": "4999 NAAMAN FOREST BLVD",
+    "CITY": "GARLAND",
+    "STATE": "TX",
+    "ZIP": "75040",
+    "PERMIT_NUMBER": "PT4449",
+    "INSPECTION_DATE": 1784592000000,
+    "SCORE": 93.0,
+    "VIOLATION_CODE": "1644",
+    "POINTS": 1.0,
+    "VIOLATION_DESCRIPTION": "Garbage and Refuse Properly Disposed; Facilities Maintained",
+    "V_MEMO": "Observation:\nObserved that a trash can was not provided at each handwashing sink (or for each group of adjacent sinks) where disposable towels are used.\r\n\r\n\n\nCorrective Action:\nProvide a trash can at each handwashing sink or group of adjacent sinks to allow for proper disposal of used paper towels. This will support proper hand hygiene practices and prevent improper disposal of disposable towels."
+   }
+  },
+  {
+   "attributes": {
+    "OBJECTID": 3485,
+    "FACILITY_ID": "FA0003844",
+    "NAME": "CURTIS CULWELL CENTER CONCESSIONS",
+    "LOCATION": "4999 NAAMAN FOREST BLVD",
+    "CITY": "GARLAND",
+    "STATE": "TX",
+    "ZIP": "75040",
+    "PERMIT_NUMBER": "PT4452",
+    "INSPECTION_DATE": 1784592000000,
+    "SCORE": 97.0,
+    "VIOLATION_CODE": "1629",
+    "POINTS": 2.0,
+    "VIOLATION_DESCRIPTION": "Thermometers Provided, Accurate, and Calibrated; Chemical/ Thermal Test Strips",
+    "V_MEMO": "Observation:\r\n\r\nFacility was missing chemical test strips to verify sanitizer concentration.\r\n\r\nCorrective Action:\r\n\r\nProvide the appropriate chemical test strips and ensure sanitizer concentration is routinely checked and maintained at the required level to verify proper sanitation."
+   }
+  },
+  {
+   "attributes": {
+    "OBJECTID": 3486,
+    "FACILITY_ID": "FA0003844",
+    "NAME": "CURTIS CULWELL CENTER CONCESSIONS",
+    "LOCATION": "4999 NAAMAN FOREST BLVD",
+    "CITY": "GARLAND",
+    "STATE": "TX",
+    "ZIP": "75040",
+    "PERMIT_NUMBER": "PT4452",
+    "INSPECTION_DATE": 1784592000000,
+    "SCORE": 97.0,
+    "VIOLATION_CODE": "1642",
+    "POINTS": 1.0,
+    "VIOLATION_DESCRIPTION": "Non-Food Contact Surfaces Clean",
+    "V_MEMO": "Observation:\r\n\r\nObserved black buildup/microbial growth inside the gaskets of most reach-in coolers.\r\n\r\nCorrective Action:\r\n\r\nEnsure all affected cooler gaskets are thoroughly cleaned and sanitized. Establish a routine cleaning schedule to prevent future buildup and maintain equipment in a sanitary condition."
+   }
+  },
+  {
+   "attributes": {
+    "OBJECTID": 3487,
+    "FACILITY_ID": "FA0003844",
+    "NAME": "CURTIS CULWELL CENTER CONCESSIONS",
+    "LOCATION": "4999 NAAMAN FOREST BLVD",
+    "CITY": "GARLAND",
+    "STATE": "TX",
+    "ZIP": "75040",
+    "PERMIT_NUMBER": "PT4450",
+    "INSPECTION_DATE": 1784592000000,
+    "SCORE": 96.0,
+    "VIOLATION_CODE": "1629",
+    "POINTS": 2.0,
+    "VIOLATION_DESCRIPTION": "Thermometers Provided, Accurate, and Calibrated; Chemical/ Thermal Test Strips",
+    "V_MEMO": "Provide quaternary ammonium (Quat) sanitizer test strips. Test strips must be readily available and used to verify that the sanitizer is maintained at the proper concentration according to the manufacturer's specifications."
+   }
+  },
+  {
+   "attributes": {
+    "OBJECTID": 3488,
+    "FACILITY_ID": "FA0003844",
+    "NAME": "CURTIS CULWELL CENTER CONCESSIONS",
+    "LOCATION": "4999 NAAMAN FOREST BLVD",
+    "CITY": "GARLAND",
+    "STATE": "TX",
+    "ZIP": "75040",
+    "PERMIT_NUMBER": "PT4450",
+    "INSPECTION_DATE": 1784592000000,
+    "SCORE": 96.0,
+    "VIOLATION_CODE": "1644",
+    "POINTS": 1.0,
+    "VIOLATION_DESCRIPTION": "Garbage and Refuse Properly Disposed; Facilities Maintained",
+    "V_MEMO": "Provide a trash can at the handwashing sink."
+   }
+  },
+  {
+   "attributes": {
+    "OBJECTID": 3489,
+    "FACILITY_ID": "FA0003844",
+    "NAME": "CURTIS CULWELL CENTER CONCESSIONS",
+    "LOCATION": "4999 NAAMAN FOREST BLVD",
+    "CITY": "GARLAND",
+    "STATE": "TX",
+    "ZIP": "75040",
+    "PERMIT_NUMBER": "PT4450",
+    "INSPECTION_DATE": 1784592000000,
+    "SCORE": 96.0,
+    "VIOLATION_CODE": "1645",
+    "POINTS": 1.0,
+    "VIOLATION_DESCRIPTION": "Physical Facilities Installed, Maintained, and Clean",
+    "V_MEMO": "Clean the floors beneath and around the three-compartment sink and ice machine. Remove accumulated food debris, grease, and residue, and maintain these areas in a clean condition."
+   }
+  },
+  {
+   "attributes": {
+    "OBJECTID": 3490,
+    "FACILITY_ID": "FA0003844",
+    "NAME": "CURTIS CULWELL CENTER CONCESSIONS",
+    "LOCATION": "4999 NAAMAN FOREST BLVD",
+    "CITY": "GARLAND",
+    "STATE": "TX",
+    "ZIP": "75040",
+    "PERMIT_NUMBER": "PT4451",
+    "INSPECTION_DATE": 1784592000000,
+    "SCORE": 97.0,
+    "VIOLATION_CODE": "1629",
+    "POINTS": 2.0,
+    "VIOLATION_DESCRIPTION": "Thermometers Provided, Accurate, and Calibrated; Chemical/ Thermal Test Strips",
+    "V_MEMO": "Provide quaternary ammonium (Quat) sanitizer test strips. Test strips must be readily available and used to verify that the sanitizer is maintained at the proper concentration according to the manufacturer's specifications."
+   }
+  },
+  {
+   "attributes": {
+    "OBJECTID": 3491,
+    "FACILITY_ID": "FA0003844",
+    "NAME": "CURTIS CULWELL CENTER CONCESSIONS",
+    "LOCATION": "4999 NAAMAN FOREST BLVD",
+    "CITY": "GARLAND",
+    "STATE": "TX",
+    "ZIP": "75040",
+    "PERMIT_NUMBER": "PT4451",
+    "INSPECTION_DATE": 1784592000000,
+    "SCORE": 97.0,
+    "VIOLATION_CODE": "1645",
+    "POINTS": 1.0,
+    "VIOLATION_DESCRIPTION": "Physical Facilities Installed, Maintained, and Clean",
+    "V_MEMO": "Detail clean floors underneath kitchen equipment. "
+   }
+  },
+  {
+   "attributes": {
+    "OBJECTID": 3740,
+    "FACILITY_ID": "FA0000047",
+    "NAME": "KROGER FOOD STORE #557",
+    "LOCATION": "6850 N SHILOH RD",
+    "CITY": "GARLAND",
+    "STATE": "TX",
+    "ZIP": "75044",
+    "PERMIT_NUMBER": "PT0048",
+    "INSPECTION_DATE": 1785283200000,
+    "SCORE": 89.0,
+    "VIOLATION_CODE": "1602",
+    "POINTS": 3.0,
+    "VIOLATION_DESCRIPTION": "Proper Cold Holding temperature(41øF/45øF)",
+    "V_MEMO": "Observed cheese at 46°F in the cheese cooler. Improve air circulation by allowing adequate spacing between products and avoiding overloading the cooler. Maintain all TCS foods at 41°F or below at all times. Products moved to walk in cooler. "
+   }
+  },
+  {
+   "attributes": {
+    "OBJECTID": 3741,
+    "FACILITY_ID": "FA0000047",
+    "NAME": "KROGER FOOD STORE #557",
+    "LOCATION": "6850 N SHILOH RD",
+    "CITY": "GARLAND",
+    "STATE": "TX",
+    "ZIP": "75044",
+    "PERMIT_NUMBER": "PT0048",
+    "INSPECTION_DATE": 1785283200000,
+    "SCORE": 89.0,
+    "VIOLATION_CODE": "1607",
+    "POINTS": 3.0,
+    "VIOLATION_DESCRIPTION": "Food and Ice obtained from Approved Source; Food in Good Condition, Safe, and Unadulterated",
+    "V_MEMO": "Discard moldy Baby Swiss cheese. Food exhibiting mold or other signs of spoilage is considered adulterated and shall not be offered for sale or consumption. Discarded. "
+   }
+  },
+  {
+   "attributes": {
+    "OBJECTID": 3742,
+    "FACILITY_ID": "FA0000047",
+    "NAME": "KROGER FOOD STORE #557",
+    "LOCATION": "6850 N SHILOH RD",
+    "CITY": "GARLAND",
+    "STATE": "TX",
+    "ZIP": "75044",
+    "PERMIT_NUMBER": "PT0048",
+    "INSPECTION_DATE": 1785283200000,
+    "SCORE": 89.0,
+    "VIOLATION_CODE": "1632",
+    "POINTS": 2.0,
+    "VIOLATION_DESCRIPTION": "Food and Non-food Contact surfaces Cleanable, Properly Designed, Constructed, and Used",
+    "V_MEMO": "Remove chemically damaged container from use. \r\n\r\nDiscontinue using cardboard for long-term storage of utensils. Store utensils in smooth, durable, and easily cleanable containers.\r\n\r\nRemove stickers from storage containers. "
+   }
+  },
+  {
+   "attributes": {
+    "OBJECTID": 3743,
+    "FACILITY_ID": "FA0000047",
+    "NAME": "KROGER FOOD STORE #557",
+    "LOCATION": "6850 N SHILOH RD",
+    "CITY": "GARLAND",
+    "STATE": "TX",
+    "ZIP": "75044",
+    "PERMIT_NUMBER": "PT0048",
+    "INSPECTION_DATE": 1785283200000,
+    "SCORE": 89.0,
+    "VIOLATION_CODE": "1639",
+    "POINTS": 1.0,
+    "VIOLATION_DESCRIPTION": "Utensils, Equipment, & Linens; Stored, Dried, Handled/ In use Utensils; Properly Used",
+    "V_MEMO": "Clean utensil storage containers."
+   }
+  },
+  {
+   "attributes": {
+    "OBJECTID": 3744,
+    "FACILITY_ID": "FA0000047",
+    "NAME": "KROGER FOOD STORE #557",
+    "LOCATION": "6850 N SHILOH RD",
+    "CITY": "GARLAND",
+    "STATE": "TX",
+    "ZIP": "75044",
+    "PERMIT_NUMBER": "PT0048",
+    "INSPECTION_DATE": 1785283200000,
+    "SCORE": 89.0,
+    "VIOLATION_CODE": "1644",
+    "POINTS": 1.0,
+    "VIOLATION_DESCRIPTION": "Garbage and Refuse Properly Disposed; Facilities Maintained",
+    "V_MEMO": "Provide a trash receptacle at each handwashing sink."
+   }
+  },
+  {
+   "attributes": {
+    "OBJECTID": 3745,
+    "FACILITY_ID": "FA0000047",
+    "NAME": "KROGER FOOD STORE #557",
+    "LOCATION": "6850 N SHILOH RD",
+    "CITY": "GARLAND",
+    "STATE": "TX",
+    "ZIP": "75044",
+    "PERMIT_NUMBER": "PT0048",
+    "INSPECTION_DATE": 1785283200000,
+    "SCORE": 89.0,
+    "VIOLATION_CODE": "1645",
+    "POINTS": 1.0,
+    "VIOLATION_DESCRIPTION": "Physical Facilities Installed, Maintained, and Clean",
+    "V_MEMO": "Detail clean the wall behind the three-compartment sink and walls throughout the deli area, with emphasis on areas around walk-in cooler and freezer doors.\r\n\r\nReplace missing or deteriorated caulking to provide smooth, durable, and easily cleanable surfaces.\n\r\n\r\nDetail clean floors beneath wire shelving throughout the deli area.\n\r\n\r\nRepair the damaged walk-in cooler door. Ensure the door is smooth, durable, and capable of maintaining proper temperature control."
+   }
+  },
+  {
+   "attributes": {
+    "OBJECTID": 4063,
+    "FACILITY_ID": "FA0002121",
+    "NAME": "MIRCH MASALA",
+    "LOCATION": "4550 W BUCKINGHAM RD D",
+    "CITY": "GARLAND",
+    "STATE": "TX",
+    "ZIP": "75042",
+    "PERMIT_NUMBER": "PT2286",
+    "INSPECTION_DATE": 1786060800000,
+    "SCORE": 60.0,
+    "VIOLATION_CODE": "1601",
+    "POINTS": 3.0,
+    "VIOLATION_DESCRIPTION": "Proper Cooling Time and Temperature",
+    "V_MEMO": "Observed improper cooling of multiple TCS food items, including yogurt, sauces, and broths. Product temperatures ranged from 50°F to 60°F and were stored in large, deep containers, preventing rapid heat transfer and proper cooling.\n\n Cool TCS foods from 135°F to 70°F within 2 hours and from 70°F to 41°F within an additional 4 hours (6 hours total). Large, deep containers do not allow foods to cool rapidly enough and increase the risk of bacterial growth.\r\n\r\n\n\nCooling tips: \r\n*\n\nDivide food into smaller, shallow pans (2-4 inches deep).\r\n*\nLeave containers uncovered or loosely covered until food reaches 41°F.\r\n*\nPlace pans in the walk-in cooler with space between them to allow air circulation.\r\n*\nUse ice baths or ice wands for soups, sauces, and broths.\r\n*\nStir liquid foods frequently during cooling to release heat.\r\n*\nDo not stack cooling containers, and avoid placing large volumes of hot food directly into deep buckets or containers.\r\n*\nMonitor and document temperatures to verify the food reaches 70°F within 2 hours and 41°F within 6 hours."
+   }
+  },
+  {
+   "attributes": {
+    "OBJECTID": 4064,
+    "FACILITY_ID": "FA0002121",
+    "NAME": "MIRCH MASALA",
+    "LOCATION": "4550 W BUCKINGHAM RD D",
+    "CITY": "GARLAND",
+    "STATE": "TX",
+    "ZIP": "75042",
+    "PERMIT_NUMBER": "PT2286",
+    "INSPECTION_DATE": 1786060800000,
+    "SCORE": 60.0,
+    "VIOLATION_CODE": "1602",
+    "POINTS": 3.0,
+    "VIOLATION_DESCRIPTION": "Proper Cold Holding temperature(41øF/45øF)",
+    "V_MEMO": "-Observed multiple TCS food items maintained above the required cold-holding temperature of 41°F. Temperatures observed included yogurt at 68°F and milk products at 72°F on the buffet cold-holding line. Additional TCS foods, including raw chicken, cooked chicken, vegetables, and other raw and cooked items in the walk-in cooler, were observed between 46°F and 57°F.\n\nMaintain all TCS foods requiring cold holding at 41°F or below. Do not store TCS foods in refrigeration equipment that cannot consistently maintain 41°F or below. Immediately repair or replace malfunctioning refrigeration equipment and evaluate all affected food for proper disposition in accordance with the Texas Food Establishment Rules.\r\n\r\n--Observed multiple buckets of raw chicken stored on prep tables and in the prep sink at room temperature while being processed. The raw chicken remained out of temperature control for the duration of the approximately two-hour inspection and was frequently left unattended during processing.\n\nLimit the amount of TCS food removed from temperature control to only the quantity that can be actively prepared within a short period of time. Raw poultry shall not be left at room temperature for extended periods or unattended during preparation. Maintain products under refrigeration at 41°F or below until needed, and promptly return them to refrigeration after processing."
+   }
+  },
+  {
+   "attributes": {
+    "OBJECTID": 4065,
+    "FACILITY_ID": "FA0002121",
+    "NAME": "MIRCH MASALA",
+    "LOCATION": "4550 W BUCKINGHAM RD D",
+    "CITY": "GARLAND",
+    "STATE": "TX",
+    "ZIP": "75042",
+    "PERMIT_NUMBER": "PT2286",
+    "INSPECTION_DATE": 1786060800000,
+    "SCORE": 60.0,
+    "VIOLATION_CODE": "1603",
+    "POINTS": 3.0,
+    "VIOLATION_DESCRIPTION": "Proper Hot Holding temperature(135øF)",
+    "V_MEMO": "Observed chicken skewers on hot holding at 85°F. TCS foods requiring hot holding must be maintained at 135°F or above. Foods found below the required hot-holding temperature must be evaluated for time and temperature exposure and voluntarily discarded if safe temperature control cannot be verified. \n\nDo not maintain TCS foods within the temperature danger zone unless actively undergoing an approved cooking, cooling, or other approved temperature-controlled process. Ensure hot-holding equipment is capable of maintaining foods at 135°F or above at all times."
+   }
+  },
+  {
+   "attributes": {
+    "OBJECTID": 4066,
+    "FACILITY_ID": "FA0002121",
+    "NAME": "MIRCH MASALA",
+    "LOCATION": "4550 W BUCKINGHAM RD D",
+    "CITY": "GARLAND",
+    "STATE": "TX",
+    "ZIP": "75042",
+    "PERMIT_NUMBER": "PT2286",
+    "INSPECTION_DATE": 1786060800000,
+    "SCORE": 60.0,
+    "VIOLATION_CODE": "1612",
+    "POINTS": 3.0,
+    "VIOLATION_DESCRIPTION": "Management, Food Employees and Conditional Employees; Knowledge, Responsibilities, and Reporting",
+    "V_MEMO": "Provide and maintain a signed Employee Health Reporting Agreement for all food employees. Ensure every current and newly hired food employee reviews and signs the agreement acknowledging their responsibility to report symptoms, diagnoses, and exposures associated with foodborne illness. Maintain signed agreements on site and readily available for review during inspections. Retrain employees and management on employee illness reporting requirements and exclude or restrict ill employees from food handling duties as required by the Texas Food Establishment Rules."
+   }
+  },
+  {
+   "attributes": {
+    "OBJECTID": 4067,
+    "FACILITY_ID": "FA0002121",
+    "NAME": "MIRCH MASALA",
+    "LOCATION": "4550 W BUCKINGHAM RD D",
+    "CITY": "GARLAND",
+    "STATE": "TX",
+    "ZIP": "75042",
+    "PERMIT_NUMBER": "PT2286",
+    "INSPECTION_DATE": 1786060800000,
+    "SCORE": 60.0,
+    "VIOLATION_CODE": "1614",
+    "POINTS": 3.0,
+    "VIOLATION_DESCRIPTION": "Hands Cleaned and Properly Washed/ Gloves Used Properly",
+    "V_MEMO": "Observed a food employee washing one bare hand and one gloved hand simultaneously and using the three-compartment sink for handwashing. Proper handwashing was not performed.\n\n Employees must wash both bare hands at a designated handwashing sink only. Gloves must be removed before washing hands. Hands shall be washed using warm running water and soap, with vigorous scrubbing of all hand surfaces, fingers, fingertips, between fingers, and under fingernails for at least 20 seconds, followed by thorough rinsing and drying with disposable paper towels or an approved hand-drying device. The three-compartment sink is designated solely for washing, rinsing, and sanitizing equipment and utensils and shall not be used for handwashing. Retrain all employees on proper handwashing procedures and designated sink usage to prevent cross-contamination."
+   }
+  },
+  {
+   "attributes": {
+    "OBJECTID": 4068,
+    "FACILITY_ID": "FA0002121",
+    "NAME": "MIRCH MASALA",
+    "LOCATION": "4550 W BUCKINGHAM RD D",
+    "CITY": "GARLAND",
+    "STATE": "TX",
+    "ZIP": "75042",
+    "PERMIT_NUMBER": "PT2286",
+    "INSPECTION_DATE": 1786060800000,
+    "SCORE": 60.0,
+    "VIOLATION_CODE": "1618",
+    "POINTS": 3.0,
+    "VIOLATION_DESCRIPTION": "Toxic Substances Properly Identified, Stored and Used",
+    "V_MEMO": "Clearly label all working containers of chemicals with the common name of their contents. Proper labeling helps prevent accidental misuse, chemical contamination of food, and employee exposure. Maintain all chemicals in their original labeled containers or in clearly labeled secondary containers and store them away from food, equipment, utensils, and single-service items."
+   }
+  },
+  {
+   "attributes": {
+    "OBJECTID": 4069,
+    "FACILITY_ID": "FA0002121",
+    "NAME": "MIRCH MASALA",
+    "LOCATION": "4550 W BUCKINGHAM RD D",
+    "CITY": "GARLAND",
+    "STATE": "TX",
+    "ZIP": "75042",
+    "PERMIT_NUMBER": "PT2286",
+    "INSPECTION_DATE": 1786060800000,
+    "SCORE": 60.0,
+    "VIOLATION_CODE": "1621",
+    "POINTS": 2.0,
+    "VIOLATION_DESCRIPTION": "PIC Present, Demonstration of Knowledge, and Perform Duties/(CFM)",
+    "V_MEMO": "No Certified Food Manager (CFM) was present during the inspection. Additionally, multiple priority violations were observed, indicating a lack of active managerial control over critical food safety practices.\n\nA Certified Food Manager must be present to actively supervise food operations and ensure compliance with the Texas Food Establishment Rules. Management shall implement and maintain active managerial control by routinely monitoring critical food safety practices, including employee health, proper handwashing, prevention of cross-contamination, time and temperature control for TCS foods, cleaning and sanitizing procedures, and proper food storage. Retrain employees as necessary and establish procedures to prevent repeat violations."
+   }
+  },
+  {
+   "attributes": {
+    "OBJECTID": 4070,
+    "FACILITY_ID": "FA0002121",
+    "NAME": "MIRCH MASALA",
+    "LOCATION": "4550 W BUCKINGHAM RD D",
+    "CITY": "GARLAND",
+    "STATE": "TX",
+    "ZIP": "75042",
+    "PERMIT_NUMBER": "PT2286",
+    "INSPECTION_DATE": 1786060800000,
+    "SCORE": 60.0,
+    "VIOLATION_CODE": "1622",
+    "POINTS": 2.0,
+    "VIOLATION_DESCRIPTION": "Food Handler/No Unauthorized Persons/ Personnel",
+    "V_MEMO": "Observed food handler certificates missing for multiple employees. Food handler certificates were not available for review at the time of the inspection.\n\nEnsure all food employees obtain a valid Food Handler Certificate as required and maintain copies of all certificates on site for review during inspections. While obtaining the required certifications, ensure all employees are properly trained on food safety practices, including proper handwashing, preventing cross-contamination, time and temperature control, cleaning and sanitizing, and employee health reporting. Maintain training records and current certificates on site at all times."
+   }
+  },
+  {
+   "attributes": {
+    "OBJECTID": 4071,
+    "FACILITY_ID": "FA0002121",
+    "NAME": "MIRCH MASALA",
+    "LOCATION": "4550 W BUCKINGHAM RD D",
+    "CITY": "GARLAND",
+    "STATE": "TX",
+    "ZIP": "75042",
+    "PERMIT_NUMBER": "PT2286",
+    "INSPECTION_DATE": 1786060800000,
+    "SCORE": 60.0,
+    "VIOLATION_CODE": "1625",
+    "POINTS": 2.0,
+    "VIOLATION_DESCRIPTION": "Variance, Specialized Process, and HACCP plan; Manufacturer Instructions",
+    "V_MEMO": "Observed yogurt being fermented without documented time and temperature controls. No logs, written procedures, or monitoring records were available to verify that the fermentation and subsequent cooling process was conducted under safe parameters. Additionally, fermented yogurt was observed at temperatures ranging from the 60s to 70s°F, indicating inadequate temperature control during the process.\n\nFermentation of TCS foods is a specialized food process requiring documented controls. The establishment shall submit written procedures outlining the fermentation process, including time and temperature monitoring, cooling procedures, and corrective actions. If safe control of the process cannot be demonstrated, an approved variance and HACCP plan may be required. Failure to properly control this process presents a risk for pathogen growth.\n\nUntil adequate documentation and process controls are implemented, discontinue yogurt fermentation or obtain approval for a variance/HACCP plan prior to resuming the process. Additionally, ensure fermented yogurt is properly cooled and maintained at 41°F or below once the fermentation process is complete."
+   }
+  },
+  {
+   "attributes": {
+    "OBJECTID": 4072,
+    "FACILITY_ID": "FA0002121",
+    "NAME": "MIRCH MASALA",
+    "LOCATION": "4550 W BUCKINGHAM RD D",
+    "CITY": "GARLAND",
+    "STATE": "TX",
+    "ZIP": "75042",
+    "PERMIT_NUMBER": "PT2286",
+    "INSPECTION_DATE": 1786060800000,
+    "SCORE": 60.0,
+    "VIOLATION_CODE": "1627",
+    "POINTS": 2.0,
+    "VIOLATION_DESCRIPTION": "Proper Cooling Method used;   Equipment Adequate to Maintain Product Temperature",
+    "V_MEMO": "Multiple reach in units were observed not maintaining 41 F or below. Ensure all refrigeration equipment is fully operational. Reach-in coolers, walk-in coolers, prep coolers, and other cold-holding equipment used for TCS food must be capable of maintaining required temperatures."
+   }
+  },
+  {
+   "attributes": {
+    "OBJECTID": 4073,
+    "FACILITY_ID": "FA0002121",
+    "NAME": "MIRCH MASALA",
+    "LOCATION": "4550 W BUCKINGHAM RD D",
+    "CITY": "GARLAND",
+    "STATE": "TX",
+    "ZIP": "75042",
+    "PERMIT_NUMBER": "PT2286",
+    "INSPECTION_DATE": 1786060800000,
+    "SCORE": 60.0,
+    "VIOLATION_CODE": "1628",
+    "POINTS": 2.0,
+    "VIOLATION_DESCRIPTION": "Proper Date Marking and Disposition",
+    "V_MEMO": "Observed multiple ready-to-eat TCS food items without required date marking. No date labels were observed on prepared or opened ready-to-eat TCS foods throughout the facility.\n\nEnsure all ready-to-eat TCS foods prepared on site or opened from their original commercial packaging are clearly date marked with the preparation/opening date or discard date. Such foods may be held for a maximum of 7 days at 41°F or below, with the day of preparation or opening counted as Day 1. Foods exceeding the allowable holding time or lacking proper date marking must be discarded. Retrain employees on the facility's date-marking procedures and implement routine monitoring to ensure ongoing compliance."
+   }
+  },
+  {
+   "attributes": {
+    "OBJECTID": 4074,
+    "FACILITY_ID": "FA0002121",
+    "NAME": "MIRCH MASALA",
+    "LOCATION": "4550 W BUCKINGHAM RD D",
+    "CITY": "GARLAND",
+    "STATE": "TX",
+    "ZIP": "75042",
+    "PERMIT_NUMBER": "PT2286",
+    "INSPECTION_DATE": 1786060800000,
+    "SCORE": 60.0,
+    "VIOLATION_CODE": "1632",
+    "POINTS": 2.0,
+    "VIOLATION_DESCRIPTION": "Food and Non-food Contact surfaces Cleanable, Properly Designed, Constructed, and Used",
+    "V_MEMO": "-Detail clean all kitchen equipment and food-contact surfaces. Remove accumulated grease, carbon buildup, food residue, and other debris from cooking equipment, appliances, and food-contact surfaces. Maintain equipment clean and in good sanitary condition.\n\r\n\r\n--Replace damaged cooler and freezer door gaskets. Gaskets must be intact, smooth, and capable of providing a proper seal to maintain required temperatures and allow for effective cleaning.\r\n\r\n---\nResurface or replace damaged cutting boards. Cutting boards that are excessively scored, stained, or no longer smooth and easily cleanable must be resurfaced or replaced to prevent the accumulation of food debris and bacteria."
+   }
+  },
+  {
+   "attributes": {
+    "OBJECTID": 4075,
+    "FACILITY_ID": "FA0002121",
+    "NAME": "MIRCH MASALA",
+    "LOCATION": "4550 W BUCKINGHAM RD D",
+    "CITY": "GARLAND",
+    "STATE": "TX",
+    "ZIP": "75042",
+    "PERMIT_NUMBER": "PT2286",
+    "INSPECTION_DATE": 1786060800000,
+    "SCORE": 60.0,
+    "VIOLATION_CODE": "1633",
+    "POINTS": 2.0,
+    "VIOLATION_DESCRIPTION": "Warewashing Facilities; Installed, Maintained, Used; Service sink/Curbed Cleaning Facility Provided",
+    "V_MEMO": "Observed food paddles being rinsed in the mop/service sink. Additionally, the mop sink was observed to be heavily soiled and partially blocked with debris.\n\nThe mop/service sink shall be used only for the disposal of mop water and the cleaning of mops and similar maintenance equipment. Food-contact utensils and equipment shall never be washed or rinsed in the mop sink due to the risk of contamination. Thoroughly clean and unclog the mop sink, maintain it in good repair, and ensure all food-contact equipment is washed, rinsed, and sanitized only in the designated three-compartment sink or approved warewashing equipment."
+   }
+  },
+  {
+   "attributes": {
+    "OBJECTID": 4076,
+    "FACILITY_ID": "FA0002121",
+    "NAME": "MIRCH MASALA",
+    "LOCATION": "4550 W BUCKINGHAM RD D",
+    "CITY": "GARLAND",
+    "STATE": "TX",
+    "ZIP": "75042",
+    "PERMIT_NUMBER": "PT2286",
+    "INSPECTION_DATE": 1786060800000,
+    "SCORE": 60.0,
+    "VIOLATION_CODE": "1634",
+    "POINTS": 1.0,
+    "VIOLATION_DESCRIPTION": "No Evidence of Insect Contamination, Rodent/other Animals",
+    "V_MEMO": "Live and dead cockroaches were observed. Provide pest-control service and eliminate conditions contributing to pest activity.\r\n\r\n-Remove all dead insects and thoroughly clean and sanitize affected areas following pest-control treatment.\r\n-Contact a licensed pest-control company for treatment of the facility. \r\n-Seal openings, cracks, gaps, and other potential pest entry points as necessary. Maintain the facility to prevent the entry and harborage of insects and other pests.\r\n\r\n(Observed the facility in need of extensive detail cleaning throughout. The person in charge stated that cleaning had already been completed; however, significant accumulations of grease, food debris, grime, and soil remained on floors, walls, equipment, shelving, and other non-food-contact surfaces, indicating that cleaning was not performed effectively. \n\nA thorough, detailed cleaning of the entire facility must be completed prior to scheduling pest control service. Effective sanitation is essential to eliminate food sources and harborage areas for pests. Pest control alone will not resolve an active infestation if unsanitary conditions persist. After the facility has been properly cleaned and maintained, continue with routine pest control services to prevent future pest activity.)\r\n"
+   }
+  },
+  {
+   "attributes": {
+    "OBJECTID": 4077,
+    "FACILITY_ID": "FA0002121",
+    "NAME": "MIRCH MASALA",
+    "LOCATION": "4550 W BUCKINGHAM RD D",
+    "CITY": "GARLAND",
+    "STATE": "TX",
+    "ZIP": "75042",
+    "PERMIT_NUMBER": "PT2286",
+    "INSPECTION_DATE": 1786060800000,
+    "SCORE": 60.0,
+    "VIOLATION_CODE": "1636",
+    "POINTS": 1.0,
+    "VIOLATION_DESCRIPTION": "Wiping Cloths; Properly Used and Stored",
+    "V_MEMO": "Observed multiple in-use wiping cloths stored on counters and work surfaces without sanitizer throughout the facility.\n\n Store all in-use wiping cloths in an approved sanitizer solution between uses. Maintain sanitizer at the proper concentration according to the manufacturer's instructions and verify concentrations with appropriate test strips. "
+   }
+  },
+  {
+   "attributes": {
+    "OBJECTID": 4078,
+    "FACILITY_ID": "FA0002121",
+    "NAME": "MIRCH MASALA",
+    "LOCATION": "4550 W BUCKINGHAM RD D",
+    "CITY": "GARLAND",
+    "STATE": "TX",
+    "ZIP": "75042",
+    "PERMIT_NUMBER": "PT2286",
+    "INSPECTION_DATE": 1786060800000,
+    "SCORE": 60.0,
+    "VIOLATION_CODE": "1637",
+    "POINTS": 1.0,
+    "VIOLATION_DESCRIPTION": "Environmental Contamination",
+    "V_MEMO": "Do not store food on the floor. Store all food products at least 6 inches off the floor on approved shelving or dunnage racks to protect against contamination and to facilitate proper cleaning.\nKeep all food products properly covered and protected from contamination. \r\n\r\nCover all food during storage, preparation, and while in refrigeration unless actively being worked on.\r\n\r\n\nRemove all pest control devices from food preparation and food storage areas. Pest control devices, including traps and bait stations, shall not be installed directly above or adjacent to food, food-contact surfaces, clean equipment, or utensil storage areas to prevent contamination. Relocate these devices to appropriate locations in accordance with the pest control provider's recommendations."
+   }
+  },
+  {
+   "attributes": {
+    "OBJECTID": 4079,
+    "FACILITY_ID": "FA0002121",
+    "NAME": "MIRCH MASALA",
+    "LOCATION": "4550 W BUCKINGHAM RD D",
+    "CITY": "GARLAND",
+    "STATE": "TX",
+    "ZIP": "75042",
+    "PERMIT_NUMBER": "PT2286",
+    "INSPECTION_DATE": 1786060800000,
+    "SCORE": 60.0,
+    "VIOLATION_CODE": "1639",
+    "POINTS": 1.0,
+    "VIOLATION_DESCRIPTION": "Utensils, Equipment, & Linens; Stored, Dried, Handled/ In use Utensils; Properly Used",
+    "V_MEMO": "Observed clean utensils stored in designated clean storage areas with visible food residue and soil. Several utensil storage containers/buckets were also observed soiled.\n\nRemove all utensils from clean storage areas and thoroughly wash, rinse, and sanitize them before returning them to service. Clean and sanitize all utensil storage containers, buckets, bins, and holders prior to reuse. Store only clean and sanitized utensils in clean, protected locations to prevent recontamination."
+   }
+  },
+  {
+   "attributes": {
+    "OBJECTID": 4080,
+    "FACILITY_ID": "FA0002121",
+    "NAME": "MIRCH MASALA",
+    "LOCATION": "4550 W BUCKINGHAM RD D",
+    "CITY": "GARLAND",
+    "STATE": "TX",
+    "ZIP": "75042",
+    "PERMIT_NUMBER": "PT2286",
+    "INSPECTION_DATE": 1786060800000,
+    "SCORE": 60.0,
+    "VIOLATION_CODE": "1641",
+    "POINTS": 1.0,
+    "VIOLATION_DESCRIPTION": "Original Container (Bulk Food); Food Labeled",
+    "V_MEMO": "Clearly label all food containers with their common name. This includes all containers used to store granular ingredients (such as flour, sugar, salt, spices, etc.), oils, syrups, sauces, and other food products that have been removed from their original packaging. Proper labeling helps prevent ingredient mix-ups, supports allergen awareness, and ensures employees can accurately identify food products during preparation and storage."
+   }
+  },
+  {
+   "attributes": {
+    "OBJECTID": 4081,
+    "FACILITY_ID": "FA0002121",
+    "NAME": "MIRCH MASALA",
+    "LOCATION": "4550 W BUCKINGHAM RD D",
+    "CITY": "GARLAND",
+    "STATE": "TX",
+    "ZIP": "75042",
+    "PERMIT_NUMBER": "PT2286",
+    "INSPECTION_DATE": 1786060800000,
+    "SCORE": 60.0,
+    "VIOLATION_CODE": "1642",
+    "POINTS": 1.0,
+    "VIOLATION_DESCRIPTION": "Non-Food Contact Surfaces Clean",
+    "V_MEMO": "Conduct a comprehensive, top-to-bottom detail cleaning of the entire facility. Extensive accumulations of grease, carbon buildup, food debris, grime, dust, and residue were observed on equipment and throughout the kitchen. Thoroughly clean all equipment, including the interior, exterior, sides, undersides, backs, tops, handles, legs, casters, shelves, door tracks, gaskets, hinges, control panels, and any hard-to-reach areas. Pull all movable equipment away from walls and clean behind, beneath, and around each unit. Detail clean all prep tables, wire shelving, carts, racks, storage shelves, sinks, and other non-food-contact surfaces. No surface in the kitchen should be overlooked. The facility must be restored to a clean and sanitary condition to eliminate food residue and grease accumulation that can contribute to pest harborage, cross-contamination, and unsanitary operating conditions. Routine wipe-downs are not sufficient; a complete detail cleaning of the entire establishment is required prior to reinspection"
+   }
+  },
+  {
+   "attributes": {
+    "OBJECTID": 4082,
+    "FACILITY_ID": "FA0002121",
+    "NAME": "MIRCH MASALA",
+    "LOCATION": "4550 W BUCKINGHAM RD D",
+    "CITY": "GARLAND",
+    "STATE": "TX",
+    "ZIP": "75042",
+    "PERMIT_NUMBER": "PT2286",
+    "INSPECTION_DATE": 1786060800000,
+    "SCORE": 60.0,
+    "VIOLATION_CODE": "1645",
+    "POINTS": 1.0,
+    "VIOLATION_DESCRIPTION": "Physical Facilities Installed, Maintained, and Clean",
+    "V_MEMO": "-Detail clean floors throughout the facility. Remove accumulated grease, food debris, dirt, and grime, including beneath and behind equipment.\nDetail clean walls throughout the facility.\r\n\r\n-- Remove grease, food residue, splashes, and other buildup. Maintain walls smooth, clean, and easily cleanable.\r\n\r\n---\nDetail clean ceilings throughout the facility. Remove dirt, grease, dust, and other buildup. Repair or replace damaged ceiling surfaces as needed.\r\n\r\n----Remove unnecessary clutter and unused items from the facility. Maintain storage areas organized and free of items not necessary for daily operation to facilitate proper cleaning and pest control.\r\n\r\n-----Remove, repair, or replace all equipment that is damaged or no longer functioning. Equipment maintained in the establishment must be in good repair and capable of performing its intended function"
+   }
+  },
+  {
+   "attributes": {
+    "OBJECTID": 4083,
+    "FACILITY_ID": "FA0002121",
+    "NAME": "MIRCH MASALA",
+    "LOCATION": "4550 W BUCKINGHAM RD D",
+    "CITY": "GARLAND",
+    "STATE": "TX",
+    "ZIP": "75042",
+    "PERMIT_NUMBER": "PT2286",
+    "INSPECTION_DATE": 1786060800000,
+    "SCORE": 60.0,
+    "VIOLATION_CODE": "1646",
+    "POINTS": 1.0,
+    "VIOLATION_DESCRIPTION": "Toilet Facilities; Properly Constructed, Supplied, and Clean",
+    "V_MEMO": "Repair or replace the damaged faucet at the women's restroom handwashing sink. The faucet was observed with rust and chipped surfaces, making it difficult to properly clean and maintain. Plumbing fixtures shall be smooth, durable, non-absorbent, corrosion-resistant, and maintained in good repair. Replace or resurface the faucet as necessary to provide a cleanable, sanitary surface."
+   }
+  },
+  {
+   "attributes": {
+    "OBJECTID": 4213,
+    "FACILITY_ID": "FA0003963",
+    "NAME": "BOBTOWN EXPRESS FOOD MART",
+    "LOCATION": "4102 BOBTOWN RD",
+    "CITY": "GARLAND",
+    "STATE": "TX",
+    "ZIP": "75043",
+    "PERMIT_NUMBER": "PT4746",
+    "INSPECTION_DATE": 1786492800000,
+    "SCORE": 82.0,
+    "VIOLATION_CODE": "1610",
+    "POINTS": 3.0,
+    "VIOLATION_DESCRIPTION": "Food Contact Surfaces; Cleaned and Sanitized",
+    "V_MEMO": "Observed improper wash, rinse and sanitize procedures for ice scoop and coffee pots.\r\n\r\nEnsure these items are cleaned and sanitized in the 3-compartment sink after each use to prevent food borne illness. A diagram of the proper set up of the 3-compartment sink is included in email sent with inspection report."
+   }
+  },
+  {
+   "attributes": {
+    "OBJECTID": 4214,
+    "FACILITY_ID": "FA0003963",
+    "NAME": "BOBTOWN EXPRESS FOOD MART",
+    "LOCATION": "4102 BOBTOWN RD",
+    "CITY": "GARLAND",
+    "STATE": "TX",
+    "ZIP": "75043",
+    "PERMIT_NUMBER": "PT4746",
+    "INSPECTION_DATE": 1786492800000,
+    "SCORE": 82.0,
+    "VIOLATION_CODE": "1622",
+    "POINTS": 2.0,
+    "VIOLATION_DESCRIPTION": "Food Handler/No Unauthorized Persons/ Personnel",
+    "V_MEMO": "Observed ice being bagged and sold in store without any food handler certificates.\r\n\r\nEnsure that each employee who bags ice has a valid food handler certificate."
+   }
+  },
+  {
+   "attributes": {
+    "OBJECTID": 4215,
+    "FACILITY_ID": "FA0003963",
+    "NAME": "BOBTOWN EXPRESS FOOD MART",
+    "LOCATION": "4102 BOBTOWN RD",
+    "CITY": "GARLAND",
+    "STATE": "TX",
+    "ZIP": "75043",
+    "PERMIT_NUMBER": "PT4746",
+    "INSPECTION_DATE": 1786492800000,
+    "SCORE": 82.0,
+    "VIOLATION_CODE": "1624",
+    "POINTS": 2.0,
+    "VIOLATION_DESCRIPTION": "Required Records Available (shellstock tags; parasite destruction); Food Properly Labeled",
+    "V_MEMO": "Observed ice being bagged in store and sold to customers without proper labeling.\r\n\r\nEnsure ice bags have labels that follow DSHS labeling requirements and include:\r\n\r\n1. Common product name\r\n2. Name and address of manufacturer, packer, or distributer\r\n3. Net weight of products"
+   }
+  },
+  {
+   "attributes": {
+    "OBJECTID": 4216,
+    "FACILITY_ID": "FA0003963",
+    "NAME": "BOBTOWN EXPRESS FOOD MART",
+    "LOCATION": "4102 BOBTOWN RD",
+    "CITY": "GARLAND",
+    "STATE": "TX",
+    "ZIP": "75043",
+    "PERMIT_NUMBER": "PT4746",
+    "INSPECTION_DATE": 1786492800000,
+    "SCORE": 82.0,
+    "VIOLATION_CODE": "1629",
+    "POINTS": 2.0,
+    "VIOLATION_DESCRIPTION": "Thermometers Provided, Accurate, and Calibrated; Chemical/ Thermal Test Strips",
+    "V_MEMO": "Observed expired test strips from 2024. \r\n\r\nProvide new chemical test strips for sanitizer. Ensure test strips match the type of sanitizer being used in 3-compartment sink."
+   }
+  },
+  {
+   "attributes": {
+    "OBJECTID": 4217,
+    "FACILITY_ID": "FA0003963",
+    "NAME": "BOBTOWN EXPRESS FOOD MART",
+    "LOCATION": "4102 BOBTOWN RD",
+    "CITY": "GARLAND",
+    "STATE": "TX",
+    "ZIP": "75043",
+    "PERMIT_NUMBER": "PT4746",
+    "INSPECTION_DATE": 1786492800000,
+    "SCORE": 82.0,
+    "VIOLATION_CODE": "1630",
+    "POINTS": 2.0,
+    "VIOLATION_DESCRIPTION": "Establishment Permit",
+    "V_MEMO": "Observed establishment bagging ice to sell to customers. A Texas food manufacturer's permit is required to package food. \r\n\r\nApply for Texas food manufacturer's permit. Inspector has attached a link to the online registration portal and the physical copy of the application (if mailing application) to the email sent with the food inspection report. Provide proof of applying to inspector at recheck inspection."
+   }
+  },
+  {
+   "attributes": {
+    "OBJECTID": 4218,
+    "FACILITY_ID": "FA0003963",
+    "NAME": "BOBTOWN EXPRESS FOOD MART",
+    "LOCATION": "4102 BOBTOWN RD",
+    "CITY": "GARLAND",
+    "STATE": "TX",
+    "ZIP": "75043",
+    "PERMIT_NUMBER": "PT4746",
+    "INSPECTION_DATE": 1786492800000,
+    "SCORE": 82.0,
+    "VIOLATION_CODE": "1632",
+    "POINTS": 2.0,
+    "VIOLATION_DESCRIPTION": "Food and Non-food Contact surfaces Cleanable, Properly Designed, Constructed, and Used",
+    "V_MEMO": "Observed food debris and staining inside microwave at customer self service area.\r\n\r\nClean and sanitize the inside of the microwave to prevent cross-contamination."
+   }
+  },
+  {
+   "attributes": {
+    "OBJECTID": 4219,
+    "FACILITY_ID": "FA0003963",
+    "NAME": "BOBTOWN EXPRESS FOOD MART",
+    "LOCATION": "4102 BOBTOWN RD",
+    "CITY": "GARLAND",
+    "STATE": "TX",
+    "ZIP": "75043",
+    "PERMIT_NUMBER": "PT4746",
+    "INSPECTION_DATE": 1786492800000,
+    "SCORE": 82.0,
+    "VIOLATION_CODE": "1639",
+    "POINTS": 1.0,
+    "VIOLATION_DESCRIPTION": "Utensils, Equipment, & Linens; Stored, Dried, Handled/ In use Utensils; Properly Used",
+    "V_MEMO": "Observed ice scoop stored directly on top of ice machine.\r\n\r\nEnsure ice scoop is kept in a clean location to prevent environmental contamination."
+   }
+  },
+  {
+   "attributes": {
+    "OBJECTID": 4220,
+    "FACILITY_ID": "FA0003963",
+    "NAME": "BOBTOWN EXPRESS FOOD MART",
+    "LOCATION": "4102 BOBTOWN RD",
+    "CITY": "GARLAND",
+    "STATE": "TX",
+    "ZIP": "75043",
+    "PERMIT_NUMBER": "PT4746",
+    "INSPECTION_DATE": 1786492800000,
+    "SCORE": 82.0,
+    "VIOLATION_CODE": "1644",
+    "POINTS": 1.0,
+    "VIOLATION_DESCRIPTION": "Garbage and Refuse Properly Disposed; Facilities Maintained",
+    "V_MEMO": "Observed missing trash can at the hand wash sink.\r\n\r\nProvide small trash can for the hand wash sink."
+   }
+  },
+  {
+   "attributes": {
+    "OBJECTID": 4221,
+    "FACILITY_ID": "FA0003963",
+    "NAME": "BOBTOWN EXPRESS FOOD MART",
+    "LOCATION": "4102 BOBTOWN RD",
+    "CITY": "GARLAND",
+    "STATE": "TX",
+    "ZIP": "75043",
+    "PERMIT_NUMBER": "PT4746",
+    "INSPECTION_DATE": 1786492800000,
+    "SCORE": 82.0,
+    "VIOLATION_CODE": "1645",
+    "POINTS": 1.0,
+    "VIOLATION_DESCRIPTION": "Physical Facilities Installed, Maintained, and Clean",
+    "V_MEMO": "Observed wet mop head stored improperly on the floor.  \r\n\r\nEnsure correct storage of mop head to facilitate sufficient air circulation and drying, thereby reducing the risk of bacterial growth and cross contamination.\r\n"
+   }
+  },
+  {
+   "attributes": {
+    "OBJECTID": 4222,
+    "FACILITY_ID": "FA0003963",
+    "NAME": "BOBTOWN EXPRESS FOOD MART",
+    "LOCATION": "4102 BOBTOWN RD",
+    "CITY": "GARLAND",
+    "STATE": "TX",
+    "ZIP": "75043",
+    "PERMIT_NUMBER": "PT4746",
+    "INSPECTION_DATE": 1786492800000,
+    "SCORE": 82.0,
+    "VIOLATION_CODE": "1646",
+    "POINTS": 1.0,
+    "VIOLATION_DESCRIPTION": "Toilet Facilities; Properly Constructed, Supplied, and Clean",
+    "V_MEMO": "Observed missing cover on restroom vent.\r\n\r\nProvide cover to restroom vent and ensure vent is properly working."
+   }
+  },
+  {
+   "attributes": {
+    "OBJECTID": 4223,
+    "FACILITY_ID": "FA0003963",
+    "NAME": "BOBTOWN EXPRESS FOOD MART",
+    "LOCATION": "4102 BOBTOWN RD",
+    "CITY": "GARLAND",
+    "STATE": "TX",
+    "ZIP": "75043",
+    "PERMIT_NUMBER": "PT4746",
+    "INSPECTION_DATE": 1786492800000,
+    "SCORE": 82.0,
+    "VIOLATION_CODE": "1647",
+    "POINTS": 1.0,
+    "VIOLATION_DESCRIPTION": "Other Violations",
+    "V_MEMO": "Observed most recent food inspection not posted for the public view. \r\nEnsure this report's inspection score is posted at the front entrance of the establishment for public view (score is located on last page of report).\r\n\r\nObserved missing no smoking sign. \r\nNo smoking sign is attached separately to email sent with report. Post no smoking sign in front door or window of the establishment."
+   }
+  },
+  {
+   "attributes": {
+    "OBJECTID": 5668,
+    "FACILITY_ID": "FA0004046",
+    "NAME": "PRO FIT SOLUTIONS",
+    "LOCATION": "1910 PENDELTON DR 103",
+    "CITY": "GARLAND",
+    "STATE": "TX",
+    "ZIP": "75041",
+    "PERMIT_NUMBER": "PT4921",
+    "INSPECTION_DATE": 1789603200000,
+    "SCORE": 86.0,
+    "VIOLATION_CODE": "1610",
+    "POINTS": 3.0,
+    "VIOLATION_DESCRIPTION": "Food Contact Surfaces; Cleaned and Sanitized",
+    "V_MEMO": "Observation:\r\n\r\nObserved that employees were not properly preparing or using the food-contact surface sanitizer. The sanitizer concentration was not being measured or prepared according to the manufacturer’s label instructions.\r\nObserved the dishwashing machine at 0 ppm sanitizer concentration.\r\n\r\nCorrective Action:\r\n\r\nEducated the person in charge on the proper preparation and use of sanitizer. Ensure sanitizer is prepared according to the manufacturer’s label instructions and that the concentration is checked regularly using the appropriate test strips to verify that food-contact surfaces are properly sanitized.\r\n\r\nThe dishwasher was corrected on-site. Ensure the dishwasher maintains the proper sanitizer concentration during operation and verify sanitizer levels regularly using the appropriate test strips."
+   }
+  },
+  {
+   "attributes": {
+    "OBJECTID": 5669,
+    "FACILITY_ID": "FA0004046",
+    "NAME": "PRO FIT SOLUTIONS",
+    "LOCATION": "1910 PENDELTON DR 103",
+    "CITY": "GARLAND",
+    "STATE": "TX",
+    "ZIP": "75041",
+    "PERMIT_NUMBER": "PT4921",
+    "INSPECTION_DATE": 1789603200000,
+    "SCORE": 86.0,
+    "VIOLATION_CODE": "1612",
+    "POINTS": 3.0,
+    "VIOLATION_DESCRIPTION": "Management, Food Employees and Conditional Employees; Knowledge, Responsibilities, and Reporting",
+    "V_MEMO": "Observation: Observed missing Employee Health Agreements for food handlers.\n\n\r\n\r\nCorrective Action: Provide Employee Health Agreements and ensure they are reviewed and signed by all food handlers."
+   }
+  },
+  {
+   "attributes": {
+    "OBJECTID": 5670,
+    "FACILITY_ID": "FA0004046",
+    "NAME": "PRO FIT SOLUTIONS",
+    "LOCATION": "1910 PENDELTON DR 103",
+    "CITY": "GARLAND",
+    "STATE": "TX",
+    "ZIP": "75041",
+    "PERMIT_NUMBER": "PT4921",
+    "INSPECTION_DATE": 1789603200000,
+    "SCORE": 86.0,
+    "VIOLATION_CODE": "1618",
+    "POINTS": 3.0,
+    "VIOLATION_DESCRIPTION": "Toxic Substances Properly Identified, Stored and Used",
+    "V_MEMO": "Observation: Observed Raid insecticide stored on the premises.\n\n\r\n\r\nCorrective Action: Remove Raid from the premises and use only pest control products approved for use in food establishments."
+   }
+  },
+  {
+   "attributes": {
+    "OBJECTID": 5671,
+    "FACILITY_ID": "FA0004046",
+    "NAME": "PRO FIT SOLUTIONS",
+    "LOCATION": "1910 PENDELTON DR 103",
+    "CITY": "GARLAND",
+    "STATE": "TX",
+    "ZIP": "75041",
+    "PERMIT_NUMBER": "PT4921",
+    "INSPECTION_DATE": 1789603200000,
+    "SCORE": 86.0,
+    "VIOLATION_CODE": "1632",
+    "POINTS": 2.0,
+    "VIOLATION_DESCRIPTION": "Food and Non-food Contact surfaces Cleanable, Properly Designed, Constructed, and Used",
+    "V_MEMO": "Observation: Observed wrapping plastic stored on the ice machine.\r\n\r\n\n\nCorrective Action: Remove the wrapping plastic from the ice machine and ensure the ice machine is kept free of unnecessary items to prevent potential contamination."
+   }
+  },
+  {
+   "attributes": {
+    "OBJECTID": 5672,
+    "FACILITY_ID": "FA0004046",
+    "NAME": "PRO FIT SOLUTIONS",
+    "LOCATION": "1910 PENDELTON DR 103",
+    "CITY": "GARLAND",
+    "STATE": "TX",
+    "ZIP": "75041",
+    "PERMIT_NUMBER": "PT4921",
+    "INSPECTION_DATE": 1789603200000,
+    "SCORE": 86.0,
+    "VIOLATION_CODE": "1634",
+    "POINTS": 1.0,
+    "VIOLATION_DESCRIPTION": "No Evidence of Insect Contamination, Rodent/other Animals",
+    "V_MEMO": null
+   }
+  },
+  {
+   "attributes": {
+    "OBJECTID": 5673,
+    "FACILITY_ID": "FA0004046",
+    "NAME": "PRO FIT SOLUTIONS",
+    "LOCATION": "1910 PENDELTON DR 103",
+    "CITY": "GARLAND",
+    "STATE": "TX",
+    "ZIP": "75041",
+    "PERMIT_NUMBER": "PT4921",
+    "INSPECTION_DATE": 1789603200000,
+    "SCORE": 86.0,
+    "VIOLATION_CODE": "1635",
+    "POINTS": 1.0,
+    "VIOLATION_DESCRIPTION": "Personal Cleanliness/ Eating, Drinking or Tobacco Use",
+    "V_MEMO": "Observation: Also observed personal items and food items stored together without proper separation or labeling.\r\n\r\nCorrective Action: Designate separate areas for employee personal items and food items. Clearly label designated storage areas to prevent cross-contamination and maintain proper organization."
+   }
+  },
+  {
+   "attributes": {
+    "OBJECTID": 5674,
+    "FACILITY_ID": "FA0004046",
+    "NAME": "PRO FIT SOLUTIONS",
+    "LOCATION": "1910 PENDELTON DR 103",
+    "CITY": "GARLAND",
+    "STATE": "TX",
+    "ZIP": "75041",
+    "PERMIT_NUMBER": "PT4921",
+    "INSPECTION_DATE": 1789603200000,
+    "SCORE": 86.0,
+    "VIOLATION_CODE": "1645",
+    "POINTS": 1.0,
+    "VIOLATION_DESCRIPTION": "Physical Facilities Installed, Maintained, and Clean",
+    "V_MEMO": "Observation: Observed items/equipment stored in a manner that does not facilitate proper cleaning.\r\n\r\n\n\nCorrective Action: Organize and store items in a manner that facilitates cleaning and prevents the accumulation of dirt and debris."
+   }
+  },
+  {
+   "attributes": {
+    "OBJECTID": 5711,
+    "FACILITY_ID": "FA0000155",
+    "NAME": "CARMEN'S TACOS AND GORDITAS",
+    "LOCATION": "1311 MARKETPLACE DR 200",
+    "CITY": "GARLAND",
+    "STATE": "TX",
+    "ZIP": "75041",
+    "PERMIT_NUMBER": "PT0148",
+    "INSPECTION_DATE": 1789603200000,
+    "SCORE": 73.0,
+    "VIOLATION_CODE": "1601",
+    "POINTS": 3.0,
+    "VIOLATION_DESCRIPTION": "Proper Cooling Time and Temperature",
+    "V_MEMO": "Observed beans prepared/cooked the previous day at approximately 52°F-59°F. The product had not cooled to 41°F or below within the required cooling timeframe and was discarded. TCS foods must be cooled from 135°F to 70°F within the first 2 hours, and then from 70°F to 41°F or below within the next 4 hours. Establish and follow a proper cooling procedure and actively monitor both time and temperature throughout the cooling process.\n\nIt is recommended that foods being cooled be labeled with a time stamp showing when cooling began so employees can properly track the required cooling timeframes. Monitor temperatures throughout the process to ensure the food reaches 70°F within the first 2 hours and 41°F or below within the following 4 hours.\r\n\r\n\n\nEspañol: Se observaron frijoles preparados/cocinados el día anterior a aproximadamente 52°F-59°F. El producto no alcanzó 41°F o menos dentro del tiempo requerido de enfriamiento y fue desechado. Los alimentos TCS deben enfriarse de 135°F a 70°F dentro de las primeras 2 horas, y después de 70°F a 41°F o menos dentro de las siguientes 4 horas. Establecer y seguir un procedimiento adecuado de enfriamiento y monitorear activamente tanto el tiempo como la temperatura durante todo el proceso.\n\nSe recomienda colocar una etiqueta con la hora (time stamp) indicando cuándo comenzó el proceso de enfriamiento para que los empleados puedan controlar correctamente los tiempos requeridos. Monitorear las temperaturas durante el proceso para asegurar que el alimento llegue a 70°F dentro de las primeras 2 horas y a 41°F o menos dentro de las siguientes 4 horas."
+   }
+  },
+  {
+   "attributes": {
+    "OBJECTID": 5712,
+    "FACILITY_ID": "FA0000155",
+    "NAME": "CARMEN'S TACOS AND GORDITAS",
+    "LOCATION": "1311 MARKETPLACE DR 200",
+    "CITY": "GARLAND",
+    "STATE": "TX",
+    "ZIP": "75041",
+    "PERMIT_NUMBER": "PT0148",
+    "INSPECTION_DATE": 1789603200000,
+    "SCORE": 73.0,
+    "VIOLATION_CODE": "1602",
+    "POINTS": 3.0,
+    "VIOLATION_DESCRIPTION": "Proper Cold Holding temperature(41øF/45øF)",
+    "V_MEMO": "English: Observed lettuce and tomatoes at approximately 44°F-54°F in refrigeration. Maintain all TCS foods at 41°F or below. PIC stated the products had been placed in the unit that morning. Monitor food temperatures and ensure refrigeration equipment is capable of maintaining TCS foods at 41°F or below at all times.\n\nEspañol: Se observaron lechuga y tomates a aproximadamente 44°F-54°F en refrigeración. Mantener todos los alimentos TCS a 41°F o menos. La persona a cargo indicó que los productos habían sido colocados en la unidad esa mañana. Monitorear las temperaturas de los alimentos y asegurar que el equipo de refrigeración pueda mantener los alimentos TCS a 41°F o menos en todo momento."
+   }
+  },
+  {
+   "attributes": {
+    "OBJECTID": 5713,
+    "FACILITY_ID": "FA0000155",
+    "NAME": "CARMEN'S TACOS AND GORDITAS",
+    "LOCATION": "1311 MARKETPLACE DR 200",
+    "CITY": "GARLAND",
+    "STATE": "TX",
+    "ZIP": "75041",
+    "PERMIT_NUMBER": "PT0148",
+    "INSPECTION_DATE": 1789603200000,
+    "SCORE": 73.0,
+    "VIOLATION_CODE": "1610",
+    "POINTS": 3.0,
+    "VIOLATION_DESCRIPTION": "Food Contact Surfaces; Cleaned and Sanitized",
+    "V_MEMO": "English: Dishmachine was observed dispensing 0 ppm sanitizer. PIC primed the sanitizer line during the inspection; however, priming the machine is not considered a permanent corrective action when the cause of the sanitizer failure has not been identified or corrected. Review of previous inspection documentation indicates that the same sanitizer-dispensing issue has been observed previously. Have the dishmachine and chemical dispensing system properly evaluated and serviced/repaired as necessary to identify and correct the underlying issue. Do not rely on repeatedly priming the machine as the solution.\n\nDiscontinue use of the dishmachine for sanitizing until it consistently dispenses sanitizer at the required concentration and proper operation has been verified using the appropriate test strips. \r\n\r\n\n\nEspañol: Se observó que la máquina lavavajillas estaba dispensando 0 ppm de desinfectante. La persona a cargo cebó (\"primed\") la línea del desinfectante durante la inspección; sin embargo, cebar la máquina no se considera una corrección permanente cuando no se ha identificado ni corregido la causa de la falla. Al revisar documentación de inspecciones anteriores, se observó que este mismo problema con el suministro de desinfectante ya había ocurrido anteriormente. La máquina lavavajillas y el sistema dispensador de químicos deben ser evaluados adecuadamente y recibir servicio/reparación según sea necesario para identificar y corregir la causa del problema. No depender de cebar repetidamente la máquina como solución.\r\n\r\n--English: Clean and sanitize the interior food-contact surfaces of the ice machine to remove observed residue/buildup. Maintain food-contact surfaces clean to sight and touch.\r\n\r\n\n\nEspañol: Limpiar y desinfectar las superficies interiores de contacto con alimentos de la máquina de hielo para eliminar los residuos/acumulación observados. Mantener las superficies de contacto con alimentos limpias a la vista y al tacto."
+   }
+  },
+  {
+   "attributes": {
+    "OBJECTID": 5714,
+    "FACILITY_ID": "FA0000155",
+    "NAME": "CARMEN'S TACOS AND GORDITAS",
+    "LOCATION": "1311 MARKETPLACE DR 200",
+    "CITY": "GARLAND",
+    "STATE": "TX",
+    "ZIP": "75041",
+    "PERMIT_NUMBER": "PT0148",
+    "INSPECTION_DATE": 1789603200000,
+    "SCORE": 73.0,
+    "VIOLATION_CODE": "1620",
+    "POINTS": 3.0,
+    "VIOLATION_DESCRIPTION": "Approved Sewage/Wastewater Disposal System, Proper Disposal",
+    "V_MEMO": "English: Observed soapy wastewater recently discharged outside the establishment by a food handler. PIC also stated that water containing cinnamon is periodically discharged outside as part of a ritual. Do not discharge mop water, wash water, water containing cinnamon or other materials, or similar liquid waste onto the ground, parking lot, alley, street, or into the storm drainage system. The absence of soap does not make outdoor disposal acceptable. Dispose of wastewater through the approved sanitary sewer system using the designated mop/service sink. Ensure all food handlers are properly trained on wastewater disposal procedures.\r\n\r\n\n\nEspañol: Se observó agua residual con jabón recientemente desechada afuera del establecimiento por un empleado. La persona a cargo también indicó que periódicamente se desecha afuera agua con canela como parte de un ritual. No desechar agua de trapeador, agua de lavado, agua que contenga canela u otros materiales, ni otros residuos líquidos similares en el suelo, estacionamiento, callejón, calle o sistema de drenaje pluvial. El hecho de que el agua no contenga jabón no significa que pueda desecharse afuera. Toda agua residual debe desecharse correctamente a través del sistema sanitario aprobado utilizando el fregadero designado para trapeadores/servicio. Asegurar que todos los empleados estén capacitados sobre los procedimientos adecuados para desechar aguas residuales."
+   }
+  },
+  {
+   "attributes": {
+    "OBJECTID": 5715,
+    "FACILITY_ID": "FA0000155",
+    "NAME": "CARMEN'S TACOS AND GORDITAS",
+    "LOCATION": "1311 MARKETPLACE DR 200",
+    "CITY": "GARLAND",
+    "STATE": "TX",
+    "ZIP": "75041",
+    "PERMIT_NUMBER": "PT0148",
+    "INSPECTION_DATE": 1789603200000,
+    "SCORE": 73.0,
+    "VIOLATION_CODE": "1621",
+    "POINTS": 2.0,
+    "VIOLATION_DESCRIPTION": "PIC Present, Demonstration of Knowledge, and Perform Duties/(CFM)",
+    "V_MEMO": "Certified Food Manager / Gerente certificado: No valid Certified Food Manager documentation was available/verified at the time of inspection. Provide and maintain the required Certified Food Manager certification/documentation as applicable.\nEspañol: No se pudo verificar documentación vigente de un Gerente Certificado de Alimentos al momento de la inspección. Proporcionar y mantener la certificación/documentación requerida y vigente.\r\n\r\n-English: Establish and maintain active managerial control over priority food safety practices, specifically cold holding, proper cooling, sanitizing of food-contact surfaces/utensils, and approved disposal of wastewater. PIC must ensure these procedures are consistently followed by all employees.\r\n\r\n\n\nEspañol: Establecer y mantener control gerencial activo sobre las prácticas prioritarias de seguridad alimentaria, específicamente refrigeración adecuada, enfriamiento correcto, desinfección de superficies/utensilios de contacto con alimentos y disposición aprobada de aguas residuales. La persona a cargo debe asegurar que todos los empleados sigan estos procedimientos correctamente."
+   }
+  },
+  {
+   "attributes": {
+    "OBJECTID": 5716,
+    "FACILITY_ID": "FA0000155",
+    "NAME": "CARMEN'S TACOS AND GORDITAS",
+    "LOCATION": "1311 MARKETPLACE DR 200",
+    "CITY": "GARLAND",
+    "STATE": "TX",
+    "ZIP": "75041",
+    "PERMIT_NUMBER": "PT0148",
+    "INSPECTION_DATE": 1789603200000,
+    "SCORE": 73.0,
+    "VIOLATION_CODE": "1622",
+    "POINTS": 2.0,
+    "VIOLATION_DESCRIPTION": "Food Handler/No Unauthorized Persons/ Personnel",
+    "V_MEMO": "English: Provide current food handler certification for all employees involved in food preparation, serving, warewashing, or other food-handling duties. Maintain documentation available for review.\n\n\r\n\r\nEspañol: Proporcionar certificación vigente de manejador de alimentos para todos los empleados que preparen, sirvan, laven utensilios o participen en otras actividades relacionadas con alimentos. Mantener la documentación disponible para revisión."
+   }
+  },
+  {
+   "attributes": {
+    "OBJECTID": 5717,
+    "FACILITY_ID": "FA0000155",
+    "NAME": "CARMEN'S TACOS AND GORDITAS",
+    "LOCATION": "1311 MARKETPLACE DR 200",
+    "CITY": "GARLAND",
+    "STATE": "TX",
+    "ZIP": "75041",
+    "PERMIT_NUMBER": "PT0148",
+    "INSPECTION_DATE": 1789603200000,
+    "SCORE": 73.0,
+    "VIOLATION_CODE": "1631",
+    "POINTS": 2.0,
+    "VIOLATION_DESCRIPTION": "Adequate Hand Washing Facilities: Accessible and Properly Supplied",
+    "V_MEMO": "English: Paper towels were missing from the dispenser in the warewashing area. At the front handwashing area, the inspector was unable to dispense paper towels upon arrival. Ensure paper towels are readily available and dispensers are functioning at all times. Recommendation: The type of dispensers currently used may experience frequent dispensing issues. Consider replacing them with a more reliable type; however, replacement is not required as long as the existing dispensers remain functional and paper towels are readily available.\r\n\r\n\n\nEspañol: Faltaban toallas de papel en el dispensador del área de lavado de utensilios. En el lavamanos del área del frente, el inspector no pudo sacar toallas de papel al momento de llegar. Asegurar que las toallas de papel estén siempre disponibles y que los dispensadores funcionen correctamente. Recomendación: Este tipo de dispensador puede presentar problemas frecuentes. Se recomienda considerar otro tipo más confiable; sin embargo, no es necesario reemplazarlo siempre y cuando el actual funcione correctamente y las toallas estén disponibles."
+   }
+  },
+  {
+   "attributes": {
+    "OBJECTID": 5718,
+    "FACILITY_ID": "FA0000155",
+    "NAME": "CARMEN'S TACOS AND GORDITAS",
+    "LOCATION": "1311 MARKETPLACE DR 200",
+    "CITY": "GARLAND",
+    "STATE": "TX",
+    "ZIP": "75041",
+    "PERMIT_NUMBER": "PT0148",
+    "INSPECTION_DATE": 1789603200000,
+    "SCORE": 73.0,
+    "VIOLATION_CODE": "1632",
+    "POINTS": 2.0,
+    "VIOLATION_DESCRIPTION": "Food and Non-food Contact surfaces Cleanable, Properly Designed, Constructed, and Used",
+    "V_MEMO": "English: Remove cardboard being used as liners or storage surfaces. Repair, replace, or resurface rusty/damaged wire racks, prep tables, shelving, equipment, and cutting boards. Replace cracked, broken, or damaged containers. Maintain all surfaces smooth, durable, nonabsorbent, and easily cleanable.\r\n\r\n\n\nEspañol: Retirar el cartón utilizado para cubrir estantes o superficies de almacenamiento. Reparar, reemplazar o restaurar estantes de alambre, mesas de preparación, repisas, equipo y tablas de cortar oxidados o dañados. Reemplazar recipientes quebrados, agrietados o dañados. Mantener todas las superficies lisas, duraderas, no absorbentes y fáciles de limpiar."
+   }
+  },
+  {
+   "attributes": {
+    "OBJECTID": 5719,
+    "FACILITY_ID": "FA0000155",
+    "NAME": "CARMEN'S TACOS AND GORDITAS",
+    "LOCATION": "1311 MARKETPLACE DR 200",
+    "CITY": "GARLAND",
+    "STATE": "TX",
+    "ZIP": "75041",
+    "PERMIT_NUMBER": "PT0148",
+    "INSPECTION_DATE": 1789603200000,
+    "SCORE": 73.0,
+    "VIOLATION_CODE": "1633",
+    "POINTS": 2.0,
+    "VIOLATION_DESCRIPTION": "Warewashing Facilities; Installed, Maintained, Used; Service sink/Curbed Cleaning Facility Provided",
+    "V_MEMO": "Three-Compartment Sink / Fregadero de tres compartimentos: The three-compartment sink located at the bar was not functioning/available for proper warewashing. Repair and maintain the sink in good working condition and ensure it is available for proper washing, rinsing, and sanitizing of utensils and equipment.\r\n\r\n\nEspañol: El fregadero de tres compartimentos ubicado en el área del bar no estaba funcionando/disponible para el lavado adecuado de utensilios. Reparar y mantener el fregadero en buenas condiciones de funcionamiento y disponible para lavar, enjuagar y desinfectar correctamente utensilios y equipo."
+   }
+  },
+  {
+   "attributes": {
+    "OBJECTID": 5720,
+    "FACILITY_ID": "FA0000155",
+    "NAME": "CARMEN'S TACOS AND GORDITAS",
+    "LOCATION": "1311 MARKETPLACE DR 200",
+    "CITY": "GARLAND",
+    "STATE": "TX",
+    "ZIP": "75041",
+    "PERMIT_NUMBER": "PT0148",
+    "INSPECTION_DATE": 1789603200000,
+    "SCORE": 73.0,
+    "VIOLATION_CODE": "1634",
+    "POINTS": 1.0,
+    "VIOLATION_DESCRIPTION": "No Evidence of Insect Contamination, Rodent/other Animals",
+    "V_MEMO": "English: Air curtain was observed not functioning. Repair and maintain the unit operational as intended to help prevent the entry of insects and other pests. Repair/seal the gap underneath the door as necessary.\r\n\r\n\nEspañol: Se observó que la cortina de aire no estaba funcionando. Reparar y mantener la unidad funcionando correctamente para ayudar a prevenir la entrada de insectos y otras plagas. Reparar/sellar el espacio debajo de la puerta según sea necesario.\r\n\r\n--English: Observed a dead roach on the fryer equipment. Fryer and oil were inspected for additional evidence of pest activity; no dead roaches were observed in the fryer oil at the time of inspection. Remove the dead insect and thoroughly clean and sanitize the affected equipment as applicable. Continue to monitor for pest activity and maintain effective pest-control measures throughout the establishment.\r\n\r\n\n\nEspañol: Se observó una cucaracha muerta sobre el equipo de la freidora. Se inspeccionaron la freidora y el aceite para verificar si había evidencia adicional de actividad de plagas; no se observaron cucarachas muertas dentro del aceite de la freidora al momento de la inspección. Retirar el insecto muerto y limpiar y desinfectar completamente el equipo afectado, según corresponda. Continuar monitoreando la actividad de plagas y mantener medidas efectivas de control de plagas en todo el establecimiento."
+   }
+  },
+  {
+   "attributes": {
+    "OBJECTID": 5721,
+    "FACILITY_ID": "FA0000155",
+    "NAME": "CARMEN'S TACOS AND GORDITAS",
+    "LOCATION": "1311 MARKETPLACE DR 200",
+    "CITY": "GARLAND",
+    "STATE": "TX",
+    "ZIP": "75041",
+    "PERMIT_NUMBER": "PT0148",
+    "INSPECTION_DATE": 1789603200000,
+    "SCORE": 73.0,
+    "VIOLATION_CODE": "1636",
+    "POINTS": 1.0,
+    "VIOLATION_DESCRIPTION": "Wiping Cloths; Properly Used and Stored",
+    "V_MEMO": "English: Observed sanitizer bucket stored directly on the floor. Do not store sanitizer buckets directly on the floor. Store in a designated location off the floor and in a manner that prevents contamination of food, utensils, equipment, and food-contact surfaces.\r\n\r\n\n\nEspañol: Se observó una cubeta con desinfectante almacenada directamente en el piso. No almacenar cubetas con desinfectante directamente en el piso. Mantenerlas en un área designada, fuera del piso y de manera que se evite la contaminación de alimentos, utensilios, equipo y superficies de contacto con alimentos."
+   }
+  },
+  {
+   "attributes": {
+    "OBJECTID": 5722,
+    "FACILITY_ID": "FA0000155",
+    "NAME": "CARMEN'S TACOS AND GORDITAS",
+    "LOCATION": "1311 MARKETPLACE DR 200",
+    "CITY": "GARLAND",
+    "STATE": "TX",
+    "ZIP": "75041",
+    "PERMIT_NUMBER": "PT0148",
+    "INSPECTION_DATE": 1789603200000,
+    "SCORE": 73.0,
+    "VIOLATION_CODE": "1642",
+    "POINTS": 1.0,
+    "VIOLATION_DESCRIPTION": "Non-Food Contact Surfaces Clean",
+    "V_MEMO": "English: Detail clean the exterior of storage containers, areas around and behind fryers to remove grease/sticky buildup, vent hood, and interior and gaskets of reach-in coolers. Maintain clean to sight and touch.\r\n\r\n\n\nEspañol: Limpiar detalladamente el exterior de los recipientes de almacenamiento, áreas alrededor y detrás de las freidoras para eliminar grasa/residuos pegajosos, campana de ventilación, e interior y empaques de los refrigeradores. Mantener limpio a la vista y al tacto."
+   }
+  },
+  {
+   "attributes": {
+    "OBJECTID": 5723,
+    "FACILITY_ID": "FA0000155",
+    "NAME": "CARMEN'S TACOS AND GORDITAS",
+    "LOCATION": "1311 MARKETPLACE DR 200",
+    "CITY": "GARLAND",
+    "STATE": "TX",
+    "ZIP": "75041",
+    "PERMIT_NUMBER": "PT0148",
+    "INSPECTION_DATE": 1789603200000,
+    "SCORE": 73.0,
+    "VIOLATION_CODE": "1645",
+    "POINTS": 1.0,
+    "VIOLATION_DESCRIPTION": "Physical Facilities Installed, Maintained, and Clean",
+    "V_MEMO": "English: Repair, replace, or remove damaged/unnecessary equipment. Repair damaged floors, coving, and walls and maintain all surfaces smooth, durable, and easily cleanable.\r\n\r\n\n\nEspañol: Reparar, reemplazar o retirar equipo dañado o que ya no sea necesario. Reparar los pisos, zoclos sanitarios (coving) y paredes dañadas y mantener todas las superficies lisas, duraderas y fáciles de limpiar."
+   }
+  },
+  {
+   "attributes": {
+    "OBJECTID": 5724,
+    "FACILITY_ID": "FA0000155",
+    "NAME": "CARMEN'S TACOS AND GORDITAS",
+    "LOCATION": "1311 MARKETPLACE DR 200",
+    "CITY": "GARLAND",
+    "STATE": "TX",
+    "ZIP": "75041",
+    "PERMIT_NUMBER": "PT0148",
+    "INSPECTION_DATE": 1789603200000,
+    "SCORE": 73.0,
+    "VIOLATION_CODE": "1647",
+    "POINTS": 1.0,
+    "VIOLATION_DESCRIPTION": "Other Violations",
+    "V_MEMO": "English: Provide the most recent grease trap service ticket. Service is required at least every 90 days.\r\n\r\n\n\nEspañol: Proporcionar el comprobante más reciente del servicio de la trampa de grasa. Debe recibir servicio por lo menos cada 90 días.\r\n\r\n\r\nEnglish: Post the required No Smoking sign at the front door/window of the establishment where it is clearly visible.\n\nEspañol: Colocar el letrero requerido de No Fumar en la puerta/ventana principal del establecimiento, en un lugar claramente visible."
+   }
+  },
+  {
+   "attributes": {
+    "OBJECTID": 6664,
+    "FACILITY_ID": "FA0000031",
+    "NAME": "CVS PHARMACY #7481",
+    "LOCATION": "1372 BELT LINE RD",
+    "CITY": "GARLAND",
+    "STATE": "TX",
+    "ZIP": "75040",
+    "PERMIT_NUMBER": "PT0031",
+    "INSPECTION_DATE": 1791763200000,
+    "SCORE": 100.0,
+    "VIOLATION_CODE": null,
+    "POINTS": null,
+    "VIOLATION_DESCRIPTION": null,
+    "V_MEMO": null
+   }
+  },
+  {
+   "attributes": {
+    "OBJECTID": 6767,
+    "FACILITY_ID": "FA0000383",
+    "NAME": "GISD ALTERNATIVE EDUCATION CENTER",
+    "LOCATION": "2015 S COUNTRY CLUB RD",
+    "CITY": "GARLAND",
+    "STATE": "TX",
+    "ZIP": "75040",
+    "PERMIT_NUMBER": "PT0369",
+    "INSPECTION_DATE": 1792540800000,
+    "SCORE": 100.0,
+    "VIOLATION_CODE": null,
+    "POINTS": null,
+    "VIOLATION_DESCRIPTION": null,
+    "V_MEMO": null
+   }
+  },
+  {
+   "attributes": {
+    "OBJECTID": 7395,
+    "FACILITY_ID": "FA0002499",
+    "NAME": "GARLAND HOMEBOY'S",
+    "LOCATION": "450 E INTERSTATE 30",
+    "CITY": "GARLAND",
+    "STATE": "TX",
+    "ZIP": "75043",
+    "PERMIT_NUMBER": "PT3161",
+    "INSPECTION_DATE": 1794787200000,
+    "SCORE": 95.0,
+    "VIOLATION_CODE": "1618",
+    "POINTS": 3.0,
+    "VIOLATION_DESCRIPTION": "Toxic Substances Properly Identified, Stored and Used",
+    "V_MEMO": "Observed chemical spray bottle under prep cooler at front counter without a label stating what chemical was inside of bottle. \r\n\r\nProvide label to chemical spray bottle to identify what chemical is inside of bottle."
+   }
+  },
+  {
+   "attributes": {
+    "OBJECTID": 7396,
+    "FACILITY_ID": "FA0002499",
+    "NAME": "GARLAND HOMEBOY'S",
+    "LOCATION": "450 E INTERSTATE 30",
+    "CITY": "GARLAND",
+    "STATE": "TX",
+    "ZIP": "75043",
+    "PERMIT_NUMBER": "PT3161",
+    "INSPECTION_DATE": 1794787200000,
+    "SCORE": 95.0,
+    "VIOLATION_CODE": "1637",
+    "POINTS": 1.0,
+    "VIOLATION_DESCRIPTION": "Environmental Contamination",
+    "V_MEMO": "Observed food being stored on floor inside walk in freezer. \r\n\r\nEnsure food items are stored at least 6 inches above the floor to prevent environmental contamination."
+   }
+  },
+  {
+   "attributes": {
+    "OBJECTID": 7397,
+    "FACILITY_ID": "FA0002499",
+    "NAME": "GARLAND HOMEBOY'S",
+    "LOCATION": "450 E INTERSTATE 30",
+    "CITY": "GARLAND",
+    "STATE": "TX",
+    "ZIP": "75043",
+    "PERMIT_NUMBER": "PT3161",
+    "INSPECTION_DATE": 1794787200000,
+    "SCORE": 95.0,
+    "VIOLATION_CODE": "1647",
+    "POINTS": 1.0,
+    "VIOLATION_DESCRIPTION": "Other Violations",
+    "V_MEMO": "Observed most recent food inspection not posted for the public view. \r\n\r\nEnsure this report's inspection score is posted at the front entrance of the establishment for public view (score is located on last page of report)."
+   }
+  },
+  {
+   "attributes": {
+    "OBJECTID": 7475,
+    "FACILITY_ID": "FA0001543",
+    "NAME": "LA MEDIA LUNA",
+    "LOCATION": "3460 W WALNUT ST 100",
+    "CITY": "GARLAND",
+    "STATE": "TX",
+    "ZIP": "75042",
+    "PERMIT_NUMBER": "PT1681",
+    "INSPECTION_DATE": 1795132800000,
+    "SCORE": 97.0,
+    "VIOLATION_CODE": "1631",
+    "POINTS": 2.0,
+    "VIOLATION_DESCRIPTION": "Adequate Hand Washing Facilities: Accessible and Properly Supplied",
+    "V_MEMO": "Observed items being stored in the hand sink. Keep the hand sink clear from items."
+   }
+  },
+  {
+   "attributes": {
+    "OBJECTID": 7476,
+    "FACILITY_ID": "FA0001543",
+    "NAME": "LA MEDIA LUNA",
+    "LOCATION": "3460 W WALNUT ST 100",
+    "CITY": "GARLAND",
+    "STATE": "TX",
+    "ZIP": "75042",
+    "PERMIT_NUMBER": "PT1681",
+    "INSPECTION_DATE": 1795132800000,
+    "SCORE": 97.0,
+    "VIOLATION_CODE": "1637",
+    "POINTS": 1.0,
+    "VIOLATION_DESCRIPTION": "Environmental Contamination",
+    "V_MEMO": "- Observed a box of disposable cups being stored on the floor. Ensure all utensils items are stored at least 6 inches above the floor."
+   }
+  }
+ ]
+}
