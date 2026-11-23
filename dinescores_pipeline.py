@@ -13712,15 +13712,16 @@ def _gar_line(number, memo):
         if (len(text) > GAR_TEXT_MAX and has_active_pest_or_sewage(text)
                 and not has_active_pest_or_sewage(text[:GAR_TEXT_MAX])):
             # The finding sits past the cap: its sentences go first.
-            sentences = re.split(r'(?<=[.!?])\s+', memo)
+            sentences = [_GAR_BULLET_RE.sub('', s) for s in re.split(r'(?<=[.!?])\s+', memo)]
+            sentences = [s for s in sentences if s]
             hazard = [s for s in sentences if has_active_pest_or_sewage(s)]
             if hazard:
                 body = ' '.join(hazard + [s for s in sentences if s not in hazard])
                 text = f'{title}: {body}' if title else body
+    if not text.endswith(('.', '!', '?')):
+        text = text.rstrip(' ,;:-') + '.'
     if len(text) > GAR_TEXT_MAX:
         text = text[:GAR_TEXT_MAX - 3].rsplit(' ', 1)[0].rstrip(' ,;:-') + '...'
-    elif not text.endswith(('.', '!', '?')):
-        text = text.rstrip(' ,;:-') + '.'
     return text
 
 

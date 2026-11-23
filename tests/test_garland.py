@@ -26,6 +26,7 @@ import jev_reader  # noqa: E402
 
 FIXTURES = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'fixtures', 'garland')
 SINCE = '2023-01-01'           # older than every fixture row: the whole fixture is in the window
+GAR_EDGE = dp.GAR_TEXT_MAX - len('Other violations: ') - 9   # memo length that lands a line on the cap
 
 
 def _load(name):
@@ -336,6 +337,16 @@ class TestPestAndSewageText(GarlandBase):
         self.assertLessEqual(len(line), dp.GAR_TEXT_MAX)
         self.assertTrue(line.startswith('Pests and animals: Observed live cockroaches'))
         self.assertTrue(dp.has_active_pest_or_sewage(line))
+        # A line of exactly the cap without a closing period stays within it
+        # (two 2026 memos ended in a bare PDF link).
+        for n in range(GAR_EDGE - 5, GAR_EDGE + 5):
+            line = dp._gar_line(47, 'x' * 8 + ' ' + 'y' * n)
+            self.assertLessEqual(len(line), dp.GAR_TEXT_MAX)
+            self.assertTrue(line.endswith(('.', '...')))
+        # A moved sentence loses its bullet too (PT0148's bilingual memo, 2026-09-17).
+        line = dp._gar_line(34, 'English: Air curtain was observed not functioning. ' * 12
+                            + '--English: Observed a dead roach on the fryer equipment.')
+        self.assertTrue(line.startswith('Pests and animals: English: Observed a dead roach'), line)
         # Without a finding the order is the inspector's.
         plain = dp._gar_line(34, 'Air curtain at the rear door does not turn on. ' * 12)
         self.assertTrue(plain.startswith('Pests and animals: Air curtain'))
