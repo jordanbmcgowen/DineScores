@@ -1174,6 +1174,22 @@
    "group": "Minneapolis",
    "latest": "2026-11-09"
   },
+  "Montana Health Dept": {
+   "given_up": [
+    "2026-08-18|BCA78AAF-2C73-4ACF-89E7-1E2E18E1D675"
+   ],
+   "group": "MHD metros (midweek)",
+   "hold": {
+    "date": "2026-11-13",
+    "failures": {
+     "2026-11-13|7E7CFEE5-8CD2-4389-87E6-4AF750A0DE8E": 1,
+     "2026-11-17|17261973-D899-46B2-A11E-F4B898BC199E": 1,
+     "2026-11-17|2565CBC1-BD50-483D-9E00-5FF427992E33": 1,
+     "2026-11-19|4836FCAE-1A45-4C7F-B647-87F8E4F69D32": 1
+    }
+   },
+   "latest": "2026-11-12"
+  },
   "Montgomery County Open Data": {
    "group": "Montgomery County",
    "latest": "2026-11-13"

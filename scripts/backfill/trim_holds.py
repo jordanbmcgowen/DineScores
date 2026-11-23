@@ -1,4 +1,5 @@
 """trim_holds.py [--horizon-days N] <group>...
+   trim_holds.py [--horizon-days N] --source <label> --newest YYYY-MM-DD
 
 After a backfill, a hold the chunk left on a NEW group pins the first weekly
 runs at the oldest unreadable record of the whole history: Pima's 746
@@ -11,6 +12,12 @@ re-read that meets them again does not restart a count. A source's latest
 becomes the day before its earliest kept failure, or its group's newest
 shipped inspection when none is kept; the group's latest follows its
 sources. Groups whose latest is already inside the horizon are left alone.
+
+--source does the same for ONE source inside a group that already existed
+(a new MyHealthDepartment jurisdiction: the portal groups are shared and
+their source entries are the weekly window, so the group is fresh while the
+new source is pinned at its backfill's oldest unread report). --newest is
+the newest inspection the backfill shipped for it; the group is not touched.
 Run from the main checkout; edits data/source_freshness.json in place."""
 import argparse
 import json
@@ -18,8 +25,12 @@ from datetime import datetime, timedelta, timezone
 
 ap = argparse.ArgumentParser()
 ap.add_argument('--horizon-days', type=int, default=45)
-ap.add_argument('groups', nargs='+')
+ap.add_argument('--source', help='trim this one source instead of whole groups')
+ap.add_argument('--newest', help='with --source: the newest inspection its backfill shipped')
+ap.add_argument('groups', nargs='*')
 args = ap.parse_args()
+if bool(args.source) == bool(args.groups) or bool(args.source) != bool(args.newest):
+    ap.error('give groups, or --source with --newest')
 path = 'data/source_freshness.json'
 d = json.load(open(path))
 today = datetime.now(timezone.utc).date()
@@ -31,6 +42,34 @@ def day_before(day):
     return (datetime.strptime(day, '%Y-%m-%d') - timedelta(days=1)).strftime('%Y-%m-%d')
 
 
+def trim_source(g, s, se, newest):
+    hold = se.get('hold') or {}
+    failures = hold.get('failures') or {}
+    kept = {k: n for k, n in failures.items() if k[:10] >= cutoff}
+    old = sorted(k for k in failures if k[:10] < cutoff)
+    given_up = sorted(set(se.get('given_up') or []) | {k for k in old if k[:10] >= keep_given_up_from})
+    if given_up:
+        se['given_up'] = given_up[-500:]
+    if kept:
+        first = min(k[:10] for k in kept)
+        se['hold'] = {'date': first, 'failures': kept}
+        se['latest'] = min(newest, day_before(first))
+    else:
+        se.pop('hold', None)
+        se['latest'] = max(se.get('latest') or '', newest) if (se.get('latest') or '') >= cutoff else newest
+    print(f"{g}: {s}: {len(failures)} held failures -> {len(kept)} kept (from {cutoff}), "
+          f"{len(old)} given up; latest {se['latest']}")
+    return se['latest']
+
+
+if args.source:
+    se = d['sources'].get(args.source)
+    if not se:
+        print(f"{args.source}: no such source")
+    elif (se.get('latest') or '') >= cutoff:
+        print(f"{args.source}: latest {se.get('latest')} is inside the horizon; left alone")
+    else:
+        trim_source(se.get('group'), args.source, se, args.newest)
 for g in args.groups:
     ge = d['groups'].get(g)
     if not ge:
@@ -42,23 +81,7 @@ for g in args.groups:
     for s, se in d['sources'].items():
         if se.get('group') != g:
             continue
-        hold = se.get('hold') or {}
-        failures = hold.get('failures') or {}
-        kept = {k: n for k, n in failures.items() if k[:10] >= cutoff}
-        old = sorted(k for k in failures if k[:10] < cutoff)
-        given_up = sorted(set(se.get('given_up') or []) | {k for k in old if k[:10] >= keep_given_up_from})
-        if given_up:
-            se['given_up'] = given_up[-500:]
-        if kept:
-            first = min(k[:10] for k in kept)
-            se['hold'] = {'date': first, 'failures': kept}
-            se['latest'] = min(newest, day_before(first))
-        else:
-            se.pop('hold', None)
-            se['latest'] = max(se.get('latest') or '', newest) if (se.get('latest') or '') >= cutoff else newest
-        latests.append(se['latest'])
-        print(f"{g}: {s}: {len(failures)} held failures -> {len(kept)} kept (from {cutoff}), "
-              f"{len(old)} given up; latest {se['latest']}")
+        latests.append(trim_source(g, s, se, newest))
     if latests:
         ge['latest'] = min(latests)
     print(f"{g}: group latest {ge['latest']} (newest shipped {newest})")

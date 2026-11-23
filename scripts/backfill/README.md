@@ -25,8 +25,11 @@ scripts/backfill/geocode_backlog.py [--patch] <out.records.json.gz> <nominatim c
     one more geocoding pass over the restaurants a backfill left without
     coordinates (absorb.sh runs it with --patch on every chunk)
 scripts/backfill/trim_holds.py [--horizon-days 45] <group>...
+scripts/backfill/trim_holds.py [--horizon-days 45] --source <label> --newest YYYY-MM-DD
     after a long backfill, keep only recent held failures so the first
-    weekly runs do not re-read the whole history (older ones are given up)
+    weekly runs do not re-read the whole history (older ones are given up);
+    --source is for one new source inside a group that already existed (a
+    new MyHealthDepartment jurisdiction)
 ```
 
 Environment: `BACKFILL_DIR` (where chunk outputs and logs go, default
