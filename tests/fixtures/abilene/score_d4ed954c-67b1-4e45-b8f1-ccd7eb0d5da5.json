@@ -1,0 +1,17 @@
+{
+ "scoreDetail": {
+  "violationScore": 97.0,
+  "violationRating": "",
+  "onlyShowRatings": false,
+  "isAverageInspectionScoringEnabled": false,
+  "numberOfInspections": null
+ },
+ "inspectionViolationItems": [
+  {
+   "inspectionId": "d4ed954c-67b1-4e45-b8f1-ccd7eb0d5da5",
+   "severityId": "ce53e0ef-922c-4922-bc5b-0b0afb1ca1b7",
+   "severityName": "Priority",
+   "violationCount": 1
+  }
+ ]
+}

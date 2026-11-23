@@ -1,0 +1,86 @@
+[
+ {
+  "inspectionId": "9df09cb3-dd1f-4ac2-9135-6d44d31af42e",
+  "inspectionNumber": "RFEI-ROUT-000157-2026",
+  "itemReference": "3",
+  "sortOrder": 3,
+  "violationItemText": "Proper Hot Holding temperature(135°F)",
+  "observationType": "OUT",
+  "violationCategoryGroupName": "Priority Items (3 Points)",
+  "violationCategoryName": "Time and Temperature for Food Safety (F = degrees Fahrenheit)",
+  "inspectorNotes": "Observed scrambled eggs at 119f and cooked potatoes at 109f in service line warmer for less than 4 hours. COS voluntarily discarded.",
+  "violationItemId": "066df06a-a29e-45f9-9653-8a0967a6d560"
+ },
+ {
+  "inspectionId": "9df09cb3-dd1f-4ac2-9135-6d44d31af42e",
+  "inspectionNumber": "RFEI-ROUT-000157-2026",
+  "itemReference": "6",
+  "sortOrder": 6,
+  "violationItemText": "Time as a Public Health Control; procedures & records",
+  "observationType": "OUT",
+  "violationCategoryGroupName": "Priority Items (3 Points)",
+  "violationCategoryName": "Time and Temperature for Food Safety (F = degrees Fahrenheit)",
+  "inspectorNotes": "Observed chili and diced pork dated 10-29-26 in walk in cooler. COS voluntarily discarded.",
+  "violationItemId": "acfa154b-0f1a-4b75-9900-db485b0d9167"
+ },
+ {
+  "inspectionId": "9df09cb3-dd1f-4ac2-9135-6d44d31af42e",
+  "inspectionNumber": "RFEI-ROUT-000157-2026",
+  "itemReference": "7",
+  "sortOrder": 7,
+  "violationItemText": "Food and ice obtained from approved source; Food in good condition, safe, and unadulterated; parasite destruction",
+  "observationType": "OUT",
+  "violationCategoryGroupName": "Priority Items (3 Points)",
+  "violationCategoryName": "Approved Source",
+  "inspectorNotes": "Observed mold like substance on ice chutes of soda machines.",
+  "violationItemId": "7739c212-85c6-482f-918b-d95c90fe58d4"
+ },
+ {
+  "inspectionId": "9df09cb3-dd1f-4ac2-9135-6d44d31af42e",
+  "inspectionNumber": "RFEI-ROUT-000157-2026",
+  "itemReference": "27",
+  "sortOrder": 27,
+  "violationItemText": "Proper cooling method used; Equipment Adequate to Maintain Product Temperature",
+  "observationType": "OUT",
+  "violationCategoryGroupName": "Priority Foundation Items (2 Points)",
+  "violationCategoryName": "Food Temperature Control/ Identification",
+  "inspectorNotes": "Observed heat lamps not keeping TCS foods at proper temperatures. See #3.",
+  "violationItemId": "ba9b2012-61ce-4e07-9e92-61a4bc2badcd"
+ },
+ {
+  "inspectionId": "9df09cb3-dd1f-4ac2-9135-6d44d31af42e",
+  "inspectionNumber": "RFEI-ROUT-000157-2026",
+  "itemReference": "28",
+  "sortOrder": 28,
+  "violationItemText": "Proper Date Marking and disposition",
+  "observationType": "OUT",
+  "violationCategoryGroupName": "Priority Foundation Items (2 Points)",
+  "violationCategoryName": "Food Temperature Control/ Identification",
+  "inspectorNotes": "Observed foods past use by dates in walk in cooler COS. See #6",
+  "violationItemId": "fbda0ac1-782a-4e8a-8cd8-586a3eddd42d"
+ },
+ {
+  "inspectionId": "9df09cb3-dd1f-4ac2-9135-6d44d31af42e",
+  "inspectionNumber": "RFEI-ROUT-000157-2026",
+  "itemReference": "31",
+  "sortOrder": 31,
+  "violationItemText": "Adequate handwashing facilities: Accessible and properly supplied, used",
+  "observationType": "OUT",
+  "violationCategoryGroupName": "Priority Foundation Items (2 Points)",
+  "violationCategoryName": "Utensils, Equipment, and Vending",
+  "inspectorNotes": "Observed water temperature at hand wash sinks in ware wash area and pizza oven area at 73F",
+  "violationItemId": "174eec55-b41b-45ac-b8f2-962911779815"
+ },
+ {
+  "inspectionId": "9df09cb3-dd1f-4ac2-9135-6d44d31af42e",
+  "inspectionNumber": "RFEI-ROUT-000157-2026",
+  "itemReference": "43",
+  "sortOrder": 43,
+  "violationItemText": "Adequate ventilation and lighting; designated areas used",
+  "observationType": "OUT",
+  "violationCategoryGroupName": "Core Items (1 Point)",
+  "violationCategoryName": "Physical Facilities",
+  "inspectorNotes": "Observed grease dripping from vent hood down to stove in kitchen.",
+  "violationItemId": "aaf1a462-dd7a-4c95-89da-828c8fbf3847"
+ }
+]

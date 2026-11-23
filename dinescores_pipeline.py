@@ -13543,7 +13543,9 @@ def fetch_denton(since_date=None, limit=None):
 # Addresses are street-only (no city or ZIP anywhere in the API; every permit
 # seen is in the 'City of Abilene' district), so city is Abilene and main()
 # geocodes. The header carries the inspector's name and e-mail and a free-text
-# comment, the permit summary its issuer's: none of them leave this section.
+# comment, the permit summary its issuer's and (in 'description') often the
+# business's contact e-mail: none of them leave this section, and the test
+# fixtures are scrubbed of them.
 
 ABL_BASE = 'https://cityofabilenetx-energovweb.tylerhost.net/apps/civic-access-public/'
 ABL_API = ABL_BASE + 'civicapi/'

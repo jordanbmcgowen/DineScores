@@ -1,0 +1,86 @@
+[
+ {
+  "inspectionId": "9d501c17-d643-48f4-887d-8c5df3e0c3bd",
+  "inspectionNumber": "RFEI-ROUT-000400-2026",
+  "itemReference": "2",
+  "sortOrder": 2,
+  "violationItemText": "Proper Cold Holding temperature(41°F/ 45°F)",
+  "observationType": "OUT",
+  "violationCategoryGroupName": "Priority Items (3 Points)",
+  "violationCategoryName": "Time and Temperature for Food Safety (F = degrees Fahrenheit)",
+  "inspectorNotes": "Observed shredded lettuce temping at 61.0 degF stored on a cart. COS brought to walk in. Observed package of ground beef stored in stagnant water temping at 75.0degF. COS discarded. ",
+  "violationItemId": "01d116ae-f516-48cf-a038-159a9e8fc2a6"
+ },
+ {
+  "inspectionId": "9d501c17-d643-48f4-887d-8c5df3e0c3bd",
+  "inspectionNumber": "RFEI-ROUT-000400-2026",
+  "itemReference": "7",
+  "sortOrder": 7,
+  "violationItemText": "Food and ice obtained from approved source; Food in good condition, safe, and unadulterated; parasite destruction",
+  "observationType": "OUT",
+  "violationCategoryGroupName": "Priority Items (3 Points)",
+  "violationCategoryName": "Approved Source",
+  "inspectorNotes": "Observed a package of ground beef stored in a stagnant container of water and temping at 75.0degF for an unknown time. COS voluntarily discarded by an employee.",
+  "violationItemId": "7739c212-85c6-482f-918b-d95c90fe58d4"
+ },
+ {
+  "inspectionId": "9d501c17-d643-48f4-887d-8c5df3e0c3bd",
+  "inspectionNumber": "RFEI-ROUT-000400-2026",
+  "itemReference": "29",
+  "sortOrder": 29,
+  "violationItemText": "Thermometers provided, accurate, and calibrated; Chemical/ Thermal test strips",
+  "observationType": "OUT",
+  "violationCategoryGroupName": "Priority Foundation Items (2 Points)",
+  "violationCategoryName": "Food Temperature Control/ Identification",
+  "inspectorNotes": "Observed no thermometer inside a reach-in cooler unit behind the counter. Employees stated it broke and is being replaced.",
+  "violationItemId": "62cfa54f-9987-46c7-aea0-fd409967d0c2"
+ },
+ {
+  "inspectionId": "9d501c17-d643-48f4-887d-8c5df3e0c3bd",
+  "inspectionNumber": "RFEI-ROUT-000400-2026",
+  "itemReference": "31",
+  "sortOrder": 31,
+  "violationItemText": "Adequate handwashing facilities: Accessible and properly supplied, used",
+  "observationType": "OUT",
+  "violationCategoryGroupName": "Priority Foundation Items (2 Points)",
+  "violationCategoryName": "Utensils, Equipment, and Vending",
+  "inspectorNotes": "",
+  "violationItemId": "174eec55-b41b-45ac-b8f2-962911779815"
+ },
+ {
+  "inspectionId": "9d501c17-d643-48f4-887d-8c5df3e0c3bd",
+  "inspectionNumber": "RFEI-ROUT-000400-2026",
+  "itemReference": "34",
+  "sortOrder": 34,
+  "violationItemText": "No Evidence of Insect contamination, rodent/other animals",
+  "observationType": "OUT",
+  "violationCategoryGroupName": "Core Items (1 Point)",
+  "violationCategoryName": "Prevention of Food Contamination",
+  "inspectorNotes": "Observed that the back door was propped open upon arrival. COS by employee. Observed flies in the establishment.",
+  "violationItemId": "087d7c5d-7d49-4964-bfff-2470466a4d34"
+ },
+ {
+  "inspectionId": "9d501c17-d643-48f4-887d-8c5df3e0c3bd",
+  "inspectionNumber": "RFEI-ROUT-000400-2026",
+  "itemReference": "35",
+  "sortOrder": 35,
+  "violationItemText": "Personal Cleanliness/eating, drinking or tobacco use",
+  "observationType": "OUT",
+  "violationCategoryGroupName": "Core Items (1 Point)",
+  "violationCategoryName": "Prevention of Food Contamination",
+  "inspectorNotes": "",
+  "violationItemId": "367c9699-9cbe-490f-a90a-6a734f2841e3"
+ },
+ {
+  "inspectionId": "9d501c17-d643-48f4-887d-8c5df3e0c3bd",
+  "inspectionNumber": "RFEI-ROUT-000400-2026",
+  "itemReference": "38",
+  "sortOrder": 38,
+  "violationItemText": "Approved thawing method",
+  "observationType": "OUT",
+  "violationCategoryGroupName": "Core Items (1 Point)",
+  "violationCategoryName": "Prevention of Food Contamination",
+  "inspectorNotes": "Observed a roll of ground beef stored in a stagnant container of water at the 3cc sink. Must be thawed under running cool water.",
+  "violationItemId": "627cad9f-cc29-4874-b434-91193693664a"
+ }
+]
