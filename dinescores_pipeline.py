@@ -16788,7 +16788,11 @@ def fetch_abilene(since_date=None, limit=None):
 # Gallatin's shows 100.0 with 3 RFI, Kansas City's 97.4 on a report with no
 # violation, so it is never shipped). risk_score is 100 - 5 per RFI/Critical
 # line - 1 per other line (calc_risk_score over the source's own two tiers:
-# Louisiana's rule). Flathead publishes an official letter grade (Board of
+# Louisiana's rule), with two corrections made after the report is checked
+# against its counters (_io_shipped_rows): a commendation row is not a
+# finding (IO_COMMENDATION_RE), and a Montana Risk Factor row whose standard
+# title is a Priority Foundation provision of the Food Code counts 2, not 5
+# (IO_MT_PF_TITLES). Flathead publishes an official letter grade (Board of
 # Health Policy 2010-01 EH, demerit bands A+ 0-3 ... F 60+, in the list row's
 # score cell; per-line demerit values are not public), so the score is
 # computed the same way and then capped by the county's band: a B-range
@@ -16844,6 +16848,65 @@ IO_DOC_FIELDS = ('fld_EstabName', 'fld_FaciName', 'fld_FStreetNo', 'fld_FStreetN
 # The tier printed on a violation row: Montana's Risk Factor/Intervention and
 # Kansas City's Critical are the higher tier; an empty cell the other.
 IO_TIER = {'RISK FACTOR/INTERVENTION': 'priority', 'CRITICAL': 'priority', '': 'core'}
+# A row that records a commendation, not a finding. Flathead prints its bonus
+# credit for temperature logs as report rows under the Risk Factor tier
+# ("Adequate daily cold holding logs are maintained. This facility exceeds
+# regulatory requirements ... Bonus credit has been awarded ..."): 78 of the
+# 232 higher-tier rows of the 90-day backfill, each of which cost a restaurant
+# 5 points for doing more than the rule asks. The document's counters count
+# them like any row; they never ship.
+IO_COMMENDATION_RE = re.compile(
+    r'exceeds\s+regulatory\s+requirements|bonus\s+credit\s+has\s+been\s+awarded', re.I)
+# Montana's higher tier is a SECTION of the state form (Foodborne Illness
+# Risk Factors and Public Health Interventions), not a severity: it holds the
+# Food Code's Priority provisions and its Priority Foundation ones alike.
+# Scored 5 points each, Missoula graded 9 of 83 inspections F in a quarter
+# (test strips, date marks, soap at a hand sink and a missing PIC at 5 points
+# apiece) while the county's own unpublished letters for 2026 had no grade
+# below C. The standard titles below cite provisions the FDA Food Code marks
+# Pf at most (3-501.17, 4-302.14, 5-205.11, 6-301.11, 5-202.12, 3-501.19(A),
+# 4-601.11(A), 3-501.15, 3-602.11, 4-501.19, 2-101.11, 2-102.11, 2-103.11,
+# 5-103.11, 3-603.11, 3-502.11, 4-301.11, 4-204.117, 4-302.13, 5-102.13,
+# 3-202.15, 4-301.12, 6-501.111), so their rows ship as priority_foundation
+# (2 points). Every other Risk Factor row stays priority, a title not seen
+# before included. Whole-title matches, lower case. Kansas City's 'Critical'
+# is the city's own severity and is never touched.
+IO_MT_PF_TITLES = frozenset({
+    'ready-to-eat time/temperature control for safety food improperly date marked',
+    'ready-to-eat phf/tcs food improperly date marked',
+    'accurate chemical test kit that measures concentration in mg/l (ppm) not provided for the chemical in use',
+    'handwashing sink not adequately supplied with hot water at a minimum of 100°f',
+    'handwashing sink used for purposes other than handwashing',
+    'handwashing sink is blocked or not easily accessible',
+    'handwashing sink not accessible',
+    'hand cleaning soap not available at each handwashing sink',
+    'inadequate documentation and tracking of time-controlled foods',
+    'equipment food-contact surfaces not clean',
+    'equipment food-contact surfaces not clean to sight or touch',
+    'inappropriate cooling methods used',
+    'improper labeling of food packaged within food establishment',
+    'temperature of wash solution in manual warewashing operation maintained at less than 43°c (110°f) '
+    'or as otherwise specified',
+    'pic did not practice active managerial controls leading to pattern of non-compliance. '
+    'pic did not perform duties',
+    'no designated pic present',
+    'pic unable to demonstrate knowledge',
+    'hot water capacity not sufficient to meet the peak needs of the establishment',
+    'hot water not sufficient to meet the peak needs of the establishment',
+    'consumer advisory for consumption of raw or undercooked animal food not adequate',
+    'variance for specialized process not obtained prior to operation',
+    'specialized processing variance not obtained when required',
+    'heating, cooling, cold and hot holding equipment is insufficient in number, capacity or ability '
+    'to maintain safe food temperatures',
+    'heating, cooling, cold and hot holding equipment capacity insufficient',
+    'warewashing machine not equipped to auto dispense detergents or sanitizers and a method for '
+    'visual verification of delivery or alarm',
+    'appropriate temperature measuring device not readily accessible for warewashing operations',
+    'non public water supply not sampled as required',
+    'food packages not in good condition',
+    'three compartment sink not provided',
+    'premises not maintained free of insects, rodents or other pests',
+})
 # Inspection types seen 2026 (Montana 90 days, Kansas City 13 weeks).
 IO_SHIP_TYPES = frozenset({
     'Routine', 'Routine Inspection', 'Ad-Hoc Routine', 'Follow-Up', 'Complaint', 'Complaint Inspection',
@@ -17208,9 +17271,26 @@ def _io_parse_report(page, iso_date):
     return out
 
 
+def _io_shipped_rows(cfg, violations):
+    """The rows of a report that ship, once the report has been checked
+    against its counters: a commendation is dropped (IO_COMMENDATION_RE), and
+    a Montana Risk Factor row whose standard title is a Priority Foundation
+    provision becomes priority_foundation (IO_MT_PF_TITLES)."""
+    out = []
+    for cat, sev, text in violations:
+        if IO_COMMENDATION_RE.search(text):
+            continue
+        if sev == 'priority' and cfg['state'] == 'MT':
+            title = ' '.join(text.split(': ', 1)[0].split()).lower()
+            if title in IO_MT_PF_TITLES:
+                sev = 'priority_foundation'
+        out.append([cat, sev, text])
+    return out
+
+
 def _io_record(cfg, row, place, violations):
     """One DineScores record (see the section comment for the score rule)."""
-    risk, pv, pfv, cv = calc_risk_score(violations)    # 100 - 5 per RFI/Critical line - 1 per other
+    risk, pv, pfv, cv = calc_risk_score(violations)    # 100 - 5 per priority row - 2 per Pf row - 1 per other
     results = ''
     if cfg['grade'] and row['score'] not in IO_UNGRADED:
         cap = IO_GRADE_RISK_CAP[row['score']]
@@ -17284,7 +17364,10 @@ def _io_read_one(slug, row, margin_before):
     if len(violations) < n_all or hi < n_hi or (len(violations) - hi) < (n_all - n_hi):
         return 'unread', (f'{len(violations)} violation rows ({hi} higher-tier) against the document\'s '
                           f'counters {n_all} ({n_hi})')
-    return 'ok', _io_record(cfg, row, place, violations)
+    shipped = _io_shipped_rows(cfg, violations)
+    if row['type'] in IO_CITED_ONLY_TYPES and not shipped:
+        return 'skip', f"uncited {row['type']}"
+    return 'ok', _io_record(cfg, row, place, shipped)
 
 
 def _fetch_paragon(slug, since_date=None, limit=None):

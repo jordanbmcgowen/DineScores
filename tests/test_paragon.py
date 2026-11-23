@@ -310,7 +310,8 @@ class MissoulaTests(_Base):
         self.assertNotIn(MSO_MOBILE, s.reports_requested())
         self.assertNotIn(MSO_PORTER, s.reports_requested())
         other = by[MSO_OTHER]
-        self.assertEqual((other['risk_score'], other['priority_violations'], other['core_violations']), (84, 3, 1))
+        self.assertEqual((other['risk_score'], other['priority_violations'], other['priority_foundation_violations'],
+                          other['core_violations']), (87, 2, 1, 1))     # one of its 3 RFI rows is a Pf title
         self.assertEqual(other['inspection_type'], 'Other')
         self.assertEqual(other['name'], 'La Quinta Inn - Food')
         self.assertEqual((other['city'], other['state'], other['zip']), ('Missoula', 'MT', '59808'))
@@ -323,8 +324,10 @@ class MissoulaTests(_Base):
         self.assertEqual(by[MSO_DRAM]['name'], 'The Dram Shop Central')
         self.assertEqual(by[MSO_DRAM]['risk_score'], 99)
         self.assertEqual(by[MSO_LABOCA]['risk_score'], 100)      # Food Service|Mobile: a fixed premises too
-        self.assertEqual(by[MSO_DOUBLEK]['risk_score'], 59)      # 100 - 8x5 - 1
-        self.assertEqual(dp.calculate_vetted_grade(59, dp.build_violation_text(by[MSO_DOUBLEK]['violations'])), 'F')
+        dk = by[MSO_DOUBLEK]                                     # 8 RFI rows + 1: 3 Priority, 5 Pf titles
+        self.assertEqual((dk['risk_score'], dk['priority_violations'], dk['priority_foundation_violations'],
+                          dk['core_violations']), (74, 3, 5, 1))  # 100 - 3x5 - 5x2 - 1; 59 with every RFI at 5
+        self.assertEqual(dp.calculate_vetted_grade(74, dp.build_violation_text(dk['violations'])), 'C')
         # newest day first
         self.assertEqual([r['inspection_date'] for r in recs], sorted((r['inspection_date'] for r in recs),
                                                                        reverse=True))
@@ -339,7 +342,7 @@ class MissoulaTests(_Base):
             'core_violations', 'total_violations', 'violations', 'inspection_type', 'results', 'source',
             'source_url', 'source_id', 'metro'})
         for v in rec['violations']:
-            self.assertIn(v[1], ('priority', 'core'))
+            self.assertIn(v[1], ('priority', 'priority_foundation', 'core'))
 
     def test_practice_facility_is_skipped(self):
         s = Server('missoula')
@@ -386,8 +389,8 @@ class GallatinTests(_Base):
         self.assertNotIn(GAL_SCHOOL, s.reports_requested())
         self.assertEqual(by[GAL_SHOPPE]['name'], 'The Shoppe Coffeehouse Bakery')
         self.assertEqual(by[GAL_SHOPPE]['inspection_type'], 'Ownership Change')
-        self.assertEqual(by[GAL_BBQ]['risk_score'], 82)        # 100 - 2x5 - 8
-        self.assertEqual(by[GAL_TANGLE]['risk_score'], 77)     # 100 - 4x5 - 3
+        self.assertEqual(by[GAL_BBQ]['risk_score'], 88)        # 100 - 2x2 - 8: both RFI rows are Pf titles
+        self.assertEqual(by[GAL_TANGLE]['risk_score'], 80)     # 100 - 3x5 - 1x2 - 3 (one Pf title)
         self.assertEqual(by[GAL_BBQ]['source'], 'Gallatin City-County Health Department')
 
     def test_cited_other_ships(self):
@@ -409,7 +412,7 @@ class FlatheadTests(_Base):
         expect = {
             FHD_FIREBRAND: (69, 'Grade D+'),    # 100 - 4x5 - 5 = 75, the county's D+ caps at 69
             FHD_REM_CPLUS: (79, 'Grade C+'),    # 100 - 2x5 - 9 = 81 -> 79
-            FHD_BUFFET: (88, 'Grade B+'),       # 88, under the B cap
+            FHD_BUFFET: (89, 'Grade B+'),       # 91 with its Pf title at 2 points -> 89
             FHD_SUNLIFE: (89, 'Grade B+'),      # 92 -> 89
             FHD_CHICK: (93, ''),                # N/A: no band, no cap
             FHD_REM_FU: (94, 'Grade A-'),       # A-range letters never cap
@@ -676,6 +679,69 @@ class RegistrationTests(unittest.TestCase):
                      + list(dp.MHD_METRO_JURISDICTIONS.values())}
         self.assertFalse(set(groups) & mhd_names)
         self.assertEqual({c['state'] for c in dp.IO_PORTALS.values()}, {'MT', 'MO'})
+
+
+class ShippedRowsTests(unittest.TestCase):
+    """What ships from a report that passed its counters (_io_shipped_rows)."""
+    MT, KC = dp.IO_PORTALS['missoula'], dp.IO_PORTALS['kansascity']
+    BONUS = ('Adequate daily cold holding logs are maintained. This facility exceeds regulatory '
+             'requirements by practicing active managerial control by monitoring and recording internal '
+             'food temperatures. Bonus credit has been awarded based on inspector observations')
+
+    def test_commendation_is_not_a_violation(self):
+        rows = [['temperature_control', 'priority', self.BONUS],
+                ['general_cleanliness', 'core', 'Physical facilities not maintained cleaned: floor under the fryer']]
+        for cfg in (dp.IO_PORTALS['flathead'], self.MT, self.KC):
+            shipped = dp._io_shipped_rows(cfg, rows)
+            self.assertEqual([r[2][:8] for r in shipped], ['Physical'])
+        only = dp._io_shipped_rows(dp.IO_PORTALS['flathead'], rows[:1])
+        self.assertEqual(only, [])
+        self.assertEqual(dp.calc_risk_score(only)[0], 100)
+
+    def test_montana_pf_titles_count_two(self):
+        rows = [
+            ['x', 'priority', 'Accurate chemical test kit that measures concentration in mg/L (ppm) not provided '
+                              'for the chemical in use: Today the chlorine test strips were in bad shape'],
+            ['x', 'priority', 'Ready-to-eat time/temperature control for safety food improperly date marked: '
+                              'multiple TCS items in the beverage cooler are not date labeled'],
+            ['x', 'priority', 'Ready-to eat time/temperature control for safety food not discarded when required: '
+                              'a BBQ rib sandwich past its date'],
+            ['x', 'priority', 'Food contains unapproved food additives: kratom'],
+            ['x', 'priority', 'Chlorine solution maintained at improper concentration: one bucket at 0 ppm'],
+            ['x', 'priority', 'Food obtained from an unapproved source: kratom products'],
+            ['x', 'core', 'Food not protected from all sources of contamination: ice buildup in the freezer'],
+        ]
+        shipped = dp._io_shipped_rows(self.MT, rows)
+        self.assertEqual([r[1] for r in shipped],
+                         ['priority_foundation', 'priority_foundation', 'priority', 'priority', 'priority',
+                          'priority', 'core'])
+        self.assertEqual(dp.calc_risk_score(shipped)[0], 100 - 4 * 5 - 2 * 2 - 1)      # 75, was 69
+        self.assertEqual(dp.calc_risk_score(rows)[0], 69)
+        self.assertEqual([r[2] for r in shipped], [r[2] for r in rows], 'text never changes')
+
+    def test_unknown_title_and_bare_note_stay_priority(self):
+        rows = [['x', 'priority', 'A title the table has never seen: something'],
+                ['x', 'priority', 'no hot water at the hand sink'],
+                ['x', 'priority', 'Handwashing sink not accessible']]          # a title without a note
+        self.assertEqual([r[1] for r in dp._io_shipped_rows(self.MT, rows)],
+                         ['priority', 'priority', 'priority_foundation'])
+
+    def test_kansas_city_critical_is_never_retiered(self):
+        rows = [['x', 'priority', 'Handwashing sink not accessible: blocked by a cart'],
+                ['x', 'priority', 'Premises not maintained free of insects, rodents or other pests: flies']]
+        self.assertEqual([r[1] for r in dp._io_shipped_rows(self.KC, rows)], ['priority', 'priority'])
+
+    def test_titles_are_normalised(self):
+        for t in dp.IO_MT_PF_TITLES:
+            self.assertEqual(t, ' '.join(t.split()).lower())
+            self.assertNotIn(': ', t)
+        self.assertFalse(dp.IO_COMMENDATION_RE.search('Adequate handwashing sink not available'))
+
+    def test_pest_title_retier_does_not_touch_the_text_rule(self):
+        line = 'Premises not maintained free of insects, rodents or other pests: mouse droppings behind the fryer'
+        self.assertEqual(dp._io_shipped_rows(self.MT, [['pest_control', 'priority', line]])[0][1],
+                         'priority_foundation')
+        self.assertTrue(dp.has_active_pest_or_sewage(line))
 
 
 if __name__ == '__main__':
