@@ -1,8 +1,8 @@
 # DineScores
 
 Restaurant health-inspection scores on a map: https://dinescores.com
-~67k restaurants embedded client-side (the 24 MB cap; each metro's ~500
-newest), ~350k in the database, covering ~55 metros (NYC, Chicago, LA County, SF, Seattle, Boston,
+~64k restaurants embedded client-side (the 24 MB cap; each metro's ~480
+newest), ~360k in the database, covering ~75 metros (NYC, Chicago, LA County, SF, Seattle, Boston,
 Austin, Houston, DC, DFW incl. McKinney/Lewisville/Denton, Las Vegas,
 Raleigh, Miami/Tampa/Orlando, Louisville, Minneapolis, Cincinnati,
 Montgomery County MD, Detroit, Sacramento, Fairfax County, Portland OR
@@ -12,7 +12,14 @@ Santa Clara County, San Diego County, Omaha/Douglas County, Orange County
 CA, San Antonio, Williamson County TX, Fort Bend County TX, Harris County
 TX (unincorporated + Katy, Humble, Tomball, La Porte, Deer Park), Nashville/
 Memphis/Knoxville/Chattanooga, Phoenix/Maricopa County AZ, Tucson/Pima
-County AZ, Lubbock TX, Mesquite TX, Cuyahoga County OH) plus all of Florida, New York State, Delaware, South Carolina, Georgia
+County AZ, Lubbock TX, Mesquite TX, Cuyahoga County OH; and, since
+2026-11-22, El Paso, Corpus Christi, Garland, Waco, Amarillo, Tyler/Smith
+County, Abilene, Wichita Falls and Orange County in Texas, Montana
+statewide (the state portal's counties: Billings, Helena, Great Falls,
+Butte), Cheyenne, Casper and Jackson WY, Minot ND, St. Louis and Jackson
+County MO (Lee's Summit, Blue Springs), the Colorado counties CDPHE
+inspects (Vail, Aspen, Breckenridge, Durango, Steamboat), Pueblo, Grand
+Junction and Broomfield CO) plus all of Florida, New York State, Delaware, South Carolina, Georgia
 (Atlanta: Fulton/DeKalb/Cobb and the other 153 counties; Gwinnett/Newton/
 Rockdale on the MHD `gwinnett` slug), Louisiana (New Orleans, Baton Rouge,
 Shreveport, Lafayette) and Virginia (33 VDH districts; Fairfax County is
@@ -82,10 +89,14 @@ middleware.
 ## Workflows (.github/workflows/)
 
 - `refresh-data.yml` — two crons, both 09:17 UTC: Sundays run every source
-  but the midweek group; Wednesdays run `cuyahoga virginia` alone (the
-  `MHD metros (midweek)` fetch group: Cuyahoga County and the 33 Virginia
-  VDH districts, ~1,200 detail pages = ~5 fifteen-minute ban windows, which
-  would not fit next to DFW on Sunday). The "Pick the sources for this run"
+  but the midweek group; Wednesdays run the `MHD metros (midweek)` fetch
+  group alone: `cuyahoga virginia` (Cuyahoga County and the 33 Virginia VDH
+  districts, ~1,200 detail pages = ~5 fifteen-minute ban windows, which
+  would not fit next to DFW on Sunday) and the fourteen jurisdictions added
+  2026-11-22 (`montana amarillo tyler orangecountytx wyoming minot stlouis
+  jacksoncountymo coloradostate pueblo grandjunction broomfield`, ~650 more
+  detail pages a week plus ~35 Montana printables at ~20 s each). The
+  Wednesday run took 54 of its 300 minutes before them. The "Pick the sources for this run"
   step sets `--cities` from the weekday (a manual run takes a `cities`
   input); both runs share the same merge/commit flow and freshness file.
   Pulls the recent window from the chosen sources, merges data.js, applies
@@ -271,11 +282,12 @@ people covered per unit of work:
   `foodscores.state.al.us`, a WebForms county sweep (66 requests), OFFICIAL
   0-100 score only, latest inspection per establishment, no violations, no
   coordinates, no history; Tallapoosa County 500s.
-- **Akron/Summit County OH ('scph'), Placer County CA ('pchd', Roseville) and
-  Amarillo ('aaphd')** on MHD: config-only entries now that every plain
+- **Akron/Summit County OH ('scph') and Placer County CA ('pchd',
+  Roseville)** on MHD: config-only entries now that every plain
   jurisdiction searches sorted one-day windows (see the MHD invariant on
-  pagination); Akron/Placer still need an inspection-purpose filter
-  (Pre-licensing and Consultation rows have no observations). The statewide
+  pagination) and `purpose_allow` exists for their Pre-licensing and
+  Consultation rows (no observations). Amarillo ('aaphd') shipped
+  2026-11-22. The statewide
   'virginia' slug is NOT usable (capped, unstable paging, bucket mode lossy);
   the 33 `va-*` district sub-sites are ordinary uncapped jurisdictions and
   are what ships. Toledo ('oh_toledolucas') is
@@ -296,16 +308,53 @@ people covered per unit of work:
 - **Blocked or empty**: Kansas statewide (KDA portal behind reCAPTCHA v3 —
   never work around it; ask KDA for an extract), Irving TX (two abandoned
   ArcGIS snapshots; the live page is behind a Cloudflare challenge),
-  Carrollton TX (Akamai 403), Allen TX ('scores unavailable'), Garland TX
-  (portal up but nothing published since 2026-06-30), Grand Prairie TX
+  Carrollton TX (Akamai 403), Allen TX ('scores unavailable'), Grand Prairie TX
   (letter grades only, no ids or dates), Collin and Denton county programs,
   Hays County TX, Long Beach CA (nothing online), Cleveland proper (own
   department, not on the county portal). Earlier findings stand: Boulder
   County stale, Alameda County quarterly violation rows only, Allegheny
   placards only, Hawaii's Tyler host resets connections, Albuquerque's CSV
   header-only since 2020; no machine-readable source for Denver, Salt Lake
-  County, Charlotte, Kansas City, St. Louis, Milwaukee, Madison,
+  County, Charlotte, Kansas City, Milwaukee, Madison,
   Philadelphia, Baltimore, Riverside/San Bernardino, Spokane, Tacoma.
+
+### Second survey, 2026-11-22 (`docs/expansion-2026-11b/`)
+
+The MyHealthDepartment portal's root page lists every tenant (341 slugs);
+probing each one, plus five regional surveys of Texas and Montana, fed the
+2026-11-22 group. `docs/expansion-2026-11b/README.md` ranks what is left;
+`mhd.md` there lists the ~120 portal tenants that answer rows and are not
+read yet. The ones worth building next:
+
+- **Austin on MHD ('aph')**: official scores and observation text, current
+  to within days, where the Socrata dataset runs six weeks behind with
+  scores only. NOT a config entry: the portal's names and addresses hash to
+  different restaurant ids than the stored ones (1 match in 74), so it needs
+  an id map from a D1 export first, as King County did.
+- **Hawaii statewide ('soh' on MHD, 1.4M)**: 56-76 rows a day, no score;
+  needs a Hawaii box in `coords_plausible` and a look at its Other and
+  Complaint purposes (Montana's `Other` rows were placeholders).
+- **Galveston County** (Salesforce guest endpoint, scores only, posting
+  looked stalled), **Bell County** (Killeen/Temple: weekly PDFs, weeks
+  late), **Brazos County** (Inspect2Go PDFs, no date filter), **Beaumont**
+  (ArcGIS plus a PDF per inspection, no address in the layer), **New
+  Braunfels / Seguin / Nacogdoches / Rowlett** (small score-only sources),
+  **Little Elm / Sachse / Pilot Point / Justin** (InstantInspector HTML; its
+  robots.txt asks AI crawlers to stay out, an owner decision).
+- More MHD tenants with live rows: Hamilton County OH and ~35 other Ohio
+  counties (no score, every row a detail page), Benton-Franklin WA, Yavapai
+  AZ, Marin and San Luis Obispo CA, Union County NC, St. Clair County IL,
+  Somerset County NJ, West Virginia counties, Wisconsin DATCP.
+- **Blocked, stale or nothing online** (checked 2026-11-22): Laredo (Tyler
+  publicportals frozen at 2026-01-30, `inspectionsData` 500s), Odessa,
+  Brownsville, McAllen/Hidalgo, Midland, Montgomery County TX, Brazoria
+  County, Pasadena TX, Baytown, Port Arthur, Missouri City, San Marcos/Hays
+  (login), Texarkana, Texas DSHS (publishes nothing for the areas it
+  inspects), Irving, Carrollton, Grand Prairie, Allen, Mansfield; Ravalli,
+  Carbon and Fergus counties MT. MHD slugs that exist and answer no rows:
+  `tx-dallas-county` (Dallas County's contract cities, empty since 2025),
+  `ut-saltlake-county`, `oh_cleveland`, `riverside-county-ca`, `long-beach`,
+  `mecklenburg`, `davidson-metro`.
 
 ## Hard-won invariants (violate at your peril)
 
@@ -558,6 +607,73 @@ people covered per unit of work:
   `state_code()` maps names to codes in `write_data_js` (kept records heal on
   the next write) and `write_d1_sql`.
 
+- **MHD jurisdictions carry their own row filters; do not loosen them.**
+  Besides `programs` and `exclude`: `inspection_types` (Amarillo's vended
+  water and farmers-market forms share the food program on other scales and
+  would grade F; Minot's FOOD ESTABLISHMENT form runs under three programs),
+  `purpose_allow` (read through `_mhd_row_purpose`: NET Health sends
+  `purpose_retail_food`, Amarillo `purpose1`/`purpose2`), `city_map` (St.
+  Louis arrives in three spellings and the id hashes the city),
+  `observation_exclude` (Cheyenne's item-999 line is the inspector's praise,
+  not a violation) and the `tx-demerit` scale (Smith County: the Texas
+  form's demerit total, shipped as 100 − demerits and trusted like a '100'
+  score; `MHD_TRUSTED_SCORE_SCALES`). The 2026-11-22 entries also drop mobile
+  units by permit type and pre-opening visits by purpose.
+- **Montana's state portal logs things that are not inspection reports.**
+  40-55% of its retail-food rows are purpose `Other`: licence notes and the
+  placeholders of the counties that keep inspections in their own systems
+  (Missoula, Gallatin, Flathead: the Paragon source; Ravalli, Carbon and
+  Fergus publish nothing). They have no observations and would each ship as
+  a clean 100, so `purpose_allow` keeps Routine and Follow-up only. A
+  `Routine` row can be a logged paper report too, so a zero-observation
+  Montana inspection ships only when its printable PDF shows the compliance
+  grid (`clean_proof: 'printable-grid'`, `_mhd_prove_clean`: 29 IN/OUT/N/A/N/O
+  marks on a real report, 0 on a logged one); no grid = dropped for good, an
+  unread printable = dropped and held. The portal builds each PDF on request
+  (~20 s), one at a time. Itemised reports only became common in August 2026.
+- **Waco: a FAILED inspection is an F** (`WAC_FAILED_RISK_CAP` 65; owner
+  decision 2026-11-23). The layer carries a demerit total and a status, no
+  items. FAILED is the district's verdict that a re-inspection is required
+  (items or an imminent hazard not corrected on the spot, repeat violations,
+  or more than 30 demerits), which the total does not carry: scored on
+  demerits alone not one Waco restaurant was an F while 21% of inspections
+  failed. `-INACTIVE` names (closed permits), mobile units and dated events
+  are skipped; the layer's OBJECTIDs are renumbered on reload and are never
+  an id.
+- **El Paso and Waco publish a score and nothing else**, and neither holds
+  freshness: each reads its whole window or raises, and re-reads a margin
+  every week (35 and 60 days). El Paso's form sits behind Cloudflare: a
+  challenge or a 401/403 reports the group `blocked` (never zero rows), and
+  a window with too few rows or a changed table header is an `error`. Its
+  `toDate` is exclusive. If GitHub's runners are refused, the fix is the
+  relay (add the host to `ALLOWED_HOSTS` in `functions/api/relay.js`).
+- **Garland is a snapshot: the layer keeps each permit's latest inspection
+  only.** Every run re-reads 90 days and never holds; a missed week loses
+  the earlier visit of any permit inspected twice. An inspection ships only
+  when its item points add up to 100 − the city's score (item weights are
+  Garland's own: items 1-20 are 3 points, 21-33 are 2, 34-47 are 1).
+- **Corpus Christi (InspectHub) has two page shapes that are read and
+  skipped, never held:** a food visit with no Score line, and a score
+  printed with "violation information is not available" (holding a shape
+  that never changes would pin every window). An unpublished id answers 200
+  with no name and IS held. The listing row, the page's Score line and 100
+  − the item points must agree. No page carries a town: every record is
+  'Corpus Christi' (Port Aransas and Robstown included), which is why about
+  a fifth do not geocode.
+- **Abilene's `requestedDate` is the next visit's due date, not the
+  inspection date.** The fetcher searches requested dates from 60 days
+  before the window with no upper bound and ships by COMPLETED date (the
+  longest gap seen was 49 days; a visit done later than 60 days after its
+  due date is missed). The date filter silently drops rows with no scheduled
+  date, so each new food type is also listed unfiltered. The score counts
+  each distinct form item once (100 − 3P − 2PF − C); a mismatch drops and
+  holds. ~600 requests a week.
+- **Wichita Falls is a Hedgerow tenant whose citations state no severity.**
+  The tier comes from the category's (P)/(PF)/(C) suffix, with the two
+  measured corrections in the config; a citation with no readable tier drops
+  and holds its inspection, it never becomes core. The differences are
+  config keys that Pima, Lubbock and Mesquite do not carry.
+
 ## Jev violation reader
 
 `jev_reader.py` hands the READING of each violation line to TypeSafe's Jev
@@ -590,8 +706,9 @@ impact and the open policy decisions; `scripts/jev_shadow.py` reproduces it.
   / `BOUNDED_TIER_SOURCES` (which sources may be re-scored or re-tiered), the
   chip and summary-severity maps. A source-stated tier never moves (Omaha,
   Santa Clara, San Diego, Orange County, McKinney, Georgia, Louisiana,
-  Maricopa County, Harris County (P/F/C violation groups) and the Hedgerow
-  portals (Pima County, Lubbock, Mesquite) included: their agencies state it; McKinney's TX-form item
+  Maricopa County, Harris County (P/F/C violation groups), the Hedgerow
+  portals (Pima County, Lubbock, Mesquite, Wichita Falls), Garland, Corpus
+  Christi and Abilene (Texas-form item points or stated groups) included: their agencies state it; McKinney's TX-form item
   points are the city's tiers and its `risk_score` is the form score 100 −
   demerits, never recomputed; Georgia's (p)/(pf)/(c) designations carry its
   official score; Louisiana's Critical/Non-Critical and Maricopa's

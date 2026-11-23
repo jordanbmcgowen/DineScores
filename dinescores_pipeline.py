@@ -6998,7 +6998,10 @@ def fetch_dfw(jurisdictions=None, since_date=None, limit_per_jurisdiction=None,
 # report and is dropped for good, one whose printable cannot be read is
 # dropped and held like an unread detail page. Inspections with observations
 # need no proof. The PDF text comes from the stdlib reader written for
-# Orange County's printables (_oc_pdf_text_rows).
+# Orange County's printables (_oc_pdf_text_rows). The portal builds a
+# printable on request and takes about 20 seconds the first time (0.3 s once
+# cached; measured 2026-11-23), so the phase reads one at a time: ~35 a week
+# is a quarter of an hour, the 358 of the first backfill two hours.
 MHD_GRID_MARK_RE = re.compile(r'^(?:IN|OUT|N/A|N/O)$')
 MHD_GRID_MIN_MARKS = 10      # a real report shows ~21; a logged paper report 0
 MHD_GRID_MIN_TEXT_RUNS = 5   # even an empty form prints its header fields; fewer = not read
@@ -7078,6 +7081,11 @@ def _mhd_prove_clean(path, records, label):
         else:
             no_grid += 1
             drop.add(id(rec))
+        if (i + 1) % 25 == 0:
+            # The portal builds each PDF on request (~20 s the first time,
+            # measured 2026-11-23), so a long phase must show it is alive.
+            log.info(f"  {label}: {i + 1}/{len(candidates)} printables read "
+                     f"({proven} with a grid, {no_grid} without, {len(unread)} unread)")
         time.sleep(MHD_PRINTABLE_DELAY)
     log.info(f"{label}: {proven} clean inspections proven by their grid, {no_grid} dropped as "
              f"logged reports with no grid, {len(unread)} printables unread")
