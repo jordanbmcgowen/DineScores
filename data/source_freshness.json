@@ -1,5 +1,15 @@
 {
  "groups": {
+  "Abilene": {
+   "last_run": {
+    "at": "2026-11-23",
+    "detail": "",
+    "latest": "2026-11-20",
+    "records": 499,
+    "status": "ok"
+   },
+   "latest": "2026-11-20"
+  },
   "Arlington": {
    "last_run": {
     "at": "2026-11-15",
@@ -537,6 +547,10 @@
   "status": "ok"
  },
  "sources": {
+  "Abilene Environmental Health": {
+   "group": "Abilene",
+   "latest": "2026-11-20"
+  },
   "Adams County Health Dept": {
    "group": "MHD metros",
    "latest": "2026-11-13"
