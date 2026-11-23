@@ -13944,8 +13944,9 @@ def fetch_denton(since_date=None, limit=None):
 #       reference, the violation title, the tier ('RISK FACTOR/INTERVENTION'
 #       in Montana, 'CRITICAL' in Kansas City, empty for the rest), a
 #       corrected-on-site flag, boilerplate code text and the inspector's
-#       observation. A report whose rows do not add up to the document's
-#       counters is unread, never clean.
+#       observation. A report with fewer rows (of either tier) than the
+#       document's counters is unread, never clean; more rows than the
+#       counters (a counter not refreshed after an edit) all ship.
 #
 # Scoring: Missoula, Gallatin and Kansas City publish no official score (a
 # vendor score column exists in their HTML but the agency switched it off:
@@ -14436,7 +14437,11 @@ def _io_read_one(slug, row, margin_before):
     except ValueError as e:
         return 'unread', str(e)
     hi = sum(1 for v in violations if v[1] == 'priority')
-    if len(violations) != n_all or hi != n_hi:
+    # Fewer rows than the counters is a report not read whole. MORE rows is
+    # a document whose counters were not refreshed after an edit: Kansas
+    # City's Thai House (2026-11-09) prints 'Critical 6, Non-critical 1' in
+    # its own header above 10 rows (8 critical); every row is shipped.
+    if len(violations) < n_all or hi < n_hi or (len(violations) - hi) < (n_all - n_hi):
         return 'unread', (f'{len(violations)} violation rows ({hi} higher-tier) against the document\'s '
                           f'counters {n_all} ({n_hi})')
     return 'ok', _io_record(cfg, row, place, violations)

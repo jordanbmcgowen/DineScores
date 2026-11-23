@@ -571,6 +571,15 @@ class FailureTests(_Base):
         self.assertEqual(set(self.holds('kansascity')), {
             f'2026-11-13|{KC_FOX}', f'2026-11-14|{KC_MARYS}', f'2026-11-13|{KC_UGLY}', f'2026-11-10|{KC_OURHOUSE}'})
 
+    def test_stale_counters_below_the_rows_ship_every_row(self):
+        # Kansas City's Thai House: counters 6 critical of 7 above 10 printed rows
+        s = Server('kansascity')
+        s.dv[KC_PFC] = s.dv[KC_PFC].replace('~7~11~', '~6~7~')
+        by = _by_unid(_run(s, since='2026-11-09'))
+        self.assertEqual(by[KC_PFC]['total_violations'], 11)
+        self.assertEqual(by[KC_PFC]['risk_score'], 61)
+        self.assertEqual(self.holds('kansascity'), {})
+
     def test_document_dated_another_day_is_unread(self):
         s = Server('kansascity')
         s.dv[KC_FOX] = s.dv[KC_FOX].replace('11/13/2026', '11/12/2026')
