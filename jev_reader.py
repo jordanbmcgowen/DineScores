@@ -1720,6 +1720,14 @@ SOURCE_TIER_SCORE_SOURCES = frozenset({
     # Flathead's is then capped by the county's letter band.
     'Missoula Public Health', 'Gallatin City-County Health Department',
     'Flathead City-County Health Department', 'Kansas City MO Health Department',
+    # Colorado: CDPHE prints the state's Priority / Priority Foundation /
+    # Core designation on every line, and Pueblo's and Mesa County's lines
+    # cite the same library's section, which carries it (the pipeline's
+    # _co_line_tier). These names end in MHD_SOURCE_SUFFIX and their portals
+    # publish demerits, so without the entry they would read as 'computed'.
+    # Broomfield is left out: two of its lines in three cite no section and
+    # are keyword-tiered like any other portal's.
+    'Colorado CDPHE Health Dept', 'Pueblo County Health Dept', 'Mesa County Health Dept',
 })
 # Sources whose per-line tier is stated by the source (a level, points, a
 # demerit band, a critical flag).
@@ -1750,6 +1758,9 @@ SOURCE_TIER_SOURCES = frozenset({
     # Intervention or Critical versus the rest).
     'Missoula Public Health', 'Gallatin City-County Health Department',
     'Flathead City-County Health Department', 'Kansas City MO Health Department',
+    # Colorado's state designation, printed by CDPHE and carried by the
+    # cited section on Pueblo's and Mesa County's lines.
+    'Colorado CDPHE Health Dept', 'Pueblo County Health Dept', 'Mesa County Health Dept',
     # McKinney's per-item TX form points (3 priority / 2 priority foundation
     # / 1 core) are the city's own tiers, and its risk_score is the TX form
     # score (100 - the city's demerit total, kept in original_score), an

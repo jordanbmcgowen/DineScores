@@ -589,35 +589,40 @@ MHD_METRO_JURISDICTIONS = {
     # scoreDisplay), so the risk is recomputed from the detail pages. ~110-140
     # inspections a week. The display name is NOT 'Colorado': the label must
     # not read as the whole state (Denver, Boulder and Jefferson County are
-    # not on any portal DineScores reads).
+    # not on any portal DineScores reads). 'tiers': every line prints the
+    # state's Priority / Priority Foundation / Core designation, and that is
+    # what scores it (_co_line_tier), not the keyword tier.
     'colorado':             {'display_name': 'Colorado CDPHE', 'default_city': 'Glenwood Springs',
                              'state': 'CO', 'score_scale': 'demerit', 'metro': '',
-                             'programs': ['Retail Food'],
+                             'programs': ['Retail Food'], 'tiers': 'colorado',
                              'city_map': {'Canon City': 'Cañon City'},
                              'exclude': {'purpose': MHD_PREOPENING_PURPOSE_RE,
                                          'permitType': MHD_MOBILE_PERMIT_RE},
                              'group': MHD_MIDWEEK_GROUP},
     # Pueblo Department of Public Health and Environment: the same risk
     # index (0-52 seen), programName 'Food' (child care, pools, body art
-    # and waste-tire inspections share the slug). ~40-50 a week.
+    # and waste-tire inspections share the slug). ~40-50 a week. Lines cite
+    # the state library's section without its designation; 'tiers' gives
+    # each the tier CDPHE states for that section (CO_SECTION_TIERS).
     'pueblo':               {'display_name': 'Pueblo County', 'default_city': 'Pueblo',
                              'state': 'CO', 'score_scale': 'demerit', 'metro': '',
-                             'programs': ['Food'],
+                             'programs': ['Food'], 'tiers': 'colorado',
                              'exclude': {'permitType': MHD_MOBILE_PERMIT_RE},
                              'group': MHD_MIDWEEK_GROUP},
     # Mesa County Public Health (Grand Junction, Clifton, Fruita, Palisade):
     # the same risk index (0-74 seen). ~20 a week.
     'mesacountyco':         {'display_name': 'Mesa County', 'default_city': 'Grand Junction',
                              'state': 'CO', 'score_scale': 'demerit', 'metro': '',
-                             'programs': ['Retail Food'],
+                             'programs': ['Retail Food'], 'tiers': 'colorado',
                              'exclude': {'permitType': MHD_MOBILE_PERMIT_RE},
                              'group': MHD_MIDWEEK_GROUP},
     # City and County of Broomfield: the same risk index, a handful of
     # inspections a week (inspectionType is the purpose here: 'Routine',
-    # 'Re-Inspection').
+    # 'Re-Inspection'). Two lines in three give the item number and no
+    # section; those keep the keyword tier.
     'broomfield':           {'display_name': 'Broomfield', 'default_city': 'Broomfield',
                              'state': 'CO', 'score_scale': 'demerit', 'metro': '',
-                             'programs': ['Retail Food'],
+                             'programs': ['Retail Food'], 'tiers': 'colorado',
                              'exclude': {'permitType': MHD_MOBILE_PERMIT_RE},
                              'group': MHD_MIDWEEK_GROUP},
 }
@@ -6771,8 +6776,108 @@ def _mhd_fetch_inspection_detail(session, path, inspection_id, retry_count=0):
         return None
 
 
+# ── Colorado: the tier the state gives each cited provision ─────────────────
+# Colorado's retail-food form cites violations from one statewide library,
+# and CDPHE's own template prints each entry's designation in the line:
+#   "38: Insects, rodents and animals not present . This is a Core item
+#    6-501.111(A-B), and (D) - Controlling Pests (C) Pests were present ..."
+# Scored on keywords instead (classify_violation, the method for portals that
+# state nothing), 405 of 1,091 Core lines and 826 of 1,135 Priority Foundation
+# lines counted as Priority: 119 of CDPHE's 806 inspections were F's, 61 of
+# them on a state verdict of 'Pass'; on the stated tiers 30 are (measured
+# 2026-11-23 over 2026-09-21..11-21). Pueblo, Mesa County and Broomfield cite
+# the same library without the designation ("38: 6-501.111(A-B), and (D)
+# Pests were present ..."), so their lines take the tier CDPHE's lines state
+# for that section: CO_SECTION_TIERS, read off the 3,235 CDPHE lines of that
+# window (184 sections, none stated with two tiers; it covers 97% of Pueblo's
+# lines, 99% of Mesa County's and 32% of Broomfield's, whose inspectors
+# mostly write the item number alone). The spellings are the library's own
+# ('3.306.13(B)-(C)' included). A line with neither a stated tier nor a known
+# section keeps its keyword tier and the log counts those: a growing count
+# means the table needs the new sections. The six Front Range counties
+# (Arapahoe, Douglas, El Paso, Larimer, Weld, Adams) print the same sections
+# and are NOT read this way: their stored history is keyword-scored, so
+# moving them needs a regrade of the stored rows first.
+CO_STATED_TIER_RE = re.compile(r'\bThis is a (Priority Foundation|Priority|Core) item\b')
+CO_STATED_TIER_WITHIN = 260     # the phrase follows the item title; never read it from the observation
+CO_TIER_NAMES = {'priority': 'priority', 'priority foundation': 'priority_foundation', 'core': 'core'}
+_CO_SECTIONS_BY_TIER = {
+    'priority': (
+        '2-201.11 (A), and (C)', '2-201.13', '2-301.11', '2-301.12', '2-301.14', '3-101.11',
+        '3-201.11(A)', '3-202.11(A)', '3-202.14', '3-202.16', '3-301.11(B)',
+        '3-302.11(A)(1)-(2)', '3-303.11', '3-304.11', '3-304.15(A)', '3-304.17', '3-306.11',
+        '3-401.11(A)', '3-401.14(A)-(E)', '3-401.15', '3-402.11', '3-403.11', '3-501.14',
+        '3-501.16 (A)(1)', '3-501.16 (A)(2)', '3-501.16(B)', '3-501.18',
+        '3-501.19(B)(1),(4),(5),(C)(1),(4),(5)',
+        '3-502.12 (A), (B)(4), (C), (D)(2)(b)-(e), and (E)(1)',
+        '3-801.11(A)(2)-(3)(B),(C)(1)-(3), and (E)', '4-101.14', '4-101.15', '4-501.111',
+        '4-501.114(A)-(E),(F)(1)-(2)', '4-602.11(A)(1)-(5)', '4-602.11(C)', '4-702.11',
+        '4-703.11', '5-102.11', '5-201.11', '5-202.13', '5-202.14', '5-205.15(A)', '5-402.11',
+        '7-201.11', '7-202.12(A)(2)-(3), and (B)', '7-203.11', '7-204.11', '7-206.11',
+        '7-207.11(B)', '7-301.11', '8-103.12(B)',
+    ),
+    'priority_foundation': (
+        '2-101.11', '2-102.11 (A),(B), and (C)(1),(4)-(16)', '2-102.11 (C)(2),(3), and (17)',
+        '2-103.11 (A)-(O), and (Q)', '2-103.11 (P)', '2-201.11 (B), and (E)', '2-301.15',
+        '2-403.11', '2-501.11', '3-201.11(C)', '3-202.15', '3-203.12', '3-301.11(C)',
+        '3-305.12 (B)', '3-401.13', '3-401.14(F)', '3-402.12', '3-404.11 (B)', '3-501.13',
+        '3-501.15(A)', '3-501.17', '3-501.19(A),(B)(3),(C)(2) and (3)', '3-502.11',
+        '3-502.12 (B)(1)-(3), (5)-(6), (D)(1),(2)(a), (f)-(h), (3)-(4), and (E)(2)-(4)',
+        '3-602.11(B)(5)', '3-603.11', '3.306.13(B)-(C)', '4-202.11', '4-203.11', '4-203.12',
+        '4-204.115', '4-204.117', '4-301.11', '4-301.12(A), and (B)', '4-302.12', '4-302.13',
+        '4-302.14', '4-303.11', '4-501.110', '4-501.112', '4-501.114(F)(3),(4)', '4-501.17',
+        '4-501.19', '4-502.11(B)', '4-601.11 (A)', '5-103.11', '5-103.12', '5-202.12(A)',
+        '5-203.11(A)', '5-204.11', '5-205.11', '6-301.11', '6-301.12', '6-501.111(C)',
+        '6-501.115', '7-101.11', '7-102.11', '7-202.11', '7-207.11(A)', '8-103.11',
+        '8-103.12(A), and (C)',
+    ),
+    'core': (
+        '2-102.12(A)', '2-303.11', '2-401.11', '2-402.11', '3-302.11(A)(3)-(8)', '3-302.12',
+        '3-302.15(A)', '3-303.12', '3-304.12', '3-304.14', '3-304.15(B)-(D)', '3-305.11',
+        '3-305.12 (A), and (C)-(I)', '3-305.14', '3-307.11', '3-501.12', '3-501.15(B)',
+        '3-601.11', '3-602.11(A),(B)(1-4),(6-7), and (C)', '3-602.12(A-B)', '3-602.12(C)',
+        '4-101.16', '4-101.19', '4-201.11', '4-202.18', '4-204.112(A),(B), and (D)', '4-501.11',
+        '4-501.115', '4-501.12', '4-501.16', '4-502.13', '4-601.11 (B), and (C)', '4-602.11(E)',
+        '4-602.13', '4-603.14', '4-603.16', '4-901.11', '4-903.11(A), and (C)', '4-904.11',
+        '4-904.14', '5-202.12(B)-(D)', '5-204.12', '5-205.15(B)', '5-403.12', '5-501.11',
+        '5-501.115', '5-501.15', '5-501.17', '6-201.11', '6-201.13', '6-201.16', '6-202.11',
+        '6-202.13', '6-202.15', '6-301.13', '6-301.14', '6-303.11', '6-304.11', '6-305.11',
+        '6-403.11', '6-501.11', '6-501.110', '6-501.111(A-B), and (D)', '6-501.112',
+        '6-501.114', '6-501.12', '6-501.18', '7-202.12(A)(1), and (4)', '7-206.13(B)',
+        '7-209.11', '8-201.13',
+    ),
+}
+CO_SECTION_TIERS = {sec: tier for tier, secs in _CO_SECTIONS_BY_TIER.items() for sec in secs}
+_CO_SECTIONS_LONGEST_FIRST = sorted(CO_SECTION_TIERS, key=len, reverse=True)
+_CO_ITEM_PREFIX_RE = re.compile(r'^\s*\d{1,3}\s*:\s*')
+
+
+def _co_line_tier(text):
+    """The state's tier for one Colorado observation line: the designation
+    CDPHE's template prints, else the one its lines state for the section the
+    line opens with (CO_SECTION_TIERS). None when the line carries neither;
+    the caller keeps the keyword tier then."""
+    text = text or ''
+    m = CO_STATED_TIER_RE.search(text[:CO_STATED_TIER_WITHIN])
+    if m:
+        return CO_TIER_NAMES[m.group(1).lower()]
+    body = _CO_ITEM_PREFIX_RE.sub('', text, count=1)
+    for sec in _CO_SECTIONS_LONGEST_FIRST:
+        if body.startswith(sec):
+            rest = body[len(sec):]
+            # '4-602.11(B) ...' is not the library's '4-602.11(A)(1)-(5)', and
+            # '2-101.11(X)' is not its '2-101.11': the entry must end here.
+            if rest[:1] in ('', ' ', ':') and not rest.lstrip(' :').startswith('('):
+                return CO_SECTION_TIERS[sec]
+    return None
+
+
+# 'tiers' in a jurisdiction's config → the function that reads a line's tier.
+MHD_TIER_READERS = {'colorado': _co_line_tier}
+
+
 def _mhd_fetch_details_bulk(path, records, trust_official_score=True, label=None,
-                            drop_lines=None):
+                            drop_lines=None, tier_of=None):
     """
     Fetch violation details for many inspections with a small worker pool.
     Each record with details gets its violations/risk fields updated in place.
@@ -6785,6 +6890,9 @@ def _mhd_fetch_details_bulk(path, records, trust_official_score=True, label=None
     observation line it matches is not a violation and is dropped before
     scoring (Cheyenne's '999:' general-comment line). The page still counts
     as read: a page holding only such lines is a clean inspection.
+    tier_of: from a config's 'tiers' (MHD_TIER_READERS); a line it reads a
+    tier from is scored on that tier instead of the keyword one, and the
+    category stays the keyword's.
     trust_official_score: True for 0-100 jurisdictions whose official score
     already IS a risk score; False for demerit jurisdictions, where the risk
     score is recomputed from the scraped violations instead.
@@ -6817,6 +6925,11 @@ def _mhd_fetch_details_bulk(path, records, trust_official_score=True, label=None
         if drop_lines is not None:
             texts = [t for t in texts if not drop_lines.search(t)]
         violations = [classify_violation(t) for t in texts]
+        if tier_of is not None:
+            stated = [tier_of(t) for _, _, t in violations]
+            tier_lines[0] += len(stated)
+            tier_lines[1] += sum(1 for s in stated if s)
+            violations = [(c, st or s, t) for (c, s, t), st in zip(violations, stated)]
         computed_score, pv, pfv, cv = calc_risk_score(violations)
         rec['violations'] = [[c, s, d] for c, s, d in violations]
         rec['priority_violations'] = pv
@@ -6840,6 +6953,7 @@ def _mhd_fetch_details_bulk(path, records, trust_official_score=True, label=None
     pending = list(records)
     still_failed = []
     plain_retries = 0
+    tier_lines = [0, 0]     # observation lines read, and those the source's tier scored
     while pending:
         failed = []
         done = 0
@@ -6896,6 +7010,9 @@ def _mhd_fetch_details_bulk(path, records, trust_official_score=True, label=None
         plain_retries += 1
         log.warning(f"  {label}: retrying {len(failed)} failed detail fetches")
         pending = failed
+    if tier_of is not None and tier_lines[0]:
+        log.info(f"  {label}: {tier_lines[1]}/{tier_lines[0]} observation lines scored on the "
+                 f"source's tier, {tier_lines[0] - tier_lines[1]} on keywords")
     return fetched, still_failed
 
 
@@ -7370,6 +7487,9 @@ def _fetch_mhd_jurisdiction_api(session, slug, config, since_date=None, limit=No
         # call keeps its long-standing shape for every other jurisdiction.
         line_filter = ({'drop_lines': re.compile(str(config['observation_exclude']))}
                        if config.get('observation_exclude') else {})
+        if config.get('tiers'):
+            # an unknown name raises: never fall back to keywords silently
+            line_filter['tier_of'] = MHD_TIER_READERS[config['tiers']]
         fetched_violations, unreadable = _mhd_fetch_details_bulk(
             path, inspections_with_id,
             trust_official_score=score_scale in MHD_TRUSTED_SCORE_SCALES, label=display_name,

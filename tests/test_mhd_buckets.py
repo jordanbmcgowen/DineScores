@@ -1933,7 +1933,7 @@ class UnscoredZeroTests(unittest.TestCase):
     def _fetch(self, rows, texts=None, cfg=None, key='orangecotx'):
         fake = FakeSearch({(self.DAY, '', ''): rows})
 
-        def fake_bulk(path, records, trust_official_score=True, label=None):
+        def fake_bulk(path, records, trust_official_score=True, label=None, **kw):
             for rec in records:
                 violations = [dp.classify_violation(t) for t in (texts or {}).get(rec['source_id'], [])]
                 rec['violations'] = [list(v) for v in violations]
@@ -1989,3 +1989,171 @@ class UnscoredZeroTests(unittest.TestCase):
         recs = self._fetch(rows, texts={}, cfg=demerit, key='broomfield')
         self.assertEqual(len(recs), 1)
         self.assertEqual(recs[0]['risk_score'], 100)
+
+
+class ColoradoTierTests(unittest.TestCase):
+    """Colorado lines are scored on the state's Priority / Priority
+    Foundation / Core designation: printed on CDPHE's lines, carried by the
+    cited library section on Pueblo's, Mesa County's and Broomfield's."""
+    CDPHE = [
+        '38: Insects, rodents and animals not present . This is a Core item 6-501.111(A-B), and (D) - '
+        'Controlling Pests (C) Pests were present in the establishment. Observed fruit flies at the bar.',
+        '10: Adequate handwashing sinks properly supplied and accessible . This is a Priority Foundation '
+        'item 6-301.12 - Hand Drying Provision (Pf) (Corrected on Site) A handwashing sink within the '
+        'facility lacks readily available paper towels.',
+        '22: Proper cold holding temperatures . This is a Priority item 3-501.16 (A)(2) - TCS Food, Cold '
+        'Holding (P) Food item(s) were cold-holding at internal temperatures greater than 41°F.',
+        '37: Food properly labeled; original container . This is a Core item 3-602.12(C) - Major Food '
+        'Allergens as an Ingredient in Unpackaged Food (C) (Repeat) Consumers were not notified.',
+    ]
+
+    def test_the_table(self):
+        sizes = {t: len(s) for t, s in dp._CO_SECTIONS_BY_TIER.items()}
+        self.assertEqual(sizes, {'priority': 52, 'priority_foundation': 61, 'core': 71})
+        self.assertEqual(len(dp.CO_SECTION_TIERS), 184, 'no section sits under two tiers')
+        self.assertEqual(set(dp.CO_SECTION_TIERS.values()), {'priority', 'priority_foundation', 'core'})
+        for sec in dp.CO_SECTION_TIERS:
+            self.assertEqual(sec, ' '.join(sec.split()), 'keys are matched against whitespace-collapsed lines')
+        self.assertEqual(dp.MHD_TIER_READERS, {'colorado': dp._co_line_tier})
+
+    def test_cdphe_states_the_tier(self):
+        self.assertEqual([dp._co_line_tier(t) for t in self.CDPHE],
+                         ['core', 'priority_foundation', 'priority', 'core'])
+        # the keyword reading is harsher on three of the four: that was the bug
+        keyword = [dp.classify_violation(t)[1] for t in self.CDPHE]
+        self.assertEqual(keyword.count('priority'), 3)
+        self.assertNotEqual(keyword, [dp._co_line_tier(t) for t in self.CDPHE])
+
+    def test_a_closure_line_states_no_tier(self):
+        line = ('57: Imminent Health Hazard Closure . This is a item - Imminent Health Hazard Closure '
+                'Water line break. No running water.')
+        self.assertIsNone(dp._co_line_tier(line))
+
+    def test_the_phrase_is_read_from_the_heading_only(self):
+        late = '55: ' + 'x' * 300 + ' This is a Priority item'
+        self.assertIsNone(dp._co_line_tier(late))
+
+    def test_county_lines_take_the_tier_of_the_cited_section(self):
+        cases = {
+            '22: 3-501.16 (A)(2) Food item(s) that require temperature control for safety were cold '
+            'holding at internal temperatures greater than 41°F.': 'priority',
+            '38: 6-202.13 Observed fly strips placed above countertops in the kitchen.': 'core',
+            '10: 6-301.11 1. Hand washing sinks were observed being used for activities that were not '
+            'hand washing.': 'priority_foundation',
+            '48: 4-302.14 A test kit or other device that accurately measures the concentration of '
+            'sanitizing solution was not available at time of inspection.': 'priority_foundation',
+            '38: 6-501.111(A-B), and (D) Pests were present in the establishment.': 'core',
+            '38: 6-501.111(C) Pest control records were not kept.': 'priority_foundation',
+            '23: 3-501.18 The kitchen walk-in cooler contained multiple preassembled pizzas with an '
+            'expiration date of September 22, 2026.': 'priority',
+            '6-501.112': 'core',
+        }
+        for line, tier in cases.items():
+            self.assertEqual(dp._co_line_tier(line), tier, line)
+
+    def test_an_unknown_citation_keeps_the_keyword_tier(self):
+        for line in (
+                # sections the state's lines never cited in the window the table was read from
+                '53: 6-501.19 A toilet room located on the premises was not completely enclosed.',
+                '18: 3-401.12(A),(B), and (D) Raw liquid eggs were not allowed to stand covered.',
+                # another paragraph of a section the table holds only in part
+                '16: 4-602.11(B) Surfaces of utensils were not cleaned between uses.',
+                '1: 2-101.11(X) No person in charge.',
+                '22: 3-501.16 (C) Eggs were received warm.',
+                # Broomfield: the item number and the observation, no section
+                '37: No method of notification of major food allergens is provided to consumers.',
+                '', None):
+            self.assertIsNone(dp._co_line_tier(line), line)
+        # Broomfield writes a colon after the section it does cite
+        self.assertEqual(dp._co_line_tier('13: 2-301.14: An employee did not wash hands.'), 'priority')
+
+    def _bulk(self, texts, **kw):
+        class Session:
+            pass
+        rec = {'source_id': 'X', 'original_score': 46, 'risk_score': 8}
+        with mock.patch.object(dp, '_mhd_fetch_inspection_detail', return_value=list(texts)), \
+             mock.patch.object(dp, '_mhd_session', return_value=Session()), \
+             mock.patch.object(dp.time, 'sleep'):
+            self.assertEqual(dp._mhd_fetch_details_bulk('colorado', [rec], trust_official_score=False, **kw),
+                             (1, []))
+        return rec
+
+    def test_the_detail_phase_scores_on_the_stated_tier(self):
+        rec = self._bulk(self.CDPHE, tier_of=dp._co_line_tier)
+        self.assertEqual([v[1] for v in rec['violations']],
+                         ['core', 'priority_foundation', 'priority', 'core'])
+        self.assertEqual((rec['priority_violations'], rec['priority_foundation_violations'],
+                          rec['core_violations']), (1, 1, 2))
+        self.assertEqual(rec['risk_score'], 100 - 5 - 2 - 2)
+        # the category is still the keyword's (chips), and the text is untouched
+        self.assertEqual([v[0] for v in rec['violations']],
+                         [dp.classify_violation(t)[0] for t in self.CDPHE])
+        self.assertEqual([v[2] for v in rec['violations']], self.CDPHE)
+        # without the reader the same page is keyword-scored, as on every other portal
+        plain = self._bulk(self.CDPHE)
+        self.assertEqual(plain['risk_score'],
+                         dp.calc_risk_score([dp.classify_violation(t) for t in self.CDPHE])[0])
+        self.assertLess(plain['risk_score'], rec['risk_score'])
+
+    def test_a_line_without_a_tier_falls_back_to_keywords(self):
+        texts = ['37: No method of notification of major food allergens is provided to consumers.',
+                 '38: 6-501.111(A-B), and (D) Pests were present in the establishment.']
+        rec = self._bulk(texts, tier_of=dp._co_line_tier)
+        self.assertEqual(rec['violations'][0][1], dp.classify_violation(texts[0])[1])
+        self.assertEqual(rec['violations'][1][1], 'core')
+
+    def test_the_fixture_page(self):
+        obs = dp._mhd_parse_detail_html(_fixture_html('detail_colorado_closed.html'))
+        tiers = [dp._co_line_tier(t) for t in obs]
+        self.assertEqual(len(tiers), 9)
+        for text, tier in zip(obs, tiers):
+            m = dp.CO_STATED_TIER_RE.search(text)
+            self.assertEqual(tier, dp.CO_TIER_NAMES[m.group(1).lower()] if m else None, text[:80])
+        self.assertGreaterEqual(sum(1 for t in tiers if t), 8)
+
+    def test_only_the_four_colorado_portals_ask_for_it(self):
+        with_tiers = sorted(k for k, c in dp.MHD_METRO_JURISDICTIONS.items() if c.get('tiers'))
+        self.assertEqual(with_tiers, ['broomfield', 'colorado', 'mesacountyco', 'pueblo'])
+        self.assertFalse(any(c.get('tiers') for c in dp.DFW_JURISDICTIONS.values()))
+        for key in with_tiers:
+            self.assertEqual(dp.MHD_METRO_JURISDICTIONS[key]['tiers'], 'colorado')
+        # the Front Range counties stay keyword-scored until their history is regraded
+        for key in ('acph', 'dchd', 'epcph', 'larimer-county-health', 'weldcounty', 'adcogoveh'):
+            self.assertNotIn('tiers', dp.MHD_METRO_JURISDICTIONS[key], key)
+
+    def test_the_reader_reaches_the_detail_phase(self):
+        seen = {}
+
+        def fake_bulk(path, records, trust_official_score=True, label=None, **kw):
+            seen[path] = kw
+            return len(records), []
+        for key, fixture in (('colorado', 'search_colorado.json'), ('pueblo', 'search_pueblo.json'),
+                             ('aaphd', 'search_aaphd.json')):
+            cfg = dp.MHD_METRO_JURISDICTIONS[key]
+            row = _fixture_rows(fixture)[0]
+            day = dp._mhd_row_date(row)
+            fake = FakeSearch({(f'{day} to {day}', '', ''): [row]})
+            with mock.patch.object(dp, '_mhd_fetch_details_bulk', side_effect=fake_bulk):
+                _run(key, cfg, fake, fetch_violations=True, since_date=day, until_date=day)
+        self.assertIs(seen['colorado']['tier_of'], dp._co_line_tier)
+        self.assertIs(seen['pueblo']['tier_of'], dp._co_line_tier)
+        self.assertNotIn('tier_of', seen['aaphd'])
+
+    def test_an_unknown_reader_name_raises(self):
+        cfg = dict(dp.MHD_METRO_JURISDICTIONS['pueblo'], tiers='no-such-reader')
+        row = _fixture_rows('search_pueblo.json')[0]
+        day = dp._mhd_row_date(row)
+        fake = FakeSearch({(f'{day} to {day}', '', ''): [row]})
+        with mock.patch.object(dp, '_mhd_fetch_details_bulk', return_value=(1, [])):
+            with self.assertRaises(KeyError):
+                _run('pueblo', cfg, fake, fetch_violations=True, since_date=day, until_date=day)
+
+    def test_jev_never_moves_a_stated_tier(self):
+        import jev_reader as jr
+        for source in ('Colorado CDPHE Health Dept', 'Pueblo County Health Dept', 'Mesa County Health Dept'):
+            self.assertEqual(jr.tier_policy(source), 'fixed', source)
+            self.assertEqual(jr.score_policy(source, 46), 'source_tiers', source)
+        # Broomfield mostly cites no section: keyword tiers, like the Front Range counties
+        self.assertEqual(jr.tier_policy('Broomfield Health Dept'), 'free')
+        self.assertEqual(jr.score_policy('Broomfield Health Dept', 46), 'computed')
+        self.assertEqual(jr.score_policy('Arapahoe County Health Dept', 46), 'computed')
