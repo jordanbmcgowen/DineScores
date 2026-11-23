@@ -259,6 +259,37 @@ Brick House 08-14, Cupini's 08-11, Ming's Garden 10-29, KC Art Institute -
 Cafe Nerman 08-26). That is the shared regex reading "observed ... mouse";
 Jev's named-vermin guard is what answers those lines in production.
 
+## Backfill, second run (2026-11-23, 14:46-15:09 UTC): the Montana counties
+
+Re-read with the two corrections in place (`--since-date 2026-08-24`, the
+three Montana databases only; Kansas City's first-run records were absorbed
+as they were, since neither correction touches them).
+
+| Group | Inspections | A / B / C / F now | Same inspections, first run |
+|---|---|---|---|
+| Missoula | 81 | 46 / 25 / 7 / 3 | 39 / 28 / 6 / 8 |
+| Gallatin | 155 | 113 / 27 / 12 / 3 | 104 / 33 / 12 / 6 |
+| Flathead | 324 | 297 / 23 / 2 / 2 | 266 / 53 / 3 / 2 |
+
+- The remaining F's by score: Missoula 62, 68 and 69 (3 to 6 Priority rows
+  plus 3 to 5 Pf rows each), Gallatin 48, 52 and 59 (6 or 7 Priority rows
+  and a dozen others; two in West Yellowstone), Flathead 54 (the county's
+  own Grade F) and the D+ capped at 69.
+- Flathead: no commendation row ships (78 in the first run); 90 clean
+  inspections (was 78).
+- Absorbed as `data/d1_seed_2026-11-23_paragonmt_2026-08-24.sql.gz`: 482
+  restaurants, 496 inspection rows, grades A 384 / B 71 / C 19 / F 8; one
+  text-forced F (a failing septic system in Kalispell). 43 restaurants
+  without coordinates.
+- Two inspections per county were not read (connection resets on the field
+  values request, three attempts each; all six were read in the first run)
+  and are held: Missoula 2026-11-12, Gallatin 2026-09-09, Flathead
+  2026-08-31. The first weekly run re-reads each county from its hold.
+- Kansas City (first run, absorbed 2026-11-23): 2,871 inspections, 1,929
+  restaurants, grades A 1,594 / B 256 / C 30 / F 49; 38 restaurants carry a
+  text-forced F on their newest inspection (mice, roaches, and six drain
+  back-ups the violation reader read as sewage).
+
 ## Known gaps and open points
 
 - **Missoula was graded much harder than the county grades itself; fixed.**

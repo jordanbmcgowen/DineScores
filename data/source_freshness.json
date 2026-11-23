@@ -130,6 +130,16 @@
    },
    "latest": "2026-11-05"
   },
+  "Flathead County": {
+   "last_run": {
+    "at": "2026-11-23",
+    "detail": "",
+    "latest": "2026-11-20",
+    "records": 324,
+    "status": "ok"
+   },
+   "latest": "2026-08-30"
+  },
   "Florida": {
    "last_run": {
     "at": "2026-11-15",
@@ -139,6 +149,16 @@
     "status": "error"
    },
    "latest": "2026-11-07"
+  },
+  "Gallatin County": {
+   "last_run": {
+    "at": "2026-11-23",
+    "detail": "",
+    "latest": "2026-11-20",
+    "records": 155,
+    "status": "ok"
+   },
+   "latest": "2026-09-08"
   },
   "Garland": {
    "last_run": {
@@ -299,6 +319,16 @@
     "status": "ok"
    },
    "latest": "2026-11-09"
+  },
+  "Missoula County": {
+   "last_run": {
+    "at": "2026-11-23",
+    "detail": "",
+    "latest": "2026-11-20",
+    "records": 81,
+    "status": "ok"
+   },
+   "latest": "2026-11-11"
   },
   "Montgomery County": {
    "last_run": {
@@ -653,6 +683,17 @@
    "group": "Fairfax County",
    "latest": "2026-11-05"
   },
+  "Flathead City-County Health Department": {
+   "group": "Flathead County",
+   "hold": {
+    "date": "2026-08-31",
+    "failures": {
+     "2026-08-31|60DFDA930D0B591087258E640053C1CA": 1,
+     "2026-08-31|83D26D826480E64087258E64005CE9AC": 1
+    }
+   },
+   "latest": "2026-08-30"
+  },
   "Florida DBPR": {
    "group": "Florida",
    "latest": "2026-11-07"
@@ -668,6 +709,17 @@
   "Frisco Health Dept": {
    "group": "DFW",
    "latest": "2026-11-13"
+  },
+  "Gallatin City-County Health Department": {
+   "group": "Gallatin County",
+   "hold": {
+    "date": "2026-09-09",
+    "failures": {
+     "2026-09-09|E9BDEF1C2CA73BBD86258E6D0059FA2E": 1,
+     "2026-09-09|EA5E18E810976B9B86258E6D0058841A": 1
+    }
+   },
+   "latest": "2026-09-08"
   },
   "Garland Health Inspections": {
    "group": "Garland",
@@ -1191,6 +1243,17 @@
   "Minneapolis Open Data": {
    "group": "Minneapolis",
    "latest": "2026-11-09"
+  },
+  "Missoula Public Health": {
+   "group": "Missoula County",
+   "hold": {
+    "date": "2026-11-12",
+    "failures": {
+     "2026-11-12|98BD82D5CB2A25E487258EAD007D3FF8": 1,
+     "2026-11-12|B53E64BA3BB3DA4487258EAD005FD95E": 1
+    }
+   },
+   "latest": "2026-11-11"
   },
   "Montana Health Dept": {
    "given_up": [
