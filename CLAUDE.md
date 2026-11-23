@@ -1,8 +1,8 @@
 # DineScores
 
 Restaurant health-inspection scores on a map: https://dinescores.com
-~64k restaurants embedded client-side (the 24 MB cap; each metro's ~480
-newest), ~360k in the database, covering ~75 metros (NYC, Chicago, LA County, SF, Seattle, Boston,
+~68k restaurants embedded client-side (the 24 MB cap; each metro's ~610
+newest), ~376k in the database, covering ~100 metros (NYC, Chicago, LA County, SF, Seattle, Boston,
 Austin, Houston, DC, DFW incl. McKinney/Lewisville/Denton, Las Vegas,
 Raleigh, Miami/Tampa/Orlando, Louisville, Minneapolis, Cincinnati,
 Montgomery County MD, Detroit, Sacramento, Fairfax County, Portland OR
@@ -370,7 +370,8 @@ read yet. The ones worth building next:
   and then enforces a hard `DATA_JS_MAX_BYTES` (24,000,000); both trims
   keep the same FRACTION of every city's newest records, never below the
   floor (`_embed_trim`; the 2026-11-03 rebuild, 4,202 cities: every metro
-  keeps its 496 newest of up to 1,000). Dropping the globally
+  keeps its 496 newest of up to 1,000; the 2026-11-23 rebuild, 4,779
+  cities: 73% each, New York 610, a new city at the 1,000 cap 730). Dropping the globally
   oldest records instead let a few hundred small towns' newest inspections
   push the metros out one record at a time (Dallas would have kept ~150),
   levelling every city to the same COUNT gave each metro ~158, and the
@@ -604,7 +605,14 @@ read yet. The ones worth building next:
   only the last 45 days of failures and records the rest as given up. The
   2026-11 backfills ran this way, one worktree per vendor family
   (`docs/expansion-2026-11/`), and data.js was then rebuilt once from
-  `main`'s file plus every chunk's records. Seeds in one push load in path
+  `main`'s file plus every chunk's records. Do the same at the end of any
+  chunk-by-chunk absorb: each absorb trims every city again, so the
+  established metros are squeezed once per chunk and the city absorbed
+  last hardly at all (2026-11-23, after 21 absorbs: New York 507, Kansas
+  City 882; one rebuild: 610 and 730), and a branch that lives across a
+  Sunday refresh conflicts on data.js and has to rebuild from `main`'s new
+  file anyway (the freshness file is then `main`'s plus the new sources
+  and groups). Seeds in one push load in path
   order, so a chunk that must win (Louisiana's narratives over the
   titles-only history) needs a tag that sorts last.
 - **States are two-letter codes on output.** Portals sometimes spell the

@@ -43,6 +43,88 @@ Populations are round figures from memory of census counts, not re-checked.
 Whether each "built" row above shipped, and with what numbers, is in its own
 file; this table is the survey's ranking, written before the builds finished.
 
+## What shipped (2026-11-23)
+
+Twenty sources, about 15,500 restaurants and 36,600 inspections, read from
+each source's own start date to 2026-11-21. Restaurant grades are of each
+restaurant's newest inspection, after the violation reader.
+
+| Source | Restaurants | Inspections | A | B | C | F | No map pin |
+|---|---|---|---|---|---|---|---|
+| El Paso | 4,660 | 19,808 | 3,427 | 1,045 | 181 | 7 | 403 |
+| Kansas City MO | 1,929 | 2,812 | 1,594 | 256 | 30 | 49 | 168 |
+| Waco / McLennan County | 1,315 | 3,959 | 1,010 | 277 | 3 | 25 | 0 |
+| Garland | 1,014 | 1,014 | 487 | 333 | 164 | 30 | 1 |
+| Corpus Christi / Nueces County | 891 | 929 | 848 | 31 | 2 | 10 | 185 |
+| Colorado, state-inspected counties | 769 | 807 | 423 | 235 | 79 | 32 | 111 |
+| Montana state portal | 754 | 778 | 632 | 81 | 26 | 15 | 90 |
+| St. Louis | 640 | 663 | 609 | 19 | 0 | 12 | 26 |
+| Wichita Falls | 627 | 2,600 | 598 | 9 | 0 | 20 | 0 |
+| Jackson County MO | 538 | 651 | 382 | 122 | 25 | 9 | 53 |
+| Amarillo | 492 | 560 | 405 | 66 | 12 | 9 | 49 |
+| Missoula, Gallatin, Flathead counties | 482 | 502 | 384 | 71 | 19 | 8 | 43 |
+| Abilene / Taylor County | 416 | 472 | 348 | 59 | 8 | 1 | 36 |
+| Cheyenne, Casper, Jackson WY | 294 | 338 | 188 | 58 | 24 | 24 | 26 |
+| Pueblo County | 236 | 243 | 175 | 45 | 13 | 3 | 16 |
+| Tyler / Smith County | 176 | 183 | 160 | 11 | 2 | 3 | 18 |
+| Mesa County (Grand Junction) | 117 | 123 | 81 | 29 | 5 | 2 | 13 |
+| Minot / First District ND | 107 | 111 | 94 | 9 | 3 | 1 | 20 |
+| Orange County TX | 43 | 43 | 40 | 1 | 0 | 2 | 9 |
+| Broomfield | 32 | 38 | 8 | 3 | 12 | 9 | 3 |
+
+The El Paso and Waco windows reach back to 2024 and 2025 (score-only
+sources, cheap to read); Wichita Falls to 2023; the portals and the
+per-inspection sources start between 2026-08-01 and 2026-09-21.
+
+`public/data.js` was rebuilt once at the end from `main`'s file (the
+2026-11-22 refresh) plus every chunk: 68,391 records, 23.9 MB, every city
+at 73% of what it held (New York 610, a new city at the 1,000 cap 730).
+
+## Open after this build
+
+Decisions for the owner:
+
+- **Map pins for about 1,270 new restaurants.** The Census geocoder did not
+  place them ("4800 Main", "1 Pershing Rd.", PO boxes); they are in D1 and
+  searchable, not on the map. The second pass
+  (`scripts/backfill/geocode_backlog.py`) uses OpenStreetMap and sends the
+  contact address in the pipeline's User-Agent, so it was not run from the
+  build session.
+- **Colorado's Closed verdict.** A place the state closed can still grade A
+  on its violations (a water-line break is one line). Waco's FAILED is an F
+  by decision; Colorado's Closed and Re-Inspection Required do not cap
+  anything yet, on the new portals or the six Front Range counties.
+- **Front Range regrade.** Arapahoe, Douglas, El Paso CO, Larimer, Weld and
+  Adams are still scored on keywords. On the state portal that method gave
+  four times the F's the state's own tiers do (`mhd.md`). The section table
+  built here should reach their lines as it reaches Pueblo's; it needs a
+  D1 export and a regrade seed.
+
+Known limits, no decision needed:
+
+- Broomfield: two thirds of its lines cite no section and stay
+  keyword-tiered; 9 of 32 restaurants are F's (four on real pest findings).
+- Jackson WY: about a third of Teton County's inspections grade F. Its
+  inspectors cite a median of five items a visit; the share holds under two
+  other ways of tiering.
+- El Paso's search POST has not run from a GitHub runner yet (the probe
+  loads the form page). The first Sunday run is the test; a refusal reports
+  the group `blocked` and the fix is the relay.
+- Montana Paragon titles outside the Priority Foundation table score as
+  priority (5 points).
+
+Found along the way, not fixed here:
+
+- About 40 Portland-area places (mostly hotels) are stored as F's at score
+  0 with nothing cited: the portal's 0 means "not scored". New fetches are
+  fixed (`unscored_zero`); the stored rows need a cleanup seed from a D1
+  export.
+- The violation reader gave Cluck & Boba (Wichita Falls) an F for a door
+  gap "to prevent entry of pests such as ants". A pest named only as the
+  thing prevented should not count as a named vermin.
+- Six Kansas City F's are floor-drain back-ups read as sewage (existing
+  policy).
+
 ## Reachable from GitHub's runners
 
 The builds ran from a cloud container, so the weekly job's own network was
