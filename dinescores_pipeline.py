@@ -11806,6 +11806,10 @@ HH_PORTALS = {
             'safe water, record keeping and food package labeling': 'priority_foundation',
             'time and temperature for food safety': 'priority',
             'utensils, equipment, and vending': 'priority_foundation', 'water/plumbing': 'priority',
+            # never printed with a suffix (the HACCP/variance item): its 6 citations that state a
+            # severity say Priority Foundation, and the 2 of the 3 without one whose rows show a score
+            # deduct exactly 2 for it
+            'conformance with approved procedures': 'priority_foundation',
         },
         'rule_placeholder_re': re.compile(r'^see violation observations? above$', re.I),
         'count_fields': ('criticalInfractionCount', 'nonCriticalInfractionCount'),

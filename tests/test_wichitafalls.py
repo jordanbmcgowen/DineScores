@@ -320,6 +320,8 @@ class ViolationTests(unittest.TestCase):
                            ('Physical Facilities (PF)', 'priority_foundation'),     # a typed suffix wins
                            ('Food Temperature Control/ Identification', 'priority_foundation'),
                            ('Demonstration of Knowledge/Personnel', 'priority_foundation'),
+                           # the HACCP/variance item's category, scored 2 off where the score is shown
+                           ('Conformance with Approved Procedures', 'priority_foundation'),
                            ('Food Safety Miscellany', None), ('(C) Physical Facilities', None), ('', None)):
             self.assertEqual(dp._hh_category_tier(WF, {'description': desc}), tier, desc)
         self.assertIsNone(dp._hh_category_tier(WF, None))
