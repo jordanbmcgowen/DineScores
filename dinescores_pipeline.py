@@ -7200,6 +7200,7 @@ def _fetch_mhd_jurisdiction_api(session, slug, config, since_date=None, limit=No
 
     all_records = []
     seen_ids = set()
+    unscored_zero = set()      # id() of kept records published with a score of 0 on a 0-100 scale
     stopped_early = False
     capped_queries = 0
     dropped_by_program = dropped_by_city = dropped_by_exclude = 0
@@ -7283,6 +7284,14 @@ def _fetch_mhd_jurisdiction_api(session, slug, config, since_date=None, limit=No
                 uid = parsed.get('source_id') or f"{parsed['name']}|{parsed['inspection_date']}"
                 if uid not in seen_ids:
                     seen_ids.add(uid)
+                    if score_scale == '100' and parsed.get('original_score') == 0:
+                        # Not scored (see the note where unscored_zero is
+                        # used): graded from its observations like a row
+                        # without a score. Flagged only once it is kept, so
+                        # the id cannot be a discarded duplicate's.
+                        parsed['original_score'] = None
+                        parsed['risk_score'] = 70
+                        unscored_zero.add(id(parsed))
                     all_records.append(parsed)
                     new_count += 1
         dropped_by_program += win_program
@@ -7393,6 +7402,28 @@ def _fetch_mhd_jurisdiction_api(session, slug, config, since_date=None, limit=No
             all_records = [r for r in all_records if id(r) not in drop]
         if config.get('clean_proof') == 'printable-grid':
             all_records = _mhd_prove_clean(path, all_records, display_name)
+
+    # A published 0 on a 0-100 scale is a visit the agency did not score, not
+    # a zero: Orange County TX sends it on every 'Visit' row and on unscored
+    # follow-ups (7 of 50 rows, 2026-09-21..11-23, none with an observation),
+    # the Portland-metro counties on lodging visits (Extended Stay, Motel 6,
+    # Holiday Inn Express: 40 embedded restaurants were F's at risk 0 with
+    # nothing cited when this was found, 2026-11-23). With observations it
+    # is graded from them, as a row without a score always was; with none
+    # there is nothing to grade and it does not ship (it would otherwise be
+    # an F at 0, or a 100 from a visit that inspected nothing). A window
+    # that is mostly zeros is a jurisdiction that stopped publishing scores:
+    # that raises, so the group goes red instead of losing its clean rows.
+    zeros = [r for r in all_records if id(r) in unscored_zero]
+    if zeros:
+        if len(zeros) >= DFW_HOLE_UNSCORED_MIN and len(zeros) * 2 > len(all_records):
+            raise RuntimeError(f"{display_name}: {len(zeros)} of {len(all_records)} inspections carry a "
+                               f"published score of 0 — the portal's score field has changed")
+        empty = {id(r) for r in zeros if not r.get('violations')}
+        all_records = [r for r in all_records if id(r) not in empty]
+        log.info(f"{display_name}: {len(zeros)} inspections published with a score of 0 (not scored): "
+                 f"{len(empty)} with nothing cited left out, {len(zeros) - len(empty)} graded from "
+                 f"their observations")
 
     if stopped_early:
         log.warning(f"{display_name}: scrape stopped early — run again to get remaining data")

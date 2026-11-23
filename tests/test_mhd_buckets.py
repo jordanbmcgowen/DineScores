@@ -1910,3 +1910,82 @@ class CleanProofTests(unittest.TestCase):
         self.assertIsNone(dp._mhd_fetch_printable(s, 'montana', 'ABC'))
         Resp.status_code, Resp.content = 500, b'%PDF-1.5'
         self.assertIsNone(dp._mhd_fetch_printable(s, 'montana', 'ABC'))
+
+
+class UnscoredZeroTests(unittest.TestCase):
+    """A published score of 0 on a 0-100 scale is a visit the agency did not
+    score: graded from its observations, left out when it cites nothing."""
+    DAY = '2026-11-10 to 2026-11-10'
+
+    def setUp(self):
+        self.cfg = dp.MHD_METRO_JURISDICTIONS['orangecotx']
+        self.assertEqual(self.cfg['score_scale'], '100')
+        saved = dict(dp._FRESHNESS_HOLDS)
+        dp._FRESHNESS_HOLDS.clear()
+        self.addCleanup(lambda: (dp._FRESHNESS_HOLDS.clear(), dp._FRESHNESS_HOLDS.update(saved)))
+
+    def _rows(self, *specs):
+        return [_row(iid, name=f'Cafe {iid}', addr=f'{n} Main St', city='Orange', state='TX',
+                     program='Food', purpose=purpose,
+                     date='2026-11-10T00:00:00.000Z', score=score)
+                for n, (iid, score, purpose) in enumerate(specs, 1)]
+
+    def _fetch(self, rows, texts=None, cfg=None, key='orangecotx'):
+        fake = FakeSearch({(self.DAY, '', ''): rows})
+
+        def fake_bulk(path, records, trust_official_score=True, label=None):
+            for rec in records:
+                violations = [dp.classify_violation(t) for t in (texts or {}).get(rec['source_id'], [])]
+                rec['violations'] = [list(v) for v in violations]
+                if not trust_official_score or rec.get('original_score') is None:
+                    rec['risk_score'] = dp.calc_risk_score(violations)[0]
+            return len(records), []
+        with mock.patch.object(dp, '_mhd_fetch_details_bulk', side_effect=fake_bulk):
+            return _run(key, cfg or self.cfg, fake, fetch_violations=texts is not None,
+                        since_date='2026-11-10', until_date='2026-11-10')
+
+    def test_a_zero_with_nothing_cited_does_not_ship(self):
+        rows = self._rows(('S97', '97', 'Routine'), ('V0', '0', 'Visit'), ('F0', 0, 'Follow-Up'))
+        recs = self._fetch(rows, texts={})
+        self.assertEqual([(r['source_id'], r['original_score'], r['risk_score']) for r in recs],
+                         [('S97', 97, 97)])
+        self.assertEqual(dict(dp._FRESHNESS_HOLDS), {}, 'an unscored visit is not an unread one')
+
+    def test_a_zero_with_observations_is_graded_from_them(self):
+        rows = self._rows(('S61', 61, 'Routine'), ('Z0', 0, 'Complaint'))
+        texts = {'Z0': ['Raw chicken stored above ready-to-eat salad in the walk-in cooler',
+                        'Floor under the fryer is dirty']}
+        recs = {r['source_id']: r for r in self._fetch(rows, texts=texts)}
+        self.assertEqual(recs['S61']['risk_score'], 61)
+        z = recs['Z0']
+        self.assertIsNone(z['original_score'])
+        self.assertEqual(z['risk_score'], dp.calc_risk_score([dp.classify_violation(t) for t in texts['Z0']])[0])
+        self.assertTrue(0 < z['risk_score'] < 100)
+        self.assertEqual(len(z['violations']), 2)
+
+    def test_search_only_runs_leave_zeros_out(self):
+        recs = self._fetch(self._rows(('S90', 90, 'Routine'), ('V0', 0, 'Visit')))
+        self.assertEqual([r['source_id'] for r in recs], ['S90'])
+
+    def test_a_window_of_mostly_zeros_raises(self):
+        n = dp.DFW_HOLE_UNSCORED_MIN
+        rows = self._rows(*[(f'Z{i}', 0, 'Routine') for i in range(n)], ('S95', 95, 'Routine'))
+        with self.assertRaisesRegex(RuntimeError, 'published score of 0'):
+            self._fetch(rows, texts={})
+        # a few zeros among scored rows are ordinary
+        rows = self._rows(*[(f'Z{i}', 0, 'Visit') for i in range(3)],
+                          *[(f'S{i}', 90, 'Routine') for i in range(n)])
+        self.assertEqual(len(self._fetch(rows, texts={})), n)
+
+    def test_other_scales_keep_their_zero(self):
+        net = dp.MHD_METRO_JURISDICTIONS['net']                 # tx-demerit: 0 demerits is a perfect form
+        rows = [_row('N0', name='Cafe N0', city='Tyler', state='TX', program='Food',
+                     date='2026-11-10T00:00:00.000Z', score=0)]
+        recs = self._fetch(rows, texts={}, cfg=net, key='net')
+        self.assertEqual([(r['original_score'], r['risk_score']) for r in recs], [(0, 100)])
+        demerit = dp.MHD_METRO_JURISDICTIONS['broomfield']       # demerit: recomputed from the page
+        rows = [_row('B0', name='Cafe B0', city='Broomfield', state='CO', program=demerit['programs'][0],
+                     date='2026-11-10T00:00:00.000Z', score=0)]
+        recs = self._fetch(rows, texts={}, cfg=demerit, key='broomfield')
+        self.assertEqual(len(recs), 1)
+        self.assertEqual(recs[0]['risk_score'], 100)
