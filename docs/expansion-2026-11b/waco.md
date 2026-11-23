@@ -41,7 +41,8 @@ inspection, no violation text, coordinates on every row.
   "the smaller the score the better"), 0-50 seen. `risk_score = 100 -
   demerits` (the Texas form score, McKinney's rule) and `original_score` keeps
   the demerit total. `results` is `"<n> demerits (<Status>)"`.
-- **The FAILED flag never moves the grade** (owner decision, below).
+- **A FAILED inspection is an F**: `risk_score` is capped at 65
+  (`WAC_FAILED_RISK_CAP`; owner decision 2026-11-23, below).
 - **No violations**: nothing goes to Jev, no chips or summaries, no
   text-forced F, no pest-title handling needed.
 - **Identity**: no permit or inspection number, and OBJECTIDs are renumbered
@@ -90,25 +91,62 @@ inspection, no violation text, coordinates on every row.
 | a `Status` value outside the known list | shipped as published, WARNING logged (it never moves the grade) |
 | fetch deadline already passed | **skipped** |
 
-## Owner decision: the district's FAILED flag
+## The district's FAILED flag: an F (owner decision, 2026-11-23)
 
 About 21% of shipped inspections carry a FAILED status (`FAILED` or `FAILED
-WITH PENALTY BLIC`; "BLIC" is not explained anywhere public). Many of them
-have few demerits, so `100 - demerits` alone grades them A or B. Over the whole
-backfill (4,026 inspections): 868 FAILED, graded A 225 / B 458 / C 155 / F 30;
-225 of them at 10 demerits or fewer, 61 at 5 or fewer, 5 at 0. PASSED rows
-grade A 3,022 / B 119 / C 1 (the district passes up to 23 demerits).
-The district evidently fails on something other than the total (most likely
-any priority item, as many Texas jurisdictions do), but the layer has no
-items to check that against. Options:
+WITH PENALTY BLIC`; "BLIC" is not explained anywhere public). Scored on
+demerits alone they graded A 225 / B 458 / C 155 / F 30 over the backfill
+(4,026 inspections, 868 FAILED), and not one Waco restaurant was an F.
 
-1. ship as built (grade from the score, FAILED visible only in `results`);
-2. cap `risk_score` for FAILED rows (as Williamson County caps an IHH closure
-   at 55), which turns 838 A/B/C grades into F's on a flag whose rule is
-   unknown;
-3. a milder cap (e.g. FAILED cannot grade above C).
+**What FAILED means.** The layer has no items, so the reason for one
+inspection cannot be read. The district's own rules say what the verdict is:
+a re-inspection is required. The county order (section 6, amended 2026-06-02)
+names three grounds: inspection items or an imminent health hazard not
+corrected on the spot, violations not corrected since the previous
+inspection, or more than 30 demerits. A district inspector told KWTX
+(2024-03-19) "you can actually fail an inspection with 2 points": no hot
+water is 2 demerits and grounds for closure. The re-inspection costs the
+place $200, which is most likely what "with penalty" records (inferred, not
+stated by the district).
 
-The fetcher implements 1. Changing it is one line in `fetch_waco`.
+**What the data shows** (the backfill, 2025-01-02 to 2026-11-13):
+
+| demerits | inspections | failed |
+|---|---|---|
+| 0-4 | 2,396 | 36 (1.5%) |
+| 5-9 | 760 | 148 (19%) |
+| 10-14 | 407 | 246 (60%) |
+| 15-19 | 238 | 214 (90%) |
+| 20 and up | 225 | 224 (99.6%) |
+
+- 847 of the 868 failures are followed by another visit, 812 of them a
+  Re-inspection, at a median of 8 days (662 within 14 days).
+- 695 of those next visits pass; the median goes from 15 demerits at the
+  failure to 2 at the re-inspection. 152 fail again.
+- 441 failures were at a permit renewal, 206 at a routine inspection, 156 at
+  a re-inspection, 41 at a permit inspection, 24 at a complaint.
+- 5 failures have 0 demerits (two permit inspections, two complaints, one
+  re-inspection), 61 have 5 or fewer: a ground the total does not show.
+
+**The rule.** `risk_score = min(100 - demerits, 65)` for a FAILED row, the
+cap the pipeline already uses for a failed inspection elsewhere (the "a
+failed inspection is an F" rule; closures cap at 55). `original_score` and
+`results` keep what the district published ("4 demerits (Failed)").
+`Passed with exceptions` and `Partial pass` (5 rows) are not failures.
+
+**What it does to the map** (1,315 restaurants; the grade is the weighted
+score of the last three visits, and an F on the latest visit is an F):
+
+| rule | A | B | C | F |
+|---|---|---|---|---|
+| demerits only (as first built) | 1,252 | 61 | 2 | 0 |
+| FAILED capped at 65 (shipped) | 1,010 | 277 | 3 | 25 |
+
+The F clears itself: a place is an F only while a failed visit is its latest
+(25 restaurants on 2026-11-23), and a failure in the last three visits then
+pulls the weighted grade down a step after it passes re-inspection (about
+270 places, almost all A to B).
+
 
 ## Measured (live, 2026-11-23)
 

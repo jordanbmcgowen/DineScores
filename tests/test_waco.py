@@ -174,7 +174,7 @@ class RecordTests(WacoBase):
             'longitude': self.by_id[f'wac_{rid}_20261112']['longitude'],
             'inspection_date': '2026-11-12',
             'original_score': 12,                     # the district's demerit total
-            'risk_score': 88,                         # 100 - demerits
+            'risk_score': 65,                         # FAILED: capped (100 - demerits would be 88)
             'priority_violations': 0,
             'priority_foundation_violations': 0,
             'core_violations': 0,
@@ -208,13 +208,31 @@ class RecordTests(WacoBase):
         worst = self._find('Helados La Azteca - Valley Mills Dr')[0]
         self.assertEqual((worst['original_score'], worst['risk_score']), (50, 50))
         self.assertEqual(dp.calculate_vetted_grade(worst['risk_score']), 'F')
+        # A FAILED inspection is an F whatever its demerits: the district's own
+        # verdict (re-inspection required), which the demerit total does not carry.
         failed_clean = self._find('Dominos Pizza #6992')[0]                 # FAILED at 0 demerits
-        self.assertEqual((failed_clean['risk_score'], failed_clean['results']), (100, '0 demerits (Failed)'))
+        self.assertEqual((failed_clean['original_score'], failed_clean['risk_score'],
+                          failed_clean['results']), (0, 65, '0 demerits (Failed)'))
         self.assertEqual(dp.calculate_vetted_grade(failed_clean['risk_score'],
-                                                   dp.build_violation_text(failed_clean['violations'])), 'A')
+                                                   dp.build_violation_text(failed_clean['violations'])), 'F')
         self.assertEqual(failed_clean['inspection_type'], 'Permit')
+        self.assertEqual(dp.WAC_FAILED_RISK_CAP, 65)
+        self.assertEqual(dp.calculate_vetted_grade(dp.WAC_FAILED_RISK_CAP), 'F')
+        failed = passed = 0
         for r in self.records:
-            self.assertEqual(r['risk_score'], 100 - r['original_score'])
+            form_score = 100 - r['original_score']
+            if '(Failed' in r['results']:
+                failed += 1
+                self.assertEqual(r['risk_score'], min(form_score, 65), r['results'])
+                self.assertEqual(dp.calculate_vetted_grade(r['risk_score']), 'F')
+            else:
+                passed += 1
+                self.assertEqual(r['risk_score'], form_score, r['results'])
+        self.assertTrue(failed >= 3 and passed >= 3, (failed, passed))
+        # a failure worse than the cap keeps its own number
+        self.assertEqual(worst['risk_score'], 50)
+        # 'Passed with exceptions' and 'Partial pass' are not failures
+        self.assertFalse('PASSED WITH EXCEPTIONS'.startswith('FAILED'))
 
     def test_exact_duplicate_rows_ship_once(self):
         sison = self._find('Sison Tacos')
@@ -225,11 +243,14 @@ class RecordTests(WacoBase):
         camp = self._find('Camp Fimfo Waco', '2025-03-13')
         rid = _rid('Camp Fimfo Waco', '1000 Chickadee Ln', 'Waco')
         got = {r['source_id']: r['risk_score'] for r in camp}
-        self.assertEqual(got, {f'wac_{rid}_20250313': 90, f'wac_{rid}_20250313_2': 96,
+        # the FAILED row (4 demerits, capped at 65) is the day's worst and ships first
+        self.assertEqual(got, {f'wac_{rid}_20250313': 65, f'wac_{rid}_20250313_2': 90,
                                f'wac_{rid}_20250313_3': 100})
-        self.assertEqual(max(camp, key=dp._same_day_rank)['risk_score'], 90)
+        self.assertEqual(max(camp, key=dp._same_day_rank)['risk_score'], 65)
+        self.assertEqual({r['source_id']: r['original_score'] for r in camp}[f'wac_{rid}_20250313'], 4)
         grounds = self._find('Common Grounds Sub', '2026-11-10')
-        self.assertEqual(sorted(r['risk_score'] for r in grounds), [86, 100])
+        self.assertEqual(sorted((r['risk_score'], r['original_score']) for r in grounds),
+                         [(65, 14), (100, 0)], 'the 14-demerit visit was FAILED')
 
     def test_names_cities_addresses(self):
         pub = self._find("Macdaddy's Pub")[0]

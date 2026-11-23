@@ -14779,11 +14779,21 @@ def fetch_elpaso(since_date=None, limit=None):
 # Scoring: TotalScore is DEMERIT points, lower is better ("the smaller the
 # score the better", 0-50 seen), so risk_score = 100 - demerits, the Texas
 # form score, and original_score keeps the demerit total (McKinney's rule).
-# Status (PASSED / FAILED / FAILED WITH PENALTY BLIC / ...) goes to results
-# and never moves the grade: ~20% of rows are FAILED, 287 of 1,012 of them at
-# 10 demerits or fewer, a district pass rule the score alone does not carry
-# (an owner decision, see docs/expansion-2026-11b/waco.md). CANCELED and
-# REQUESTED rows are not inspections and are skipped.
+# Status (PASSED / FAILED / FAILED WITH PENALTY BLIC / ...) goes to results,
+# and a FAILED inspection is an F: risk_score is capped at
+# WAC_FAILED_RISK_CAP (the owner's decision, 2026-11-23; the same rule as the
+# other sources that publish a failed verdict). FAILED is the district's own
+# verdict that the place must be re-inspected — the county order names three
+# grounds: items or an imminent health hazard not corrected on the spot,
+# violations repeated from the previous inspection, or more than 30 demerits
+# ("you can fail an inspection with 2 points", a district inspector to KWTX:
+# no hot water) — which the demerit total alone does not carry: scored on
+# demerits only, 868 failed inspections graded A 225 / B 458 / C 155 / F 30
+# and not one Waco restaurant was an F. The cap clears itself: 812 of 868
+# failures were re-inspected (median 8 days later) and 695 of those passed;
+# the failure then weighs on the next visits through the weighted history
+# like any other F. CANCELED and REQUESTED rows are not inspections and are
+# skipped.
 #
 # Scope: the district appends '-INACTIVE' to a closed permit's name (581 of
 # 5,066 rows), so those rows are closed places and are skipped (a record
@@ -14819,6 +14829,7 @@ WAC_INACTIVE_RE = re.compile(r'[-\s(]*\binactiv(?:e|ated?|ed)\b\)?\s*$', re.I)
 WAC_MOBILE_RE = re.compile(r'\bmobiles?\b|\b(?:food)?trucks?\b(?!\s+stops?\b)', re.I)
 WAC_EVENT_RE = re.compile(r'-\s*20\d\d\b')         # 'SPRING CARNIVAL - 2025', 'OTAKU FESTIVAL - 2026'
 WAC_MAX_DEMERITS = 100
+WAC_FAILED_RISK_CAP = 65                # a FAILED inspection grades F whatever its demerits (see above)
 
 
 def _wac_count(where):
@@ -14961,6 +14972,9 @@ def fetch_waco(since_date=None, limit=None):
             lon = lat = None
         zip_code = str(a.get('Zipcode') or '').strip()
         rid = make_restaurant_id(name, address, city)
+        risk = max(0, min(100, 100 - demerits))              # the TX form score, McKinney's rule
+        if status.startswith('FAILED'):
+            risk = min(risk, WAC_FAILED_RISK_CAP)            # the district's verdict: an F
         rec = {
             'name': name,
             'address': address,
@@ -14971,7 +14985,7 @@ def fetch_waco(since_date=None, limit=None):
             'longitude': lon,
             'inspection_date': insp_date,
             'original_score': demerits,                      # the district's demerit total (lower is better)
-            'risk_score': max(0, min(100, 100 - demerits)),  # the TX form score, McKinney's rule
+            'risk_score': risk,
             'priority_violations': 0,
             'priority_foundation_violations': 0,
             'core_violations': 0,
