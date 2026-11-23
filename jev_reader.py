@@ -1744,6 +1744,12 @@ SOURCE_TIER_SOURCES = frozenset({
     # score (100 - the city's demerit total, kept in original_score), an
     # official number like Richardson's: never re-scored.
     'McKinney Health Inspections',
+    # Abilene / Taylor County (Tyler EnerGov Civic Access): every cited item
+    # comes with the agency's own group, "Priority Items (3 Points)" /
+    # "Priority Foundation Items (2 Points)" / "Core Items (1 Point)", and
+    # the official score is 100 minus those points: never re-tiered or
+    # re-scored.
+    'Abilene Environmental Health',
 })
 # Sources whose tier was bounded by a per-item rule the stored row no longer
 # carries (Chicago's item number, NYC's critical flag): a stored core line
