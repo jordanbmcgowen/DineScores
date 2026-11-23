@@ -63,8 +63,8 @@ fixtures replace them with `<redacted>`.
   Foundation − 1 × Core counted **per distinct form item**: 103 of 103 scored
   new-format inspections in the November capture, and 10 of 10 non-100 legacy
   ones (the legacy rows cite an item once per finding, e.g. 69082 scores 71
-  with 20 lines over 16 items; counting every line gives 64). The backfill
-  check over the whole window is below. The score endpoint's own per-tier
+  with 20 lines over 16 items; counting every line gives 64). Over the
+  90-day backfill: 407 of 407 below 100 (below). The score endpoint's own per-tier
   counts are NOT usable as the check: on 22 of 105 inspections they carry a
   blank severity name.
   **An inspection whose lines do not reproduce its score is dropped and held**
@@ -103,7 +103,14 @@ fixtures replace them with `<redacted>`.
   interactive water features; any other type is dropped with a warning.
   Dropped by permit class: `School - Biannual Inspection`, `Academy` (the
   university dining contractor's permit), `Day Care`, `Nursing Home`,
-  `Hospital`, `Mobile Food`, `Food Demo`, `Wholesale`. Only food types were
+  `Hospital`, `Mobile Food`, `Food Demo`, `Wholesale`. Dropped by name: until
+  the school class existed the district kitchens held 'Full Service' permits
+  (now Inactive) and were inspected as plain routines or legacy visits, so
+  the Tyler fetchers' `TP_INSTITUTION_RE` plus a local "early childhood" /
+  "…ISD" rule (`_abl_institutional`) leave them out: 17 of the backfill's 499
+  (14 school kitchens, 2 at the district warehouse, 1 Chick-fil-A counter
+  inside Hendrick Medical Center, which the shared rule's "medical center"
+  catches as it would for Georgia and Louisiana). Only food types were
   listed since 2026-08-24 (RFE-Routine 250, Legacy 158, RFE-Bi-Annual School
   22, RFE-Reinspection 3); the pool and day-care types never appear in the
   public search.
@@ -168,9 +175,49 @@ fixtures replace them with `<redacted>`.
   or comes up short raises. More than half of ≥ 20 tried inspections unread
   raises; so does a score mismatch on more than 5%.
 
-## Live verification
+## Live verification (2026-11-23, Jev off, OpenStreetMap fallback off)
 
-(Filled in below.)
+- **Test mode** (`--mode test`, limit 25, last 30 days): 99 requests, 109 s,
+  24 records (one unscored re-inspection, 3 school rows left out), 24/24
+  geocoded by the Census batch, group `ok`, latest 2026-11-20.
+- **14-day window** (`--mode full --since-date 2026-11-09`; keeps completed
+  from 2026-10-26, lists requested from 2026-09-10): 302 rows from the window
+  search (4 pages) + 1 unscheduled row from the sweep (3 + 1 pages), 285
+  headers, 642 requests in 690 s. 119 records 2026-10-26..2026-11-20, 117
+  restaurants; grades A 91 / B 26 / C 1 / F 1 (the F is the 66 Failed
+  routine); **0 text-forced F's**; 111/119 (93%) geocoded by Census (the
+  8 misses: two campus addresses, suites, "ES 11th St"; CI's capped
+  Nominatim fallback retries them); scores 66-100, none out of range; left
+  out 162 completed before the window, 17 school-type, 3 unscored, 1 Academy,
+  1 'Completed' row with no completed date. (This run predates the
+  institution-name rule, which would also drop its one hospital food-court
+  record.)
+- **Score rule over the backfill**: every one of the 407 inspections the run
+  read scored below 100 (220 new-format, 187 legacy) reproduced
+  100 − 3P − 2PF − C over distinct items; nothing was dropped or held.
+
+## Backfill hand-off (`--since-date 2026-08-24`)
+
+`/tmp/claude-0/-home-user-DineScores/302e47b7-d066-5f23-8c3f-df0221d21f67/scratchpad/backfill/abilene/`
+
+- `run.log`: 716 rows requested since 2026-06-25 (8 pages) + the sweeps,
+  693 headers, **2,054 requests in 2,212 s**, 499 inspections, group `ok`,
+  latest 2026-11-20, no drop, hold, mismatch or unread page.
+- The run predates the institution-name rule; its output was then filtered
+  with that rule's own function (`_abl_institutional`) and re-written:
+  `records.json.gz` **482 inspections** (2026-08-10..2026-11-20; 239
+  new-format, 243 legacy), 416 restaurants; `d1.sql` regenerated from those
+  records with `--input-records` (416 restaurants, 472 inspections after the
+  one-per-day rule). The unfiltered originals are kept beside them
+  (`*_unfiltered.*`). `source_freshness.json` is the run's own (group
+  `Abilene`, source `Abilene Environmental Health`, latest 2026-11-20, no
+  hold).
+- Grades A 403 / B 65 / C 13 / F 1, 0 text-forced F's, 438/482 (91%)
+  geocoded by Census alone. 35 item-34 lines (10 with notes, all door closers,
+  gaps or a propped door; one notes flies) and 24 item-20 lines, none an F.
+- 10 restaurant-days carry two inspections (two permits at one name and
+  address, e.g. Ollie's 000102 and 000151, or two legacy entries of one
+  visit); the one-per-day rule keeps the worst.
 
 ## Known gaps / open decisions
 
