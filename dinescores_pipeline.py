@@ -11629,12 +11629,17 @@ def fetch_harris(since_date=None, limit=None):
 #     typed at the end of the item's category ('tier_from_category'). One
 #     category's suffix is wrong: 'Demonstration of Knowledge/Personnel (P)'
 #     holds the PIC and food-handler items, which every citation that states
-#     a severity calls Priority Foundation (30 of 30) and the official score
-#     deducts 2 for. With that correction ('category_tiers'), 403 of the 403
-#     checklists that show every citation the row counts reproduce the
-#     official score exactly (one deduction per item and tier). A citation
-#     with neither a severity nor a suffix (none seen) drops and holds its
-#     inspection like an unread checklist (_HhTierError), never 'core'.
+#     a severity calls Priority Foundation (34 of 34) and the official score
+#     deducts 2 for. With that correction ('category_tier_fixes'), 403 of the
+#     403 checklists that show every citation the row counts reproduce the
+#     official score exactly (one deduction per item and tier). Categories
+#     carry no suffix before ~2025-04; the severity was stated then, and
+#     where it is not (1 of 63 sampled citations, 2023-08 to 2025-03) the
+#     suffix the district gives the same category later stands in
+#     ('category_tiers'; all 69 suffix-less citations that state a severity
+#     agree with it). A citation with no severity and a category in neither
+#     form drops and holds its inspection like an unread checklist
+#     (_HhTierError), never 'core'.
 #   - criticalInfractionCount / nonCriticalInfractionCount split the
 #     citations ('count_fields' sums them for the empty-checklist check:
 #     every empty checklist whose row counts none scored 100, 182 of 182).
@@ -11788,8 +11793,19 @@ HH_PORTALS = {
                                    r'|\bjunior\s+high\b|\bISD\b', re.I), 'School'),),
         'cities': ('Wichita Falls', 'Burkburnett', 'Iowa Park', 'Electra'),
         'tier_from_category': True,         # severity is null on the generic canned comment
-        'category_tiers': {                 # a category whose typed suffix its own scores contradict
-            'demonstration of knowledge/personnel (p)': 'priority_foundation',
+        # keyed by the category without its suffix, lower case (section comment):
+        'category_tier_fixes': {            # a category whose typed suffix its own citations contradict
+            'demonstration of knowledge/personnel': 'priority_foundation',
+        },
+        'category_tiers': {                 # the district's own suffixes, for categories printed before them
+            'approved source': 'priority', 'chemicals': 'priority',
+            'consumer advisory': 'priority_foundation', 'food identification': 'core',
+            'food temperature control/ identification': 'priority_foundation', 'physical facilities': 'core',
+            'preventing contamination by hands': 'priority', 'prevention of food contamination': 'core',
+            'proper use of utensils': 'core', 'protection from contamination': 'priority',
+            'safe water, record keeping and food package labeling': 'priority_foundation',
+            'time and temperature for food safety': 'priority',
+            'utensils, equipment, and vending': 'priority_foundation', 'water/plumbing': 'priority',
         },
         'rule_placeholder_re': re.compile(r'^see violation observations? above$', re.I),
         'count_fields': ('criticalInfractionCount', 'nonCriticalInfractionCount'),
@@ -12181,15 +12197,21 @@ class _HhTierError(ValueError):
 
 
 def _hh_category_tier(cfg, category):
-    """The tier a checklist category states for its items, or None: the
-    portal's own correction for that category first (cfg 'category_tiers'),
-    then the '(P)' / '(PF)' / '(C)' the agency typed at its end."""
+    """The tier a checklist category states for its items, or None: a
+    correction for that category first (cfg 'category_tier_fixes'), then the
+    '(P)' / '(PF)' / '(C)' the agency typed at its end, then — for a category
+    printed without one — the suffix the agency gives the same category
+    elsewhere (cfg 'category_tiers'). Both tables are keyed by the category
+    name without its suffix, in lower case."""
     name = _hh_clean(category.get('description') if isinstance(category, dict) else '')
-    fixed = (cfg.get('category_tiers') or {}).get(name.lower())
+    m = HH_CATEGORY_TIER_RE.search(name)
+    bare = HH_CATEGORY_TIER_RE.sub('', name).strip().lower()
+    fixed = (cfg.get('category_tier_fixes') or {}).get(bare)
     if fixed:
         return fixed
-    m = HH_CATEGORY_TIER_RE.search(name)
-    return HH_CATEGORY_TIERS[m.group(1).upper()] if m else None
+    if m:
+        return HH_CATEGORY_TIERS[m.group(1).upper()]
+    return (cfg.get('category_tiers') or {}).get(bare) if bare else None
 
 
 def _hh_violations(items, cfg=None):

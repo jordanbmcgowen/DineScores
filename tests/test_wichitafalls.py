@@ -131,7 +131,7 @@ class ConfigTests(unittest.TestCase):
 
     def test_the_other_portals_carry_none_of_the_new_keys(self):
         new = {'name_type_sep', 'name_class_re', 'skip_types', 'skip_names', 'cities', 'tier_from_category',
-               'category_tiers', 'rule_placeholder_re', 'count_fields', 'type_placeholder_re'}
+               'category_tiers', 'category_tier_fixes', 'rule_placeholder_re', 'count_fields', 'type_placeholder_re'}
         for slug in ('pima', 'lubbock', 'mesquite'):
             self.assertEqual(new & set(dp.HH_PORTALS[slug]), set(), slug)
         self.assertEqual(new - set(WF), set())
@@ -264,7 +264,7 @@ class ViolationTests(unittest.TestCase):
         personnel = [v for v in lines if v[2].startswith(('Person in Charge', 'Food Handler'))]
         self.assertEqual([v[1] for v in personnel], ['priority_foundation'] * 2)
         self.assertEqual(_official_from_citations(items), 74)
-        literal = dict(WF, category_tiers={})
+        literal = dict(WF, category_tier_fixes={})
         self.assertEqual(_official_from_citations(items, literal), 72)
 
     def test_every_complete_fixture_checklist_reproduces_the_official_score(self):
@@ -295,7 +295,7 @@ class ViolationTests(unittest.TestCase):
 
     def test_a_citation_with_no_tier_anywhere_raises(self):
         items = [{'description': 'Proper Cold Holding Temperature', 'result': 'Out of Compliance',
-                  'category': {'description': 'Time and Temperature for Food Safety'},
+                  'category': {'description': 'Food Safety Miscellany'},
                   'cannedComments': [{'severity': None, 'observationComment': 'Milk at 48F.'}]}]
         with self.assertRaises(dp._HhTierError):
             dp._hh_violations(items, WF)
@@ -315,7 +315,12 @@ class ViolationTests(unittest.TestCase):
                            ('Utensils, Equipment, and Vending (PF)', 'priority_foundation'),
                            ('Consumer Advisory ( pf )', 'priority_foundation'),
                            ('Demonstration of Knowledge/Personnel (P)', 'priority_foundation'),
-                           ('Physical Facilities', None), ('(C) Physical Facilities', None)):
+                           # before 2025-04 the district printed no suffix: its later suffix stands in
+                           ('Physical Facilities', 'core'), ('Chemicals', 'priority'),
+                           ('Physical Facilities (PF)', 'priority_foundation'),     # a typed suffix wins
+                           ('Food Temperature Control/ Identification', 'priority_foundation'),
+                           ('Demonstration of Knowledge/Personnel', 'priority_foundation'),
+                           ('Food Safety Miscellany', None), ('(C) Physical Facilities', None), ('', None)):
             self.assertEqual(dp._hh_category_tier(WF, {'description': desc}), tier, desc)
         self.assertIsNone(dp._hh_category_tier(WF, None))
 
@@ -447,7 +452,7 @@ class FetchTests(th._Base):
 
     def test_a_citation_of_no_stated_tier_drops_and_holds_its_inspection(self):
         bad = _load('results_INSP-022432.json')
-        bad[0]['category'] = {'description': 'Time and Temperature for Food Safety'}
+        bad[0]['category'] = {'description': 'Food Safety Miscellany'}
         portal = _wf_portal(checklists={TACO_1119: bad})
         records = th._run(portal, dp.fetch_wichitafalls, since='2026-11-10')
         self.assertNotIn(f'wfalls_{TACO_1119}', th._by_id(records))
