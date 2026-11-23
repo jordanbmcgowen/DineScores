@@ -67,6 +67,26 @@ Limits that shape the read (Montana survey, re-measured on Kansas City):
   `100.0` on one with two) and is never shipped. `risk_score =
   calc_risk_score` over the source's two tiers: RFI/Critical -> `priority`
   (5), the rest -> `core` (1) — Louisiana's rule. `original_score` is None.
+- **Two corrections after the first backfill** (`_io_shipped_rows`, applied
+  once a report has passed its counters):
+  1. *A commendation is not a finding.* Flathead prints its bonus credit for
+     temperature logs as rows under the Risk Factor tier ("Adequate daily
+     cold holding logs are maintained. This facility exceeds regulatory
+     requirements ... Bonus credit has been awarded"): 78 of the 232
+     higher-tier Flathead rows in the first backfill, each costing the
+     restaurant 5 points. `IO_COMMENDATION_RE` drops them; the document's
+     counters count them, so they are dropped after the counter check.
+  2. *Montana's Risk Factor tier is a form section, not a severity.* It
+     holds the Food Code's Priority and Priority Foundation provisions
+     alike. The 30 standard titles in `IO_MT_PF_TITLES` cite provisions the
+     FDA Food Code marks Pf at most (date marking 3-501.17, test kit
+     4-302.14, hand sink use, access, soap and water temperature 5-205.11 /
+     6-301.11 / 5-202.12, PIC 2-101.11 to 2-103.11, cooling methods
+     3-501.15, clean to sight and touch 4-601.11(A), pest control
+     6-501.111, and the rest listed in the code comment) and ship as
+     `priority_foundation` (2 points). Every other Risk Factor row stays
+     `priority`, an unseen title included. Kansas City's `Critical` is the
+     city's own severity and is not touched.
 - **Flathead's official letter** (list row score cell; Board of Health
   Policy 2010-01 EH, adopted 2010-04-15, and the "Food Purveyor Grading
   Scale", both read from the county's PDFs) caps the computed score:
@@ -241,14 +261,17 @@ Jev's named-vermin guard is what answers those lines in production.
 
 ## Known gaps and open points
 
-- **Missoula is graded much harder than the county grades itself.** 5 of 29
-  (17%) are F's by score in 4 weeks, 9 of 83 (11%) over the backfill, and
-  Gallatin 6 of 157 by score (a bar with 8 RFI = 59), while the county's hidden
-  2026 letters were A+ 269, A 148, B 101, C 7, no F. Montana's RFI tier
-  lumps priority and priority-foundation items (test strips, date marking,
-  sanitizer strength) at 5 points each under Louisiana's rule. Flathead's
-  official band scale is the only calibration available and it caps rather
-  than lifts. An owner decision: keep, or score RFI as priority-foundation (2).
+- **Missoula was graded much harder than the county grades itself; fixed.**
+  With every Risk Factor row at 5 points, 9 of 83 Missoula inspections (11%)
+  were F's by score over the first backfill and 6 of 157 in Gallatin (a bar
+  with 8 RFI rows = 59), while Missoula's own unpublished 2026 letters were
+  A+ 269, A 148, B 101, C 7, no F. The rows were test strips, date marks,
+  soap at a hand sink and a missing person in charge next to real Priority
+  findings. Correction 2 above scores the Pf titles at 2 points; the numbers
+  after it are in "Backfill, second run" below. Still open for the owner:
+  the titles NOT in the table stay at 5 points, including a few the Food Code
+  splits between P and Pf ("Food not protected from contamination",
+  "Non-compliance with approved HACCP plan or variance").
 - Follow-ups that cite nothing ship as 100 (all sources do this).
 - No coordinates in the source: Census batch geocoding (85-97% in the
   runs above; the rest retry via Nominatim in CI).

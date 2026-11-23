@@ -61,6 +61,11 @@ no metro chip.
   on Smith County: in 22 of 22 inspections the demerits fall between the
   number of distinct cited items and three times that number.
 - `clean_proof: 'printable-grid'` (Montana), below.
+- A published score of 0 on a 0-100 scale is "not scored": the row is graded
+  from its observations and left out when it has none. Found in the Orange
+  County TX backfill (7 of 50 rows: every `Visit`, one Routine, one
+  Follow-Up, none with an observation, each an F at risk 0) and already
+  present in production for Portland-metro lodging visits.
 - `results` now also reads the Colorado verdict from `scoreDisplay` (Pass,
   Re-Inspection Required, Closed) where a portal sends it there.
 

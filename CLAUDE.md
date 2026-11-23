@@ -625,6 +625,15 @@ read yet. The ones worth building next:
   form's demerit total, shipped as 100 − demerits and trusted like a '100'
   score; `MHD_TRUSTED_SCORE_SCALES`). The 2026-11-22 entries also drop mobile
   units by permit type and pre-opening visits by purpose.
+- **A published 0 on a 0-100 MHD scale is "not scored", never a zero.**
+  Orange County TX sends 0 on every `Visit` row and on unscored follow-ups,
+  the Portland-metro counties on lodging visits; each shipped as an F at
+  risk 0 with nothing cited (about 40 embedded Oregon places when this was
+  found, 2026-11-23; their stored rows still need a cleanup seed from a D1
+  export). `_fetch_mhd_jurisdiction_api` now grades such a row from its
+  observations and leaves it out when it has none (`unscored_zero`); a
+  window that is mostly zeros raises. The `tx-demerit` and `demerit` scales
+  keep their 0 (no demerits).
 - **Montana's state portal logs things that are not inspection reports.**
   40-55% of its retail-food rows are purpose `Other`: licence notes and the
   placeholders of the counties that keep inspections in their own systems
