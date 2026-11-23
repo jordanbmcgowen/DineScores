@@ -12,8 +12,9 @@ Files here:
 - `survey-west.md`, `survey-gulf.md`, `survey-central.md`, `survey-dfw.md`,
   `survey-montana.md`: the regional surveys (endpoints, sample requests,
   verdicts). Contact addresses and phone numbers are removed.
-- one file per source built outside the portal (`paragon.md`, `elpaso_waco.md`,
-  `corpuschristi.md`, `garland.md`, `abilene.md`, `wichitafalls.md`).
+- one file per source built outside the portal (`paragon.md`, `elpaso.md`,
+  `waco.md`, `corpuschristi.md`, `garland.md`, `abilene.md`,
+  `wichitafalls.md`).
 
 ## What the survey found, by people covered per unit of work
 
@@ -21,7 +22,7 @@ Files here:
 |---|---|---|---|---|
 | Montana statewide (Billings, Helena, Great Falls, Butte and the small counties) | ~700k | MyHealthDepartment `montana` | observations, no score | built (portal config) |
 | El Paso city and county | ~866k | city form, one POST per window | official 0-100, no violations | built |
-| Kansas City, MO | ~510k | Paragon Inspections Online | see `paragon.md` | see `paragon.md` |
+| Kansas City, MO | ~510k | Paragon Inspections Online | Critical / Non-critical findings, observations, no score | built |
 | Missoula, Gallatin (Bozeman), Flathead (Kalispell) counties | ~355k | Paragon Inspections Online | observations with two tiers; Flathead a letter grade | built |
 | Corpus Christi / Nueces County | ~353k | InspectHub | 100 minus demerits, item points, observations | built |
 | St. Louis (city) | ~280k | MyHealthDepartment `mo-stlouis` | official 0-100, observations | built (portal config) |

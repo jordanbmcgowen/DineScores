@@ -169,6 +169,8 @@ python dinescores_pipeline.py --mode test
 | Corpus Christi / Nueces County, TX | InspectHub listing plus one page per inspection: official 0-100 score, Texas item points and observations. The source carries no town, so every record is labelled Corpus Christi. |
 | Abilene / Taylor County, TX | Tyler EnerGov Civic Access JSON API: official score, agency-stated Priority / Priority Foundation / Core groups, observations. Windows are read by due date with a 60-day margin and shipped by completed date. |
 | Wichita Falls, TX | A fourth Hedgerow portal (`wfeh-portal.hedgerowsoftware.com`); the tier is read from each item's category suffix. |
+| Missoula, Gallatin (Bozeman) and Flathead (Kalispell) counties, MT | Paragon Inspections Online (`inspectionsonline.us`), one database per county: observations under the state form's two sections, no score. Flathead's published letter grade caps the computed score. |
+| Kansas City, MO | Paragon Inspections Online: the city's Critical / Non-critical findings with observation text, no score. |
 | Geocoding | Census Bureau batch geocoder (thousands of addresses per request), Nominatim fallback for stragglers. |
 
 ### Emerald Coast backfill

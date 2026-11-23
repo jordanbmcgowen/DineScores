@@ -16,8 +16,9 @@ County AZ, Lubbock TX, Mesquite TX, Cuyahoga County OH; and, since
 2026-11-22, El Paso, Corpus Christi, Garland, Waco, Amarillo, Tyler/Smith
 County, Abilene, Wichita Falls and Orange County in Texas, Montana
 statewide (the state portal's counties: Billings, Helena, Great Falls,
-Butte), Cheyenne, Casper and Jackson WY, Minot ND, St. Louis and Jackson
-County MO (Lee's Summit, Blue Springs), the Colorado counties CDPHE
+Butte; Missoula, Bozeman and Kalispell from their counties' own Paragon
+portals), Cheyenne, Casper and Jackson WY, Minot ND, St. Louis, Kansas City
+and Jackson County MO (Lee's Summit, Blue Springs), the Colorado counties CDPHE
 inspects (Vail, Aspen, Breckenridge, Durango, Steamboat), Pueblo, Grand
 Junction and Broomfield CO) plus all of Florida, New York State, Delaware, South Carolina, Georgia
 (Atlanta: Fulton/DeKalb/Cobb and the other 153 counties; Gwinnett/Newton/
@@ -315,8 +316,10 @@ people covered per unit of work:
   County stale, Alameda County quarterly violation rows only, Allegheny
   placards only, Hawaii's Tyler host resets connections, Albuquerque's CSV
   header-only since 2020; no machine-readable source for Denver, Salt Lake
-  County, Charlotte, Kansas City, Milwaukee, Madison,
+  County, Charlotte, Milwaukee, Madison,
   Philadelphia, Baltimore, Riverside/San Bernardino, Spokane, Tacoma.
+  (Kansas City MO turned out to be on Paragon Inspections Online and
+  shipped 2026-11-23.)
 
 ### Second survey, 2026-11-22 (`docs/expansion-2026-11b/`)
 
@@ -341,6 +344,9 @@ read yet. The ones worth building next:
   Braunfels / Seguin / Nacogdoches / Rowlett** (small score-only sources),
   **Little Elm / Sachse / Pilot Point / Justin** (InstantInspector HTML; its
   robots.txt asks AI crawlers to stay out, an owner decision).
+- **Platte County MO** (north of Kansas City) is on Paragon Inspections
+  Online like Kansas City (`mo/platteplattecity/inspect.nsf`, ~10 food
+  inspections a week): an `IO_PORTALS` entry after a look at its tiers.
 - More MHD tenants with live rows: Hamilton County OH and ~35 other Ohio
   counties (no score, every row a detail page), Benton-Franklin WA, Yavapai
   AZ, Marin and San Luis Obispo CA, Union County NC, St. Clair County IL,
@@ -673,6 +679,24 @@ read yet. The ones worth building next:
   measured corrections in the config; a citation with no readable tier drops
   and holds its inspection, it never becomes core. The differences are
   config keys that Pima, Lubbock and Mesquite do not carry.
+- **Paragon Inspections Online (Missoula, Gallatin, Flathead MT; Kansas City
+  MO) prints rows that are not findings and a tier that is not a severity.**
+  Flathead records its bonus credit for temperature logs as Risk Factor rows
+  ("this facility exceeds regulatory requirements"; a third of its
+  higher-tier rows): `IO_COMMENDATION_RE` drops them AFTER the report is
+  checked against the document's counters, which count them. Montana's
+  higher tier is a section of the state form holding Priority and Priority
+  Foundation provisions alike, so the standard titles in `IO_MT_PF_TITLES`
+  (provisions the FDA Food Code marks Pf at most) ship as
+  priority_foundation; scored 5 points each they made 11% of Missoula's
+  inspections F while the county's own letters had none below C. An unknown
+  title stays priority. Kansas City's Critical is the city's own severity
+  and is never re-tiered. Flathead's published letter only caps
+  (`IO_GRADE_RISK_CAP`: B 89, C 79, D and F 69; an unknown letter is an
+  unread inspection). The vendor score column the agencies switched off is
+  never shipped. A report with fewer rows than its counters is unread
+  (dropped and held), more rows ship. One host for all four databases: one
+  shared throttle, 1 request a second; each window starts 14 days early.
 
 ## Jev violation reader
 
@@ -702,13 +726,14 @@ impact and the open policy decisions; `scripts/jev_shadow.py` reproduces it.
 - **Policy lives in code.** `F_FORCING_HAZARDS` (vermin, sewage; not flies,
   not `pests_unspecified`), `SCORE_FROM_TIERS_SOURCES` / `SOURCE_TIER_SCORE_SOURCES`
   (score computed from tiers the source states: Boston, Detroit, Louisiana,
-  Maricopa, Pima) / `SOURCE_TIER_SOURCES`
+  Maricopa, Pima, the four Paragon portals) / `SOURCE_TIER_SOURCES`
   / `BOUNDED_TIER_SOURCES` (which sources may be re-scored or re-tiered), the
   chip and summary-severity maps. A source-stated tier never moves (Omaha,
   Santa Clara, San Diego, Orange County, McKinney, Georgia, Louisiana,
   Maricopa County, Harris County (P/F/C violation groups), the Hedgerow
   portals (Pima County, Lubbock, Mesquite, Wichita Falls), Garland, Corpus
-  Christi and Abilene (Texas-form item points or stated groups) included: their agencies state it; McKinney's TX-form item
+  Christi and Abilene (Texas-form item points or stated groups), the Paragon
+  portals (tier fixed by `_io_shipped_rows`) included: their agencies state it; McKinney's TX-form item
   points are the city's tiers and its `risk_score` is the form score 100 −
   demerits, never recomputed; Georgia's (p)/(pf)/(c) designations carry its
   official score; Louisiana's Critical/Non-Critical and Maricopa's
