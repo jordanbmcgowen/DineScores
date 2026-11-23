@@ -14342,8 +14342,9 @@ WAC_STATUS_TEXT = {
 WAC_TYPE_TEXT = {'RENEWAL': 'Permit renewal', 'ROUTINE': 'Routine', 'REINSPECTION': 'Re-inspection',
                  'PERMIT': 'Permit', 'COMPLAINT': 'Complaint', 'OTHER': 'Other'}
 WAC_INACTIVE_RE = re.compile(r'[-\s(]*\binactiv(?:e|ated?|ed)\b\)?\s*$', re.I)
-WAC_MOBILE_RE = re.compile(r'\bmobiles?\b|\bfood ?trucks?\b|\b(?:coffee|pizza|kluck|taco) trucks?\b|'
-                           r'\btruck,? the\b', re.I)
+# 'Kajun Kluck Truck', 'The Pizza Truck', "Vitek's Foodtruck", 'Rositas
+# Taqueria-Mobiles'; a truck STOP is a fixed restaurant and stays.
+WAC_MOBILE_RE = re.compile(r'\bmobiles?\b|\b(?:food)?trucks?\b(?!\s+stops?\b)', re.I)
 WAC_EVENT_RE = re.compile(r'-\s*20\d\d\b')         # 'SPRING CARNIVAL - 2025', 'OTAKU FESTIVAL - 2026'
 WAC_MAX_DEMERITS = 100
 
