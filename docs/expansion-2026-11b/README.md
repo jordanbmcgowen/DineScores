@@ -42,6 +42,18 @@ Populations are round figures from memory of census counts, not re-checked.
 Whether each "built" row above shipped, and with what numbers, is in its own
 file; this table is the survey's ranking, written before the builds finished.
 
+## Reachable from GitHub's runners
+
+The builds ran from a cloud container, so the weekly job's own network was
+checked separately: `probe-sources.yml`, run 45194249225 on 2026-11-23.
+El Paso (the form page, behind Cloudflare), Waco, Garland, Corpus Christi,
+Abilene, Wichita Falls and Paragon all answered 200 from the ubuntu and
+macOS runners. The MyHealthDepartment portal refuses runners as it always
+has (403) and answers through the site's relay; a Montana printable that
+the portal took 23 seconds to build came back through the relay as a PDF.
+The probe loads El Paso's form page, not a search POST, so the first Sunday
+run is the real test of that one.
+
 ## Surveyed and not built
 
 Worth building next, roughly in order:

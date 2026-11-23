@@ -97,6 +97,29 @@ shall be maintained free of insects, rodents, and other pests ...") is the
 generic list the text-F rules already remove; a test pins that the rule text
 alone never forces an F and that named droppings before it still do.
 
+### Backfill, 2026-08-01 to 2026-11-21 (run 2026-11-23)
+
+- 794 Routine and Follow-up retail-food inspections after the filters (1,315
+  rows dropped by program, 1,671 by purpose, 69 mobile units).
+- Detail pages: 794 of 794 read across three ban windows (426, 308, 60).
+- 358 had no observations. Their printables: 342 showed the grid and ship
+  clean, 11 had none (logged paper reports, dropped for good), 5 could not be
+  read (dropped and held; the one from August was recorded as given up so
+  the first weekly run starts at 2026-11-12, not in August). This phase took
+  2 h 18 min, about 23 s a report: a normal week has ~35 of them.
+- Shipped: 778 inspections, 754 restaurants in 110 towns (Billings 179,
+  Great Falls 61, Helena 56, Butte 54, Havre 40, Livingston 35). 44% clean.
+  By month: August 66, September 181, October 312, November 219.
+- Restaurant grades: A 632, B 81, C 26, F 15. Eleven F's come from the
+  score. Four are text-forced, every one recorded mouse or rodent droppings
+  (Gardiner, Livingston, Libby, Ronan). The violation reader cleared the one
+  F only the regex gave (rat traps stored next to food) and added one the
+  regex missed ("Mouse poop observed").
+- 90 inspections have no coordinates (the Census geocoder did not place
+  them and the second geocoding pass, `scripts/backfill/geocode_backlog.py`,
+  was not run in this session). They are in D1 and searchable, not on the
+  map, until that pass runs or the place is inspected again.
+
 ## Jurisdictions that answered rows and were not added
 
 One search each, 2026-11-16..19, first page only (25+ means the page was full).

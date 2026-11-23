@@ -9,9 +9,11 @@ name: Probe data sources
 #
 # Probed 2026-09-07: MHD returned 403 from ubuntu, macOS AND windows runners
 # (search and detail pages alike); the SNHD, Socrata and Tyler endpoints
-# answered from all three. The sources added in November 2026 are in the
-# list but were only ever probed from a cloud container: run this once after
-# they merge.
+# answered from all three. Probed 2026-11-23 (run 45194249225): the sources
+# added on 2026-11-22 (El Paso, Waco, Garland, Corpus Christi, Abilene,
+# Wichita Falls, Paragon) answered 200 from the ubuntu and macOS runners, and
+# a Montana printable that the portal took 23 s to build came back through
+# the relay as a PDF.
 
 on:
   workflow_dispatch:
@@ -87,9 +89,9 @@ jobs:
           probe "MHD Fort Bend page" 'https://inspections.myhealthdepartment.com/fbceh'
           probe "MHD Cuyahoga page" 'https://inspections.myhealthdepartment.com/ccbh'
           probe "MHD VDH Richmond page" 'https://inspections.myhealthdepartment.com/va-richmond'
-          # Sources added 2026-11-22, same caveat: probed from a cloud
-          # container only. El Paso's form sits behind Cloudflare, which is
-          # the likeliest of these to refuse a runner.
+          # Sources added 2026-11-22. El Paso's form sits behind Cloudflare,
+          # which is the likeliest of these to start refusing a runner (it
+          # answered 200 on 2026-11-23).
           probe "El Paso food scores form" 'https://foodscores.elpasotexas.gov/'
           probe "Waco ArcGIS view" 'https://services2.arcgis.com/oUXiR7ziAPAzGw6X/arcgis/rest/services/foodScoresView/FeatureServer/0/query?where=1%3D1&returnCountOnly=true&f=json'
           probe "Garland MapServer" 'https://maps2.garlandtx.gov/server2/rest/services/Health/Restaurant_Scores/MapServer/4?f=json'
