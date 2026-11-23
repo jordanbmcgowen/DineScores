@@ -1,0 +1,919 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utxf-8">
+<title>Food Establishment Scores - City of El Paso</title>
+<meta name="viewport" content="width=device-width" />
+<meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+<meta name="author" content="City of El Paso">
+<!-- added Bootstrap-->
+<link rel="stylesheet" href="https://stackpath.bootstrapcdn.com/bootstrap/4.3.1/css/bootstrap.min.css" integrity="sha384-ggOyR0iXCbMQv3Xipma34MD+dH/1fQ784/j6cY/iJTQUOhcWr7x9JvoRxT2MZw1T" crossorigin="anonymous">
+<link href="https://design.elpasotexas.gov/apps/components-css/symantic-css/symantic.css" rel="stylesheet">
+<link href="https://design.elpasotexas.gov/apps/components-css/symantic-css/overrides.css" rel="stylesheet">
+<link href="https://design.elpasotexas.gov/apps/components-css/elpaso-css/app-styles.css" rel="stylesheet">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;600;700&display=swap" rel="stylesheet"> 
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200" />
+<link href="./style.css" rel="stylesheet">
+<link rel="apple-touch-icon" sizes="180x180" href="./favicon/apple-touch-icon.png">
+<link rel="icon" type="image/png" sizes="32x32" href="./favicon/favicon-32x32.png">
+<link rel="icon" type="image/png" sizes="16x16" href="./favicon/favicon-16x16.png">
+<link rel="manifest" href="./favicon/site.webmanifest">
+<link rel="mask-icon" href="./favicon/safari-pinned-tab.svg" color="#1d2754">
+<meta name="msapplication-TileColor" content="#da532c">
+<meta name="theme-color" content="#ffffff">
+<!-- Google tag (gtag.js) -->
+<script async src="https://www.googletagmanager.com/gtag/js?id=G-WBBLBFMWH2"></script>
+<script>
+  window.dataLayer = window.dataLayer || [];
+  function gtag(){dataLayer.push(arguments);}
+  gtag('js', new Date());
+  gtag('config', 'G-WBBLBFMWH2');
+</script>
+
+<body>
+<header>
+    
+        <div class="logo">
+            <a href="./index.php"><img src="./images/eptx-logo-white.svg" alt="City of El Paso Texas" /></a>
+            <h1>Food Establishment Scores</h1>
+        </div>
+        <nav>
+        <!--<a href="javascript:window.open('','_self').close();"><span class="material-symbols-outlined">Logout</span> Logout</a>
+    
+        -->
+    </nav>
+
+    <script>
+    // function downloadCSV() {
+    //     const table = document.getElementById("resultsTable");
+    //     const rows = Array.from(table.querySelectorAll("tr"));
+    //     const csvContent = rows.map(row => {
+    //         const rowData = Array.from(row.querySelectorAll("th, td"));
+    //         return rowData.map(cell => '"' + cell.textContent + '"').join(",");
+    //     }).join("\r\n");
+
+    //     const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8" });
+    //     const link = document.createElement("a");
+    //     link.href = URL.createObjectURL(blob);
+    //     link.download = "results.csv";
+    //     document.body.appendChild(link);
+    //     link.click();
+    //     document.body.removeChild(link);
+    // }
+
+    function downloadCSV() {
+        const link = document.createElement("a");
+        // Use a URL that the browser can access via the server, e.g., localhost path
+        link.href = "output.csv";  // <-- relative URL to your CSV file
+        link.download = "output.csv";
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+    }      
+</script>
+
+    </header>
+
+
+<div id="popup">
+        <div id="popup-content">
+            <h2>DISCLAIMER</h2>
+            <p>This site provides access for public viewing of inspection scores for food establishments such as restaurants, convenience stores, markets, delis and other food operations inspected by the City of El Paso Department of Public Health. Inspections are conducted in the City of El Paso, Anthony, Clint, Horizon City, Socorro, Vinton and County of El Paso.</p>
+            <p>Inspections conducted focus on safe food handling practices. The inspection scores are made available to provide useful information in a manner convenient to citizens. A score of 70 or above is passing. A 69 or below will imitate closure of the establishment. A score of 60 or below will initiate closure of the establishment; however, it is important to note that individual violation that pose an imminent threat to public health may also result in the immediate closure of an establishment regardless of score.</p>
+            <p>The inspection scores of the following web page are a summary only and the City does not guarantee the accuracy of the information therein. A full report on each individual food establishment inspection is available by using the City's Open Records Request System <a href="https://cityrecords-elpaso.govqa.us/WEBAPP/_rs/" target="_blank">Click Here</a></p>
+            <p>There are fees assessed based on the scope of the request. If you feel any of the information on this website is inaccurate, please call (915)771-5702 during regular business hours. We hope you will find the information useful.</p>
+            <button id="accept-button">Accept</button>
+        </div>
+    </div>
+<div class="content">
+        <p class="note">* Required</p>
+        <form class="ui form" method="POST" action="" enctype="multipart/form-data">
+
+            <div class="twoCol">
+                <div class="colOne">
+                    <div class="field">
+                        <label>Business Name</label>
+                        <input type="text" class="form-control" name="businessName" id="businessName" maxlength="" placeholder="Business Name" value="">
+                    </div>
+                    <div class="field">
+                        <label>Address</label>
+                        <input type="text" class="form-control" name="address" id="address" maxlength="" placeholder="123 Main St" value="">
+                    </div>
+
+                    <div class="two fields">
+                      <div class="field">
+                        <label>City</label>   
+                        <input type="text" class="form-control" name="city" id="city" maxlength="" placeholder="El Paso" value="">
+                      </div>
+                      <div class="field">
+                        <label>Zip</label>   
+                        <input type="text" class="form-control" name="zipCode" id="zipCode" maxlength="" placeholder="79901" value="">
+                      </div>                      
+                    </div> 
+                </div>
+                <div class="colTwo">
+                    <div class="two fields">
+                      <div class="field">
+                        <label class="required">Date From</label>   
+                        <input type="date" class="form-control" name="fromDate" id="fromDate" maxlength="" placeholder="From Date" value="">
+                      </div>
+                      <div class="field">
+                        <label class="required">Date To</label>   
+                        <input type="date" class="form-control" name="toDate" id="toDate" maxlength="" placeholder="To Date" value="">
+                      </div>                      
+                    </div> 
+                    <div class="two fields">
+                      <div class="field">
+                        <label>Minimum Score</label>   
+                        <input type="text" class="form-control" name="minScore" id="minScore" maxlength="" placeholder="0" value="">
+                      </div>
+                      <div class="field">
+                        <label>Maximum Score</label>   
+                        <input type="text" class="form-control" name="maxScore" id="maxScore" maxlength="" placeholder="100" value="">
+                      </div>                      
+                    </div>
+                </div>
+            </div>
+
+            <div class="ui checkbox field">
+              <input type="checkbox" id="mobile" name="mobile" value="Mobile">
+              <label for="mobile">Only display mobile establishments</label>
+            </div>
+
+            <br /><br />
+
+            <button class="ui button" type="submit" id="search" name='search'>Search</button>
+            <button class="ui button" type="submit" name='reset'>Reset</button>
+        </form>
+    </div>
+
+
+<div class="content">
+    <div class="row justify-content-center">
+	<!--
+	<div id="loader" class="ui inverted dimmer">
+        <div class="ui text loader">Loading</div>
+    </div>	-->
+	<div id="tableWrapper">
+        <table id="resultsTable" class="ui celled table">
+            <thead>
+                <!-- Table headers -->
+                <tr>
+                    <th>Permit ID</th>      <!-- Alternate ID header -->
+                    <th>Date</th>              <!-- Date header -->
+                    <th>Business Name</th>     <!-- Business Name header -->
+                    <th>Address</th>           <!-- Address header -->
+                    <th>City</th>              <!-- City header -->
+                    <th>Zip Code</th>          <!-- Zip Code header -->
+                    <th>Sanitary Code</th>     <!-- Sanitary Code header -->
+                    <th>Score</th>             <!-- Score header -->
+                </tr>
+            </thead>
+
+            <tbody>
+                            <tr>
+                    <td> HFFX11-00297 </td>  <!-- Alternate ID -->
+                    <td> 11/18/2026 </td>  <!-- Inspection Date -->
+                    <td> WELL MADE KITCHEN AND BAR </td>  <!-- Application Name (Business Name) -->
+                    <td> 11990 ROJAS DR, EL PASO, TX 79936 </td>  <!-- Full Address -->
+                    <td> EL PASO </td>  <!-- City -->
+                    <td> 79936 </td>  <!-- Zip Code -->
+                    <td> 1310 Routine Inspection </td>  <!-- Inspection Type (Sanitary Code) -->
+                    <td> 84 </td> <!-- Inspection Score -->
+                </tr>
+                            <tr>
+                    <td> HFFX12-00043 </td>  <!-- Alternate ID -->
+                    <td> 11/18/2026 </td>  <!-- Inspection Date -->
+                    <td> TAQUERIA LA PILA </td>  <!-- Application Name (Business Name) -->
+                    <td> 125 N KENAZO, SUITE# K, HORIZON CITY, TX 79928 </td>  <!-- Full Address -->
+                    <td> HORIZON CITY </td>  <!-- City -->
+                    <td> 79928 </td>  <!-- Zip Code -->
+                    <td> 1310 Routine Inspection </td>  <!-- Inspection Type (Sanitary Code) -->
+                    <td> 82 </td> <!-- Inspection Score -->
+                </tr>
+                            <tr>
+                    <td> HFFX12-00659 </td>  <!-- Alternate ID -->
+                    <td> 11/18/2026 </td>  <!-- Inspection Date -->
+                    <td> ZEKE'S PUEBLO MEXICANO-GROCERY & PRODUCE </td>  <!-- Application Name (Business Name) -->
+                    <td> 115 YSLETA LN, EL PASO, TX 79907 </td>  <!-- Full Address -->
+                    <td> EL PASO </td>  <!-- City -->
+                    <td> 79907 </td>  <!-- Zip Code -->
+                    <td> 1310 Routine Inspection </td>  <!-- Inspection Type (Sanitary Code) -->
+                    <td> 87 </td> <!-- Inspection Score -->
+                </tr>
+                            <tr>
+                    <td> HFFX12-00660 </td>  <!-- Alternate ID -->
+                    <td> 11/18/2026 </td>  <!-- Inspection Date -->
+                    <td> ZEKE'S PUEBLO MEXICANO-KITCHEN & BAKERY </td>  <!-- Application Name (Business Name) -->
+                    <td> 115 YSLETA LN, EL PASO, TX 79907 </td>  <!-- Full Address -->
+                    <td> EL PASO </td>  <!-- City -->
+                    <td> 79907 </td>  <!-- Zip Code -->
+                    <td> 1310 Routine Inspection </td>  <!-- Inspection Type (Sanitary Code) -->
+                    <td> 99 </td> <!-- Inspection Score -->
+                </tr>
+                            <tr>
+                    <td> HFFX12-00661 </td>  <!-- Alternate ID -->
+                    <td> 11/18/2026 </td>  <!-- Inspection Date -->
+                    <td> ZEKE'S PUEBLO MEXICANO-DELI & HOT FOODS </td>  <!-- Application Name (Business Name) -->
+                    <td> 115 YSLETA LN, EL PASO, TX 79907 </td>  <!-- Full Address -->
+                    <td> EL PASO </td>  <!-- City -->
+                    <td> 79907 </td>  <!-- Zip Code -->
+                    <td> 1310 Routine Inspection </td>  <!-- Inspection Type (Sanitary Code) -->
+                    <td> 96 </td> <!-- Inspection Score -->
+                </tr>
+                            <tr>
+                    <td> HFFX12-00662 </td>  <!-- Alternate ID -->
+                    <td> 11/18/2026 </td>  <!-- Inspection Date -->
+                    <td> ZEKE'S PUEBLO MEXICANO-MEAT MARKET </td>  <!-- Application Name (Business Name) -->
+                    <td> 115 YSLETA LN, EL PASO, TX 79907 </td>  <!-- Full Address -->
+                    <td> EL PASO </td>  <!-- City -->
+                    <td> 79907 </td>  <!-- Zip Code -->
+                    <td> 1310 Routine Inspection </td>  <!-- Inspection Type (Sanitary Code) -->
+                    <td> 92 </td> <!-- Inspection Score -->
+                </tr>
+                            <tr>
+                    <td> HFFX12-00856 </td>  <!-- Alternate ID -->
+                    <td> 11/18/2026 </td>  <!-- Inspection Date -->
+                    <td> CHIPOTLE MEXICAN GRILL #1923 </td>  <!-- Application Name (Business Name) -->
+                    <td> 1355 GEORGE DIETER, SUITE# 101, EL PASO, TX 79936 </td>  <!-- Full Address -->
+                    <td> EL PASO </td>  <!-- City -->
+                    <td> 79936 </td>  <!-- Zip Code -->
+                    <td> 1310 Routine Inspection </td>  <!-- Inspection Type (Sanitary Code) -->
+                    <td> 99 </td> <!-- Inspection Score -->
+                </tr>
+                            <tr>
+                    <td> HFFX13-00279 </td>  <!-- Alternate ID -->
+                    <td> 11/18/2026 </td>  <!-- Inspection Date -->
+                    <td> CHURCH'S CHICKEN #594 </td>  <!-- Application Name (Business Name) -->
+                    <td> 1077 N CAROLINA, EL PASO, TX 79915 </td>  <!-- Full Address -->
+                    <td> EL PASO </td>  <!-- City -->
+                    <td> 79915 </td>  <!-- Zip Code -->
+                    <td> 1310 Routine Inspection </td>  <!-- Inspection Type (Sanitary Code) -->
+                    <td> 97 </td> <!-- Inspection Score -->
+                </tr>
+                            <tr>
+                    <td> HFFX13-00406 </td>  <!-- Alternate ID -->
+                    <td> 11/18/2026 </td>  <!-- Inspection Date -->
+                    <td> CITY OF EL PASO - GARY DEL PALACIO </td>  <!-- Application Name (Business Name) -->
+                    <td> 3001 PARKWOOD ST, EL PASO, TX 79925 </td>  <!-- Full Address -->
+                    <td> EL PASO </td>  <!-- City -->
+                    <td> 79925 </td>  <!-- Zip Code -->
+                    <td> 1310 Routine Inspection </td>  <!-- Inspection Type (Sanitary Code) -->
+                    <td> 99 </td> <!-- Inspection Score -->
+                </tr>
+                            <tr>
+                    <td> HFFX13-00466 </td>  <!-- Alternate ID -->
+                    <td> 11/18/2026 </td>  <!-- Inspection Date -->
+                    <td> CIRCLE K #2741256 </td>  <!-- Application Name (Business Name) -->
+                    <td> 7008 GATEWAY EAST, EL PASO, TX 79915 </td>  <!-- Full Address -->
+                    <td> EL PASO </td>  <!-- City -->
+                    <td> 79915 </td>  <!-- Zip Code -->
+                    <td> 1310 Routine Inspection </td>  <!-- Inspection Type (Sanitary Code) -->
+                    <td> 99 </td> <!-- Inspection Score -->
+                </tr>
+                            <tr>
+                    <td> HFFX13-00548 </td>  <!-- Alternate ID -->
+                    <td> 11/18/2026 </td>  <!-- Inspection Date -->
+                    <td> GOASIS </td>  <!-- Application Name (Business Name) -->
+                    <td> 1295 HORIZON BLVD, SOCORRO, TX 79927 </td>  <!-- Full Address -->
+                    <td> SOCORRO </td>  <!-- City -->
+                    <td> 79927 </td>  <!-- Zip Code -->
+                    <td> 1310 Routine Inspection </td>  <!-- Inspection Type (Sanitary Code) -->
+                    <td> 93 </td> <!-- Inspection Score -->
+                </tr>
+                            <tr>
+                    <td> HFFX13-00618 </td>  <!-- Alternate ID -->
+                    <td> 11/18/2026 </td>  <!-- Inspection Date -->
+                    <td> PB'S PIZZA </td>  <!-- Application Name (Business Name) -->
+                    <td> 11970 SOCORRO RD, SUITE# B, SAN ELIZARIO, TX 79849 </td>  <!-- Full Address -->
+                    <td> SAN ELIZARIO </td>  <!-- City -->
+                    <td> 79849 </td>  <!-- Zip Code -->
+                    <td> 1310 Routine Inspection </td>  <!-- Inspection Type (Sanitary Code) -->
+                    <td> 89 </td> <!-- Inspection Score -->
+                </tr>
+                            <tr>
+                    <td> HFFX13-00718 </td>  <!-- Alternate ID -->
+                    <td> 11/18/2026 </td>  <!-- Inspection Date -->
+                    <td> HORIZON VALERO </td>  <!-- Application Name (Business Name) -->
+                    <td> 14501 HORIZON BLVD, HORIZON CITY, TX 79928 </td>  <!-- Full Address -->
+                    <td> HORIZON CITY </td>  <!-- City -->
+                    <td> 79928 </td>  <!-- Zip Code -->
+                    <td> 1310 Routine Inspection </td>  <!-- Inspection Type (Sanitary Code) -->
+                    <td> 97 </td> <!-- Inspection Score -->
+                </tr>
+                            <tr>
+                    <td> HFFX13-01002 </td>  <!-- Alternate ID -->
+                    <td> 11/18/2026 </td>  <!-- Inspection Date -->
+                    <td> AUNTIE ANNE'S /CINNABON </td>  <!-- Application Name (Business Name) -->
+                    <td> 8401 GATEWAY WEST BLVD, SUITE# L02, EL PASO, TX 79925 </td>  <!-- Full Address -->
+                    <td> EL PASO </td>  <!-- City -->
+                    <td> 79925 </td>  <!-- Zip Code -->
+                    <td> 1310 Routine Inspection </td>  <!-- Inspection Type (Sanitary Code) -->
+                    <td> 98 </td> <!-- Inspection Score -->
+                </tr>
+                            <tr>
+                    <td> HFFX13-01191 </td>  <!-- Alternate ID -->
+                    <td> 11/18/2026 </td>  <!-- Inspection Date -->
+                    <td> FOOD KING #74 </td>  <!-- Application Name (Business Name) -->
+                    <td> 5514 ALAMEDA AVE, EL PASO, TX 79905 </td>  <!-- Full Address -->
+                    <td> EL PASO </td>  <!-- City -->
+                    <td> 79905 </td>  <!-- Zip Code -->
+                    <td> 1310 Routine Inspection </td>  <!-- Inspection Type (Sanitary Code) -->
+                    <td> 92 </td> <!-- Inspection Score -->
+                </tr>
+                            <tr>
+                    <td> HFFX14-00161 </td>  <!-- Alternate ID -->
+                    <td> 11/18/2026 </td>  <!-- Inspection Date -->
+                    <td> OXXO #349 </td>  <!-- Application Name (Business Name) -->
+                    <td> 7110 AIRPORT, EL PASO, TX 79906 </td>  <!-- Full Address -->
+                    <td> EL PASO </td>  <!-- City -->
+                    <td> 79906 </td>  <!-- Zip Code -->
+                    <td> 1310 Routine Inspection </td>  <!-- Inspection Type (Sanitary Code) -->
+                    <td> 100 </td> <!-- Inspection Score -->
+                </tr>
+                            <tr>
+                    <td> HFFX14-00363 </td>  <!-- Alternate ID -->
+                    <td> 11/18/2026 </td>  <!-- Inspection Date -->
+                    <td> WESTSIDES 3RD HOLE </td>  <!-- Application Name (Business Name) -->
+                    <td> 1035 BELVIDERE ST 169, EL PASO, TX 79912 </td>  <!-- Full Address -->
+                    <td> EL PASO </td>  <!-- City -->
+                    <td> 79912 </td>  <!-- Zip Code -->
+                    <td> 1310 Routine Inspection </td>  <!-- Inspection Type (Sanitary Code) -->
+                    <td> 100 </td> <!-- Inspection Score -->
+                </tr>
+                            <tr>
+                    <td> HFFX15-00231 </td>  <!-- Alternate ID -->
+                    <td> 11/18/2026 </td>  <!-- Inspection Date -->
+                    <td> SPEEDWAY #9811 </td>  <!-- Application Name (Business Name) -->
+                    <td> 1540 RESLER, EL PASO, TX 79912 </td>  <!-- Full Address -->
+                    <td> EL PASO </td>  <!-- City -->
+                    <td> 79912 </td>  <!-- Zip Code -->
+                    <td> 1310 Routine Inspection </td>  <!-- Inspection Type (Sanitary Code) -->
+                    <td> 95 </td> <!-- Inspection Score -->
+                </tr>
+                            <tr>
+                    <td> HFFX16-00717 </td>  <!-- Alternate ID -->
+                    <td> 11/18/2026 </td>  <!-- Inspection Date -->
+                    <td> SUBWAY </td>  <!-- Application Name (Business Name) -->
+                    <td> 7100 AIRPORT STE A, EL PASO, TX 79906 </td>  <!-- Full Address -->
+                    <td> EL PASO </td>  <!-- City -->
+                    <td> 79906 </td>  <!-- Zip Code -->
+                    <td> 1310 Routine Inspection </td>  <!-- Inspection Type (Sanitary Code) -->
+                    <td> 95 </td> <!-- Inspection Score -->
+                </tr>
+                            <tr>
+                    <td> HFFX16-01163 </td>  <!-- Alternate ID -->
+                    <td> 11/18/2026 </td>  <!-- Inspection Date -->
+                    <td> JESUS CHAPEL SCHOOL </td>  <!-- Application Name (Business Name) -->
+                    <td> 10200 ALBUM, EL PASO, TX 79925 </td>  <!-- Full Address -->
+                    <td> EL PASO </td>  <!-- City -->
+                    <td> 79925 </td>  <!-- Zip Code -->
+                    <td> 1310 Routine Inspection </td>  <!-- Inspection Type (Sanitary Code) -->
+                    <td> 96 </td> <!-- Inspection Score -->
+                </tr>
+                            <tr>
+                    <td> HFFX16-01482 </td>  <!-- Alternate ID -->
+                    <td> 11/18/2026 </td>  <!-- Inspection Date -->
+                    <td> CENTER FOR CAREER & TECHNOLOGY-FOOD </td>  <!-- Application Name (Business Name) -->
+                    <td> 2300 MURCHISON, EL PASO, TX 79930 </td>  <!-- Full Address -->
+                    <td> EL PASO </td>  <!-- City -->
+                    <td> 79930 </td>  <!-- Zip Code -->
+                    <td> 1310 Routine Inspection </td>  <!-- Inspection Type (Sanitary Code) -->
+                    <td> 94 </td> <!-- Inspection Score -->
+                </tr>
+                            <tr>
+                    <td> HFFX16-01543 </td>  <!-- Alternate ID -->
+                    <td> 11/18/2026 </td>  <!-- Inspection Date -->
+                    <td> BUTTER SMITH KITCHEN & PIES </td>  <!-- Application Name (Business Name) -->
+                    <td> 1331 ZARAGOSA, EL PASO, TX 79936 </td>  <!-- Full Address -->
+                    <td> EL PASO </td>  <!-- City -->
+                    <td> 79936 </td>  <!-- Zip Code -->
+                    <td> 1310 Routine Inspection </td>  <!-- Inspection Type (Sanitary Code) -->
+                    <td> 93 </td> <!-- Inspection Score -->
+                </tr>
+                            <tr>
+                    <td> HFFX16-01557 </td>  <!-- Alternate ID -->
+                    <td> 11/18/2026 </td>  <!-- Inspection Date -->
+                    <td> CHICO'S TACOS </td>  <!-- Application Name (Business Name) -->
+                    <td> 1365 GEORGE DIETER DR, EL PASO, TX 79936 </td>  <!-- Full Address -->
+                    <td> EL PASO </td>  <!-- City -->
+                    <td> 79936 </td>  <!-- Zip Code -->
+                    <td> 1310 Routine Inspection </td>  <!-- Inspection Type (Sanitary Code) -->
+                    <td> 87 </td> <!-- Inspection Score -->
+                </tr>
+                            <tr>
+                    <td> HFFX16-01666 </td>  <!-- Alternate ID -->
+                    <td> 11/18/2026 </td>  <!-- Inspection Date -->
+                    <td> CENTER FOR CAREER & TECHNOLOGY EDUC </td>  <!-- Application Name (Business Name) -->
+                    <td> 1170 WALNUT, EL PASO, TX 79930 </td>  <!-- Full Address -->
+                    <td> EL PASO </td>  <!-- City -->
+                    <td> 79930 </td>  <!-- Zip Code -->
+                    <td> 1310 Routine Inspection </td>  <!-- Inspection Type (Sanitary Code) -->
+                    <td> 100 </td> <!-- Inspection Score -->
+                </tr>
+                            <tr>
+                    <td> HFFX16-01675 </td>  <!-- Alternate ID -->
+                    <td> 11/18/2026 </td>  <!-- Inspection Date -->
+                    <td> COLLEGE CAREER TECHNOLOGY ACADEMY FOOD AND NUTRITION SERVICES </td>  <!-- Application Name (Business Name) -->
+                    <td> 2851 GRANT, EL PASO, TX 79930 </td>  <!-- Full Address -->
+                    <td> EL PASO </td>  <!-- City -->
+                    <td> 79930 </td>  <!-- Zip Code -->
+                    <td> 1310 Routine Inspection </td>  <!-- Inspection Type (Sanitary Code) -->
+                    <td> 100 </td> <!-- Inspection Score -->
+                </tr>
+                            <tr>
+                    <td> HFFX16-01741 </td>  <!-- Alternate ID -->
+                    <td> 11/18/2026 </td>  <!-- Inspection Date -->
+                    <td> CENTER FOR CAREER & TECHNOLOGY EDUC </td>  <!-- Application Name (Business Name) -->
+                    <td> 1170 WALNUT, EL PASO, TX 79930 </td>  <!-- Full Address -->
+                    <td> EL PASO </td>  <!-- City -->
+                    <td> 79930 </td>  <!-- Zip Code -->
+                    <td> 1310 Routine Inspection </td>  <!-- Inspection Type (Sanitary Code) -->
+                    <td> 100 </td> <!-- Inspection Score -->
+                </tr>
+                            <tr>
+                    <td> HFFX17-00537 </td>  <!-- Alternate ID -->
+                    <td> 11/18/2026 </td>  <!-- Inspection Date -->
+                    <td> STARBUCKS </td>  <!-- Application Name (Business Name) -->
+                    <td> 6669 GATEWAY WEST BLVD, EL PASO, TX 79925 </td>  <!-- Full Address -->
+                    <td> EL PASO </td>  <!-- City -->
+                    <td> 79925 </td>  <!-- Zip Code -->
+                    <td> 1310 Routine Inspection </td>  <!-- Inspection Type (Sanitary Code) -->
+                    <td> 100 </td> <!-- Inspection Score -->
+                </tr>
+                            <tr>
+                    <td> HFFX17-00718 </td>  <!-- Alternate ID -->
+                    <td> 11/18/2026 </td>  <!-- Inspection Date -->
+                    <td> EL LOCO INC </td>  <!-- Application Name (Business Name) -->
+                    <td> 3600 ALAMEDA, EL PASO, TX 79905 </td>  <!-- Full Address -->
+                    <td> EL PASO </td>  <!-- City -->
+                    <td> 79905 </td>  <!-- Zip Code -->
+                    <td> 1310 Routine Inspection </td>  <!-- Inspection Type (Sanitary Code) -->
+                    <td> 100 </td> <!-- Inspection Score -->
+                </tr>
+                            <tr>
+                    <td> HFFX18-00024 </td>  <!-- Alternate ID -->
+                    <td> 11/18/2026 </td>  <!-- Inspection Date -->
+                    <td> CARNITAS QUERETARO </td>  <!-- Application Name (Business Name) -->
+                    <td> 12706 MONTANA AVE, EL PASO, TX 79938 </td>  <!-- Full Address -->
+                    <td> EL PASO </td>  <!-- City -->
+                    <td> 79938 </td>  <!-- Zip Code -->
+                    <td> 1310 Routine Inspection </td>  <!-- Inspection Type (Sanitary Code) -->
+                    <td> 95 </td> <!-- Inspection Score -->
+                </tr>
+                            <tr>
+                    <td> HFFX18-00273 </td>  <!-- Alternate ID -->
+                    <td> 11/18/2026 </td>  <!-- Inspection Date -->
+                    <td> MAS Y MENOS </td>  <!-- Application Name (Business Name) -->
+                    <td> 1035 BELVIDERE ST 300, EL PASO, TX 79912 </td>  <!-- Full Address -->
+                    <td> EL PASO </td>  <!-- City -->
+                    <td> 79912 </td>  <!-- Zip Code -->
+                    <td> 1310 Routine Inspection </td>  <!-- Inspection Type (Sanitary Code) -->
+                    <td> 89 </td> <!-- Inspection Score -->
+                </tr>
+                            <tr>
+                    <td> HFFX19-00367 </td>  <!-- Alternate ID -->
+                    <td> 11/18/2026 </td>  <!-- Inspection Date -->
+                    <td> GET FIT NUTRITION 915 </td>  <!-- Application Name (Business Name) -->
+                    <td> 1520 RESLER B, EL PASO, TX 79912 </td>  <!-- Full Address -->
+                    <td> EL PASO </td>  <!-- City -->
+                    <td> 79912 </td>  <!-- Zip Code -->
+                    <td> 1310 Routine Inspection </td>  <!-- Inspection Type (Sanitary Code) -->
+                    <td> 100 </td> <!-- Inspection Score -->
+                </tr>
+                            <tr>
+                    <td> HFFX19-00532 </td>  <!-- Alternate ID -->
+                    <td> 11/18/2026 </td>  <!-- Inspection Date -->
+                    <td> HACIENDA EL AMIGO RESTAURANT </td>  <!-- Application Name (Business Name) -->
+                    <td> 11207 STOCKYARD, SOCORRO, TX 79927 </td>  <!-- Full Address -->
+                    <td> SOCORRO </td>  <!-- City -->
+                    <td> 79927 </td>  <!-- Zip Code -->
+                    <td> 1310 Routine Inspection </td>  <!-- Inspection Type (Sanitary Code) -->
+                    <td> 86 </td> <!-- Inspection Score -->
+                </tr>
+                            <tr>
+                    <td> HFFX19-00650 </td>  <!-- Alternate ID -->
+                    <td> 11/18/2026 </td>  <!-- Inspection Date -->
+                    <td> CRAB STATION </td>  <!-- Application Name (Business Name) -->
+                    <td> 6450 DESERT BLVD, SUITE# C105, EL PASO, TX 79912 </td>  <!-- Full Address -->
+                    <td> EL PASO </td>  <!-- City -->
+                    <td> 79912 </td>  <!-- Zip Code -->
+                    <td> 1310 Routine Inspection </td>  <!-- Inspection Type (Sanitary Code) -->
+                    <td> 88 </td> <!-- Inspection Score -->
+                </tr>
+                            <tr>
+                    <td> HFFX20-00280 </td>  <!-- Alternate ID -->
+                    <td> 11/18/2026 </td>  <!-- Inspection Date -->
+                    <td> KINECTIVE FITNESS CLUB </td>  <!-- Application Name (Business Name) -->
+                    <td> 1020 BELVIDERE ST, EL PASO, TX 79912 </td>  <!-- Full Address -->
+                    <td> EL PASO </td>  <!-- City -->
+                    <td> 79912 </td>  <!-- Zip Code -->
+                    <td> 1310 Routine Inspection </td>  <!-- Inspection Type (Sanitary Code) -->
+                    <td> 92 </td> <!-- Inspection Score -->
+                </tr>
+                            <tr>
+                    <td> HFFX20-00384 </td>  <!-- Alternate ID -->
+                    <td> 11/18/2026 </td>  <!-- Inspection Date -->
+                    <td> NOODLES AND DUMPLINGS </td>  <!-- Application Name (Business Name) -->
+                    <td> 1355 GEORGE DIETER 102, EL PASO, TX 79936 </td>  <!-- Full Address -->
+                    <td> EL PASO </td>  <!-- City -->
+                    <td> 79936 </td>  <!-- Zip Code -->
+                    <td> 1310 Routine Inspection </td>  <!-- Inspection Type (Sanitary Code) -->
+                    <td> 88 </td> <!-- Inspection Score -->
+                </tr>
+                            <tr>
+                    <td> HFFX21-00484 </td>  <!-- Alternate ID -->
+                    <td> 11/18/2026 </td>  <!-- Inspection Date -->
+                    <td> EL AGUILA MEAT MARKET #2 </td>  <!-- Application Name (Business Name) -->
+                    <td> 3500 GEORGE DIETER DR I-J, EL PASO, TX 79936 </td>  <!-- Full Address -->
+                    <td> EL PASO </td>  <!-- City -->
+                    <td> 79936 </td>  <!-- Zip Code -->
+                    <td> 1310 Routine Inspection </td>  <!-- Inspection Type (Sanitary Code) -->
+                    <td> 76 </td> <!-- Inspection Score -->
+                </tr>
+                            <tr>
+                    <td> HFFX22-00145 </td>  <!-- Alternate ID -->
+                    <td> 11/18/2026 </td>  <!-- Inspection Date -->
+                    <td> WESO STEAKHOUSE </td>  <!-- Application Name (Business Name) -->
+                    <td> 601 N MESA ST, EL PASO, TX 79901 </td>  <!-- Full Address -->
+                    <td> EL PASO </td>  <!-- City -->
+                    <td> 79901 </td>  <!-- Zip Code -->
+                    <td> 1310 Routine Inspection </td>  <!-- Inspection Type (Sanitary Code) -->
+                    <td> 89 </td> <!-- Inspection Score -->
+                </tr>
+                            <tr>
+                    <td> HFFX22-00268 </td>  <!-- Alternate ID -->
+                    <td> 11/18/2026 </td>  <!-- Inspection Date -->
+                    <td> DON CARBON GRILL & GO </td>  <!-- Application Name (Business Name) -->
+                    <td> 1373 GEORGE DIETER DR, EL PASO 79936 </td>  <!-- Full Address -->
+                    <td> EL PASO </td>  <!-- City -->
+                    <td> 79936 </td>  <!-- Zip Code -->
+                    <td> 1310 Routine Inspection </td>  <!-- Inspection Type (Sanitary Code) -->
+                    <td> 96 </td> <!-- Inspection Score -->
+                </tr>
+                            <tr>
+                    <td> HFFX22-00320 </td>  <!-- Alternate ID -->
+                    <td> 11/18/2026 </td>  <!-- Inspection Date -->
+                    <td> SUSHI ITTO </td>  <!-- Application Name (Business Name) -->
+                    <td> 601 S MESA ST, EL PASO, TX 79901 </td>  <!-- Full Address -->
+                    <td> EL PASO </td>  <!-- City -->
+                    <td> 79901 </td>  <!-- Zip Code -->
+                    <td> 1310 Routine Inspection </td>  <!-- Inspection Type (Sanitary Code) -->
+                    <td> 93 </td> <!-- Inspection Score -->
+                </tr>
+                            <tr>
+                    <td> HFFX22-00531 </td>  <!-- Alternate ID -->
+                    <td> 11/18/2026 </td>  <!-- Inspection Date -->
+                    <td> TROPICAL SMOOTHIE CAFE </td>  <!-- Application Name (Business Name) -->
+                    <td> 601 N MESA ST. STE. 130, EL PASO, TX 79901 </td>  <!-- Full Address -->
+                    <td> EL PASO </td>  <!-- City -->
+                    <td> 79901 </td>  <!-- Zip Code -->
+                    <td> 1310 Routine Inspection </td>  <!-- Inspection Type (Sanitary Code) -->
+                    <td> 97 </td> <!-- Inspection Score -->
+                </tr>
+                            <tr>
+                    <td> HFFX23-00258 </td>  <!-- Alternate ID -->
+                    <td> 11/18/2026 </td>  <!-- Inspection Date -->
+                    <td> 787 COFFEE </td>  <!-- Application Name (Business Name) -->
+                    <td> 5038 ALAMEDA AVE 0, EL PASO, TX 79905 </td>  <!-- Full Address -->
+                    <td> EL PASO </td>  <!-- City -->
+                    <td> 79905 </td>  <!-- Zip Code -->
+                    <td> 1310 Routine Inspection </td>  <!-- Inspection Type (Sanitary Code) -->
+                    <td> 94 </td> <!-- Inspection Score -->
+                </tr>
+                            <tr>
+                    <td> HFFX24-00074 </td>  <!-- Alternate ID -->
+                    <td> 11/18/2026 </td>  <!-- Inspection Date -->
+                    <td> TROPICAL SMOOTHIE CAFE TX 232 LLC </td>  <!-- Application Name (Business Name) -->
+                    <td> 1881 GEORGE DIETER, EL PASO, TX 79936 </td>  <!-- Full Address -->
+                    <td> EL PASO </td>  <!-- City -->
+                    <td> 79936 </td>  <!-- Zip Code -->
+                    <td> 1310 Routine Inspection </td>  <!-- Inspection Type (Sanitary Code) -->
+                    <td> 87 </td> <!-- Inspection Score -->
+                </tr>
+                            <tr>
+                    <td> HFFX24-00080 </td>  <!-- Alternate ID -->
+                    <td> 11/18/2026 </td>  <!-- Inspection Date -->
+                    <td> EL TAQUERO COMER </td>  <!-- Application Name (Business Name) -->
+                    <td> 3260 N ZARAGOZA RD, EL PASO, TX 79938 </td>  <!-- Full Address -->
+                    <td> EL PASO </td>  <!-- City -->
+                    <td> 79938 </td>  <!-- Zip Code -->
+                    <td> 1310 Routine Inspection </td>  <!-- Inspection Type (Sanitary Code) -->
+                    <td> 94 </td> <!-- Inspection Score -->
+                </tr>
+                            <tr>
+                    <td> HFFX24-00509 </td>  <!-- Alternate ID -->
+                    <td> 11/18/2026 </td>  <!-- Inspection Date -->
+                    <td> LA MALINCHE RESTAURANT </td>  <!-- Application Name (Business Name) -->
+                    <td> 1321 N ZARAGOZA RD, EL PASO, TX 79936 </td>  <!-- Full Address -->
+                    <td> EL PASO </td>  <!-- City -->
+                    <td> 79936 </td>  <!-- Zip Code -->
+                    <td> 1310 Routine Inspection </td>  <!-- Inspection Type (Sanitary Code) -->
+                    <td> 93 </td> <!-- Inspection Score -->
+                </tr>
+                            <tr>
+                    <td> HFFX25-00310 </td>  <!-- Alternate ID -->
+                    <td> 11/18/2026 </td>  <!-- Inspection Date -->
+                    <td> SPARKS SWEET SHOP BAKERY </td>  <!-- Application Name (Business Name) -->
+                    <td> 12887 UNTERMYER STE B, EL PASO, TX 79928 </td>  <!-- Full Address -->
+                    <td> EL PASO </td>  <!-- City -->
+                    <td> 79928 </td>  <!-- Zip Code -->
+                    <td> 1310 Routine Inspection </td>  <!-- Inspection Type (Sanitary Code) -->
+                    <td> 100 </td> <!-- Inspection Score -->
+                </tr>
+                            <tr>
+                    <td> HFFX25-00379 </td>  <!-- Alternate ID -->
+                    <td> 11/18/2026 </td>  <!-- Inspection Date -->
+                    <td> ORANGE COW INC EAST LAKE </td>  <!-- Application Name (Business Name) -->
+                    <td> 13647 EASTLAKE BLVD STE. A101, EL PASO, TX 79928 </td>  <!-- Full Address -->
+                    <td> EL PASO </td>  <!-- City -->
+                    <td> 79928 </td>  <!-- Zip Code -->
+                    <td> 1310 Routine Inspection </td>  <!-- Inspection Type (Sanitary Code) -->
+                    <td> 80 </td> <!-- Inspection Score -->
+                </tr>
+                            <tr>
+                    <td> HFFX25-00413 </td>  <!-- Alternate ID -->
+                    <td> 11/18/2026 </td>  <!-- Inspection Date -->
+                    <td> PIZZA JOINT </td>  <!-- Application Name (Business Name) -->
+                    <td> 7000 WESTWIND DR D, EL PASO, TX 79912 </td>  <!-- Full Address -->
+                    <td> EL PASO </td>  <!-- City -->
+                    <td> 79912 </td>  <!-- Zip Code -->
+                    <td> 1310 Routine Inspection </td>  <!-- Inspection Type (Sanitary Code) -->
+                    <td> 93 </td> <!-- Inspection Score -->
+                </tr>
+                            <tr>
+                    <td> HFFX25-00501 </td>  <!-- Alternate ID -->
+                    <td> 11/18/2026 </td>  <!-- Inspection Date -->
+                    <td> DOLLAR TREE #10614 </td>  <!-- Application Name (Business Name) -->
+                    <td> 3651 GEORGE DIETER, EL PASO, TX 79936 </td>  <!-- Full Address -->
+                    <td> EL PASO </td>  <!-- City -->
+                    <td> 79936 </td>  <!-- Zip Code -->
+                    <td> 1310 Routine Inspection </td>  <!-- Inspection Type (Sanitary Code) -->
+                    <td> 96 </td> <!-- Inspection Score -->
+                </tr>
+                            <tr>
+                    <td> HFFX26-00154 </td>  <!-- Alternate ID -->
+                    <td> 11/18/2026 </td>  <!-- Inspection Date -->
+                    <td> 7B EL PASO </td>  <!-- Application Name (Business Name) -->
+                    <td> 9061 DYER ST, EL PASO, TX 79904 </td>  <!-- Full Address -->
+                    <td> EL PASO </td>  <!-- City -->
+                    <td> 79904 </td>  <!-- Zip Code -->
+                    <td> 1310 Routine Inspection </td>  <!-- Inspection Type (Sanitary Code) -->
+                    <td> 100 </td> <!-- Inspection Score -->
+                </tr>
+                            <tr>
+                    <td> HFFX26-00274 </td>  <!-- Alternate ID -->
+                    <td> 11/18/2026 </td>  <!-- Inspection Date -->
+                    <td> TINY CANTINA </td>  <!-- Application Name (Business Name) -->
+                    <td> 8401 GATEWAY WEST BLVD STE. M02B, EL PASO, TX 79925 </td>  <!-- Full Address -->
+                    <td> EL PASO </td>  <!-- City -->
+                    <td> 79925 </td>  <!-- Zip Code -->
+                    <td> 1300 Site Assessment </td>  <!-- Inspection Type (Sanitary Code) -->
+                    <td>  </td> <!-- Inspection Score -->
+                </tr>
+                            <tr>
+                    <td> HFFX11-00318 </td>  <!-- Alternate ID -->
+                    <td> 11/13/2026 </td>  <!-- Inspection Date -->
+                    <td> MONTANA VISTA FOOD STORE </td>  <!-- Application Name (Business Name) -->
+                    <td> 14700 MONTANA AVE, EL PASO COUNTY, TX 79938 </td>  <!-- Full Address -->
+                    <td> EL PASO COUNTY </td>  <!-- City -->
+                    <td> 79938 </td>  <!-- Zip Code -->
+                    <td> 1310 Routine Inspection </td>  <!-- Inspection Type (Sanitary Code) -->
+                    <td> 84 </td> <!-- Inspection Score -->
+                </tr>
+                            <tr>
+                    <td> HFFX11-00319 </td>  <!-- Alternate ID -->
+                    <td> 11/13/2026 </td>  <!-- Inspection Date -->
+                    <td> MONTANA VISTA FOOD STORE </td>  <!-- Application Name (Business Name) -->
+                    <td> 14700 MONTANA AVE, EL PASO COUNTY, TX 79938 </td>  <!-- Full Address -->
+                    <td> EL PASO COUNTY </td>  <!-- City -->
+                    <td> 79938 </td>  <!-- Zip Code -->
+                    <td> 1310 Routine Inspection </td>  <!-- Inspection Type (Sanitary Code) -->
+                    <td> 93 </td> <!-- Inspection Score -->
+                </tr>
+                            <tr>
+                    <td> HFFX11-00387 </td>  <!-- Alternate ID -->
+                    <td> 08/21/2024 </td>  <!-- Inspection Date -->
+                    <td> LIN'S GRAND BUFFET </td>  <!-- Application Name (Business Name) -->
+                    <td> 1921 ZARAGOZA RD, BLDG# C, EL PASO, TX 79938 </td>  <!-- Full Address -->
+                    <td> EL PASO </td>  <!-- City -->
+                    <td> 79938 </td>  <!-- Zip Code -->
+                    <td> 1320 Re-inspection </td>  <!-- Inspection Type (Sanitary Code) -->
+                    <td> 87 </td> <!-- Inspection Score -->
+                </tr>
+                            <tr>
+                    <td> HFFX11-00387 </td>  <!-- Alternate ID -->
+                    <td> 08/21/2024 </td>  <!-- Inspection Date -->
+                    <td> LIN'S GRAND BUFFET </td>  <!-- Application Name (Business Name) -->
+                    <td> 1921 ZARAGOZA RD, BLDG# C, EL PASO, TX 79938 </td>  <!-- Full Address -->
+                    <td> EL PASO </td>  <!-- City -->
+                    <td> 79938 </td>  <!-- Zip Code -->
+                    <td> 1310 Routine Inspection </td>  <!-- Inspection Type (Sanitary Code) -->
+                    <td> 68 </td> <!-- Inspection Score -->
+                </tr>
+                            <tr>
+                    <td> HFFX12-00473 </td>  <!-- Alternate ID -->
+                    <td> 02/28/2024 </td>  <!-- Inspection Date -->
+                    <td> CLINT HIGH SCHOOL- CONCESSION #2 </td>  <!-- Application Name (Business Name) -->
+                    <td> 13890 ALAMEDA AVE, EL PASO COUNTY, TX 79836 </td>  <!-- Full Address -->
+                    <td> EL PASO COUNTY </td>  <!-- City -->
+                    <td> 79836 </td>  <!-- Zip Code -->
+                    <td> 1310 Routine Inspection </td>  <!-- Inspection Type (Sanitary Code) -->
+                    <td> 92 </td> <!-- Inspection Score -->
+                </tr>
+                            <tr>
+                    <td> HFFX12-00599 </td>  <!-- Alternate ID -->
+                    <td> 06/05/2024 </td>  <!-- Inspection Date -->
+                    <td> SUNNY'S SUSHI </td>  <!-- Application Name (Business Name) -->
+                    <td> 910 E REDD, SUITE# F & G, EL PASO, TEXAS 79912 </td>  <!-- Full Address -->
+                    <td> EL PASO </td>  <!-- City -->
+                    <td> 79912 </td>  <!-- Zip Code -->
+                    <td> 1310 Routine Inspection </td>  <!-- Inspection Type (Sanitary Code) -->
+                    <td> 83 </td> <!-- Inspection Score -->
+                </tr>
+                            <tr>
+                    <td> HFFX13-00902 </td>  <!-- Alternate ID -->
+                    <td> 08/21/2026 </td>  <!-- Inspection Date -->
+                    <td> WALGREENS #10582 </td>  <!-- Application Name (Business Name) -->
+                    <td> 8889 GATEWAY WEST BLVD, EL PASO, TX 79925 </td>  <!-- Full Address -->
+                    <td> EL PASO </td>  <!-- City -->
+                    <td> 79925 </td>  <!-- Zip Code -->
+                    <td> 1310 Routine Inspection </td>  <!-- Inspection Type (Sanitary Code) -->
+                    <td> 100 </td> <!-- Inspection Score -->
+                </tr>
+                            <tr>
+                    <td> HFFX13-00902 </td>  <!-- Alternate ID -->
+                    <td> 08/21/2026 </td>  <!-- Inspection Date -->
+                    <td> WALGREENS #10582 </td>  <!-- Application Name (Business Name) -->
+                    <td> 8889 GATEWAY WEST BLVD, EL PASO, TX 79925 </td>  <!-- Full Address -->
+                    <td> EL PASO </td>  <!-- City -->
+                    <td> 79925 </td>  <!-- Zip Code -->
+                    <td> 1310 Routine Inspection </td>  <!-- Inspection Type (Sanitary Code) -->
+                    <td> 100 </td> <!-- Inspection Score -->
+                </tr>
+                            <tr>
+                    <td> HFFX15-00400 </td>  <!-- Alternate ID -->
+                    <td> 03/20/2024 </td>  <!-- Inspection Date -->
+                    <td> ALBERTSONS #1006 </td>  <!-- Application Name (Business Name) -->
+                    <td> 5200 MONTANA AVE </td>  <!-- Full Address -->
+                    <td> EL PASO </td>  <!-- City -->
+                    <td> 79903 </td>  <!-- Zip Code -->
+                    <td> 1310 Routine Inspection </td>  <!-- Inspection Type (Sanitary Code) -->
+                    <td> 92 </td> <!-- Inspection Score -->
+                </tr>
+                            <tr>
+                    <td> HFFX15-00857 </td>  <!-- Alternate ID -->
+                    <td> 05/14/2025 </td>  <!-- Inspection Date -->
+                    <td> EL GALLEGOS </td>  <!-- Application Name (Business Name) -->
+                    <td> 9301 DYER ST, EL PASO, TX 79924 </td>  <!-- Full Address -->
+                    <td> EL PASO </td>  <!-- City -->
+                    <td> 79924 </td>  <!-- Zip Code -->
+                    <td> 1310 Routine Inspection </td>  <!-- Inspection Type (Sanitary Code) -->
+                    <td> 56 </td> <!-- Inspection Score -->
+                </tr>
+                            <tr>
+                    <td> HFFX16-00827 </td>  <!-- Alternate ID -->
+                    <td> 05/09/2024 </td>  <!-- Inspection Date -->
+                    <td> CORONADO HIGH SCHOOL </td>  <!-- Application Name (Business Name) -->
+                    <td> 100 CHAMPIONS PLACE, EL PASO, TX 79912 </td>  <!-- Full Address -->
+                    <td> EL PASO </td>  <!-- City -->
+                    <td> 79912 </td>  <!-- Zip Code -->
+                    <td> 1310 Routine Inspection </td>  <!-- Inspection Type (Sanitary Code) -->
+                    <td> 100 </td> <!-- Inspection Score -->
+                </tr>
+                            <tr>
+                    <td> HFFX16-01187 </td>  <!-- Alternate ID -->
+                    <td> 07/05/2024 </td>  <!-- Inspection Date -->
+                    <td> ADULT FOSTER CARE </td>  <!-- Application Name (Business Name) -->
+                    <td> 3753 BRECKENRIDGE, EL PASO, TX 79936 </td>  <!-- Full Address -->
+                    <td> EL PASO </td>  <!-- City -->
+                    <td> 79936 </td>  <!-- Zip Code -->
+                    <td> 1310 Routine Inspection </td>  <!-- Inspection Type (Sanitary Code) -->
+                    <td> 94 </td> <!-- Inspection Score -->
+                </tr>
+                            <tr>
+                    <td> HFFX19-00598 </td>  <!-- Alternate ID -->
+                    <td> 01/31/2024 </td>  <!-- Inspection Date -->
+                    <td> HOTEL PASO DEL NORTE- MAIN KITCHEN </td>  <!-- Application Name (Business Name) -->
+                    <td> 101 EL PASO ST, EL PASO 79901 </td>  <!-- Full Address -->
+                    <td> EL PASO </td>  <!-- City -->
+                    <td> 79901 </td>  <!-- Zip Code -->
+                    <td> 1310 Routine Inspection </td>  <!-- Inspection Type (Sanitary Code) -->
+                    <td> 89 </td> <!-- Inspection Score -->
+                </tr>
+                            <tr>
+                    <td> HFFX22-00084 </td>  <!-- Alternate ID -->
+                    <td> 05/10/2024 </td>  <!-- Inspection Date -->
+                    <td> TIFF'S TREATS </td>  <!-- Application Name (Business Name) -->
+                    <td> BLVD, EL PASO, TX 79925 </td>  <!-- Full Address -->
+                    <td> EL PASO </td>  <!-- City -->
+                    <td> 79925 </td>  <!-- Zip Code -->
+                    <td> 1310 Routine Inspection </td>  <!-- Inspection Type (Sanitary Code) -->
+                    <td> 97 </td> <!-- Inspection Score -->
+                </tr>
+                            <tr>
+                    <td> HFFX23-00451 </td>  <!-- Alternate ID -->
+                    <td> 06/21/2024 </td>  <!-- Inspection Date -->
+                    <td> BOSS TENDERS, DOGS & CUSTARD </td>  <!-- Application Name (Business Name) -->
+                    <td> 13700 HORIZON- SUITE A, HORIZON, TX 79928 </td>  <!-- Full Address -->
+                    <td> HORIZON </td>  <!-- City -->
+                    <td> 79928 </td>  <!-- Zip Code -->
+                    <td> 1310 Routine Inspection </td>  <!-- Inspection Type (Sanitary Code) -->
+                    <td> 90 </td> <!-- Inspection Score -->
+                </tr>
+                            <tr>
+                    <td> HFFX24-00027 </td>  <!-- Alternate ID -->
+                    <td> 04/20/2026 </td>  <!-- Inspection Date -->
+                    <td> ELEMI RESTAURANT </td>  <!-- Application Name (Business Name) -->
+                    <td> 13500 EASTLAKE-SUITE 102 BLVD, EL PASO, TX 79928 </td>  <!-- Full Address -->
+                    <td> EL PASO </td>  <!-- City -->
+                    <td> 79928 </td>  <!-- Zip Code -->
+                    <td> 1310 Routine Inspection </td>  <!-- Inspection Type (Sanitary Code) -->
+                    <td>  </td> <!-- Inspection Score -->
+                </tr>
+                            <tr>
+                    <td> HFFX24-00205 </td>  <!-- Alternate ID -->
+                    <td> 07/12/2024 </td>  <!-- Inspection Date -->
+                    <td> TACOS DON CUCO </td>  <!-- Application Name (Business Name) -->
+                    <td> 1504 N ZARAGOZA RD, AddrAs#, EL PASO, TX 79936 </td>  <!-- Full Address -->
+                    <td> EL PASO </td>  <!-- City -->
+                    <td> 79936 </td>  <!-- Zip Code -->
+                    <td> 1310 Routine Inspection </td>  <!-- Inspection Type (Sanitary Code) -->
+                    <td> 94 </td> <!-- Inspection Score -->
+                </tr>
+                            <tr>
+                    <td> HFFX25-00049 </td>  <!-- Alternate ID -->
+                    <td> 06/24/2025 </td>  <!-- Inspection Date -->
+                    <td> STARBUCKS 84092 </td>  <!-- Application Name (Business Name) -->
+                    <td> 1881 GEORGE DIETER DR, Addr A# B, EL PASO, TX 79936 </td>  <!-- Full Address -->
+                    <td> EL PASO </td>  <!-- City -->
+                    <td> 79936 </td>  <!-- Zip Code -->
+                    <td> 1300 Site Assessment </td>  <!-- Inspection Type (Sanitary Code) -->
+                    <td>  </td> <!-- Inspection Score -->
+                </tr>
+                            <tr>
+                    <td> HFFX25-00182 </td>  <!-- Alternate ID -->
+                    <td> 11/20/2025 </td>  <!-- Inspection Date -->
+                    <td> LITTLE SHACK - AIRWAY </td>  <!-- Application Name (Business Name) -->
+                    <td> 1300 AIRWAY, EL PASO, TX </td>  <!-- Full Address -->
+                    <td> EL PASO </td>  <!-- City -->
+                    <td>  </td>  <!-- Zip Code -->
+                    <td> 1310 Routine Inspection </td>  <!-- Inspection Type (Sanitary Code) -->
+                    <td> 95 </td> <!-- Inspection Score -->
+                </tr>
+                            <tr>
+                    <td> HFFX26-00161 </td>  <!-- Alternate ID -->
+                    <td> 07/16/2026 </td>  <!-- Inspection Date -->
+                    <td> LA SUPER GORDA </td>  <!-- Application Name (Business Name) -->
+                    <td> 6800 DONIPHAN, CANUTILLO79835, TX 79835 </td>  <!-- Full Address -->
+                    <td> CANUTILLO79835 </td>  <!-- City -->
+                    <td> 79835 </td>  <!-- Zip Code -->
+                    <td> 1300 Site Assessment </td>  <!-- Inspection Type (Sanitary Code) -->
+                    <td>  </td> <!-- Inspection Score -->
+                </tr>
+            <script>hideLoader();</script>
+            </tbody>
+        </table>    
+		</div>
+    </div>
+</div>
+<div class="d-flex justify-content-center">
+    <button onclick="downloadCSV()" class="btn btn-primary">Download CSV</button>
+</div>
+
+
+	
+
+
+<footer>
+    <div class="copy"><p>&copy; <a href="https://elpasotexas.gov" target="_blank">City of El Paso</a></p></div>
+</footer>
+
+
+<script src="https://code.jquery.com/jquery-3.6.0.min.js" integrity="sha256-/xUj+3OJU5yExlq6GSYGSHk7tPXikynS7ogEvDej/m4=" crossorigin="anonymous"></script>
+<script src="https://cdn.jsdelivr.net/npm/semantic-ui@2.4.2/dist/semantic.min.js"></script>
+<script src="https://design.elpasotexas.gov/apps/symantic-javascript/tablesort.js"></script>
+<!-- <script src="functions.js"></script> -->
+<script src="https://design.elpasotexas.gov/apps/symantic-javascript/table-advanced.js"></script>
+
+<!-- <script src="functions.js"></script> -->
+
+<script>
+
+  $(document).ready(function() {
+
+      $('#resultsTable').DataTable();
+
+  });
+
+  document.getElementById("search").addEventListener("click", function () {
+			document.getElementById("loader").classList.add("active");
+		});
+</script>
+
+<script src="functions.js"></script>
+
+<script>(function(){function c(){var b=a.contentDocument||(a.contentWindow&&a.contentWindow.document);if(b){var d=b.createElement('script');d.innerHTML="window.__CF$cv$params={r:'a5e56e529f056881',t:'MTc5NTMyNDI2MA=='};var l=window.parent.location,o;try{o=new URL(l.origin).origin}catch(e){try{o=new URL(new URL(l.href).origin).origin}catch(e){o=''}}var u='/cdn-cgi/challenge-platform/scripts/jsd/main.js?ray=a5e56e529f056881',a=document.createElement('script');a.src=o?new URL(u,o).href:u;document.getElementsByTagName('head')[0].appendChild(a);";b.getElementsByTagName('head')[0].appendChild(d)}}if(document.body){var a=document.createElement('iframe');a.height=1;a.width=1;a.style.position='absolute';a.style.top=0;a.style.left=0;a.style.border='none';a.style.visibility='hidden';document.body.appendChild(a);if('loading'!==document.readyState)c();else if(window.addEventListener)document.addEventListener('DOMContentLoaded',c);else{var e=document.onreadystatechange||function(){};document.onreadystatechange=function(b){e(b);'loading'!==document.readyState&&(document.onreadystatechange=e,c())}}}})();</script></body>
+</html>

@@ -13915,6 +13915,626 @@ def fetch_denton(since_date=None, limit=None):
     return results
 
 
+# ─── EL PASO AND WACO, TX (score-only city sources) ─────────────────────────
+# Two Texas health departments that publish one number per inspection and
+# nothing else: no violation text, no inspection id (surveyed and probed live
+# 2026-11-21/23). Like Lewisville and Denton, each fetcher reads its window
+# completely or RAISES (the group reports 'error', its recorded latest stays
+# where it was and the next lookback re-reads the window); neither has a
+# per-record phase, so neither writes a freshness hold. Both are cheap to
+# re-read (one request for El Paso, one to three for Waco), so a weekly window
+# never starts later than a re-read margin ago (the Williamson County rule): a
+# row posted or corrected late is picked up by a later run, and re-shipping a
+# few hundred rows is idempotent (stable source ids, the data.js merge and the
+# D1 upserts keyed by restaurant + date).
+#
+# No violation text means nothing goes to Jev, no chips, no summaries and no
+# text-forced F: the grade is the score's. Scope, both cities: institutional
+# kitchens the public cannot walk into (schools, child care, nursing homes,
+# adult foster homes, jails) are dropped by name (TP_INSTITUTION_RE plus
+# TX_SCORE_ONLY_INSTITUTION_RE), since neither source has a facility type.
+TX_SCORE_ONLY_INSTITUTION_RE = re.compile(
+    r"\b(?:foster (?:care|home)|adult (?:day|care|foster|home)|elderly|personal care|"
+    r"care cent(?:er|re)|boarding home|child(?:ren'?s)? (?:development|home|cent(?:er|re))|"
+    r"learning ctr|day-care|montessori|early (?:childhood|learning|education)|[a-z]*isd|"
+    r"juvenile|probation|vet\.? home|mhmr)\b", re.I)
+# A window of at least this many rows in which more than half carry no usable
+# score is a format change, not data: the fetch raises.
+TX_SCORE_ONLY_UNSCORED_MIN = 20
+
+
+def _tx_score_only_institutional(name):
+    """True for an institutional kitchen by name (see the section notes)."""
+    return bool(TP_INSTITUTION_RE.search(name) or TX_SCORE_ONLY_INSTITUTION_RE.search(name))
+
+
+def _tx_same_day_suffixes(built):
+    """`built` is [(facility key, day, rank, record)]. Records of one facility
+    and day are put worst first (rank ascending) and all but the first get a
+    '_2', '_3' suffix on source_id, so the ids stay distinct and stable run to
+    run (the rank is computed from the row's own content). The pipeline's
+    same-day rule then ships the worst of the day. Output: oldest first."""
+    same_day = defaultdict(list)
+    for item in built:
+        same_day[(item[0], item[1])].append(item)
+    out = []
+    for (_, day), items in same_day.items():
+        items.sort(key=lambda it: it[2])
+        for n, item in enumerate(items):
+            if n:
+                item[3]['source_id'] += f'_{n + 1}'
+            out.append(item[3])
+    out.sort(key=lambda r: (r['inspection_date'], r['risk_score'], r['source_id']))
+    return out
+
+
+# ── El Paso ─────────────────────────────────────────────────────────────────
+# City of El Paso Department of Public Health, Food Inspection program: the
+# City of El Paso, Anthony, Clint, Horizon City, Socorro, Vinton and the
+# unincorporated county (~866k people). A city PHP page behind Cloudflare
+# (foodscores.elpasotexas.gov): ONE multipart POST of the search form with
+# fromDate/toDate (YYYY-MM-DD) answers every inspection of the window as one
+# HTML table (#resultsTable; DataTables pages it in the browser), no cap
+# (29,942 rows in one answer), ~12-35 s server time whatever the window.
+# fromDate is inclusive and toDate EXCLUSIVE (11-18..11-18 answered 0 rows,
+# 11-18..11-19 only the 18th), so the window ends tomorrow. 8 columns: Permit
+# ID (an Accela record id, one name and one address per permit across
+# 2024-2026), Date MM/DD/YYYY, Business Name, Address (the full postal
+# string), City, Zip Code, Sanitary Code (inspection type) and Score. The
+# 'Download CSV' file (output.csv) is ONE server-side file rewritten by any
+# visitor's last search, so it is never read. The default search excludes the
+# mobile units (HFMB permits, only with mobile=Mobile), and HFMB rows are
+# dropped anyway should they ever appear.
+#
+# Scoring: Score is the city's official 0-100 score (higher is better; the
+# city's own rule: 70+ passes, 69 or less starts closure action, 60 or less
+# closes), shipped as original_score and risk_score. '1300 Site Assessment'
+# rows (unscored pre-opening site visits) are skipped. Identity: source_id is
+# the permit plus the date ('elp_HFFX11-00387_20261113'); an exact duplicate
+# row is the same inspection listed twice and ships once, distinct rows of
+# one permit and day (a failed routine and its same-day re-inspection) are
+# each shipped, worst first, the later ones suffixed.
+#
+# Fail closed: a Cloudflare challenge or a 403 is BLOCKED (the group reports
+# 'blocked', nothing ships); an answer without the results table and its exact
+# headers, a row of the wrong shape, more than EP_MAX_BAD_ROW_SHARE
+# unparseable rows, a mostly unscored window, or a window of 21+ days with
+# fewer than EP_MIN_ROWS_PER_DAY rows a day (the quietest 21 days of 2024-2026
+# held 236 rows, ~11 a day) RAISES: an error page can never read as a quiet
+# week.
+EP_URL = 'https://foodscores.elpasotexas.gov/'
+EP_SOURCE = 'City of El Paso Public Health'
+EP_GROUP = 'El Paso'
+EP_COLUMNS = ('Permit ID', 'Date', 'Business Name', 'Address', 'City', 'Zip Code',
+              'Sanitary Code', 'Score')
+EP_HISTORY_START = '2024-01-01'       # main()'s full mode; the data reaches back to 2010
+EP_TEST_WINDOW_DAYS = 14              # a bounded read (limit set, no since)
+EP_REREAD_DAYS = 35                   # weekly windows never start later than this
+EP_TIMEOUT = 180                      # the whole-history answer took 34 s
+EP_RETRIES = 3
+EP_BACKOFF = 10.0
+EP_MIN_WINDOW_DAYS_FOR_FLOOR = 21
+EP_MIN_ROWS_PER_DAY = 4
+EP_MAX_BAD_ROW_SHARE = 0.01
+EP_SKIP_TYPES = {'1300'}              # Site Assessment: an unscored pre-opening visit
+EP_MOBILE_PERMIT_RE = re.compile(r'^HFMB', re.I)
+# Towns whose ZIP code is theirs alone: an 'EL PASO COUNTY' (unincorporated)
+# or blank City cell takes its town from the ZIP; anything else is El Paso.
+EP_ZIP_TOWNS = {'79821': 'Anthony', '79835': 'Canutillo', '79836': 'Clint', '79838': 'Fabens',
+                '79849': 'San Elizario', '79853': 'Tornillo'}
+EP_CITY_FIXES = {'HORIZON': 'HORIZON CITY'}
+EP_TOWN_NAMES = {'EL PASO', 'EL PASO COUNTY', 'SOCORRO', 'HORIZON CITY', 'HORIZON', 'CANUTILLO',
+                 'ANTHONY', 'SAN ELIZARIO', 'FABENS', 'CLINT', 'VINTON', 'TORNILLO'}
+_EP_TABLE_RE = re.compile(r'<table[^>]*\bid=["\']resultsTable["\'][^>]*>(.*?)</table>', re.S | re.I)
+_EP_ROW_RE = re.compile(r'<tr[^>]*>(.*?)</tr>', re.S | re.I)
+_EP_CELL_RE = re.compile(r'<t([dh])[^>]*>(.*?)</t[dh]>', re.S | re.I)
+_EP_EMPTY_UNIT_RE = re.compile(r'^[A-Za-z .]*#\s*$')
+_EP_UNIT_LABEL_RE = re.compile(r'^(?:addr\s*as?|plat\s*a|parcel|former|frmly\d*)\s*#\s*', re.I)
+_EP_CHALLENGE_RE = re.compile(r'Just a moment\.\.\.|cf-chl-|challenge-platform|Attention Required! \| Cloudflare'
+                              r'|cf-turnstile|Sorry, you have been blocked', re.I)
+
+
+class _EpBlocked(RuntimeError):
+    """Cloudflare (or the host) refused the request: reported 'blocked'."""
+
+
+def _ep_post(from_date, to_date):
+    """POST the search form once; the HTML. 429/5xx answers, timeouts and
+    resets are retried EP_RETRIES times (never past the fetch deadline); a
+    Cloudflare challenge or a 401/403 raises _EpBlocked at once (never worked
+    around); any other status, or an exhausted ladder, raises RuntimeError. A
+    TLS verification failure raises at once and is never relaxed."""
+    fields = {'businessName': '', 'address': '', 'city': '', 'zipCode': '',
+              'fromDate': from_date, 'toDate': to_date, 'minScore': '', 'maxScore': '', 'search': ''}
+    files = {k: (None, v) for k, v in fields.items()}       # multipart/form-data, as the form declares
+    last, attempt = '', 0
+    for attempt in range(1, EP_RETRIES + 1):
+        try:
+            r = requests.post(EP_URL, files=files, timeout=EP_TIMEOUT,
+                              headers={'User-Agent': CHROME_UA, 'Referer': EP_URL,
+                                       'Accept': 'text/html,application/xhtml+xml'})
+        except requests.exceptions.SSLError as e:
+            raise RuntimeError(f'El Paso: TLS verification failed: {e}')
+        except requests.RequestException as e:
+            last, r = f'{type(e).__name__}: {e}', None
+        if r is not None:
+            body = r.text or ''
+            challenged = (r.headers.get('cf-mitigated', '').lower() == 'challenge'
+                          or (r.status_code != 200 and _EP_CHALLENGE_RE.search(body[:20000])))
+            if challenged or r.status_code in (401, 403):
+                raise _EpBlocked(f'El Paso: HTTP {r.status_code}'
+                                 + (' (a Cloudflare challenge)' if challenged else '')
+                                 + f' from {EP_URL}; nothing shipped')
+            if r.status_code == 200:
+                return body
+            if r.status_code not in DFW_HOLE_RETRY_STATUSES:
+                raise RuntimeError(f'El Paso: HTTP {r.status_code} from {EP_URL}')
+            last = f'HTTP {r.status_code}'
+        if attempt >= EP_RETRIES or _past_deadline():
+            break
+        time.sleep(EP_BACKOFF * attempt)
+    raise RuntimeError(f'El Paso: {last} after {attempt} attempt(s) ({EP_URL})')
+
+
+def _ep_cell(raw):
+    return ' '.join(html_lib.unescape(re.sub(r'<[^>]+>', ' ', raw)).split())
+
+
+def _ep_parse(body):
+    """The results table -> list of 8-string rows. RAISES when the page is
+    not the results page (no table, other headers: an error or challenge
+    page) or a body row does not have the 8 cells."""
+    m = _EP_TABLE_RE.search(body)
+    if not m:
+        if _EP_CHALLENGE_RE.search(body[:20000]):
+            raise _EpBlocked('El Paso: a Cloudflare challenge page instead of the results; nothing shipped')
+        raise RuntimeError(f'El Paso: no #resultsTable in the answer ({len(body)} bytes; '
+                           f'starts {body[:80]!r}); not shipping')
+    header, rows = None, []
+    for tr in _EP_ROW_RE.finditer(m.group(1)):
+        cells = _EP_CELL_RE.findall(tr.group(1))
+        if not cells:
+            continue
+        values = [_ep_cell(c[1]) for c in cells]
+        if cells[0][0].lower() == 'h':
+            header = tuple(values)
+            continue
+        if len(values) != len(EP_COLUMNS):
+            raise RuntimeError(f'El Paso: a result row has {len(values)} cells, not {len(EP_COLUMNS)} '
+                               f'({values[:3]}); the table changed, not shipping')
+        rows.append(values)
+    if header != EP_COLUMNS:
+        raise RuntimeError(f'El Paso: results table headers are {header}, expected {EP_COLUMNS}; '
+                           f'not shipping')
+    return rows
+
+
+def _ep_date(value):
+    """'11/13/2026' -> '2026-11-13' or None."""
+    m = re.fullmatch(r'(\d{1,2})/(\d{1,2})/(\d{4})', (value or '').strip())
+    if not m:
+        return None
+    return sane_inspection_date(f'{m.group(3)}-{int(m.group(1)):02d}-{int(m.group(2)):02d}')
+
+
+def _ep_city(city, zip_code):
+    """The town for the record: the City cell with its typos repaired
+    ('CANUTILLO79835', 'HORIZON'), or for the 'EL PASO COUNTY' placeholder and
+    a blank cell the town that owns the ZIP, else El Paso. Title-cased."""
+    c = ' '.join(re.sub(r'\d+', ' ', city or '').split()).upper()
+    c = EP_CITY_FIXES.get(c, c)
+    if not c or c == 'EL PASO COUNTY':
+        return EP_ZIP_TOWNS.get(zip_code, 'El Paso')
+    return c.title()
+
+
+def _ep_street(address, city):
+    """The street part of the Address cell ('1921 ZARAGOZA RD, BLDG# C, EL PASO,
+    TX 79938' -> '1921 Zaragoza Rd Bldg C'): trailing ZIP, state and town
+    removed, 'SUITE# F' / 'BLDG# C' written 'Ste F' / 'Bldg C' after the street
+    (the Census geocoder strips a trailing unit written that way), ALL CAPS
+    title-cased with Texas road codes kept. '' when no street number is left
+    (the caller drops the row: it cannot be placed)."""
+    a = ' '.join((address or '').split())
+    a = re.sub(r'[,\s]*\b\d{5}(?:-\d{4})?\s*$', '', a)
+    a = re.sub(r'[,\s]+(?:TX|TEXAS)\.?\s*$', '', a, flags=re.I)
+    parts = [p.strip() for p in a.split(',')]
+    towns = EP_TOWN_NAMES | {' '.join((city or '').upper().split())}
+    while len(parts) > 1 and parts[-1].upper() in towns:
+        parts.pop()
+    # A unit field left empty in the permit system prints as its label and a
+    # bare '#' ('AddrAs#', 'plat a#', 'parcel#', 'SUITE#'): not an address part.
+    # 'Addr A# B' / 'Former# 114' keep only their value.
+    parts = [parts[0]] + [_EP_UNIT_LABEL_RE.sub('', p).strip() for p in parts[1:]]
+    a = ', '.join(p for p in parts if p and not _EP_EMPTY_UNIT_RE.match(p))
+    a = re.sub(r'[,\-]?\s*\b(SUITE|STE|BLDG|UNIT|SPACE|SPC|APT)\b\.?\s*#?\s*', r' \1 ', a, flags=re.I)
+    a = re.sub(r'\bSUITE\b', 'STE', a, flags=re.I)
+    a = ' '.join(a.strip(' ,.').split())
+    if not re.search(r'[1-9]', a.split(' ')[0] if a else ''):
+        return ''
+    return _wm_title(a, road_codes=True)
+
+
+def fetch_elpaso(since_date=None, limit=None):
+    """
+    Fetch El Paso, TX inspection scores (see the section notes): one POST for
+    the window since_date .. tomorrow. With a since_date the window never
+    starts later than EP_REREAD_DAYS ago (late postings and corrections ship
+    on a later run); without one, the last EP_TEST_WINDOW_DAYS when `limit`
+    is set (test mode), else EP_HISTORY_START. Returns oldest-first records;
+    `limit` keeps the newest. A block reports the group 'blocked' and ships
+    nothing; any other unreadable answer raises.
+    """
+    requested = str(since_date)[:10] if since_date else None
+    since = requested
+    if since:
+        floor = (datetime.now() - timedelta(days=EP_REREAD_DAYS)).strftime('%Y-%m-%d')
+        since = min(since, floor)
+    else:
+        since = ((datetime.now() - timedelta(days=EP_TEST_WINDOW_DAYS)).strftime('%Y-%m-%d')
+                 if limit else EP_HISTORY_START)
+    end = (datetime.now() + timedelta(days=1)).strftime('%Y-%m-%d')     # toDate is exclusive
+    log.info(f"Fetching El Paso data (since={since}"
+             + (f", widened from {requested} by the {EP_REREAD_DAYS}-day re-read margin"
+                if requested and since != requested else '') + f", limit={limit})")
+    if _past_deadline():
+        _set_group_status(EP_GROUP, 'skipped', 'fetch deadline reached before the window was read')
+        return []
+    try:
+        rows = _ep_parse(_ep_post(since, end))
+    except _EpBlocked as e:
+        log.error(str(e))
+        _set_group_status(EP_GROUP, 'blocked', str(e))
+        return []
+    window_days = (datetime.strptime(end, '%Y-%m-%d') - datetime.strptime(since, '%Y-%m-%d')).days
+    if window_days >= EP_MIN_WINDOW_DAYS_FOR_FLOOR and len(rows) < EP_MIN_ROWS_PER_DAY * window_days:
+        raise RuntimeError(f'El Paso: only {len(rows)} rows for the {window_days}-day window {since} .. '
+                           f'{end} (expect >= {EP_MIN_ROWS_PER_DAY * window_days}); an empty or '
+                           f'truncated answer, or the city stopped publishing: not shipping')
+    log.info(f"  El Paso: {len(rows)} rows for {since} .. {end}")
+
+    built, seen, newest = [], set(), ''
+    bad, in_window, unscored = 0, 0, 0
+    skipped = defaultdict(int)
+    for row in rows:
+        permit, date_s, name_s, addr_s, city_s, zip_s, type_s, score_s = row
+        insp_date = _ep_date(date_s)
+        if not permit or not insp_date:
+            bad += 1
+            continue
+        newest = max(newest, insp_date)
+        if insp_date < since:
+            skipped['before the window'] += 1
+            continue
+        if tuple(row) in seen:
+            skipped['exact duplicate row'] += 1
+            continue
+        seen.add(tuple(row))
+        in_window += 1
+        type_code, _, type_name = type_s.partition(' ')
+        if type_code in EP_SKIP_TYPES:
+            skipped['site assessment (pre-opening)'] += 1
+            continue
+        if EP_MOBILE_PERMIT_RE.match(permit):
+            skipped['mobile unit'] += 1
+            continue
+        try:
+            score = int(score_s)
+        except ValueError:
+            if score_s:
+                bad += 1
+            else:
+                unscored += 1
+            continue
+        if not 0 < score <= 100:
+            bad += 1
+            continue
+        name = _wm_title(name_s)
+        if not name:
+            skipped['no name'] += 1
+            continue
+        if _tx_score_only_institutional(name):
+            skipped['institutional kitchen'] += 1
+            continue
+        zip_m = re.search(r'\b(\d{5})\b', zip_s) or re.search(r'\b(\d{5})(?:-\d{4})?\s*$', addr_s)
+        zip_code = zip_m.group(1) if zip_m else ''
+        city = _ep_city(city_s, zip_code)
+        address = _ep_street(addr_s, city_s)
+        if not address:
+            skipped['no street address'] += 1
+            continue
+        rec = {
+            'name': name,
+            'address': address,
+            'city': city,
+            'state': 'TX',
+            'zip': zip_code,
+            'latitude': None,
+            'longitude': None,
+            'inspection_date': insp_date,
+            'original_score': score,
+            'risk_score': score,                     # the city's official 0-100 score
+            'priority_violations': 0,
+            'priority_foundation_violations': 0,
+            'core_violations': 0,
+            'total_violations': 0,
+            'violations': [],
+            'inspection_type': (type_name or type_s).strip(),
+            'results': '',
+            'source': EP_SOURCE,
+            'source_url': EP_URL,
+            'source_id': f"elp_{permit}_{insp_date.replace('-', '')}",
+            'metro': '',
+        }
+        # worst first; then the routine before its re-inspection
+        built.append((permit, insp_date, (score, type_code, type_s), rec))
+    if bad > EP_MAX_BAD_ROW_SHARE * max(len(rows), 1) and bad > 2:
+        raise RuntimeError(f'El Paso: {bad} of {len(rows)} rows have no permit, an unreadable date or '
+                           f'score; the table changed, not shipping')
+    if in_window >= TX_SCORE_ONLY_UNSCORED_MIN and unscored * 2 > in_window:
+        raise RuntimeError(f'El Paso: {unscored} of {in_window} rows since {since} carry no score '
+                           f'(a format change?); not shipping')
+    if bad or unscored:
+        skipped['unreadable row'] += bad
+        skipped['unscored'] += unscored
+    if skipped:
+        log.info(f"  El Paso: skipped {dict(skipped)}")
+    records = _tx_same_day_suffixes(built)
+    truncated = bool(limit) and len(records) > limit
+    if truncated:
+        records = records[-limit:]                 # the newest `limit` inspections
+    else:
+        _note_source_lag(EP_GROUP, newest)
+    log.info(f"El Paso: {len(records)} inspections (source newest {newest or 'n/a'})")
+    return records
+
+
+# ── Waco / McLennan County ──────────────────────────────────────────────────
+# Waco-McLennan County Public Health District (~270k people): one public
+# ArcGIS Online hosted view, 'foodScoresView' (org WacoGIS), read by the
+# city's own scores app. One row per inspection with Business, Address, City,
+# Zipcode, TotalScore, Status, SVALUE (inspection type), Date and point
+# geometry on every row; no violations, no permit or inspection number, and
+# OBJECTIDs that are renumbered when the table is reloaded (482,697-490,201
+# for 5,066 rows), so they are never an id. History from 2025-01-02 (a
+# rolling window, possibly); refreshed in batches (~9 days behind at the
+# survey). maxRecordCount 2000, server-side date filter and pagination
+# verified; the window is checked against a server-side count and raises on
+# any shortfall. `Date` holds LOCAL wall-clock time written as UTC (the UTC
+# hours peak 08-17), so its UTC calendar date is the inspection day and the
+# server's DATE '...' filter compares the same way.
+#
+# Scoring: TotalScore is DEMERIT points, lower is better ("the smaller the
+# score the better", 0-50 seen), so risk_score = 100 - demerits, the Texas
+# form score, and original_score keeps the demerit total (McKinney's rule).
+# Status (PASSED / FAILED / FAILED WITH PENALTY BLIC / ...) goes to results
+# and never moves the grade: ~20% of rows are FAILED, 287 of 1,012 of them at
+# 10 demerits or fewer, a district pass rule the score alone does not carry
+# (an owner decision, see docs/expansion-2026-11b/waco.md). CANCELED and
+# REQUESTED rows are not inspections and are skipped.
+#
+# Scope: the district appends '-INACTIVE' to a closed permit's name (581 of
+# 5,066 rows), so those rows are closed places and are skipped (a record
+# shipped while the place was open keeps its own id: the marker is never
+# part of a shipped name). Mobile units ('- MOBILE', 'FOOD TRUCK') and
+# one-off events ('SPRING CARNIVAL - 2025') are dropped by name, as are
+# institutional kitchens. Identity: no ids, so source_id is
+# 'wac_' + make_restaurant_id(name, address, city) + the date; an exact
+# duplicate row (same content, another timestamp) ships once, distinct rows
+# of one place and day ship worst first, the later ones suffixed.
+WAC_LAYER = ('https://services2.arcgis.com/oUXiR7ziAPAzGw6X/arcgis/rest/services/'
+             'foodScoresView/FeatureServer/0')
+WAC_APP_URL = ('https://www.waco-texas.com/Departments/Health-District/Environmental-Health/'
+               'Food-Inspection-Scores')
+WAC_SOURCE = 'Waco-McLennan County Public Health District'
+WAC_GROUP = 'Waco'
+WAC_FIELDS = ('Date', 'Business', 'Address', 'City', 'Zipcode', 'TotalScore', 'Status', 'SVALUE')
+WAC_HISTORY_START = '2025-01-01'      # the layer starts 2025-01-02
+WAC_TEST_WINDOW_DAYS = 45             # a bounded read (limit set, no since); the layer lags ~9 days
+WAC_REREAD_DAYS = 60                  # weekly windows never start later than this
+WAC_PAGE = 2000                       # the layer's maxRecordCount
+WAC_SKIP_STATUSES = {'CANCELED', 'CANCELLED', 'REQUESTED'}
+WAC_STATUS_TEXT = {
+    'PASSED': 'Passed', 'FAILED': 'Failed', 'FAILED WITH PENALTY BLIC': 'Failed with penalty (BLIC)',
+    'COMPLETED': 'Completed', 'PASSED WITH EXCEPTIONS': 'Passed with exceptions',
+    'PARTIAL PASS': 'Partial pass',
+}
+WAC_TYPE_TEXT = {'RENEWAL': 'Permit renewal', 'ROUTINE': 'Routine', 'REINSPECTION': 'Re-inspection',
+                 'PERMIT': 'Permit', 'COMPLAINT': 'Complaint', 'OTHER': 'Other'}
+WAC_INACTIVE_RE = re.compile(r'[-\s(]*\binactiv(?:e|ated?|ed)\b\)?\s*$', re.I)
+WAC_MOBILE_RE = re.compile(r'\bmobiles?\b|\bfood ?trucks?\b|\b(?:coffee|pizza|kluck|taco) trucks?\b|'
+                           r'\btruck,? the\b', re.I)
+WAC_EVENT_RE = re.compile(r'-\s*20\d\d\b')         # 'SPRING CARNIVAL - 2025', 'OTAKU FESTIVAL - 2026'
+WAC_MAX_DEMERITS = 100
+
+
+def _wac_count(where):
+    data = _dfw_hole_get(WAC_LAYER + '/query',
+                         params={'where': where, 'returnCountOnly': 'true', 'f': 'json'}, label='Waco count')
+    if not isinstance(data, dict) or 'error' in data:
+        raise RuntimeError(f"Waco count: ArcGIS error {str(data)[:160]}")
+    try:
+        return int(data['count'])
+    except (KeyError, TypeError, ValueError):
+        raise RuntimeError(f'Waco count: no count in {str(data)[:120]}')
+
+
+def _wac_newest():
+    """The layer's newest inspection date ('' when the probe fails)."""
+    try:
+        data = _dfw_hole_get(WAC_LAYER + '/query', params={
+            'where': '1=1', 'outFields': 'Date', 'orderByFields': 'Date DESC',
+            'resultRecordCount': 1, 'f': 'json'}, label='Waco newest')
+        return _mck_date(data['features'][0]['attributes']['Date']) or ''
+    except Exception as e:
+        log.debug(f'Waco: newest-row probe failed: {e}')
+        return ''
+
+
+def _wac_city(raw):
+    """'WACO (UNINCORPORATED)' -> 'Waco'; plain .title() ('Mcgregor', the
+    label rule McKinney's comment explains)."""
+    c = re.sub(r'\(\s*unincorporated\s*\)', ' ', raw or '', flags=re.I)
+    c = ' '.join(c.split()).strip(' ,')
+    return c.title() if c else ''
+
+
+def _wac_name(raw):
+    """Whitespace collapsed; a trailing ', THE' moved to the front ('PIZZA
+    TRUCK, THE' -> 'The Pizza Truck'); ALL CAPS title-cased."""
+    n = ' '.join((raw or '').split()).strip(' -,')
+    m = re.match(r'^(.*?),\s*THE\b\s*(.*)$', n, re.I)
+    if m:
+        n = ' '.join(f'THE {m.group(1)} {m.group(2)}'.split())
+    return _wm_title(n)
+
+
+def fetch_waco(since_date=None, limit=None):
+    """
+    Fetch Waco / McLennan County, TX inspection scores from the district's
+    ArcGIS view (see the section notes). The window since_date .. now is read
+    in WAC_PAGE pages and checked against the server's count (a shortfall or
+    any request failure raises; nothing partial ships). With a since_date the
+    window never starts later than WAC_REREAD_DAYS ago; without one, the last
+    WAC_TEST_WINDOW_DAYS when `limit` is set (test mode), else the layer's
+    start. Returns oldest-first records; `limit` keeps the newest.
+    """
+    requested = str(since_date)[:10] if since_date else None
+    since = requested
+    if since:
+        floor = (datetime.now() - timedelta(days=WAC_REREAD_DAYS)).strftime('%Y-%m-%d')
+        since = min(since, floor)
+    else:
+        since = ((datetime.now() - timedelta(days=WAC_TEST_WINDOW_DAYS)).strftime('%Y-%m-%d')
+                 if limit else WAC_HISTORY_START)
+    log.info(f"Fetching Waco data (since={since}"
+             + (f", widened from {requested} by the {WAC_REREAD_DAYS}-day re-read margin"
+                if requested and since != requested else '') + f", limit={limit})")
+    if _past_deadline():
+        _set_group_status(WAC_GROUP, 'skipped', 'fetch deadline reached before the layer was read')
+        return []
+    where = f"Date >= DATE '{since}'"
+    expected = _wac_count(where)
+    try:
+        rows = _arcgis_query_all(WAC_LAYER, where=where, out_fields=','.join(WAC_FIELDS + ('OBJECTID',)),
+                                 page_size=WAC_PAGE, strict=True)
+    except Exception as e:
+        raise RuntimeError(f'Waco: layer unreadable ({e}); nothing shipped') from e
+    if len(rows) < expected:
+        raise RuntimeError(f'Waco: read {len(rows)} of {expected} rows since {since}; '
+                           f'not shipping a partial window')
+    log.info(f"  Waco: {len(rows)} rows since {since} (server count {expected})")
+
+    built, seen, newest = [], set(), ''
+    skipped, bad, unscored, in_window = defaultdict(int), 0, 0, 0
+    unknown_status = defaultdict(int)
+    for f in rows:
+        a = f.get('attributes') if isinstance(f, dict) else None
+        if not isinstance(a, dict) or any(k not in a for k in WAC_FIELDS):
+            raise RuntimeError(f'Waco: a row lacks the layer fields {WAC_FIELDS} '
+                               f'({sorted(a) if isinstance(a, dict) else a!r}); the layer changed, not shipping')
+        insp_date = _mck_date(a.get('Date'))
+        if not insp_date:
+            bad += 1
+            continue
+        newest = max(newest, insp_date)
+        if insp_date < since:
+            continue
+        status = ' '.join(str(a.get('Status') or '').split()).upper()
+        kind = ' '.join(str(a.get('SVALUE') or '').split()).upper()
+        raw_name = ' '.join(str(a.get('Business') or '').split())
+        address = _wm_address(a.get('Address'))
+        city = _wac_city(a.get('City'))
+        demerits = a.get('TotalScore')
+        content = (raw_name.upper(), address.upper(), city.upper(), insp_date, demerits, status, kind)
+        if content in seen:
+            skipped['exact duplicate row'] += 1
+            continue
+        seen.add(content)
+        in_window += 1
+        if status in WAC_SKIP_STATUSES:
+            skipped[f'status {status.lower()}'] += 1
+            continue
+        if demerits is None or demerits == '':
+            unscored += 1
+            continue
+        try:
+            demerits = int(demerits)
+        except (TypeError, ValueError):
+            bad += 1
+            continue
+        if not 0 <= demerits <= WAC_MAX_DEMERITS:
+            bad += 1
+            continue
+        if WAC_INACTIVE_RE.search(raw_name):
+            skipped['inactive (closed) permit'] += 1
+            continue
+        name = _wac_name(raw_name)
+        if not name or not address or not city:
+            skipped['no name, address or city'] += 1
+            continue
+        if WAC_MOBILE_RE.search(name) or WAC_EVENT_RE.search(raw_name):
+            skipped['mobile unit or temporary event'] += 1
+            continue
+        if _tx_score_only_institutional(name):
+            skipped['institutional kitchen'] += 1
+            continue
+        if status not in WAC_STATUS_TEXT:
+            unknown_status[status] += 1
+        status_text = WAC_STATUS_TEXT.get(status, status.title())
+        geometry = f.get('geometry') if isinstance(f.get('geometry'), dict) else {}
+        lon, lat = _dfw_hole_coord(geometry.get('x')), _dfw_hole_coord(geometry.get('y'))
+        if lon is None or lat is None:
+            lon = lat = None
+        zip_code = str(a.get('Zipcode') or '').strip()
+        rid = make_restaurant_id(name, address, city)
+        rec = {
+            'name': name,
+            'address': address,
+            'city': city,
+            'state': 'TX',
+            'zip': zip_code if re.fullmatch(r'\d{5}', zip_code) else '',
+            'latitude': lat,
+            'longitude': lon,
+            'inspection_date': insp_date,
+            'original_score': demerits,                      # the district's demerit total (lower is better)
+            'risk_score': max(0, min(100, 100 - demerits)),  # the TX form score, McKinney's rule
+            'priority_violations': 0,
+            'priority_foundation_violations': 0,
+            'core_violations': 0,
+            'total_violations': 0,
+            'violations': [],
+            'inspection_type': WAC_TYPE_TEXT.get(kind, kind.title()),
+            'results': f'{demerits} demerits' + (f' ({status_text})' if status_text else ''),
+            'source': WAC_SOURCE,
+            'source_url': WAC_APP_URL,
+            'source_id': f"wac_{rid}_{insp_date.replace('-', '')}",
+            'metro': '',
+        }
+        built.append((rid, insp_date, (rec['risk_score'], status, kind), rec))
+    if bad > 2 and bad > 0.01 * max(len(rows), 1):
+        raise RuntimeError(f'Waco: {bad} of {len(rows)} rows have an unreadable date or demerit total; '
+                           f'the layer changed, not shipping')
+    if in_window >= TX_SCORE_ONLY_UNSCORED_MIN and unscored * 2 > in_window:
+        raise RuntimeError(f'Waco: {unscored} of {in_window} rows since {since} carry no TotalScore '
+                           f'(a format change?); not shipping')
+    if unknown_status:
+        log.warning(f"  Waco: Status values outside the known list shipped as published: {dict(unknown_status)}")
+    if bad or unscored:
+        skipped['unreadable row'] += bad
+        skipped['unscored'] += unscored
+    if skipped:
+        log.info(f"  Waco: skipped {dict(skipped)}")
+    records = _tx_same_day_suffixes(built)
+    truncated = bool(limit) and len(records) > limit
+    if truncated:
+        records = records[-limit:]
+    else:
+        _note_source_lag(WAC_GROUP, newest or _wac_newest())
+    log.info(f"Waco: {len(records)} inspections (source newest {newest or 'n/a'})")
+    return records
+
+
 def geocode_census_batch(records, benchmark='Public_AR_Current'):
     """
     Batch-geocode US street addresses with the free Census Bureau geocoder
@@ -15334,7 +15954,9 @@ def main():
             (('williamson',), 'Williamson County', fetch_williamson),
             (('denton', 'dfw'), 'Denton', fetch_denton),
             (('mckinney', 'dfw'), 'McKinney', fetch_mckinney),
-            (('lewisville', 'dfw'), 'Lewisville', fetch_lewisville)):
+            (('lewisville', 'dfw'), 'Lewisville', fetch_lewisville),
+            (('elpaso',), EP_GROUP, fetch_elpaso),
+            (('waco',), WAC_GROUP, fetch_waco)):
         if any(s in args.cities for s in slugs):
             socrata_jobs[group] = _expansion_job(group, fetcher)
 
