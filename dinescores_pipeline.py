@@ -14274,9 +14274,7 @@ def fetch_elpaso(since_date=None, limit=None):
     if in_window >= TX_SCORE_ONLY_UNSCORED_MIN and unscored * 2 > in_window:
         raise RuntimeError(f'El Paso: {unscored} of {in_window} rows since {since} carry no score '
                            f'(a format change?); not shipping')
-    if bad or unscored:
-        skipped['unreadable row'] += bad
-        skipped['unscored'] += unscored
+    skipped.update({k: n for k, n in (('unreadable row', bad), ('unscored', unscored)) if n})
     if skipped:
         log.info(f"  El Paso: skipped {dict(skipped)}")
     records = _tx_same_day_suffixes(built)
@@ -14521,9 +14519,7 @@ def fetch_waco(since_date=None, limit=None):
                            f'(a format change?); not shipping')
     if unknown_status:
         log.warning(f"  Waco: Status values outside the known list shipped as published: {dict(unknown_status)}")
-    if bad or unscored:
-        skipped['unreadable row'] += bad
-        skipped['unscored'] += unscored
+    skipped.update({k: n for k, n in (('unreadable row', bad), ('unscored', unscored)) if n})
     if skipped:
         log.info(f"  Waco: skipped {dict(skipped)}")
     records = _tx_same_day_suffixes(built)
