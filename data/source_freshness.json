@@ -615,6 +615,14 @@
    "group": "Boston",
    "latest": "2026-11-13"
   },
+  "Casper-Natrona County Health Dept": {
+   "group": "MHD metros (midweek)",
+   "latest": "2026-11-21"
+  },
+  "Cheyenne-Laramie County Health Dept": {
+   "group": "MHD metros (midweek)",
+   "latest": "2026-11-20"
+  },
   "Chicago Open Data": {
    "group": "Chicago",
    "latest": "2026-11-13"
@@ -682,6 +690,10 @@
   "Fairfax County Open Data": {
    "group": "Fairfax County",
    "latest": "2026-11-05"
+  },
+  "First District ND Health Dept": {
+   "group": "MHD metros (midweek)",
+   "latest": "2026-11-19"
   },
   "Flathead City-County Health Department": {
    "group": "Flathead County",
@@ -788,6 +800,10 @@
   "Houston Health Dept": {
    "group": "houston",
    "latest": "2026-11-12"
+  },
+  "Jackson County MO Health Dept": {
+   "group": "MHD metros (midweek)",
+   "latest": "2026-11-20"
   },
   "Kansas City MO Health Department": {
    "group": "Kansas City",
@@ -1592,6 +1608,13 @@
   "Tennessee DOH (Nashville) Health Dept": {
    "group": "MHD metros",
    "latest": "2026-11-13"
+  },
+  "Teton County WY Health Dept": {
+   "given_up": [
+    "2026-09-30|A9AB246E-2F29-4386-8CB1-31FA0A2B60AE"
+   ],
+   "group": "MHD metros (midweek)",
+   "latest": "2026-11-20"
   },
   "Utah County Health Dept": {
    "group": "MHD metros",
