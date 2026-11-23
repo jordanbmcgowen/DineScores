@@ -143,7 +143,24 @@ as an empty week.
 
 ## Backfill hand-off
 
-BACKFILL_PLACEHOLDER
+`backfill/elpaso/` in the expansion scratchpad (`--mode full --since-date
+2024-01-01`): `records.json.gz` (19,898 records), `d1.sql` (4,660
+restaurants, 19,808 inspection rows, one per restaurant and day),
+`restaurants.json`, `source_freshness.json` (group `El Paso` latest
+2026-11-20, status ok), `run.log`. Jev was off (nothing to read).
+
+- 1 POST, 23,153 rows (15 MB, ~30 s); 19,898 inspections 2024-01-02 ..
+  2026-11-20, 4,660 restaurants. Skipped: 2,987 institutional, 247 site
+  assessments, 19 exact duplicates, 1 unscored routine, 1 street-less
+  address.
+- Grades A 14,517 / B 4,253 / C 1,048 / F 80 (scores 50-69, the city's
+  closure-action range); 0 text-forced F. Scores 50-100.
+- Geocoded (Census batch, both benchmarks; OpenStreetMap fallback off in this
+  session): 18,287/19,898 records (91.9%), 4,257/4,660 restaurants (91.4%),
+  all inside 31.44-32.00 N, 106.63-106.09 W. The 1,611 unplaced records
+  (403 restaurants) retry on later runs; CI's capped OpenStreetMap fallback
+  will place some.
+- 455-740 inspections a month, steady; newest 2026-11-20.
 
 ## Known gaps
 
