@@ -1750,6 +1750,11 @@ SOURCE_TIER_SOURCES = frozenset({
     # (3 / 2 / 1, the city's tiers) and its risk_score is the city's
     # official 0-100 score, which those points reproduce: never re-scored.
     'Garland Health Inspections',
+    # Corpus Christi-Nueces County: each cited TX-form item carries the
+    # district's 3 / 2 / 1 points (priority / priority foundation / core) and
+    # its risk_score is the district's published 0-100 score (100 - those
+    # points): never re-tiered or re-scored.
+    'Corpus Christi-Nueces County Public Health District',
 })
 # Sources whose tier was bounded by a per-item rule the stored row no longer
 # carries (Chicago's item number, NYC's critical flag): a stored core line
