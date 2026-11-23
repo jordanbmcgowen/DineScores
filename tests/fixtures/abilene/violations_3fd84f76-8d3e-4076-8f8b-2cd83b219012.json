@@ -1,0 +1,98 @@
+[
+ {
+  "inspectionId": "3fd84f76-8d3e-4076-8f8b-2cd83b219012",
+  "inspectionNumber": "RFEI-ROUT-000605-2026",
+  "itemReference": "18",
+  "sortOrder": 18,
+  "violationItemText": "Toxic substances properly identified, stored and used",
+  "observationType": "OUT",
+  "violationCategoryGroupName": "Priority Items (3 Points)",
+  "violationCategoryName": "Chemicals",
+  "inspectorNotes": "Observed glass cleaner and “Bloc Aid” stored on a shelf beside food equipment.",
+  "violationItemId": "c568909c-a1fb-437d-ab76-8e072122ab20"
+ },
+ {
+  "inspectionId": "3fd84f76-8d3e-4076-8f8b-2cd83b219012",
+  "inspectionNumber": "RFEI-ROUT-000605-2026",
+  "itemReference": "34",
+  "sortOrder": 34,
+  "violationItemText": "No Evidence of Insect contamination, rodent/other animals",
+  "observationType": "OUT",
+  "violationCategoryGroupName": "Core Items (1 Point)",
+  "violationCategoryName": "Prevention of Food Contamination",
+  "inspectorNotes": "",
+  "violationItemId": "087d7c5d-7d49-4964-bfff-2470466a4d34"
+ },
+ {
+  "inspectionId": "3fd84f76-8d3e-4076-8f8b-2cd83b219012",
+  "inspectionNumber": "RFEI-ROUT-000605-2026",
+  "itemReference": "35",
+  "sortOrder": 35,
+  "violationItemText": "Personal Cleanliness/eating, drinking or tobacco use",
+  "observationType": "OUT",
+  "violationCategoryGroupName": "Core Items (1 Point)",
+  "violationCategoryName": "Prevention of Food Contamination",
+  "inspectorNotes": "",
+  "violationItemId": "367c9699-9cbe-490f-a90a-6a734f2841e3"
+ },
+ {
+  "inspectionId": "3fd84f76-8d3e-4076-8f8b-2cd83b219012",
+  "inspectionNumber": "RFEI-ROUT-000605-2026",
+  "itemReference": "36",
+  "sortOrder": 36,
+  "violationItemText": "Wiping Cloths; properly used and stored",
+  "observationType": "OUT",
+  "violationCategoryGroupName": "Core Items (1 Point)",
+  "violationCategoryName": "Prevention of Food Contamination",
+  "inspectorNotes": "Observed wet wiping cloths stored on a rolling cart. Observed wet wiping cloths on the floor under the grill. Must be stored between uses in a sanitizer solution.",
+  "violationItemId": "bc8ba33b-8b91-46ad-a954-32fcc79ed09f"
+ },
+ {
+  "inspectionId": "3fd84f76-8d3e-4076-8f8b-2cd83b219012",
+  "inspectionNumber": "RFEI-ROUT-000605-2026",
+  "itemReference": "39",
+  "sortOrder": 39,
+  "violationItemText": "Utensils, equipment, & linens; properly used, stored, dried, & handled/ In use utensils; properly used",
+  "observationType": "OUT",
+  "violationCategoryGroupName": "Core Items (1 Point)",
+  "violationCategoryName": "Proper Use of Utensils",
+  "inspectorNotes": "",
+  "violationItemId": "1cb42b06-b234-477c-ae6b-0f702002497c"
+ },
+ {
+  "inspectionId": "3fd84f76-8d3e-4076-8f8b-2cd83b219012",
+  "inspectionNumber": "RFEI-ROUT-000605-2026",
+  "itemReference": "41",
+  "sortOrder": 41,
+  "violationItemText": "Original container labeling (Bulk Food)",
+  "observationType": "OUT",
+  "violationCategoryGroupName": "Core Items (1 Point)",
+  "violationCategoryName": "Food Identification",
+  "inspectorNotes": "",
+  "violationItemId": "de6decc0-3b56-42cd-ae79-53c45de088be"
+ },
+ {
+  "inspectionId": "3fd84f76-8d3e-4076-8f8b-2cd83b219012",
+  "inspectionNumber": "RFEI-ROUT-000605-2026",
+  "itemReference": "42",
+  "sortOrder": 42,
+  "violationItemText": "Non-Food Contact surfaces clean",
+  "observationType": "OUT",
+  "violationCategoryGroupName": "Core Items (1 Point)",
+  "violationCategoryName": "Physical Facilities",
+  "inspectorNotes": "Observed 2 large coolers behind the bar counter that had lids made of styrofoam.",
+  "violationItemId": "e125ea6a-fc18-41f2-a7b0-13cbeed54285"
+ },
+ {
+  "inspectionId": "3fd84f76-8d3e-4076-8f8b-2cd83b219012",
+  "inspectionNumber": "RFEI-ROUT-000605-2026",
+  "itemReference": "47",
+  "sortOrder": 47,
+  "violationItemText": "Other Violations",
+  "observationType": "OUT",
+  "violationCategoryGroupName": "Core Items (1 Point)",
+  "violationCategoryName": "Physical Facilities",
+  "inspectorNotes": "",
+  "violationItemId": "8aa4a600-0ff2-487b-b131-a55b1ea538e4"
+ }
+]

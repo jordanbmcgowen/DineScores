@@ -1,0 +1,29 @@
+{
+ "scoreDetail": {
+  "violationScore": 83.0,
+  "violationRating": "",
+  "onlyShowRatings": false,
+  "isAverageInspectionScoringEnabled": false,
+  "numberOfInspections": null
+ },
+ "inspectionViolationItems": [
+  {
+   "inspectionId": "4afcd747-c231-4ef1-ab6c-922540394244",
+   "severityId": "53e4ccaf-71cc-4f95-a4eb-f0e37292a776",
+   "severityName": "Core",
+   "violationCount": 3
+  },
+  {
+   "inspectionId": "4afcd747-c231-4ef1-ab6c-922540394244",
+   "severityId": "ce53e0ef-922c-4922-bc5b-0b0afb1ca1b7",
+   "severityName": "Priority",
+   "violationCount": 4
+  },
+  {
+   "inspectionId": "4afcd747-c231-4ef1-ab6c-922540394244",
+   "severityId": "59490109-fcc9-483a-b81b-d242f8a87bec",
+   "severityName": "Priority Foundation",
+   "violationCount": 1
+  }
+ ]
+}

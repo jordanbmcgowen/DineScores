@@ -1755,6 +1755,12 @@ SOURCE_TIER_SOURCES = frozenset({
     # its risk_score is the district's published 0-100 score (100 - those
     # points): never re-tiered or re-scored.
     'Corpus Christi-Nueces County Public Health District',
+    # Abilene / Taylor County (Tyler EnerGov Civic Access): every cited item
+    # comes with the agency's own group, "Priority Items (3 Points)" /
+    # "Priority Foundation Items (2 Points)" / "Core Items (1 Point)", and
+    # the official score is 100 minus those points: never re-tiered or
+    # re-scored.
+    'Abilene Environmental Health',
 })
 # Sources whose tier was bounded by a per-item rule the stored row no longer
 # carries (Chicago's item number, NYC's critical flag): a stored core line

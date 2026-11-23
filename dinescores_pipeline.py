@@ -15977,6 +15977,771 @@ def fetch_corpus_christi(since_date=None, limit=None):
     return results
 
 
+# ─── ABILENE / TAYLOR COUNTY, TX (Tyler EnerGov "Civic Access" JSON API) ─────
+# The City of Abilene Environmental Health Division (Abilene-Taylor County
+# Public Health District) publishes its food inspections through Tyler
+# EnerGov's "Civic Access Public" portal: an Angular SPA over an anonymous,
+# undocumented JSON API (`civicapi/`, no cookie, token or tenant header). The
+# tenant holds only Environmental Health records. The city moved to new
+# inspection types in September 2026 ('RFE-Routine', 'RFE-Reinspection',
+# 'RFE-Bi-Annual School'); the visits before that are 'Legacy Retail Food
+# Establishment' (back to 2019).
+# A window is read in three phases, one request stream about a second apart:
+#   1. `search-inspections` over every type, filtered server-side on the
+#      REQUESTED date (the scheduled-date filter is ignored, and there is no
+#      completed-date filter), paged to the end;
+#   2. `inspection/{id}` per listed food inspection: business name, street,
+#      permit link and the COMPLETED date, which is the visit's own date;
+#   3. per kept inspection `inspection/inspection-score-violation/{id}` (the
+#      official score) and `violations-information` (one row per OUT item,
+#      with the agency's tier and the inspector's observation), plus the
+#      operational permit's summary once per permit (its class decides scope).
+# The requested date is the visit's due date, set when the previous visit
+# closed: a routine completed today can carry a requested date months ago
+# (overdue) or months ahead (done early; one completed 2026-11-20 is requested
+# 2027-05-01), so the search reads from ABL_REQUESTED_MARGIN_DAYS before the
+# window with no upper bound, and inspections are kept by completed date.
+# Visits not yet done exist as 'Scheduled' and are not listed; the public list
+# was checked against 30 permits' own inspection lists (docs/expansion-2026-
+# 11b/abilene.md): every completed food inspection was listed.
+# Score: the agency's violationScore, 100 - 3 x Priority - 2 x Priority
+# Foundation - 1 x Core, kept as original_score and risk_score. The tiers are
+# the agency's own (violationCategoryGroupName), registered in jev_reader
+# SOURCE_TIER_SOURCES. The score endpoint's own per-tier counts are unreliable
+# (blank severity names on a fifth of inspections), so the OUT lines are the
+# check: an inspection whose lines (3 / 2 / 1 per distinct form item) do not
+# reproduce its score was not read completely and is dropped and held.
+# Addresses are street-only (no city or ZIP anywhere in the API; every permit
+# seen is in the 'City of Abilene' district), so city is Abilene and main()
+# geocodes. The header carries the inspector's name and e-mail and a free-text
+# comment, the permit summary its issuer's and (in 'description') often the
+# business's contact e-mail: none of them leave this section, and the test
+# fixtures are scrubbed of them.
+
+ABL_BASE = 'https://cityofabilenetx-energovweb.tylerhost.net/apps/civic-access-public/'
+ABL_API = ABL_BASE + 'civicapi/'
+ABL_SEARCH_URL = ABL_API + 'search-inspections'
+ABL_HEADER_URL = ABL_API + 'inspection/{}'
+ABL_SCORE_URL = ABL_API + 'inspection/inspection-score-violation/{}'
+ABL_VIOLATIONS_URL = ABL_API + 'violations-information'
+ABL_PERMIT_URL = ABL_API + 'operational-permit/{}/summary'
+ABL_BUSINESS_URL = ABL_API + 'details/business/{}/page-title'
+ABL_RECORD_URL = ABL_BASE + 'details/inspection/{}'      # the SPA's own route
+ABL_SOURCE = 'Abilene Environmental Health'
+ABL_GROUP = 'Abilene'
+ABL_METRO = ''
+ABL_DEFAULT_CITY = 'Abilene'
+ABL_STATE = 'TX'
+ABL_PAGE = 100               # pageSize per search page (the server accepts 100)
+ABL_MAX_PAGES = 400          # the whole record since 2019 is ~175 pages
+ABL_TIMEOUT = 60
+ABL_RETRIES = 4              # attempts per request
+ABL_BACKOFF = 5              # seconds between attempts: 5, 15, 45
+ABL_DELAY = 1.0              # seconds after every request: one stream, ~1 request a second
+ABL_BREAKER_TRIP = 3         # exhausted requests in a row -> _ABL_BLOCKED
+# The search reads from this many days of REQUESTED date before the window
+# start. Measured 2026-11-23 over the 432 completed food inspections requested
+# since 2026-08-24: completed minus requested was 0 days for the median, 20
+# at the 90th percentile, 27 at the 95th and 49 at most (RFE-Routine; legacy
+# rows 0); a visit done EARLY has a later requested date (down to -162 days)
+# and is covered by the open upper bound.
+ABL_REQUESTED_MARGIN_DAYS = 60
+# The date-filtered search silently leaves out an inspection with no
+# scheduled date (RFEI-ROUT-000151-2026, requested 2026-09-28, is listed by a
+# search with no date and by its case number, by no requested-date window: 1
+# of the 251 routine rows on 2026-11-23). So each new food type is also
+# listed with no date filter, which reads its whole short history (the types
+# began in September 2026: 3 pages a run, ~10 after a year), and its rows
+# with no scheduled date join the window by their requested date.
+ABL_SWEEP_TYPE_IDS = {
+    'RFE-Routine': '120346cb-0c05-2aa9-bff3-500dc39b5f3c',
+    'RFE-Reinspection': '863a15ad-2c97-858b-5ab1-3de679e08c05',
+}
+# Inspections COMPLETED this many days before the window start are read and
+# shipped again (idempotent upserts): a visit is listed only once its report
+# is closed, which can be days after the visit. Already-stored ones are
+# skipped through SKIP_KNOWN_INSPECTIONS, so the margin costs only headers.
+ABL_COMPLETED_MARGIN_DAYS = 14
+# With no since_date and a limit (the pipeline's test mode) the search reads
+# this many days back instead of the whole record.
+ABL_BOUNDED_DAYS = 30
+# Once this many inspections were tried, more than half unreadable (or, for
+# the score check, more than ABL_SCORE_MISMATCH_MAX) is an outage or a layout
+# change and nothing ships.
+ABL_MASS_FAILURE_MIN = 20
+ABL_SCORE_MISMATCH_MAX = 0.05
+ABL_HEADERS = {
+    'User-Agent': CHROME_UA,
+    'Accept': 'application/json, text/plain, */*',
+    'Origin': 'https://cityofabilenetx-energovweb.tylerhost.net',
+    'Referer': ABL_BASE + 'search',
+}
+# Inspection types (every type listed since 2026-08-24: RFE-Routine 250,
+# Legacy Retail Food Establishment 158, RFE-Bi-Annual School 22,
+# RFE-Reinspection 3). The display name is the record's inspection_type.
+ABL_SHIP_TYPES = {
+    'RFE-Routine': 'Routine',
+    'RFE-Reinspection': 'Reinspection',
+    'Legacy Retail Food Establishment': 'Routine',
+}
+# Never shipped: school cafeterias (their own type and permit class), mobile
+# units and temporary events (no fixed address), and the programs that are not
+# food (pools, child care, public interactive water features). Any other type
+# is dropped with a warning so a new one gets a decision.
+ABL_DROP_TYPES = frozenset({
+    'RFE-Bi-Annual School', 'MF-Routine', 'MF-Reinspection', 'Legacy Mobile Food',
+    'Temporary Food Service', 'DAY-Annual', 'Legacy Daycare', 'POOL-Routine', 'POOL-Reinspection',
+    'POOL-Off-Season', 'Legacy Pool', 'PIWF-Routine', 'PIWF-Reinspection', 'Legacy PIWF',
+})
+# Statuses of a closed report (the search lists nothing else).
+ABL_SHIP_STATUSES = frozenset({'Completed', 'Passed', 'Failed'})
+# Operational-permit classes out of scope: institutional kitchens (schools,
+# the university dining contractor's 'Academy' permits, day cares, nursing
+# homes, hospitals), mobile units, food demonstrations and wholesalers.
+ABL_SKIP_PERMIT_CLASSES = frozenset({
+    'School - Biannual Inspection', 'Academy', 'Day Care', 'Nursing Home', 'Hospital',
+    'Mobile Food', 'Food Demo', 'Wholesale',
+})
+# Until the school class existed (September 2026) the district kitchens held
+# 'Full Service' permits (now Inactive) and were inspected as RFE-Routine or
+# Legacy visits, told apart by neither type nor class. The Tyler fetchers'
+# institution name rule (TP_INSTITUTION_RE) catches the schools; these two
+# catch an early-childhood centre and the school district's warehouse. In the
+# 90-day backfill 17 of 499 inspections matched: 14 at schools and the
+# early-childhood centre, 2 at the warehouse, and 1 at a fast-food counter
+# inside a hospital (the shared rule's 'medical center', as for Georgia and
+# Louisiana).
+_ABL_INSTITUTION_RE = re.compile(r'\b(?:early\s+childhood|\w*isd)\b', re.I)
+
+
+def _abl_institutional(name):
+    return _tp_institutional(name) or bool(_ABL_INSTITUTION_RE.search(name or ''))
+# The agency's tier per OUT line (violationCategoryGroupName).
+ABL_GROUP_SEVERITY = (
+    ('priority foundation', 'priority_foundation'),
+    ('priority', 'priority'),
+    ('core', 'core'),
+)
+ABL_SEVERITY_POINTS = {'priority': 3, 'priority_foundation': 2, 'core': 1}
+# Form item 20's title. Alone it does not trip SEWAGE_ISSUE_RE, but joined
+# after item 19's title ('... proper backflow device|||Approved Sewage/...')
+# or followed by an observation naming a floor drain it does ('back' / 'floor'
+# within 40 characters of 'sewage'), forcing false F's on a mop-bucket
+# citation. It ships under a neutral heading; an observation that says sewage
+# backed up still forces the F on its own words. Item 34's pest title ships
+# as 'Pests and animals: <observation>' (HH_PEST_TITLE, the Hedgerow rule) and
+# bare, with no observation, as the TFER title jev_reader registers in
+# CITED_PEST_ITEM_TITLES (pest chip, "Pests found", never an F).
+_ABL_SEWAGE_TITLE_RE = re.compile(r'^approved\s+sewage\s*/\s*wastewater\s+disposal\s+system\b', re.I)
+ABL_SEWAGE_TITLE = 'Wastewater disposal'
+
+_ABL_BLOCKED = False
+_ABL_EXHAUSTED_STREAK = 0
+_ABL_FAILURES_LOGGED = 0
+_ABL_LAST_ERROR = ''
+_ABL_STATS = defaultdict(int)       # this fetch's request count and outcomes (logs and tests)
+
+
+class _AblCut(Exception):
+    """A phase stopped early: the breaker tripped ('blocked') or the fetch
+    deadline passed ('skipped')."""
+
+    def __init__(self, status, detail):
+        super().__init__(detail)
+        self.status, self.detail = status, detail
+
+
+def _abl_request(session, url, body=None, info=None):
+    """JSON from one civicapi call (a POST of the JSON `body`, else a GET), or
+    None once ABL_RETRIES attempts failed. `info` says why None came back:
+    'permanent' (400/404/410: that record's own problem, not retried, not
+    counted toward the breaker), 'exhausted' (every attempt failed: a 5xx, a
+    timeout, a 403, an HTML page in place of JSON; ABL_BREAKER_TRIP in a row
+    set _ABL_BLOCKED and every further request returns None at once) or
+    'deadline' (the retry ladder was cut by the fetch deadline). Sleeps
+    ABL_DELAY after every answer: one request stream about a second apart."""
+    global _ABL_BLOCKED, _ABL_EXHAUSTED_STREAK, _ABL_FAILURES_LOGGED, _ABL_LAST_ERROR
+    last_err, permanent, deadline = None, False, False
+    for attempt in range(ABL_RETRIES):
+        if _ABL_BLOCKED:
+            return None
+        _ABL_STATS['requests'] += 1
+        try:
+            if body is not None:
+                r = session.post(url, data=json.dumps(body), timeout=ABL_TIMEOUT,
+                                 headers={**ABL_HEADERS, 'Content-Type': 'application/json'})
+            else:
+                r = session.get(url, timeout=ABL_TIMEOUT, headers=ABL_HEADERS)
+            time.sleep(ABL_DELAY)
+            r.raise_for_status()
+            data = r.json()
+            _ABL_EXHAUSTED_STREAK = 0
+            return data
+        except (requests.RequestException, ValueError) as e:
+            last_err = e
+            resp = getattr(e, 'response', None)
+            status = resp.status_code if resp is not None else None
+            if status in (400, 404, 410):
+                permanent = True
+                break
+            if attempt == ABL_RETRIES - 1:
+                break
+            if _past_deadline():
+                deadline = True
+                break
+            wait = ABL_BACKOFF * (3 ** attempt)
+            if status in (429, 503):
+                try:
+                    wait = max(wait, min(int((resp.headers or {}).get('Retry-After', 0)), 300))
+                except (TypeError, ValueError):
+                    pass
+            time.sleep(wait)
+    _ABL_LAST_ERROR = f'{type(last_err).__name__}: {str(last_err)[:120]}' if last_err else 'breaker tripped'
+    if info is not None:
+        info['permanent' if permanent else 'deadline' if deadline else 'exhausted'] = True
+    if permanent:
+        _ABL_STATS['permanent failures'] += 1
+    elif deadline:
+        _ABL_STATS['deadline cuts'] += 1
+    elif last_err is not None:
+        _ABL_STATS['exhausted failures'] += 1
+        _ABL_EXHAUSTED_STREAK += 1
+        if _ABL_EXHAUSTED_STREAK >= ABL_BREAKER_TRIP and not _ABL_BLOCKED:
+            _ABL_BLOCKED = True
+            log.error(f"  Abilene: {_ABL_EXHAUSTED_STREAK} requests in a row failed through every retry "
+                      f"({_ABL_LAST_ERROR}) — treating it as a block")
+    if _ABL_FAILURES_LOGGED < 5:
+        _ABL_FAILURES_LOGGED += 1
+        log.warning(f"  Abilene request failed ({url.replace(ABL_API, '<civicapi>/')}): {_ABL_LAST_ERROR}")
+    return None
+
+
+def _abl_outcome(info):
+    """Why a per-record request came back without data: 'gone' (400/404/410),
+    'failed' (tried through every retry, or an answer of the wrong shape),
+    'deadline' or 'blocked' (the breaker had tripped; nothing was tried)."""
+    if info.get('permanent'):
+        return 'gone'
+    if info.get('exhausted'):
+        return 'failed'
+    if info.get('deadline'):
+        return 'deadline'
+    if _ABL_BLOCKED:
+        return 'blocked'
+    return 'deadline' if _past_deadline() else 'failed'
+
+
+def _abl_search_body(read_from, page, size, type_id=''):
+    return {
+        'publicRecordsCommonSearchCriteria': {
+            'caseNumber': '', 'caseTypeId': type_id, 'caseTypeWorkClassId': '', 'caseStatusId': '',
+            'projectName': '', 'address': '', 'parcelNumber': '', 'description': ''},
+        # No upper bound: a visit done early keeps a requested date months ahead.
+        'requestedDateFrom': f'{read_from}T00:00:00' if read_from else None,
+        'requestedDateTo': None,
+        'scheduledDateFrom': None, 'scheduledDateTo': None,
+        'sortBy': 0, 'pageNumber': page, 'pageSize': size, 'value': '',
+        'isSortedInAscendingOrder': False, 'sortField': ''}
+
+
+def _abl_fields(row):
+    """A search row's searchResultFields as {label: value}."""
+    out = {}
+    for f in row.get('searchResultFields') or []:
+        if isinstance(f, dict) and f.get('label'):
+            out[f['label']] = f.get('value')
+    return out
+
+
+def _abl_list(session, read_from, type_id='', label='inspections'):
+    """Phase 1: every inspection row requested on or after `read_from` (all of
+    them when None), of one type when `type_id` is set, deduped on caseId
+    (lower-cased: the portal prints legacy GUIDs in capitals). Pages are
+    followed to a short page; the unique count must reach the server's
+    totalCount, and a page that adds no new row (the server stopped paging)
+    fails closed. Raises RuntimeError on an unreadable page or a short
+    listing, _AblCut on the deadline or the breaker."""
+    rows, page, total = {}, 1, None
+    while True:
+        if _past_deadline():
+            raise _AblCut('skipped', f'fetch deadline reached while listing {label} ({len(rows)} read)')
+        info = {}
+        data = _abl_request(session, ABL_SEARCH_URL, body=_abl_search_body(read_from, page, ABL_PAGE, type_id),
+                            info=info)
+        got = data.get('entityPublicSearchResults') if isinstance(data, dict) else None
+        if not isinstance(got, list):
+            if _ABL_BLOCKED:
+                raise _AblCut('blocked', f'the portal stopped answering while listing inspections ({_ABL_LAST_ERROR})')
+            if info.get('deadline') or _past_deadline():
+                raise _AblCut('skipped', f'fetch deadline reached while listing inspections (page {page} not read)')
+            raise RuntimeError(f'Abilene: inspection search page {page} could not be read '
+                               f'({_ABL_LAST_ERROR or str(data)[:80]}); not shipping a partial window')
+        try:
+            total = int(data.get('totalCount'))
+        except (TypeError, ValueError):
+            raise RuntimeError(f'Abilene: inspection search page {page} answered without a totalCount; '
+                               f'not shipping a partial window')
+        new = 0
+        for row in got:
+            cid = str(row.get('caseId') or '').strip().lower() if isinstance(row, dict) else ''
+            if cid and cid not in rows:
+                rows[cid] = row
+                new += 1
+        if len(got) < ABL_PAGE or len(rows) >= total:
+            break
+        if not new:
+            raise RuntimeError(f'Abilene: inspection search is not paging (page {page} added none of its '
+                               f'{len(got)} rows); not shipping a partial window')
+        page += 1
+        if page > ABL_MAX_PAGES:
+            raise RuntimeError(f'Abilene: inspection search did not end after {ABL_MAX_PAGES} pages')
+    if len(rows) < total:
+        raise RuntimeError(f'Abilene: inspection listing incomplete ({len(rows)} of {total} rows in {page} '
+                           f'pages); not shipping a partial window')
+    log.info(f"  Abilene: {len(rows)} {label} requested since {read_from or 'the start of the record'} "
+             f"({page} search pages, totalCount {total})")
+    return rows
+
+
+def _abl_fix_case(s):
+    """After .title(): possessives, ordinals and 'Mc' names ("Belle's",
+    '14th', 'McMurry')."""
+    s = re.sub(r"(\w)'S\b", r"\1's", s)
+    s = re.sub(r'\b(\d+)(St|Nd|Rd|Th)\b', lambda m: m.group(1) + m.group(2).lower(), s)
+    return re.sub(r'\bMc([a-z])', lambda m: 'Mc' + m.group(1).upper(), s)
+
+
+def _abl_title(s):
+    """Whitespace collapsed; title case for an ALL-CAPS value."""
+    s = ' '.join(str(s or '').split())
+    return _abl_fix_case(s.title()) if s.isupper() else s
+
+
+# Abilene's street directions, including the city's own two-letter ones
+# ('ES 11th St', 'EN 10th St': East South / East North).
+_ABL_DIRECTIONS_RE = re.compile(r'\b(N|S|E|W|Ne|Nw|Se|Sw|En|Es|Wn|Ws)\b')
+
+
+def _abl_address(s):
+    """'2025 S 14th ST Unit:STE A' -> '2025 S 14th St Ste A'. The portal mixes
+    capitals and mixed case per permit; every address is title-cased (with
+    ordinals lower and directions upper) so a facility reads the same however
+    it was keyed."""
+    s = ' '.join(re.sub(r'\bUnit\s*:\s*', ' ', str(s or ''), flags=re.I).split())
+    s = _abl_fix_case(s.title())
+    s = _ABL_DIRECTIONS_RE.sub(lambda m: m.group(1).upper(), s)
+    return s.strip(' ,')
+
+
+def _abl_severity(group):
+    g = ' '.join(str(group or '').split()).lower()
+    for prefix, severity in ABL_GROUP_SEVERITY:
+        if g.startswith(prefix):
+            return severity
+    return None
+
+
+def _abl_violations(items):
+    """violations-information rows -> ([[category, severity, text], ...],
+    demerits) for the OUT items, in form order. The text is the form item's
+    title and the inspector's observation ('<title>: <notes>'), or the title
+    alone when the inspector wrote none; a line repeated verbatim (the legacy
+    rows cite an item once per finding, with no notes) ships once. demerits
+    is 3 / 2 / 1 per DISTINCT form item by its tier, which is how the agency
+    scores (a legacy 71 cites items 10, 31, 37 and 45 twice each and adds up
+    only counting each once). Raises ValueError for anything but a list, or
+    an OUT row without a title or with a tier the agency does not use (a
+    layout change: the inspection is not read, never clean)."""
+    if not isinstance(items, list):
+        raise ValueError(f'unexpected violations-information shape: {str(items)[:80]}')
+    out, seen, cited = [], set(), {}
+    for item in sorted((i for i in items if isinstance(i, dict)), key=lambda i: (i.get('sortOrder') or 0)):
+        if ' '.join(str(item.get('observationType') or '').split()).upper() != 'OUT':
+            continue
+        title = ' '.join(str(item.get('violationItemText') or '').split()).rstrip(' .:;')
+        notes = ' '.join(str(item.get('inspectorNotes') or '').split())
+        severity = _abl_severity(item.get('violationCategoryGroupName'))
+        if not title or severity is None:
+            raise ValueError(f"OUT item without a title or a known tier "
+                             f"({str(item.get('violationCategoryGroupName'))[:60]!r})")
+        if _HH_PEST_TITLE_RE.match(title):
+            if notes:
+                title = HH_PEST_TITLE
+        elif _ABL_SEWAGE_TITLE_RE.match(title):
+            title = ABL_SEWAGE_TITLE
+        ref = ' '.join(str(item.get('itemReference') or '').split()) or title.lower()
+        cited[ref] = max(cited.get(ref, 0), ABL_SEVERITY_POINTS[severity])
+        text = (f'{title}: {notes}' if notes and notes.lower() != title.lower() else title)[:500]
+        if (severity, text.lower()) in seen:
+            continue
+        seen.add((severity, text.lower()))
+        cat, _, _ = classify_violation(text)
+        out.append([cat, severity, text])
+    return out, sum(cited.values())
+
+
+def _abl_score(data):
+    """The official violationScore as an int, or None when absent."""
+    try:
+        v = float(((data or {}).get('scoreDetail') or {}).get('violationScore'))
+    except (TypeError, ValueError, AttributeError):
+        return None
+    return int(round(v)) if v == v else None
+
+
+def _abl_header_fields(cid, row, header):
+    """The fields a record needs from one inspection header, or None for an
+    answer that is not an inspection header."""
+    if not isinstance(header, dict) or not isinstance(header.get('detailsHeaderInfo'), dict):
+        return None
+    info = header['detailsHeaderInfo']
+    kind = ' '.join(str(header.get('inspectionTypeName') or row.get('caseTypeWorkClassFriendlyName') or '').split())
+    return {
+        'cid': cid,
+        'case_id': str(row.get('caseId') or info.get('caseId') or cid),
+        'number': ' '.join(str(info.get('caseNumber') or row.get('caseNumber') or '').split()),
+        'type': kind,
+        'status': ' '.join(str(header.get('inspectionStatusName') or row.get('caseStatus') or '').split()),
+        'date': sane_inspection_date(header.get('completedDate')),
+        'requested': str(header.get('requestedDate') or '')[:10],
+        'name': ' '.join(str(header.get('companyName') or header.get('dba') or '').split()),
+        'address': info.get('mainAddress') or row.get('displayAddress') or '',
+        'link_id': str(header.get('linkId') or '').strip(),
+        'link_module': header.get('linkModule'),
+    }
+
+
+def _abl_record(insp, score, violations):
+    _, pv, pfv, cv = calc_risk_score(violations)
+    status = insp['status']
+    return {
+        'name': _abl_title(insp['name']),
+        'address': _abl_address(insp['address']),
+        'city': ABL_DEFAULT_CITY,
+        'state': ABL_STATE,
+        'zip': '',
+        'latitude': None,
+        'longitude': None,
+        'inspection_date': insp['date'],
+        'original_score': score,             # the agency's 100 - 3P - 2PF - C
+        'risk_score': max(0, min(100, score)),
+        'priority_violations': pv,
+        'priority_foundation_violations': pfv,
+        'core_violations': cv,
+        'total_violations': len(violations),
+        'violations': violations,
+        'inspection_type': ABL_SHIP_TYPES.get(insp['type'], insp['type']),
+        'results': status if status in ('Passed', 'Failed') else '',
+        'source': ABL_SOURCE,
+        'source_url': ABL_RECORD_URL.format(insp['case_id']),
+        'source_id': f"abl_{insp['number']}",
+        'metro': ABL_METRO,
+    }
+
+
+def fetch_abilene(since_date=None, limit=None):
+    """
+    Fetch Abilene / Taylor County, TX food inspections from the city's Tyler
+    EnerGov Civic Access API (see the section comment above): one record per
+    completed routine or scored re-inspection of a fixed food establishment,
+    the agency's official score, agency-stated P/PF/C tiers, the form item
+    title plus the inspector's observation as the violation text.
+
+    since_date is 'YYYY-MM-DD[T00:00:00]' or None (the whole record, or the
+    last ABL_BOUNDED_DAYS days when `limit` is set). Inspections COMPLETED on
+    or after since_date less ABL_COMPLETED_MARGIN_DAYS ship; the search reads
+    from ABL_REQUESTED_MARGIN_DAYS before that. limit bounds a test read to
+    the `limit` most recently requested rows (no lag note then). An
+    inspection whose score, OUT lines or permit could not be read is dropped
+    and held, never shipped clean.
+    """
+    global _ABL_BLOCKED, _ABL_EXHAUSTED_STREAK, _ABL_FAILURES_LOGGED, _ABL_LAST_ERROR
+    log.info(f"Fetching Abilene data (since={since_date}, limit={limit})")
+    since = str(since_date)[:10] if since_date else None
+    _ABL_STATS.clear()
+    _ABL_BLOCKED, _ABL_EXHAUSTED_STREAK, _ABL_FAILURES_LOGGED, _ABL_LAST_ERROR = False, 0, 0, ''
+    started = time.time()
+    session = requests.Session()
+
+    def shift(day, days):
+        return (datetime.strptime(day, '%Y-%m-%d') - timedelta(days=days)).strftime('%Y-%m-%d')
+
+    if since:
+        keep_from = shift(since, ABL_COMPLETED_MARGIN_DAYS)
+        read_from = shift(since, ABL_REQUESTED_MARGIN_DAYS)
+    elif limit:
+        keep_from = read_from = (datetime.now() - timedelta(days=ABL_BOUNDED_DAYS)).strftime('%Y-%m-%d')
+    else:
+        keep_from = read_from = None
+
+    def cut(status, detail):
+        if since:
+            # Nothing read is complete enough to advance the window.
+            _hold_window_start(ABL_SOURCE, since, counted=False, key='window')
+        _set_group_status(ABL_GROUP, status, detail)
+        log.warning(f"Abilene: {status} — {detail}")
+        return []
+
+    # Phase 1: the list, plus the rows of the new food types that the
+    # date-filtered search cannot see (no scheduled date; ABL_SWEEP_TYPE_IDS).
+    try:
+        listed = _abl_list(session, read_from)
+        unscheduled = 0
+        for kind, type_id in ABL_SWEEP_TYPE_IDS.items():
+            for cid, row in _abl_list(session, None, type_id, f'{kind} rows (no date filter)').items():
+                fields = _abl_fields(row)
+                requested = str(fields.get('Requested Date') or '')[:10]
+                if cid in listed or fields.get('Scheduled Date'):
+                    continue
+                if read_from and requested and requested < read_from:
+                    continue
+                listed[cid] = row
+                unscheduled += 1
+        if unscheduled:
+            log.info(f"  Abilene: {unscheduled} inspections with no scheduled date added from the "
+                     f"undated listing (the date filter leaves them out)")
+    except _AblCut as c:
+        return cut(c.status, c.detail)
+    skipped = defaultdict(int)
+    rows = []
+    for row in listed.values():
+        kind = ' '.join(str(row.get('caseTypeWorkClassFriendlyName') or '').split())
+        if kind in ABL_SHIP_TYPES:
+            rows.append(row)
+        elif kind in ABL_DROP_TYPES:
+            skipped[f'type {kind}'] += 1
+        else:
+            skipped[f'unknown type {kind or "(blank)"}'] += 1
+    for why, n in skipped.items():
+        if why.startswith('unknown type'):
+            log.warning(f"  Abilene: {n} inspections of an {why} were dropped — decide whether that type should ship")
+    # Oldest requested first; a bounded read keeps the most recently requested.
+    rows.sort(key=lambda r: (str(_abl_fields(r).get('Requested Date') or ''), str(r.get('caseNumber') or '')))
+    truncated = bool(limit) and len(rows) > limit
+    if truncated:
+        rows = rows[-limit:]
+
+    # Phase 2: the headers. One that cannot be read is an inspection of
+    # unknown date: the window is held at its start so the next run re-reads
+    # it (key = the inspection's caseId, so a permanently bad one is given up).
+    headers, unread_headers = [], []
+    for row in rows:
+        if _past_deadline():
+            return cut('skipped', f'fetch deadline reached while reading inspection headers '
+                                  f'({len(headers)} of {len(rows)} read)')
+        cid = str(row.get('caseId')).strip()
+        info = {}
+        data = _abl_request(session, ABL_HEADER_URL.format(cid), info=info)
+        fields = _abl_header_fields(cid, row, data)
+        if fields is None:
+            if _ABL_BLOCKED:
+                return cut('blocked', f'the portal stopped answering ({_ABL_LAST_ERROR}); '
+                                      f'{len(rows) - len(headers)} inspection headers not read')
+            why = _abl_outcome(info) if data is None else 'failed'
+            if why == 'deadline':
+                return cut('skipped', f'fetch deadline reached while reading inspection headers '
+                                      f'({len(headers)} of {len(rows)} read)')
+            unread_headers.append((cid, why))
+            continue
+        headers.append(fields)
+        if len(headers) % 200 == 0:
+            log.info(f"  Abilene: {len(headers)} of {len(rows)} inspection headers read "
+                     f"({time.time() - started:.0f}s)")
+    if len(rows) >= ABL_MASS_FAILURE_MIN and len(unread_headers) > len(rows) / 2:
+        raise RuntimeError(f"Abilene: {len(unread_headers)} of {len(rows)} inspection headers could not be read "
+                           f"({_ABL_LAST_ERROR}); not shipping")
+    for cid, why in unread_headers:
+        if since:
+            _hold_window_start(ABL_SOURCE, since, counted=True, key=cid)
+    if unread_headers:
+        log.warning(f"  Abilene: {len(unread_headers)} inspection headers could not be read "
+                    f"({', '.join(c for c, _ in unread_headers[:5])}); the window is held for a re-read")
+
+    newest = max((h['date'] for h in headers if h['date']), default='')
+    lags = []
+    candidates = []
+    for h in headers:
+        if h['status'] not in ABL_SHIP_STATUSES:
+            skipped[f"status {h['status'] or '(blank)'}"] += 1
+            continue
+        if not h['date']:
+            skipped['no completed date'] += 1
+            continue
+        if not h['number']:
+            skipped['no case number'] += 1
+            continue
+        if h['requested']:
+            try:
+                lags.append((datetime.strptime(h['date'], '%Y-%m-%d')
+                             - datetime.strptime(h['requested'], '%Y-%m-%d')).days)
+            except ValueError:
+                pass
+        if keep_from and h['date'] < keep_from:
+            skipped['completed before the window'] += 1
+            continue
+        if h['name'] and SKIP_KNOWN_INSPECTIONS and (
+                make_restaurant_id(_abl_title(h['name']), _abl_address(h['address']), ABL_DEFAULT_CITY),
+                h['date']) in SKIP_KNOWN_INSPECTIONS:
+            skipped['already stored'] += 1
+            continue
+        candidates.append(h)
+    if lags:
+        lags.sort()
+        log.info(f"  Abilene: completed minus requested date over {len(lags)} inspections: min {lags[0]}, "
+                 f"median {lags[len(lags) // 2]}, max {lags[-1]} days")
+    candidates.sort(key=lambda h: (h['date'], h['number']))      # oldest first: a cut drops the newest tail
+
+    # Phase 3: per permit its summary (scope, name fallback), per inspection
+    # its score and OUT lines. A record that cannot be read is dropped and
+    # held on its own; a breaker trip or the deadline drops the rest (held,
+    # not counted) and reports the group.
+    permits = {}             # linkId -> summary dict | 'gone' | 'failed'
+
+    def permit_of(h):
+        lid = h['link_id']
+        if not lid:
+            return None
+        if lid not in permits:
+            info = {}
+            if h['link_module'] == 15:
+                data = _abl_request(session, ABL_PERMIT_URL.format(lid), info=info)
+                ok = isinstance(data, dict) and 'licenseClassName' in data
+            else:
+                data = _abl_request(session, ABL_BUSINESS_URL.format(lid), info=info)
+                ok = isinstance(data, dict) and 'pageTitle' in data
+            permits[lid] = data if ok else (_abl_outcome(info) if data is None else 'failed')
+        return permits[lid]
+
+    results, failures, unread_lines, mismatched = [], defaultdict(int), [], []
+    tried = checked = 0
+    stop = None
+    districts, classes = defaultdict(int), defaultdict(int)
+
+    def drop(h, why, what):
+        """Drop one inspection that could not be read. A deadline or breaker
+        stops the phase: this and every later one are held without counting.
+        Any other failure holds this one, counted toward giving it up."""
+        nonlocal stop
+        if why in ('deadline', 'blocked') and stop is None:
+            stop = ('skipped', 'fetch deadline reached') if why == 'deadline' else \
+                ('blocked', f'the portal stopped answering ({_ABL_LAST_ERROR})')
+        if stop is not None and why in ('deadline', 'blocked'):
+            failures[stop[0]] += 1
+            _hold_freshness(ABL_SOURCE, h['date'], counted=False, key=h['number'])
+        else:
+            failures[f'{what} {why}'] += 1
+            _hold_freshness(ABL_SOURCE, h['date'], counted=True, key=h['number'])
+
+    for h in candidates:
+        if stop is None and (_past_deadline() or _ABL_BLOCKED):
+            stop = ('skipped', 'fetch deadline reached') if not _ABL_BLOCKED else \
+                ('blocked', f'the portal stopped answering ({_ABL_LAST_ERROR})')
+        if stop:
+            drop(h, 'blocked' if stop[0] == 'blocked' else 'deadline', 'cut')
+            continue
+        tried += 1
+        permit = permit_of(h)
+        if isinstance(permit, str):
+            drop(h, permit, 'permit')
+            continue
+        if isinstance(permit, dict):
+            klass = ' '.join(str(permit.get('licenseClassName') or '').split())
+            if klass:
+                classes[klass] += 1
+            if permit.get('districtName'):
+                districts[' '.join(str(permit['districtName']).split())] += 1
+            if klass in ABL_SKIP_PERMIT_CLASSES:
+                skipped[f'permit class {klass}'] += 1
+                continue
+            if not h['name']:
+                h['name'] = ' '.join(str(permit.get('businessName') or permit.get('dba')
+                                         or permit.get('pageTitle') or '').split())
+        if not h['name']:
+            skipped['no business name'] += 1
+            continue
+        if _abl_institutional(h['name']):
+            skipped['institutional kitchen (by name)'] += 1
+            continue
+        info = {}
+        data = _abl_request(session, ABL_SCORE_URL.format(h['case_id']), info=info)
+        if not isinstance(data, dict) or not isinstance(data.get('scoreDetail'), dict):
+            drop(h, _abl_outcome(info) if data is None else 'failed', 'score')
+            continue
+        score = _abl_score(data)
+        if score is None or score <= 0:
+            # A re-inspection that only re-checks the failed items is stored
+            # with a score of 0 (or none): no score, not a zero.
+            skipped['unscored'] += 1
+            continue
+        violations, demerits = [], 0
+        if score < 100:
+            info = {}
+            data = _abl_request(session, ABL_VIOLATIONS_URL, info=info, body={
+                'inspectionId': h['case_id'], 'isInViolation': True, 'module': 7,
+                'inspectionViolationItemId': ''})
+            if data is None:
+                drop(h, _abl_outcome(info), 'lines')
+                continue
+            try:
+                violations, demerits = _abl_violations(data)
+            except ValueError as e:
+                log.warning(f"  Abilene: {h['number']}: unreadable OUT lines ({e})")
+                drop(h, 'failed', 'lines')
+                continue
+            if not violations:
+                # Scored below 100 with no OUT line: the lines were not read.
+                unread_lines.append(h)
+                continue
+        # Every OUT item costs 3, 2 or 1 points, so the lines must add up to
+        # the official score; when they do not, part of the report was not
+        # read (or the agency changed its scoring) and it never ships.
+        checked += score < 100
+        if score != 100 - demerits:
+            mismatched.append((h, score, 100 - demerits))
+            continue
+        results.append(_abl_record(h, score, violations))
+
+    if stop:
+        _set_group_status(ABL_GROUP, stop[0], f"{stop[1]}; {failures[stop[0]]} inspections not read")
+    if tried >= ABL_MASS_FAILURE_MIN and (len(unread_lines) + sum(
+            n for k, n in failures.items() if k.startswith(('score', 'lines', 'permit')))) > tried / 2:
+        raise RuntimeError(f"Abilene: most of {tried} inspections could not be read ({dict(failures)}, "
+                           f"{len(unread_lines)} scored below 100 without an OUT line); not shipping")
+    if checked >= ABL_MASS_FAILURE_MIN and len(mismatched) > checked * ABL_SCORE_MISMATCH_MAX:
+        raise RuntimeError(f"Abilene: {len(mismatched)} of {checked} inspections' OUT lines do not add up to "
+                           f"the official score (100 - 3P - 2PF - C); the lines are not being read, not shipping")
+    for h in unread_lines:
+        _hold_freshness(ABL_SOURCE, h['date'], counted=True, key=h['number'])
+    if unread_lines:
+        log.warning(f"  Abilene: {len(unread_lines)} inspections scored below 100 came back with no OUT line; "
+                    f"dropped and held for a re-read")
+    for h, score, computed in mismatched:
+        _hold_freshness(ABL_SOURCE, h['date'], counted=True, key=h['number'])
+    if mismatched:
+        log.warning("  Abilene: dropped and held " + ', '.join(
+            f"{h['number']} (score {s}, lines {c})" for h, s, c in mismatched[:5])
+            + f"{' ...' if len(mismatched) > 5 else ''}: OUT lines do not reproduce the official score")
+    failed = {k: n for k, n in failures.items() if k not in ('skipped', 'blocked')}
+    if failed:
+        log.warning(f"  Abilene: dropped and held {dict(failed)} inspections that could not be read")
+    if skipped:
+        log.info("  Abilene: left out " + ', '.join(
+            f"{n} {why}" for why, n in sorted(skipped.items(), key=lambda kv: -kv[1])))
+    if classes:
+        log.info(f"  Abilene: permit classes read: {dict(sorted(classes.items(), key=lambda kv: -kv[1]))}")
+    if any(d != 'City of Abilene' for d in districts):
+        log.warning(f"  Abilene: permits outside the City of Abilene district: {dict(districts)} "
+                    f"(shipped with city '{ABL_DEFAULT_CITY}')")
+    # Newest first; within a day the worst visit first.
+    results.sort(key=lambda r: (r['inspection_date'], -r['risk_score'], r['total_violations'], r['source_id']),
+                 reverse=True)
+    if not truncated:
+        _note_source_lag(ABL_GROUP, newest)
+    log.info(f"Abilene: {len(results)} inspections ({_ABL_STATS.get('requests', 0)} requests, "
+             f"{time.time() - started:.0f}s)")
+    return results
+
+
 def geocode_census_batch(records, benchmark='Public_AR_Current'):
     """
     Batch-geocode US street addresses with the free Census Bureau geocoder
@@ -17401,7 +18166,8 @@ def main():
             (('garland', 'dfw'), GAR_GROUP, fetch_garland),
             (('elpaso',), EP_GROUP, fetch_elpaso),
             (('waco',), WAC_GROUP, fetch_waco),
-            (('corpuschristi',), CC_GROUP, fetch_corpus_christi)):
+            (('corpuschristi',), CC_GROUP, fetch_corpus_christi),
+            (('abilene',), ABL_GROUP, fetch_abilene)):
         if any(s in args.cities for s in slugs):
             socrata_jobs[group] = _expansion_job(group, fetcher)
 
