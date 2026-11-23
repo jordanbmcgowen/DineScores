@@ -408,6 +408,10 @@ class RecordTests(AbileneTestCase):
                          dp.make_restaurant_id('X', dp._abl_address('2025 s 14th st unit:  ste a'), 'Abilene'))
         self.assertEqual(dp._abl_address('4310 BUFFALO GAP RD, SPACE #7'), '4310 Buffalo Gap Rd, Space #7')
         self.assertEqual(dp._abl_address('3161 S 23RD ST'), '3161 S 23rd St')
+        self.assertEqual(dp._abl_address('1150 ES 11TH ST'), '1150 ES 11th St')
+        self.assertEqual(dp._abl_address('1 MCMURRY UNIVERSITY'), '1 McMurry University')
+        self.assertEqual(dp._abl_title('MCDONALDS #123'), 'McDonalds #123')
+        self.assertEqual(dp._abl_title('Sweet & Sour Charcuterie LLC'), 'Sweet & Sour Charcuterie LLC')
 
     def test_nothing_redacted_leaves_the_fetcher(self):
         records, _, _ = self.fetch(since_date=None)

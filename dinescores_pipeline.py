@@ -13818,24 +13818,33 @@ def _abl_list(session, read_from, type_id='', label='inspections'):
     return rows
 
 
+def _abl_fix_case(s):
+    """After .title(): possessives, ordinals and 'Mc' names ("Belle's",
+    '14th', 'McMurry')."""
+    s = re.sub(r"(\w)'S\b", r"\1's", s)
+    s = re.sub(r'\b(\d+)(St|Nd|Rd|Th)\b', lambda m: m.group(1) + m.group(2).lower(), s)
+    return re.sub(r'\bMc([a-z])', lambda m: 'Mc' + m.group(1).upper(), s)
+
+
 def _abl_title(s):
-    """Whitespace collapsed; .title() for an ALL-CAPS value, keeping
-    possessives and ordinals ("BELLE'S", '14TH' -> "Belle's", '14th')."""
+    """Whitespace collapsed; title case for an ALL-CAPS value."""
     s = ' '.join(str(s or '').split())
-    if s.isupper():
-        s = s.title()
-        s = re.sub(r"(\w)'S\b", r"\1's", s)
-        s = re.sub(r'\b(\d+)(St|Nd|Rd|Th)\b', lambda m: m.group(1) + m.group(2).lower(), s)
-    return s
+    return _abl_fix_case(s.title()) if s.isupper() else s
+
+
+# Abilene's street directions, including the city's own two-letter ones
+# ('ES 11th St', 'EN 10th St': East South / East North).
+_ABL_DIRECTIONS_RE = re.compile(r'\b(N|S|E|W|Ne|Nw|Se|Sw|En|Es|Wn|Ws)\b')
 
 
 def _abl_address(s):
     """'2025 S 14th ST Unit:STE A' -> '2025 S 14th St Ste A'. The portal mixes
     capitals and mixed case per permit; every address is title-cased (with
-    ordinals kept lower) so a facility reads the same however it was keyed."""
+    ordinals lower and directions upper) so a facility reads the same however
+    it was keyed."""
     s = ' '.join(re.sub(r'\bUnit\s*:\s*', ' ', str(s or ''), flags=re.I).split())
-    s = s.title()
-    s = re.sub(r'\b(\d+)(St|Nd|Rd|Th)\b', lambda m: m.group(1) + m.group(2).lower(), s)
+    s = _abl_fix_case(s.title())
+    s = _ABL_DIRECTIONS_RE.sub(lambda m: m.group(1).upper(), s)
     return s.strip(' ,')
 
 
