@@ -1,0 +1,278 @@
+[
+ {
+  "id": "a9154ada-c2d4-4f67-be9b-63da32764bbe",
+  "description": "Food Contact Surfaces and Returnables; Cleaned and Sanitized at ppm/°F         ",
+  "result": "Out of Compliance",
+  "isCritical": false,
+  "writtenComment": null,
+  "responseComment": null,
+  "category": {
+   "id": "cce7209a-d0bb-41b1-851d-df258c763cfa",
+   "description": "Protection from Contamination (P)"
+  },
+  "cannedComments": [
+   {
+    "id": "b9a36d55-3380-45f9-a220-ae7413eed4c2",
+    "description": "See violation observations above",
+    "severity": null,
+    "locationComment": null,
+    "observationComment": "Did not discuss sanitizer at the inspection last week. It was discussed today. Establishment was not using sanitizer at the 3-compartment sink. Discussed that approved sanitizers include chlorine (can achieve with plain bleach or similar brand) or quat based (can be achieved with pink sanitizer from Sam's labeled as Sanitizer since the establishment uses Sam's). Inspector will follow-up for this and test strips (see #29) sooner than the full follow-up scheduled for October 16, 2026 for other items.",
+    "responseComment": null,
+    "readings": null
+   }
+  ]
+ },
+ {
+  "id": "280084a4-804a-4774-810a-3408f1570ebc",
+  "description": "Thermometers Provided, Accurate and Calibrated; Chemical/Thermal Test Strips Available",
+  "result": "Out of Compliance",
+  "isCritical": false,
+  "writtenComment": null,
+  "responseComment": null,
+  "category": {
+   "id": "817e2d43-2997-4a48-b129-0f9878023237",
+   "description": "Food Temperature Control/ Identification (PF)"
+  },
+  "cannedComments": [
+   {
+    "id": "70e84adb-62ae-4e97-9a36-dde50b9d5e56",
+    "description": "See violation observations above",
+    "severity": null,
+    "locationComment": null,
+    "observationComment": "Test strips are also needed to use with the sanitizer. Inspector went over the different types of test strips.",
+    "responseComment": null,
+    "readings": null
+   }
+  ]
+ },
+ {
+  "id": "1b86560f-7686-4408-8855-765352a61fe7",
+  "description": "Food/ Non-Food Contact Surfaces cleanable, properly designed, constructed, and used",
+  "result": "Out of Compliance",
+  "isCritical": false,
+  "writtenComment": null,
+  "responseComment": null,
+  "category": {
+   "id": "f591dab2-158c-4961-800c-0a678d92a94f",
+   "description": "Utensils, Equipment, and Vending (PF)"
+  },
+  "cannedComments": [
+   {
+    "id": "cb317ecf-b202-43d5-8fab-1255d98a57e5",
+    "description": "See violation observations above",
+    "severity": null,
+    "locationComment": null,
+    "observationComment": "Unresolved; did not specifically discus this in person last week. Discussed it this week that this is part of the next item on the do to list.",
+    "responseComment": null,
+    "readings": null
+   }
+  ]
+ },
+ {
+  "id": "1b86560f-7686-4408-8855-765352a61fe7",
+  "description": "Food/ Non-Food Contact Surfaces cleanable, properly designed, constructed, and used",
+  "result": "Out of Compliance",
+  "isCritical": false,
+  "writtenComment": null,
+  "responseComment": null,
+  "category": {
+   "id": "f591dab2-158c-4961-800c-0a678d92a94f",
+   "description": "Utensils, Equipment, and Vending (PF)"
+  },
+  "cannedComments": [
+   {
+    "id": "cb317ecf-b202-43d5-8fab-1255d98a57e5",
+    "description": "See violation observations above",
+    "severity": null,
+    "locationComment": null,
+    "observationComment": "Did not check fridges at time of inspection; cardboard present on the bottom shelf of the prep table. Did not specifically discuss in person last week or this week. Will discuss next follow-up if not resolved.",
+    "responseComment": null,
+    "readings": null
+   }
+  ]
+ },
+ {
+  "id": "9845a1b5-abfc-4720-80e0-2f4d723d4063",
+  "description": "Utensils, Equipment & Linens; Properly Used, Stored, Dried & Handled/ In Use Utensils; Properly Used",
+  "result": "Out of Compliance",
+  "isCritical": false,
+  "writtenComment": null,
+  "responseComment": null,
+  "category": {
+   "id": "35f6c129-45e2-4835-90aa-03e0424b7f20",
+   "description": "Proper Use of Utensils (C)"
+  },
+  "cannedComments": [
+   {
+    "id": "02be060d-ab0e-431a-89ac-b9d64fee7d87",
+    "description": "See violation observations above",
+    "severity": null,
+    "locationComment": null,
+    "observationComment": "Did not look closely at this piece of equipment during the inspection; will check at next follow-up.",
+    "responseComment": null,
+    "readings": null
+   }
+  ]
+ },
+ {
+  "id": "bbed8776-f579-450f-a279-3cfb23250278",
+  "description": "Adequate Ventilation and Lighting; Designed Areas Used",
+  "result": "Out of Compliance",
+  "isCritical": false,
+  "writtenComment": null,
+  "responseComment": null,
+  "category": {
+   "id": "1d5a48e7-91ac-41e7-a057-b6310e8ead5e",
+   "description": "Physical Facilities (C)"
+  },
+  "cannedComments": [
+   {
+    "id": "4c7ab9a9-2d19-481a-ab90-6b378de4e3bd",
+    "description": "See violation observations above",
+    "severity": null,
+    "locationComment": null,
+    "observationComment": "Unresolved; inspector told the establishment that the mop sink closet is on the bottom of the to-do list and can be a focus for next year.",
+    "responseComment": null,
+    "readings": null
+   }
+  ]
+ },
+ {
+  "id": "2cb57522-2481-4fc6-a0c0-e2d3d418a0e2",
+  "description": "Physical Facilities Installed, Maintained and Cleaned",
+  "result": "Out of Compliance",
+  "isCritical": false,
+  "writtenComment": null,
+  "responseComment": null,
+  "category": {
+   "id": "1d5a48e7-91ac-41e7-a057-b6310e8ead5e",
+   "description": "Physical Facilities (C)"
+  },
+  "cannedComments": [
+   {
+    "id": "77010bab-dfb0-4d78-9933-2d065fd694f8",
+    "description": "See violation observations above",
+    "severity": null,
+    "locationComment": null,
+    "observationComment": "Now that items have been moved and reorganized, it can be seen that there is some cleaning needed on the walls and parts of the floor where build-up is present.",
+    "responseComment": null,
+    "readings": null
+   }
+  ]
+ },
+ {
+  "id": "2cb57522-2481-4fc6-a0c0-e2d3d418a0e2",
+  "description": "Physical Facilities Installed, Maintained and Cleaned",
+  "result": "Out of Compliance",
+  "isCritical": false,
+  "writtenComment": null,
+  "responseComment": null,
+  "category": {
+   "id": "1d5a48e7-91ac-41e7-a057-b6310e8ead5e",
+   "description": "Physical Facilities (C)"
+  },
+  "cannedComments": [
+   {
+    "id": "77010bab-dfb0-4d78-9933-2d065fd694f8",
+    "description": "See violation observations above",
+    "severity": null,
+    "locationComment": null,
+    "observationComment": "Unresolved; inspector told the establishment that the mop sink closet is on the bottom of the to-do list and can be a focus for next year.",
+    "responseComment": null,
+    "readings": null
+   }
+  ]
+ },
+ {
+  "id": "2cb57522-2481-4fc6-a0c0-e2d3d418a0e2",
+  "description": "Physical Facilities Installed, Maintained and Cleaned",
+  "result": "Out of Compliance",
+  "isCritical": false,
+  "writtenComment": null,
+  "responseComment": null,
+  "category": {
+   "id": "1d5a48e7-91ac-41e7-a057-b6310e8ead5e",
+   "description": "Physical Facilities (C)"
+  },
+  "cannedComments": [
+   {
+    "id": "77010bab-dfb0-4d78-9933-2d065fd694f8",
+    "description": "See violation observations above",
+    "severity": null,
+    "locationComment": null,
+    "observationComment": "Unresolved; inspector told the establishment that the ceiling tiles is on the bottom of the to-do list and can be a focus for next year.",
+    "responseComment": null,
+    "readings": null
+   }
+  ]
+ },
+ {
+  "id": "2cb57522-2481-4fc6-a0c0-e2d3d418a0e2",
+  "description": "Physical Facilities Installed, Maintained and Cleaned",
+  "result": "Out of Compliance",
+  "isCritical": false,
+  "writtenComment": null,
+  "responseComment": null,
+  "category": {
+   "id": "1d5a48e7-91ac-41e7-a057-b6310e8ead5e",
+   "description": "Physical Facilities (C)"
+  },
+  "cannedComments": [
+   {
+    "id": "77010bab-dfb0-4d78-9933-2d065fd694f8",
+    "description": "See violation observations above",
+    "severity": null,
+    "locationComment": null,
+    "observationComment": "Did not specifically look at this item today; will look at next follow-up.",
+    "responseComment": null,
+    "readings": null
+   }
+  ]
+ },
+ {
+  "id": "2cb57522-2481-4fc6-a0c0-e2d3d418a0e2",
+  "description": "Physical Facilities Installed, Maintained and Cleaned",
+  "result": "Out of Compliance",
+  "isCritical": false,
+  "writtenComment": null,
+  "responseComment": null,
+  "category": {
+   "id": "1d5a48e7-91ac-41e7-a057-b6310e8ead5e",
+   "description": "Physical Facilities (C)"
+  },
+  "cannedComments": [
+   {
+    "id": "77010bab-dfb0-4d78-9933-2d065fd694f8",
+    "description": "See violation observations above",
+    "severity": null,
+    "locationComment": null,
+    "observationComment": "Unresolved at this time; did not specifically discuss last week or today. Will discuss at the follow-up",
+    "responseComment": null,
+    "readings": null
+   }
+  ]
+ },
+ {
+  "id": "27b54729-5cdd-42c0-bb30-5194e49e10a8",
+  "description": "Other Violations (Signs, Documents, First Aid, Other)",
+  "result": "Out of Compliance",
+  "isCritical": false,
+  "writtenComment": null,
+  "responseComment": null,
+  "category": {
+   "id": "1d5a48e7-91ac-41e7-a057-b6310e8ead5e",
+   "description": "Physical Facilities (C)"
+  },
+  "cannedComments": [
+   {
+    "id": "aca7e6ef-48e3-4118-a254-bd154d06c96f",
+    "description": "See violation observations above",
+    "severity": null,
+    "locationComment": null,
+    "observationComment": "Unresolved; inspector told the establishment that this is on the bottom of the to-do list and can be a focus for next year.",
+    "responseComment": null,
+    "readings": null
+   }
+  ]
+ }
+]

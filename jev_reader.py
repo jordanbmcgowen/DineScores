@@ -1735,10 +1735,12 @@ SOURCE_TIER_SOURCES = frozenset({
     # (p)/(pf)/(c) citation suffixes, Louisiana's Critical / Non-Critical
     # items, Maricopa's and Harris County's Priority / Priority Foundation /
     # Core tags, the Hedgerow portals' per-citation severity (Pima County,
-    # Lubbock, Mesquite).
+    # Lubbock, Mesquite; Wichita Falls prints it on the citation or as the
+    # (P)/(PF)/(C) of the checklist category).
     'Georgia DPH', 'Louisiana LDH', 'Maricopa County Environmental Services',
     'Harris County Public Health', 'Pima County Health Department',
     'Lubbock Environmental Health', 'Mesquite Environmental Health',
+    'Wichita Falls Environmental Health',
     # McKinney's per-item TX form points (3 priority / 2 priority foundation
     # / 1 core) are the city's own tiers, and its risk_score is the TX form
     # score (100 - the city's demerit total, kept in original_score), an

@@ -1,0 +1,48 @@
+[
+ {
+  "id": "1bba957f-15d1-4c81-beab-67ca752526bd",
+  "description": "No evidence of Insect Contamination, Rodent, Other Animals",
+  "result": "Out of Compliance",
+  "isCritical": false,
+  "writtenComment": null,
+  "responseComment": null,
+  "category": {
+   "id": "dcb44641-fb25-4fcb-807e-aa99fa0dc56f",
+   "description": "Prevention of Food Contamination (C)"
+  },
+  "cannedComments": [
+   {
+    "id": "4501ee7d-baac-4f51-88a6-4a8f4ae7b3a6",
+    "description": "6-501.111(B) - Controlling pests. Check premises",
+    "severity": "Core",
+    "locationComment": null,
+    "observationComment": "Observed 2 flies in back area. Standing water mostly removed since previous inspection. Remaining water is collected in between floor tiles.",
+    "responseComment": null,
+    "readings": null
+   }
+  ]
+ },
+ {
+  "id": "5d35e1c3-43d6-4aea-a98c-aa43856f7829",
+  "description": "Environmental Contamination",
+  "result": "Out of Compliance",
+  "isCritical": false,
+  "writtenComment": null,
+  "responseComment": null,
+  "category": {
+   "id": "dcb44641-fb25-4fcb-807e-aa99fa0dc56f",
+   "description": "Prevention of Food Contamination (C)"
+  },
+  "cannedComments": [
+   {
+    "id": "24329dfa-86aa-4952-9c2d-99d287d9be81",
+    "description": "3-307.11 - Preventing contamination from other sources. Miscellaneous sources of Contamination",
+    "severity": "Core",
+    "locationComment": null,
+    "observationComment": "Ice build up has been partially removed since previous inspection and the manager confirmed maintenance tickets have been requested to repair the freezers.",
+    "responseComment": null,
+    "readings": null
+   }
+  ]
+ }
+]

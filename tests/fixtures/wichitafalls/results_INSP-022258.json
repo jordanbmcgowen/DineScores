@@ -1,0 +1,301 @@
+[
+ {
+  "id": "6e565a84-7220-47c1-8216-5985598eafd0",
+  "description": "Hands cleaned and Properly Washed/Gloves used properly",
+  "result": "Out of Compliance",
+  "isCritical": false,
+  "writtenComment": null,
+  "responseComment": null,
+  "category": {
+   "id": "e7930288-e7d0-4834-bf0a-7f0115e0ad27",
+   "description": "Preventing Contamination by Hands (P)"
+  },
+  "cannedComments": [
+   {
+    "id": "690cfcfb-0320-47d8-b06e-28c8c4e9d9cd",
+    "description": "2-301.14 - Food employees shall clean their hands and exposed portions of their arms as specified under subsection (b) immediately before engaging in food preparation including working with exposed food, clean equipment and utensils, and unwrapped single- service and single-use articles: (1) after touching bare human body parts other than clean hands and clean, exposed portions of arms; (2) after using the toilet room; (3) after caring for or handling service animals or aquatic animals as specified in §228.44(b); (4) except as specified in §228.42(b) after coughing, sneezing, using a handkerchief or disposable tissue, using tobacco, eating, or drinking; (5) after handling soiled equipment or utensils; (6) during food preparation, as often as necessary to remove soil and contamination and to prevent cross contamination when changing tasks; (7) when switching between working with raw food and working with ready-to-eat food; (8) before donning gloves to initiate a task that involves working with food; and (9) after engaging in other activities that contaminate the hands.",
+    "severity": "Priority",
+    "locationComment": "Kitchen",
+    "observationComment": "Employee did not wash hands before donning new gloves.  He blew into the glove to open it up before putting on.",
+    "responseComment": null,
+    "readings": null
+   }
+  ]
+ },
+ {
+  "id": "ad4f7fba-6baa-46bb-8430-89bad41b7d61",
+  "description": "Toxic Substances properly Identified, Stored and Used",
+  "result": "Out of Compliance",
+  "isCritical": false,
+  "writtenComment": null,
+  "responseComment": null,
+  "category": {
+   "id": "7c6cd7ce-9a78-40e5-879f-dd23eba19d0f",
+   "description": "Chemicals (P)"
+  },
+  "cannedComments": [
+   {
+    "id": "924cf9ea-b9a7-4d4a-8154-158224e492ff",
+    "description": "See violation observations above",
+    "severity": null,
+    "locationComment": "Kitchen",
+    "observationComment": "Oven cleaner is stored up against the ice scoop in the kitchen",
+    "responseComment": null,
+    "readings": null
+   }
+  ]
+ },
+ {
+  "id": "ad4f7fba-6baa-46bb-8430-89bad41b7d61",
+  "description": "Toxic Substances properly Identified, Stored and Used",
+  "result": "Out of Compliance",
+  "isCritical": false,
+  "writtenComment": null,
+  "responseComment": null,
+  "category": {
+   "id": "7c6cd7ce-9a78-40e5-879f-dd23eba19d0f",
+   "description": "Chemicals (P)"
+  },
+  "cannedComments": [
+   {
+    "id": "8c573160-0952-4637-9531-5a09e9449e85",
+    "description": "7-201.11 - Poisonous or toxic materials shall be stored so they cannot contaminate food, equipment, utensils, linens, and single-service and single-use articles by separating the poisonous or toxic materials by spacing or partitioning; and locating the poisonous or toxic materials in an area that is not above food, equipment, utensils, linens, and single-service or single-use articles. This paragraph does not apply to equipment and utensil cleaners and sanitizers that are stored in ware washing areas for availability and convenience if the materials are stored to prevent contamination of food, equipment, utensils, linens, and single-service and single-use articles.",
+    "severity": "Priority",
+    "locationComment": null,
+    "observationComment": "This is an on going violation and will be observed on check back",
+    "responseComment": null,
+    "readings": null
+   }
+  ]
+ },
+ {
+  "id": "f2d00562-312b-4ddb-af7c-188a9f2ad969",
+  "description": "Person in Charge (PIC) present, demonstration of knowledge, and perform duties; Certified Food Manager (CFM)",
+  "result": "Out of Compliance",
+  "isCritical": false,
+  "writtenComment": null,
+  "responseComment": null,
+  "category": {
+   "id": "1bf19ef5-2a66-46b5-a5ee-e248a8564e8c",
+   "description": "Demonstration of Knowledge/Personnel (P)"
+  },
+  "cannedComments": [
+   {
+    "id": "4c90bcef-7400-4711-a135-b4e4e2da9d8f",
+    "description": "Local Sec. 58-228 (2) A certified food protection manager shall be scheduled and available to the food establishment or pop-up food vendor during all hours of operation as required in FDA Food Code, §2-101. 11 and §2-102.12 (EXECPT for establishments that handle only prepackaged food and do not package food, do not prepare or handle exposed Time/ Temperature Control for Safety( TCS), as defined by the FDA Food Code, or are a temporary food establishment)",
+    "severity": "Priority Foundation",
+    "locationComment": "Facility",
+    "observationComment": "Still no proof of a person in the facility having a food managers certification",
+    "responseComment": null,
+    "readings": null
+   }
+  ]
+ },
+ {
+  "id": "f2d00562-312b-4ddb-af7c-188a9f2ad969",
+  "description": "Person in Charge (PIC) present, demonstration of knowledge, and perform duties; Certified Food Manager (CFM)",
+  "result": "Out of Compliance",
+  "isCritical": false,
+  "writtenComment": null,
+  "responseComment": null,
+  "category": {
+   "id": "1bf19ef5-2a66-46b5-a5ee-e248a8564e8c",
+   "description": "Demonstration of Knowledge/Personnel (P)"
+  },
+  "cannedComments": [
+   {
+    "id": "39918b08-44ce-48ac-8084-24d1a37ca6a7",
+    "description": "2-102.11(B) - Being a certified food protection manager who has shown proficiency of required information through passing a test that is part of an Accredited Program.",
+    "severity": "Priority Foundation",
+    "locationComment": null,
+    "observationComment": "This is still a violation as the new certification has not been placed in the establishment.",
+    "responseComment": null,
+    "readings": null
+   }
+  ]
+ },
+ {
+  "id": "61e6a2e4-6f1b-485d-bbf0-e2de23a81ee3",
+  "description": "Proper Date Marking (Discard Date) and Disposition",
+  "result": "Out of Compliance",
+  "isCritical": false,
+  "writtenComment": null,
+  "responseComment": null,
+  "category": {
+   "id": "817e2d43-2997-4a48-b129-0f9878023237",
+   "description": "Food Temperature Control/ Identification (PF)"
+  },
+  "cannedComments": [
+   {
+    "id": "cf8ef049-4e70-4636-b1c0-a98ee7265c00",
+    "description": "3-501.17(A) - Date marking prepare on site RTE/ TCS food",
+    "severity": "Priority Foundation",
+    "locationComment": "Kitchen",
+    "observationComment": "There was no dating and labeling observed in any cold hold unit",
+    "responseComment": null,
+    "readings": null
+   }
+  ]
+ },
+ {
+  "id": "8b430d91-0aeb-4dc2-a35a-d644cb26f89d",
+  "description": "Adequate Handwashing Facilities: Accessible and Properly Supplied, Used",
+  "result": "Out of Compliance",
+  "isCritical": false,
+  "writtenComment": null,
+  "responseComment": null,
+  "category": {
+   "id": "f591dab2-158c-4961-800c-0a678d92a94f",
+   "description": "Utensils, Equipment, and Vending (PF)"
+  },
+  "cannedComments": [
+   {
+    "id": "73528015-9f80-41d6-9385-35fe32172a15",
+    "description": "5-204.11 - Hand washing facilities. A hand washing facility shall be located: to allow convenient use by employees in food preparation, food dispensing, and ware washing areas;  and in, or immediately adjacent to, toilet rooms",
+    "severity": "Priority Foundation",
+    "locationComment": "Kitchen",
+    "observationComment": "No hand washes were observed during inspection.",
+    "responseComment": null,
+    "readings": null
+   }
+  ]
+ },
+ {
+  "id": "1bba957f-15d1-4c81-beab-67ca752526bd",
+  "description": "No evidence of Insect Contamination, Rodent, Other Animals",
+  "result": "Out of Compliance",
+  "isCritical": false,
+  "writtenComment": null,
+  "responseComment": null,
+  "category": {
+   "id": "dcb44641-fb25-4fcb-807e-aa99fa0dc56f",
+   "description": "Prevention of Food Contamination (C)"
+  },
+  "cannedComments": [
+   {
+    "id": "b60675b9-1cfd-43c8-927b-a2ef921f4a0e",
+    "description": "6-501.111(D) - Controlling pests. Eliminating harborage conditions",
+    "severity": "Core",
+    "locationComment": "Kitchen",
+    "observationComment": "There is evidence of rodent droppings in the kitchen mainly in the area of the dish machine and back door.",
+    "responseComment": null,
+    "readings": null
+   }
+  ]
+ },
+ {
+  "id": "5d35e1c3-43d6-4aea-a98c-aa43856f7829",
+  "description": "Environmental Contamination",
+  "result": "Out of Compliance",
+  "isCritical": false,
+  "writtenComment": null,
+  "responseComment": null,
+  "category": {
+   "id": "dcb44641-fb25-4fcb-807e-aa99fa0dc56f",
+   "description": "Prevention of Food Contamination (C)"
+  },
+  "cannedComments": [
+   {
+    "id": "24329dfa-86aa-4952-9c2d-99d287d9be81",
+    "description": "3-307.11 - Preventing contamination from other sources. Miscellaneous sources of Contamination",
+    "severity": "Core",
+    "locationComment": "Kitchen ",
+    "observationComment": "Used rat traps are being stored on top of the dish machine.",
+    "responseComment": null,
+    "readings": null
+   }
+  ]
+ },
+ {
+  "id": "21d4b13b-9f43-4e2d-894d-bfed9e8991b4",
+  "description": "Non-Food Contact Surfaces Clean",
+  "result": "Out of Compliance",
+  "isCritical": false,
+  "writtenComment": null,
+  "responseComment": null,
+  "category": {
+   "id": "1d5a48e7-91ac-41e7-a057-b6310e8ead5e",
+   "description": "Physical Facilities (C)"
+  },
+  "cannedComments": [
+   {
+    "id": "0ae40410-607b-4c46-94cf-2f34b5e8a0b0",
+    "description": "4-601.11(C) - Nonfood-contact surfaces of equipment shall be kept free of an accumulation of dust, dirt, food residue, and other debris",
+    "severity": "Core",
+    "locationComment": "Kitchen",
+    "observationComment": "There is no evidence that the gas lines and grill areas have been cleaned.  They are still very greasy and fuzzy.",
+    "responseComment": null,
+    "readings": null
+   }
+  ]
+ },
+ {
+  "id": "21d4b13b-9f43-4e2d-894d-bfed9e8991b4",
+  "description": "Non-Food Contact Surfaces Clean",
+  "result": "Out of Compliance",
+  "isCritical": false,
+  "writtenComment": null,
+  "responseComment": null,
+  "category": {
+   "id": "1d5a48e7-91ac-41e7-a057-b6310e8ead5e",
+   "description": "Physical Facilities (C)"
+  },
+  "cannedComments": [
+   {
+    "id": "1af859cb-32aa-4e9b-befa-5056d461cb7e",
+    "description": "See violation observations above",
+    "severity": null,
+    "locationComment": null,
+    "observationComment": null,
+    "responseComment": null,
+    "readings": null
+   }
+  ]
+ },
+ {
+  "id": "21d4b13b-9f43-4e2d-894d-bfed9e8991b4",
+  "description": "Non-Food Contact Surfaces Clean",
+  "result": "Out of Compliance",
+  "isCritical": false,
+  "writtenComment": null,
+  "responseComment": null,
+  "category": {
+   "id": "1d5a48e7-91ac-41e7-a057-b6310e8ead5e",
+   "description": "Physical Facilities (C)"
+  },
+  "cannedComments": [
+   {
+    "id": "0ae40410-607b-4c46-94cf-2f34b5e8a0b0",
+    "description": "4-601.11(C) - Nonfood-contact surfaces of equipment shall be kept free of an accumulation of dust, dirt, food residue, and other debris",
+    "severity": "Core",
+    "locationComment": null,
+    "observationComment": "This is not resolved is is still an on going violation",
+    "responseComment": null,
+    "readings": null
+   }
+  ]
+ },
+ {
+  "id": "2cb57522-2481-4fc6-a0c0-e2d3d418a0e2",
+  "description": "Physical Facilities Installed, Maintained and Cleaned",
+  "result": "Out of Compliance",
+  "isCritical": false,
+  "writtenComment": null,
+  "responseComment": null,
+  "category": {
+   "id": "1d5a48e7-91ac-41e7-a057-b6310e8ead5e",
+   "description": "Physical Facilities (C)"
+  },
+  "cannedComments": [
+   {
+    "id": "cb82f7ed-29e2-4eac-9629-985f36d9cd85",
+    "description": "6-501.16 - Drying mops",
+    "severity": "Core",
+    "locationComment": null,
+    "observationComment": "This is still an ongoing violation.  Wet mop is stored in the floor and not hanging to air dry",
+    "responseComment": null,
+    "readings": null
+   }
+  ]
+ }
+]

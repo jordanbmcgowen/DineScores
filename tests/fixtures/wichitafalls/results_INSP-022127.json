@@ -1,0 +1,94 @@
+[
+ {
+  "id": "47477e0b-8dd6-45a8-9a87-5812ec0beb16",
+  "description": "Food Separated & Protected, Prevented during Preparation, Storage, Display, and Tasting",
+  "result": "Corrected During Inspection",
+  "isCritical": false,
+  "writtenComment": null,
+  "responseComment": null,
+  "category": {
+   "id": "cce7209a-d0bb-41b1-851d-df258c763cfa",
+   "description": "Protection from Contamination (P)"
+  },
+  "cannedComments": [
+   {
+    "id": "3cc4465e-19e1-4cf5-860e-79f19621c713",
+    "description": "3-302.11(A)(1) - Food shall be protected from cross contamination by, except as specified in subparagraph (A)(iii) of this paragraph, separating raw animal foods during storage, preparation, holding, and display from raw ready-to-eat food including other raw animal food such as fish for sushi or molluscan shellfish, or other raw ready-to-eat food such as vegetables; and cooked ready-to-eat food.",
+    "severity": "Priority",
+    "locationComment": null,
+    "observationComment": "Observed raw hamburger meat stored above ready to eat bread in the refrigerator.",
+    "responseComment": null,
+    "readings": null
+   }
+  ]
+ },
+ {
+  "id": "1bba957f-15d1-4c81-beab-67ca752526bd",
+  "description": "No evidence of Insect Contamination, Rodent, Other Animals",
+  "result": "Corrected During Inspection",
+  "isCritical": false,
+  "writtenComment": null,
+  "responseComment": null,
+  "category": {
+   "id": "dcb44641-fb25-4fcb-807e-aa99fa0dc56f",
+   "description": "Prevention of Food Contamination (C)"
+  },
+  "cannedComments": [
+   {
+    "id": "4501ee7d-baac-4f51-88a6-4a8f4ae7b3a6",
+    "description": "6-501.111(B) - Controlling pests. Check premises",
+    "severity": "Core",
+    "locationComment": null,
+    "observationComment": "Observed 3 dead cockroaches in back storage area.",
+    "responseComment": null,
+    "readings": null
+   }
+  ]
+ },
+ {
+  "id": "2cb57522-2481-4fc6-a0c0-e2d3d418a0e2",
+  "description": "Physical Facilities Installed, Maintained and Cleaned",
+  "result": "Out of Compliance",
+  "isCritical": false,
+  "writtenComment": null,
+  "responseComment": null,
+  "category": {
+   "id": "1d5a48e7-91ac-41e7-a057-b6310e8ead5e",
+   "description": "Physical Facilities (C)"
+  },
+  "cannedComments": [
+   {
+    "id": "a62b2883-7552-4161-a5ba-f9f83c637f42",
+    "description": "6-201.11 - Cleanability. Floor, wall ceiling constructed installed are smooth and easily cleanable",
+    "severity": "Core",
+    "locationComment": null,
+    "observationComment": "Damaged ceiling tiles have not been made cleanable since previous inspection.",
+    "responseComment": null,
+    "readings": null
+   }
+  ]
+ },
+ {
+  "id": "2cb57522-2481-4fc6-a0c0-e2d3d418a0e2",
+  "description": "Physical Facilities Installed, Maintained and Cleaned",
+  "result": "Out of Compliance",
+  "isCritical": false,
+  "writtenComment": null,
+  "responseComment": null,
+  "category": {
+   "id": "1d5a48e7-91ac-41e7-a057-b6310e8ead5e",
+   "description": "Physical Facilities (C)"
+  },
+  "cannedComments": [
+   {
+    "id": "a62b2883-7552-4161-a5ba-f9f83c637f42",
+    "description": "6-201.11 - Cleanability. Floor, wall ceiling constructed installed are smooth and easily cleanable",
+    "severity": "Core",
+    "locationComment": null,
+    "observationComment": "Flooring has not been made cleanable since previous inspection.",
+    "responseComment": null,
+    "readings": null
+   }
+  ]
+ }
+]
