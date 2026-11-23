@@ -1744,6 +1744,10 @@ SOURCE_TIER_SOURCES = frozenset({
     # score (100 - the city's demerit total, kept in original_score), an
     # official number like Richardson's: never re-scored.
     'McKinney Health Inspections',
+    # Garland's violations table carries each cited item's TX form points
+    # (3 / 2 / 1, the city's tiers) and its risk_score is the city's
+    # official 0-100 score, which those points reproduce: never re-scored.
+    'Garland Health Inspections',
 })
 # Sources whose tier was bounded by a per-item rule the stored row no longer
 # carries (Chicago's item number, NYC's critical flag): a stored core line
