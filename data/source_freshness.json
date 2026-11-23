@@ -272,13 +272,13 @@
   },
   "MHD metros (midweek)": {
    "last_run": {
-    "at": "2026-11-18",
+    "at": "2026-11-23",
     "detail": "",
-    "latest": "2026-11-18",
-    "records": 1407,
+    "latest": "2026-11-20",
+    "records": 243,
     "status": "ok"
    },
-   "latest": "2026-11-18"
+   "latest": "2026-11-20"
   },
   "Maricopa County": {
    "last_run": {
@@ -614,6 +614,10 @@
   "Boston Open Data": {
    "group": "Boston",
    "latest": "2026-11-13"
+  },
+  "Broomfield Health Dept": {
+   "group": "MHD metros (midweek)",
+   "latest": "2026-11-20"
   },
   "Casper-Natrona County Health Dept": {
    "group": "MHD metros (midweek)",
@@ -1238,6 +1242,10 @@
    "group": "McKinney",
    "latest": "2026-11-06"
   },
+  "Mesa County Health Dept": {
+   "group": "MHD metros (midweek)",
+   "latest": "2026-11-20"
+  },
   "Mesquite Environmental Health": {
    "group": "Mesquite",
    "latest": "2026-11-13"
@@ -1552,6 +1560,10 @@
   "Plano Health Dept": {
    "group": "DFW",
    "latest": "2026-11-13"
+  },
+  "Pueblo County Health Dept": {
+   "group": "MHD metros (midweek)",
+   "latest": "2026-11-20"
   },
   "Richardson Health Dept": {
    "group": "Richardson",

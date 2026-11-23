@@ -634,6 +634,32 @@ read yet. The ones worth building next:
   observations and leaves it out when it has none (`unscored_zero`); a
   window that is mostly zeros raises. The `tx-demerit` and `demerit` scales
   keep their 0 (no demerits).
+- **Colorado's state library gives every cited provision a tier; score on
+  it.** CDPHE's template prints it ("This is a Core item 6-501.111(A-B), and
+  (D) ..."), and the keyword classifier ignored it: 405 of 1,091 Core lines
+  and 826 of 1,135 Priority Foundation lines counted as Priority, so 119 of
+  806 inspections were F's, 61 of them on a state verdict of Pass (found
+  2026-11-23, before anything shipped). `'tiers': 'colorado'` in a config
+  makes `_co_line_tier` read the printed designation, or for Pueblo, Mesa
+  County and Broomfield (same library, section printed without the
+  designation) the tier CDPHE states for that section (`CO_SECTION_TIERS`,
+  184 sections). A line with neither keeps its keyword tier; the fetch log
+  counts them ("N/M observation lines scored on the source's tier"), and a
+  growing remainder means the table needs the new sections (read them off
+  CDPHE's own lines, never guess). Broomfield's inspectors mostly write the
+  item number alone, so about two thirds of its lines stay keyword-tiered.
+  The six Front Range counties (Arapahoe, Douglas, El Paso, Larimer, Weld,
+  Adams) print the same sections and are NOT on this: their stored history
+  is keyword-scored, so switching them needs a regrade from a D1 export
+  first. The state's verdict (Pass / Re-Inspection Required / Closed) is
+  kept in `results` and does not cap the grade (an owner decision, like
+  Waco's FAILED, still open).
+- **Teton County WY follow-up reports reprint the routine inspection's
+  lines** (12 lines in, 12 lines out, a dated note on the corrected ones),
+  so a follow-up grades like the visit it follows. That is the county's
+  record, not a parser fault; Jackson's low grades (about a third F) come
+  from its inspectors citing a median of five items a visit, and hold under
+  form-section tiers and distinct-item counting alike (checked 2026-11-23).
 - **Montana's state portal logs things that are not inspection reports.**
   40-55% of its retail-food rows are purpose `Other`: licence notes and the
   placeholders of the counties that keep inspections in their own systems
@@ -735,14 +761,18 @@ impact and the open policy decisions; `scripts/jev_shadow.py` reproduces it.
 - **Policy lives in code.** `F_FORCING_HAZARDS` (vermin, sewage; not flies,
   not `pests_unspecified`), `SCORE_FROM_TIERS_SOURCES` / `SOURCE_TIER_SCORE_SOURCES`
   (score computed from tiers the source states: Boston, Detroit, Louisiana,
-  Maricopa, Pima, the four Paragon portals) / `SOURCE_TIER_SOURCES`
+  Maricopa, Pima, the four Paragon portals, Colorado CDPHE, Pueblo and Mesa
+  County) / `SOURCE_TIER_SOURCES`
   / `BOUNDED_TIER_SOURCES` (which sources may be re-scored or re-tiered), the
   chip and summary-severity maps. A source-stated tier never moves (Omaha,
   Santa Clara, San Diego, Orange County, McKinney, Georgia, Louisiana,
   Maricopa County, Harris County (P/F/C violation groups), the Hedgerow
   portals (Pima County, Lubbock, Mesquite, Wichita Falls), Garland, Corpus
   Christi and Abilene (Texas-form item points or stated groups), the Paragon
-  portals (tier fixed by `_io_shipped_rows`) included: their agencies state it; McKinney's TX-form item
+  portals (tier fixed by `_io_shipped_rows`), Colorado CDPHE, Pueblo and Mesa
+  County (the state library's designation, `_co_line_tier`; Broomfield is
+  not listed, most of its lines cite no section) included: their agencies
+  state it; McKinney's TX-form item
   points are the city's tiers and its `risk_score` is the form score 100 −
   demerits, never recomputed; Georgia's (p)/(pf)/(c) designations carry its
   official score; Louisiana's Critical/Non-Critical and Maricopa's
