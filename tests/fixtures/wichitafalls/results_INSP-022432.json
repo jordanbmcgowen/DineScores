@@ -1,0 +1,48 @@
+[
+ {
+  "id": "108ba009-9934-4798-a8ea-e436be7401d1",
+  "description": "Proper Cold Holding Temperature (<41°F or 45°F for shelled eggs)",
+  "result": "Corrected During Inspection",
+  "isCritical": false,
+  "writtenComment": null,
+  "responseComment": null,
+  "category": {
+   "id": "47bfda54-c336-4d43-8a23-ea09e161532d",
+   "description": "Time and Temperature for Food Safety (P)"
+  },
+  "cannedComments": [
+   {
+    "id": "8dfd1698-8898-4d9c-9319-ce8575d61844",
+    "description": "See violation observations above",
+    "severity": null,
+    "locationComment": null,
+    "observationComment": "Food on the cold hold rail had temperatures from 49F - 51F (41F or less is required).",
+    "responseComment": null,
+    "readings": null
+   }
+  ]
+ },
+ {
+  "id": "9845a1b5-abfc-4720-80e0-2f4d723d4063",
+  "description": "Utensils, Equipment & Linens; Properly Used, Stored, Dried & Handled/ In Use Utensils; Properly Used",
+  "result": "Corrected During Inspection",
+  "isCritical": false,
+  "writtenComment": null,
+  "responseComment": null,
+  "category": {
+   "id": "35f6c129-45e2-4835-90aa-03e0424b7f20",
+   "description": "Proper Use of Utensils (C)"
+  },
+  "cannedComments": [
+   {
+    "id": "02be060d-ab0e-431a-89ac-b9d64fee7d87",
+    "description": "See violation observations above",
+    "severity": null,
+    "locationComment": null,
+    "observationComment": "The can opener blade has dried food debris accumulations on it and must be cleaned and sanitized. ",
+    "responseComment": null,
+    "readings": null
+   }
+  ]
+ }
+]

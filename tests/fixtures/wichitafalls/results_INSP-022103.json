@@ -1,0 +1,209 @@
+[
+ {
+  "id": "1b86560f-7686-4408-8855-765352a61fe7",
+  "description": "Food/ Non-Food Contact Surfaces cleanable, properly designed, constructed, and used",
+  "result": "Out of Compliance",
+  "isCritical": false,
+  "writtenComment": null,
+  "responseComment": null,
+  "category": {
+   "id": "f591dab2-158c-4961-800c-0a678d92a94f",
+   "description": "Utensils, Equipment, and Vending (PF)"
+  },
+  "cannedComments": [
+   {
+    "id": "cb317ecf-b202-43d5-8fab-1255d98a57e5",
+    "description": "See violation observations above",
+    "severity": null,
+    "locationComment": null,
+    "observationComment": "Partially resolved; cardboard still being used as fridge liners and shelf liner under prep table.",
+    "responseComment": null,
+    "readings": null
+   }
+  ]
+ },
+ {
+  "id": "1b86560f-7686-4408-8855-765352a61fe7",
+  "description": "Food/ Non-Food Contact Surfaces cleanable, properly designed, constructed, and used",
+  "result": "Out of Compliance",
+  "isCritical": false,
+  "writtenComment": null,
+  "responseComment": null,
+  "category": {
+   "id": "f591dab2-158c-4961-800c-0a678d92a94f",
+   "description": "Utensils, Equipment, and Vending (PF)"
+  },
+  "cannedComments": [
+   {
+    "id": "cb317ecf-b202-43d5-8fab-1255d98a57e5",
+    "description": "See violation observations above",
+    "severity": null,
+    "locationComment": null,
+    "observationComment": "Partially resolved; shelves are still barewood. Owners will call painter back out.",
+    "responseComment": null,
+    "readings": null
+   }
+  ]
+ },
+ {
+  "id": "9845a1b5-abfc-4720-80e0-2f4d723d4063",
+  "description": "Utensils, Equipment & Linens; Properly Used, Stored, Dried & Handled/ In Use Utensils; Properly Used",
+  "result": "Out of Compliance",
+  "isCritical": false,
+  "writtenComment": null,
+  "responseComment": null,
+  "category": {
+   "id": "35f6c129-45e2-4835-90aa-03e0424b7f20",
+   "description": "Proper Use of Utensils (C)"
+  },
+  "cannedComments": [
+   {
+    "id": "02be060d-ab0e-431a-89ac-b9d64fee7d87",
+    "description": "See violation observations above",
+    "severity": null,
+    "locationComment": null,
+    "observationComment": "Unresolved",
+    "responseComment": null,
+    "readings": null
+   }
+  ]
+ },
+ {
+  "id": "bbed8776-f579-450f-a279-3cfb23250278",
+  "description": "Adequate Ventilation and Lighting; Designed Areas Used",
+  "result": "Out of Compliance",
+  "isCritical": false,
+  "writtenComment": null,
+  "responseComment": null,
+  "category": {
+   "id": "1d5a48e7-91ac-41e7-a057-b6310e8ead5e",
+   "description": "Physical Facilities (C)"
+  },
+  "cannedComments": [
+   {
+    "id": "4c7ab9a9-2d19-481a-ab90-6b378de4e3bd",
+    "description": "See violation observations above",
+    "severity": null,
+    "locationComment": null,
+    "observationComment": "Unresolved",
+    "responseComment": null,
+    "readings": null
+   }
+  ]
+ },
+ {
+  "id": "2cb57522-2481-4fc6-a0c0-e2d3d418a0e2",
+  "description": "Physical Facilities Installed, Maintained and Cleaned",
+  "result": "Out of Compliance",
+  "isCritical": false,
+  "writtenComment": null,
+  "responseComment": null,
+  "category": {
+   "id": "1d5a48e7-91ac-41e7-a057-b6310e8ead5e",
+   "description": "Physical Facilities (C)"
+  },
+  "cannedComments": [
+   {
+    "id": "77010bab-dfb0-4d78-9933-2d065fd694f8",
+    "description": "See violation observations above",
+    "severity": null,
+    "locationComment": null,
+    "observationComment": "Unresolved",
+    "responseComment": null,
+    "readings": null
+   }
+  ]
+ },
+ {
+  "id": "2cb57522-2481-4fc6-a0c0-e2d3d418a0e2",
+  "description": "Physical Facilities Installed, Maintained and Cleaned",
+  "result": "Out of Compliance",
+  "isCritical": false,
+  "writtenComment": null,
+  "responseComment": null,
+  "category": {
+   "id": "1d5a48e7-91ac-41e7-a057-b6310e8ead5e",
+   "description": "Physical Facilities (C)"
+  },
+  "cannedComments": [
+   {
+    "id": "77010bab-dfb0-4d78-9933-2d065fd694f8",
+    "description": "See violation observations above",
+    "severity": null,
+    "locationComment": null,
+    "observationComment": "Unresolved",
+    "responseComment": null,
+    "readings": null
+   }
+  ]
+ },
+ {
+  "id": "2cb57522-2481-4fc6-a0c0-e2d3d418a0e2",
+  "description": "Physical Facilities Installed, Maintained and Cleaned",
+  "result": "Out of Compliance",
+  "isCritical": false,
+  "writtenComment": null,
+  "responseComment": null,
+  "category": {
+   "id": "1d5a48e7-91ac-41e7-a057-b6310e8ead5e",
+   "description": "Physical Facilities (C)"
+  },
+  "cannedComments": [
+   {
+    "id": "77010bab-dfb0-4d78-9933-2d065fd694f8",
+    "description": "See violation observations above",
+    "severity": null,
+    "locationComment": null,
+    "observationComment": "Unresolved",
+    "responseComment": null,
+    "readings": null
+   }
+  ]
+ },
+ {
+  "id": "2cb57522-2481-4fc6-a0c0-e2d3d418a0e2",
+  "description": "Physical Facilities Installed, Maintained and Cleaned",
+  "result": "Out of Compliance",
+  "isCritical": false,
+  "writtenComment": null,
+  "responseComment": null,
+  "category": {
+   "id": "1d5a48e7-91ac-41e7-a057-b6310e8ead5e",
+   "description": "Physical Facilities (C)"
+  },
+  "cannedComments": [
+   {
+    "id": "77010bab-dfb0-4d78-9933-2d065fd694f8",
+    "description": "See violation observations above",
+    "severity": null,
+    "locationComment": null,
+    "observationComment": "Unresolved",
+    "responseComment": null,
+    "readings": null
+   }
+  ]
+ },
+ {
+  "id": "27b54729-5cdd-42c0-bb30-5194e49e10a8",
+  "description": "Other Violations (Signs, Documents, First Aid, Other)",
+  "result": "Out of Compliance",
+  "isCritical": false,
+  "writtenComment": null,
+  "responseComment": null,
+  "category": {
+   "id": "1d5a48e7-91ac-41e7-a057-b6310e8ead5e",
+   "description": "Physical Facilities (C)"
+  },
+  "cannedComments": [
+   {
+    "id": "aca7e6ef-48e3-4118-a254-bd154d06c96f",
+    "description": "See violation observations above",
+    "severity": null,
+    "locationComment": null,
+    "observationComment": "Unresolved; air fryer is employees only (discussed putting a sign on it). Griddle needs to be commercial. Non-commercial microwave was needed in a hurry because the commercial one burnt out when plugged into the new plug.",
+    "responseComment": null,
+    "readings": null
+   }
+  ]
+ }
+]

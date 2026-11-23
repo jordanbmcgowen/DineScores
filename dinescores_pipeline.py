@@ -11567,11 +11567,11 @@ def fetch_harris(since_date=None, limit=None):
     return results
 
 
-# ─── HEDGEROW PORTALS: PIMA COUNTY AZ, LUBBOCK TX, MESQUITE TX ───────────────
+# ─── HEDGEROW PORTALS: PIMA COUNTY AZ, LUBBOCK TX, MESQUITE TX, WICHITA FALLS TX ─
 # Hedgerow Software's "Hedgehog" public-disclosure portal: an Angular SPA over
 # an undocumented, anonymous JSON API at <host>/api/v0/portal/ (request shapes
-# read from the SPA bundles, probed live 2026-11-02/03). Three agencies run it
-# and one client serves all three:
+# read from the SPA bundles, probed live 2026-11-02/03; Wichita Falls
+# 2026-11-22). Four agencies run it and one client serves all four:
 #   POST disclosure/program/facilities                the program's facilities
 #        (facilityName, siteAddress as ONE string, latitude/longitude,
 #        facilityType, lastInspectionDate and the newest inspection's
@@ -11610,6 +11610,45 @@ def fetch_harris(since_date=None, limit=None):
 #   0-100 hazardScore; no observation text (item titles plus the short rule
 #   names are the violation text); 39% of rows carry no coordinates and are
 #   geocoded by main().
+# Wichita Falls TX ('Wichita Falls' / 'Wichita Falls Environmental Health';
+#   Wichita Falls-Wichita County Public Health District: Wichita Falls,
+#   Burkburnett, Iowa Park, Electra; https://wfeh-portal.hedgerowsoftware.com/,
+#   whose food program has the same GUID as Lubbock's): Lubbock's paged,
+#   newest-first list (764 rows, 2 pages on 2026-11-23; sort and page size
+#   verified across both pages) and official 0-100 hazardScore (the Texas
+#   form, 3/2/1 per cited item). Live since Oct 2024, inspections migrated
+#   back to 2024-08. What it does differently, each a config key:
+#   - facilityType is null on every row; the agency types the permit class
+#     after the name ('Taco Casa #73 - Retail Food Establishment (Medium)',
+#     'Walmart Supercenter #420 - Deli'). 'name_class_re' cuts a class off
+#     the name; scope is read from it ('skip_types': 28 pop-up vendors, one
+#     push cart, 5 caterers, three of them at one shared kitchen) and from
+#     the name ('skip_names': 37 school cafeterias, Lubbock's 'School').
+#   - cannedComments[].severity is null on 309 of 809 citations (2026-08-24
+#     to 11-19); the tier is then the '(P)' / '(PF)' / '(C)' the district
+#     typed at the end of the item's category ('tier_from_category'). One
+#     category's suffix is wrong: 'Demonstration of Knowledge/Personnel (P)'
+#     holds the PIC and food-handler items, which every citation that states
+#     a severity calls Priority Foundation (30 of 30) and the official score
+#     deducts 2 for. With that correction ('category_tiers'), 403 of the 403
+#     checklists that show every citation the row counts reproduce the
+#     official score exactly (one deduction per item and tier). A citation
+#     with neither a severity nor a suffix (none seen) drops and holds its
+#     inspection like an unread checklist (_HhTierError), never 'core'.
+#   - criticalInfractionCount / nonCriticalInfractionCount split the
+#     citations ('count_fields' sums them for the empty-checklist check:
+#     every empty checklist whose row counts none scored 100, 182 of 182).
+#     20 of 423 checklists show fewer citations than the row counts (16 one
+#     to five short, 4 empty; the empty four are pop-ups and a caterer); the
+#     official score still ships, as Lubbock's would.
+#   - addresses name four towns, two of them two words ('Iowa Park, TX'),
+#     with commas inside streets and no state on some rows: 'cities' splits
+#     at a known town first.
+#   - 'See violation observations above' is a placeholder, never a rule name
+#     ('rule_placeholder_re'); 'Please Select the Inspection Type' is the
+#     form's empty drop-down ('type_placeholder_re').
+#   Reports post days late (measured in the 'lag_margin_days' note on its
+#   config entry), so dated windows widen 14 days like Pima's 21.
 #
 # Scope: pools, body art, campgrounds etc. are separate programs and never
 # requested. Within the food program, temporary-event booths (Lubbock's
@@ -11670,6 +11709,10 @@ HH_MAX_PAGES = 200           # paging guard
 HH_RULE_MAX = 90             # a cited rule's short name may stand in for a missing observation
 HH_VIOLATION_RESULTS = frozenset({'Out of Compliance', 'Corrected During Inspection'})
 HH_SEVERITY = {'priority': 'priority', 'priority foundation': 'priority_foundation', 'core': 'core'}
+# The tier a portal prints at the end of a checklist category instead of (or
+# next to) the citation's severity: 'Physical Facilities (C)', '... (PF)'.
+HH_CATEGORY_TIER_RE = re.compile(r'\(\s*(P|PF|C)\s*\)$', re.I)
+HH_CATEGORY_TIERS = {'P': 'priority', 'PF': 'priority_foundation', 'C': 'core'}
 HH_MOBILE_TYPE_RE = re.compile(r'mobile|push ?cart|vehicle', re.I)
 HH_SKIP_TYPES = frozenset({'TF15 Temporary Food', 'School'})   # Lubbock's vocabulary
 HH_PERMANENT_STATUSES = frozenset({400, 404, 410})   # that record's own problem; every other status is the portal's
@@ -11719,6 +11762,38 @@ HH_PORTALS = {
         'dated_list': False, 'official_score': True, 'results': 'none',
         'title_caps': False,
         'lag_margin_days': 0,               # no dates on the list; every inspection list is read anyway
+    },
+    'wichitafalls': {
+        'group': 'Wichita Falls', 'source': 'Wichita Falls Environmental Health', 'prefix': 'wfalls',
+        'base': 'https://wfeh-portal.hedgerowsoftware.com/api/v0/portal/',
+        'site': 'https://wfeh-portal.hedgerowsoftware.com/',
+        'program': 'd88b111d-edad-49f8-83a8-8c1d7931f99b',     # the same GUID as Lubbock's food program
+        'state': 'TX', 'default_city': 'Wichita Falls', 'metro': '',
+        'history_start': '2023-01-01',      # live since Oct 2024 with records migrated back to 2024-08 (one 2023-08)
+        'list': 'paged', 'list_sort': 'lastInspectionDate', 'list_min_rows': 1,   # 764 rows, two pages
+        'dated_list': True, 'official_score': True, 'results': 'grade',
+        'title_caps': False,                # names as typed: its ALL-CAPS ones are brands (IHOP, DK, ALDI)
+        'lag_margin_days': 14,              # reports post days late, Fridays' after the weekend (section comment)
+        # What this portal does differently from the three above (each key is
+        # read with .get(), so a portal without it keeps the family's rule):
+        'name_type_sep': ' - ',             # facilityType is null: the permit class follows the name
+        'name_class_re': re.compile(         # a suffix that is a permit class, cut off the name
+            r'^(?:(?:[A-Z]{2,3}\s+Market\s+)?(?:retail\s+food|food\s+retail|food)\s+establi\w*(?:\s*\([^)]*\))?'
+            r'|multi-?departmental\s+grocery\s+store|produce\s+(?:market|department)|(?:meat|fish)\s+market'
+            r'|bakery|deli|(?:cooking\s+area\s+)?snack\s+bar|concession\s+stand|catering\s+business'
+            r'|automated\s+grocery\s+department|pop[\s-]*up\b.*)(?:\s*\(add-on\))?$', re.I),
+        'skip_types': ((re.compile(r'pop[\s-]*up', re.I), 'pop-up vendor'),
+                       (re.compile(r'^catering\s+business$', re.I), 'catering business')),
+        'skip_names': ((re.compile(r'\b(?:elementary|middle|high|christian|academy)\s+school\b'
+                                   r'|\bjunior\s+high\b|\bISD\b', re.I), 'School'),),
+        'cities': ('Wichita Falls', 'Burkburnett', 'Iowa Park', 'Electra'),
+        'tier_from_category': True,         # severity is null on the generic canned comment
+        'category_tiers': {                 # a category whose typed suffix its own scores contradict
+            'demonstration of knowledge/personnel (p)': 'priority_foundation',
+        },
+        'rule_placeholder_re': re.compile(r'^see violation observations? above$', re.I),
+        'count_fields': ('criticalInfractionCount', 'nonCriticalInfractionCount'),
+        'type_placeholder_re': re.compile(r'^please select', re.I),
     },
 }
 # Pima's inspections carry a categorical rating. Graded visits ship with the
@@ -11794,6 +11869,7 @@ _HH_PEST_TITLE_RE = re.compile(
     r'|insects,?\s+rodents,?\s+(?:and\s+)?animals\s+(?:are\s+)?not\s+present)$', re.I)
 HH_PEST_TITLE = 'Pests and animals'
 _HH_CODE_PREFIX_RE = re.compile(r'^\s*(?:§\s*)?[\d][\w.()§-]*\s*(?:-|–|:)\s*')
+_HH_CITY_TAIL_RES = {}                # (towns, state) -> compiled known-town address rule
 _HH_REQUESTS = defaultdict(int)       # portal slug -> requests this run (for the log)
 _HH_STREAK = defaultdict(int)         # portal slug -> requests in a row that exhausted their retries
 _HH_BLOCKED = {}                      # portal slug -> reason, once the breaker tripped this run
@@ -11910,6 +11986,24 @@ def _hh_coord(v):
     return f if f and abs(f) <= 180 else None
 
 
+def _hh_city_tail_re(cfg):
+    """'STREET<space or comma>Known Town[,] [ST|State] [zip]' for a portal that
+    names its towns (cfg 'cities'). The family's rules read the city from the
+    punctuation, which fails on a two-word town once the commas are off:
+    Wichita Falls prints 'Iowa Park, TX 76367' (the comma-after-the-city rule
+    takes the last word, 'Park'), '106 S Red River, Expressway Burkburnett TX
+    76354' (a comma inside the street) and 17 rows with no state at all."""
+    key = (cfg['cities'], cfg['state'])
+    rx = _HH_CITY_TAIL_RES.get(key)
+    if rx is None:
+        towns = '|'.join(re.escape(t) for t in sorted(cfg['cities'], key=len, reverse=True))
+        states = '|'.join([cfg['state']] + [n for n, code in _HH_STATE_NAMES.items() if code == cfg['state']])
+        rx = _HH_CITY_TAIL_RES[key] = re.compile(
+            r'^(?P<street>.*?)[\s,]+(?P<city>' + towns + r')[\s,]*(?:(?P<state>' + states + r')\b[\s,]*)?'
+            r'(?:(?P<zip>\d{5})(?:-?\d{4})?)?\s*$', re.I)
+    return rx
+
+
 def _hh_split_address(addr, cfg):
     """One siteAddress string -> (street, city, state, zip) or None when there
     is no street. 'STREET[, Suite], City ST 85705' is the rule (5,163 of
@@ -11920,7 +12014,12 @@ def _hh_split_address(addr, cfg):
     addr = ' '.join(str(addr or '').split())
     if not addr:
         return None
-    m = _HH_ADDR_RE.match(addr) or _HH_ADDR_ZIP_STATE_RE.match(addr)
+    # A portal that names its towns ('cities') is split at a town it knows
+    # first, whatever the punctuation around it; anything else falls through
+    # to the family's rules.
+    m = _hh_city_tail_re(cfg).match(addr) if cfg.get('cities') else None
+    if not m:
+        m = _HH_ADDR_RE.match(addr) or _HH_ADDR_ZIP_STATE_RE.match(addr)
     if not m:
         m = _HH_ADDR_CITY_IN_STREET_RE.match(addr)
         if m and (len(m.group('city')) < 4 or m.group('city').lower() in _HH_STREET_SUFFIXES):
@@ -11951,6 +12050,19 @@ def _hh_facility(cfg, row, skipped):
     fid = str(row.get('id') or '').strip()
     name = _hh_case(row.get('facilityName'), cfg)
     ftype = ' '.join(str(row.get('facilityType') or '').split())
+    sep = cfg.get('name_type_sep')
+    if sep and not ftype and sep in name:
+        # The portal publishes no facilityType; the agency types the permit
+        # class after the name ('Taco Casa #73 - Retail Food Establishment
+        # (Medium)'). The text after the LAST separator is the type. It is cut
+        # off the name only when it is a permit class ('name_class_re'), so a
+        # re-classed permit keeps its restaurant id and a grocery's
+        # departments share the store's; a suffix that names one stand
+        # ('MPEC Kay Yeager Coliseum - NE Concession Stand (Concession #2)')
+        # stays, or four stands at one address would become one restaurant.
+        head, ftype = (part.strip() for part in name.rsplit(sep, 1))
+        if head and cfg['name_class_re'].match(ftype):
+            name = head
     if not fid or not name:
         skipped['no id or name'] += 1
         return None
@@ -11960,6 +12072,17 @@ def _hh_facility(cfg, row, skipped):
     if HH_MOBILE_TYPE_RE.search(ftype):
         skipped['mobile unit'] += 1
         return None
+    # A portal's own out-of-scope types and names (Wichita Falls: pop-up
+    # vendors, caterers at a shared commissary, school cafeterias typed only
+    # in the name).
+    for rx, label in cfg.get('skip_types', ()):
+        if rx.search(ftype):
+            skipped[label] += 1
+            return None
+    for rx, label in cfg.get('skip_names', ()):
+        if rx.search(name):
+            skipped[label] += 1
+            return None
     parts = _hh_split_address(row.get('siteAddress'), cfg)
     if parts is None:
         skipped['no address'] += 1
@@ -12051,7 +12174,25 @@ def _hh_facility_rows(slug, since):
             raise RuntimeError(f"{cfg['group']}: facility list did not end after {page} pages")
 
 
-def _hh_violations(items):
+class _HhTierError(ValueError):
+    """A citation on a 'tier_from_category' portal whose tier the portal
+    states nowhere (no severity, no category suffix): the checklist is not
+    read, never guessed."""
+
+
+def _hh_category_tier(cfg, category):
+    """The tier a checklist category states for its items, or None: the
+    portal's own correction for that category first (cfg 'category_tiers'),
+    then the '(P)' / '(PF)' / '(C)' the agency typed at its end."""
+    name = _hh_clean(category.get('description') if isinstance(category, dict) else '')
+    fixed = (cfg.get('category_tiers') or {}).get(name.lower())
+    if fixed:
+        return fixed
+    m = HH_CATEGORY_TIER_RE.search(name)
+    return HH_CATEGORY_TIERS[m.group(1).upper()] if m else None
+
+
+def _hh_violations(items, cfg=None):
     """Checklist -> [[category, severity, text], ...]: one line per citation
     (cannedComment) of each cited item ('Out of Compliance' / 'Corrected
     During Inspection'). The text is the item's title plus the inspector's
@@ -12059,9 +12200,20 @@ def _hh_violations(items):
     ("...shall be maintained free of insects, rodents...") is never shipped,
     only its short rule name when there is no observation (Mesquite). The
     severity is the agency's own; a cited item without a citation keeps the
-    classifier's. Raises ValueError for anything but a list."""
+    classifier's. Raises ValueError for anything but a list.
+
+    `cfg` switches on what one portal needs and the others must not get
+    (None, or a portal without the keys, is the family's reading above):
+    'tier_from_category' — a citation printed without a severity takes the
+    tier of its checklist category (_hh_category_tier), and one with neither
+    raises _HhTierError instead of falling back to the classifier;
+    'rule_placeholder_re' — canned comments that are not a rule name ('See
+    violation observations above') never stand in for a missing observation."""
     if not isinstance(items, list):
         raise ValueError(f'unexpected inspectionResults shape: {str(items)[:80]}')
+    cfg = cfg or {}
+    from_category = bool(cfg.get('tier_from_category'))
+    placeholder = cfg.get('rule_placeholder_re')
     out = []
     for item in items:
         if not isinstance(item, dict):
@@ -12083,7 +12235,8 @@ def _hh_violations(items):
                 text = f'{title}: {obs}' if title else obs
             elif not obs:
                 rule = _HH_CODE_PREFIX_RE.sub('', _hh_clean(c.get('description'))).rstrip(' .')
-                if rule and len(rule) <= HH_RULE_MAX and rule.lower() != title.lower():
+                if (rule and len(rule) <= HH_RULE_MAX and rule.lower() != title.lower()
+                        and not (placeholder and placeholder.search(rule))):
                     text = f'{title}: {rule}' if title else rule
             if loc:
                 text = f'{text} ({loc})' if text else loc
@@ -12091,6 +12244,14 @@ def _hh_violations(items):
                 continue
             cat, sev, _ = classify_violation(text)
             stated = HH_SEVERITY.get(_hh_clean(c.get('severity')).lower())
+            if from_category and not stated:
+                stated = _hh_category_tier(cfg, item.get('category'))
+                if not stated:
+                    category = item.get('category')
+                    raise _HhTierError(
+                        f"citation without a tier: severity {c.get('severity')!r}, category "
+                        f"{(category.get('description') if isinstance(category, dict) else category)!r}, "
+                        f"item {title[:60]!r}")
             out.append([cat, stated or sev, text[:500]])
     return out
 
@@ -12197,15 +12358,22 @@ def _hh_candidates(cfg, fac, inspections, since, skipped):
         except (TypeError, ValueError):
             score = None
         itype = ' '.join(str(insp.get('inspectionType') or '').split())
+        if cfg.get('type_placeholder_re') and cfg['type_placeholder_re'].search(itype):
+            itype = ''                   # the form's unanswered drop-down, not a visit type
         number = ' '.join(str(insp.get('inspectionNumber') or '').split())
         # The row's own word on whether anything was cited (Pima's flag,
         # Lubbock's count of every citation): the cross-check for a checklist
-        # that comes back with no cited item.
+        # that comes back with no cited item. A portal that splits the count
+        # over several fields names them ('count_fields'): Wichita Falls'
+        # criticalInfractionCount is 0 on visits whose citations are all in
+        # nonCriticalInfractionCount.
         flag = insp.get('hasInfractions')
-        try:
-            count = int(insp.get('criticalInfractionCount'))
-        except (TypeError, ValueError):
-            count = None
+        count = None
+        for field in cfg.get('count_fields') or ('criticalInfractionCount',):
+            try:
+                count = (count or 0) + int(insp.get(field))
+            except (TypeError, ValueError):
+                pass
         out.append({
             'fac': fac, 'id': iid, 'date': date, 'score': score, 'rating': rating,
             'type': itype or ' '.join(str(insp.get('inspectionReason') or '').split()),
@@ -12360,7 +12528,15 @@ def _fetch_hedgehog(slug, since_date=None, limit=None):
                         unread_checklists.append(cand)
                     continue
                 try:
-                    violations = _hh_violations(got)
+                    violations = _hh_violations(got, cfg)
+                except _HhTierError as e:
+                    # the portal states this citation's tier nowhere: the
+                    # inspection is dropped and held like any unread
+                    # checklist, and said out loud (it is the agency's gap)
+                    log.warning(f"  {group}: inspection {cand['id']} ({cand['date']}): {e} — not shipped")
+                    dropped['checklist with a citation of no stated tier'] += 1
+                    unread_checklists.append(cand)
+                    continue
                 except ValueError as e:
                     log.debug(f"  {group}: inspection {cand['id']} ({cand['date']}): {e}")
                     dropped['checklist unread'] += 1
@@ -12457,6 +12633,18 @@ def fetch_mesquite(since_date=None, limit=None):
     The list hides facility types and dates, so every facility's inspection
     list is read each run and missing coordinates are geocoded by main()."""
     return _fetch_hedgehog('mesquite', since_date, limit)
+
+
+def fetch_wichitafalls(since_date=None, limit=None):
+    """Wichita Falls-Wichita County Public Health District, TX (Wichita
+    Falls, Burkburnett, Iowa Park, Electra): official 0-100 hazardScore (both
+    original_score and risk_score, never recomputed), the letter in results
+    ('Grade A'), one line per citation with the district's own tier — the
+    citation's severity where it prints one, else the '(P)' / '(PF)' / '(C)'
+    of its checklist category; an inspection with a citation of neither is
+    dropped and held. The permit class typed after each name is cut off the
+    name and decides scope (pop-up vendors and push carts are dropped)."""
+    return _fetch_hedgehog('wichitafalls', since_date, limit)
 
 
 # ─── WILLIAMSON COUNTY, TX (WCCHD inspection-scores zip snapshot) ───────────
@@ -15331,6 +15519,7 @@ def main():
             (('pima', 'tucson'), 'Pima County', fetch_pima),
             (('lubbock',), 'Lubbock', fetch_lubbock),
             (('mesquite', 'dfw'), 'Mesquite', fetch_mesquite),
+            (('wichitafalls',), 'Wichita Falls', fetch_wichitafalls),
             (('williamson',), 'Williamson County', fetch_williamson),
             (('denton', 'dfw'), 'Denton', fetch_denton),
             (('mckinney', 'dfw'), 'McKinney', fetch_mckinney),

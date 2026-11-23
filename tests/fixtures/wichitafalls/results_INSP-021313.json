@@ -1,0 +1,163 @@
+[
+ {
+  "id": "29005f4d-3fc8-4d8e-84fe-f33a2b2e805c",
+  "description": "Food Handler; No Unauthorized Persons/Personnel",
+  "result": "Out of Compliance",
+  "isCritical": false,
+  "writtenComment": null,
+  "responseComment": null,
+  "category": {
+   "id": "1bf19ef5-2a66-46b5-a5ee-e248a8564e8c",
+   "description": "Demonstration of Knowledge/Personnel (P)"
+  },
+  "cannedComments": [
+   {
+    "id": "9c08e84a-5187-4744-ae6f-ebb422c84e79",
+    "description": "228.31(d) - All food employees, except for certified food manager, shall successfully complete an accredited food handler training course within 60 days of employment.",
+    "severity": "Priority Foundation",
+    "locationComment": null,
+    "observationComment": "Manager unable to provide proof of all employee food handler certificates during inspection.",
+    "responseComment": null,
+    "readings": null
+   }
+  ]
+ },
+ {
+  "id": "1bba957f-15d1-4c81-beab-67ca752526bd",
+  "description": "No evidence of Insect Contamination, Rodent, Other Animals",
+  "result": "Out of Compliance",
+  "isCritical": false,
+  "writtenComment": null,
+  "responseComment": null,
+  "category": {
+   "id": "dcb44641-fb25-4fcb-807e-aa99fa0dc56f",
+   "description": "Prevention of Food Contamination (C)"
+  },
+  "cannedComments": [
+   {
+    "id": "4501ee7d-baac-4f51-88a6-4a8f4ae7b3a6",
+    "description": "6-501.111(B) - Controlling pests. Check premises",
+    "severity": "Core",
+    "locationComment": null,
+    "observationComment": "Observed 3 live flies in ice cream area.",
+    "responseComment": null,
+    "readings": null
+   }
+  ]
+ },
+ {
+  "id": "5d35e1c3-43d6-4aea-a98c-aa43856f7829",
+  "description": "Environmental Contamination",
+  "result": "Out of Compliance",
+  "isCritical": false,
+  "writtenComment": null,
+  "responseComment": null,
+  "category": {
+   "id": "dcb44641-fb25-4fcb-807e-aa99fa0dc56f",
+   "description": "Prevention of Food Contamination (C)"
+  },
+  "cannedComments": [
+   {
+    "id": "24329dfa-86aa-4952-9c2d-99d287d9be81",
+    "description": "3-307.11 - Preventing contamination from other sources. Miscellaneous sources of Contamination",
+    "severity": "Core",
+    "locationComment": null,
+    "observationComment": "Observed heavy ice build up in walk-in freezer.",
+    "responseComment": null,
+    "readings": null
+   }
+  ]
+ },
+ {
+  "id": "9845a1b5-abfc-4720-80e0-2f4d723d4063",
+  "description": "Utensils, Equipment & Linens; Properly Used, Stored, Dried & Handled/ In Use Utensils; Properly Used",
+  "result": "Corrected During Inspection",
+  "isCritical": false,
+  "writtenComment": null,
+  "responseComment": null,
+  "category": {
+   "id": "35f6c129-45e2-4835-90aa-03e0424b7f20",
+   "description": "Proper Use of Utensils (C)"
+  },
+  "cannedComments": [
+   {
+    "id": "7439aa87-a258-4d16-882f-c5becd96aec7",
+    "description": "3-304.12(E) - In-use utensils, between-use storage. During pauses in food preparation or dispensing, food preparation and dispensing utensils shall be stored in a clean, protected location if the utensils, such as ice scoops, are used only with a food that is not time/temperature controlled for safety",
+    "severity": "Core",
+    "locationComment": null,
+    "observationComment": "Observed ice scoop improperly stored.",
+    "responseComment": null,
+    "readings": null
+   }
+  ]
+ },
+ {
+  "id": "9845a1b5-abfc-4720-80e0-2f4d723d4063",
+  "description": "Utensils, Equipment & Linens; Properly Used, Stored, Dried & Handled/ In Use Utensils; Properly Used",
+  "result": "Out of Compliance",
+  "isCritical": false,
+  "writtenComment": null,
+  "responseComment": null,
+  "category": {
+   "id": "35f6c129-45e2-4835-90aa-03e0424b7f20",
+   "description": "Proper Use of Utensils (C)"
+  },
+  "cannedComments": [
+   {
+    "id": "8cf4ef21-ca8c-4eb7-a017-5fa828e9da14",
+    "description": "4-602.11(E)(4) - Surfaces of utensils and equipment contacting food that is not time/temperature control for safety shall be cleaned: in equipment such as ice bins and beverage dispensing nozzles and enclosed components of equipment such as ice makers, cooking oil storage tanks and distribution lines, beverage and syrup dispensing lines or tubes, coffee bean grinders, and water vending equipment: (i) at a frequency specified by the manufacturer; or (ii) absent manufacturer specifications, at a frequency necessary to preclude accumulation of soil or mold",
+    "severity": "Core",
+    "locationComment": null,
+    "observationComment": "Observed build up on ice machine shield.",
+    "responseComment": null,
+    "readings": null
+   }
+  ]
+ },
+ {
+  "id": "2cb57522-2481-4fc6-a0c0-e2d3d418a0e2",
+  "description": "Physical Facilities Installed, Maintained and Cleaned",
+  "result": "Out of Compliance",
+  "isCritical": false,
+  "writtenComment": null,
+  "responseComment": null,
+  "category": {
+   "id": "1d5a48e7-91ac-41e7-a057-b6310e8ead5e",
+   "description": "Physical Facilities (C)"
+  },
+  "cannedComments": [
+   {
+    "id": "27321667-772e-4a55-b5c1-3c1fe8c4bac1",
+    "description": "6-101.11(A)(1) - Materials for floor, wall, and ceiling shall be smooth, durable, and easily cleanable",
+    "severity": "Core",
+    "locationComment": null,
+    "observationComment": "Observed the flooring near the back door is damaged and no longer cleanable.",
+    "responseComment": null,
+    "readings": null
+   }
+  ]
+ },
+ {
+  "id": "27b54729-5cdd-42c0-bb30-5194e49e10a8",
+  "description": "Other Violations (Signs, Documents, First Aid, Other)",
+  "result": "Corrected During Inspection",
+  "isCritical": false,
+  "writtenComment": null,
+  "responseComment": null,
+  "category": {
+   "id": "1d5a48e7-91ac-41e7-a057-b6310e8ead5e",
+   "description": "Physical Facilities (C)"
+  },
+  "cannedComments": [
+   {
+    "id": "a588a407-b247-4c06-a92c-a023ccaa65b4",
+    "description": "228.31 - Certified Food Protection Manager Certificate Posted. (b) The original food manager certificate shall be posted in a location in the food establishment that is conspicuous to consumers.",
+    "severity": "Core",
+    "locationComment": null,
+    "observationComment": "Observed certified food manager certificate not posted.",
+    "responseComment": null,
+    "readings": null
+   }
+  ]
+ }
+]

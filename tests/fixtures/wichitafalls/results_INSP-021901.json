@@ -1,0 +1,94 @@
+[
+ {
+  "id": "47477e0b-8dd6-45a8-9a87-5812ec0beb16",
+  "description": "Food Separated & Protected, Prevented during Preparation, Storage, Display, and Tasting",
+  "result": "Corrected During Inspection",
+  "isCritical": false,
+  "writtenComment": null,
+  "responseComment": null,
+  "category": {
+   "id": "cce7209a-d0bb-41b1-851d-df258c763cfa",
+   "description": "Protection from Contamination (P)"
+  },
+  "cannedComments": [
+   {
+    "id": "79d3e536-3ed0-4cfb-8a9f-b56ee26cca09",
+    "description": "3-302.11(A)(2) - Food shall be protected from cross contamination by, except when combined as ingredients, separating types of raw animal foods from each other such as beef, fish, lamb, pork, and poultry during storage, preparation, holding, and display by using separate equipment for each type.",
+    "severity": "Priority",
+    "locationComment": null,
+    "observationComment": "Observed raw eggs stored above raw bacon in walk-in refrigerator.",
+    "responseComment": null,
+    "readings": null
+   }
+  ]
+ },
+ {
+  "id": "f2d00562-312b-4ddb-af7c-188a9f2ad969",
+  "description": "Person in Charge (PIC) present, demonstration of knowledge, and perform duties; Certified Food Manager (CFM)",
+  "result": "Out of Compliance",
+  "isCritical": false,
+  "writtenComment": null,
+  "responseComment": null,
+  "category": {
+   "id": "1bf19ef5-2a66-46b5-a5ee-e248a8564e8c",
+   "description": "Demonstration of Knowledge/Personnel (P)"
+  },
+  "cannedComments": [
+   {
+    "id": "4c90bcef-7400-4711-a135-b4e4e2da9d8f",
+    "description": "Local Sec. 58-228 (2) A certified food protection manager shall be scheduled and available to the food establishment or pop-up food vendor during all hours of operation as required in FDA Food Code, §2-101. 11 and §2-102.12 (EXECPT for establishments that handle only prepackaged food and do not package food, do not prepare or handle exposed Time/ Temperature Control for Safety( TCS), as defined by the FDA Food Code, or are a temporary food establishment)",
+    "severity": "Priority Foundation",
+    "locationComment": null,
+    "observationComment": "The certified manager was not scheduled or available during inspection.",
+    "responseComment": null,
+    "readings": null
+   }
+  ]
+ },
+ {
+  "id": "1bba957f-15d1-4c81-beab-67ca752526bd",
+  "description": "No evidence of Insect Contamination, Rodent, Other Animals",
+  "result": "Out of Compliance",
+  "isCritical": false,
+  "writtenComment": null,
+  "responseComment": null,
+  "category": {
+   "id": "dcb44641-fb25-4fcb-807e-aa99fa0dc56f",
+   "description": "Prevention of Food Contamination (C)"
+  },
+  "cannedComments": [
+   {
+    "id": "4501ee7d-baac-4f51-88a6-4a8f4ae7b3a6",
+    "description": "6-501.111(B) - Controlling pests. Check premises",
+    "severity": "Core",
+    "locationComment": null,
+    "observationComment": "Observed one fly in back area near standing water that must be removed to prevent pest attraction.",
+    "responseComment": null,
+    "readings": null
+   }
+  ]
+ },
+ {
+  "id": "5d35e1c3-43d6-4aea-a98c-aa43856f7829",
+  "description": "Environmental Contamination",
+  "result": "Out of Compliance",
+  "isCritical": false,
+  "writtenComment": null,
+  "responseComment": null,
+  "category": {
+   "id": "dcb44641-fb25-4fcb-807e-aa99fa0dc56f",
+   "description": "Prevention of Food Contamination (C)"
+  },
+  "cannedComments": [
+   {
+    "id": "24329dfa-86aa-4952-9c2d-99d287d9be81",
+    "description": "3-307.11 - Preventing contamination from other sources. Miscellaneous sources of Contamination",
+    "severity": "Core",
+    "locationComment": null,
+    "observationComment": "Severe ice build up has not been defrosted since previous inspection.",
+    "responseComment": null,
+    "readings": null
+   }
+  ]
+ }
+]
