@@ -14062,6 +14062,10 @@ IO_PORTALS = {
         'group': 'Kansas City', 'source': 'Kansas City MO Health Department', 'prefix': 'kcmo',
         'db': 'mo/usakansascity/inspect.nsf', 'state': 'MO', 'default_city': 'Kansas City', 'metro': '',
         'grade': False, 'chunk_days': 7, 'history_start': '2008-01-01',
+        # The department inspects Kansas City, MO only; its city field is
+        # typed by hand ('Kanas City', 'Kasnas City', 'Kansas', 'Kc' in one
+        # 4-week window), so every record is filed under the city itself.
+        'fixed_city': 'Kansas City',
     },
 }
 _IO_COUNT_RE = re.compile(r'<h4>\s*(\d+)\s+documents?\s+(?:returned;\s*(\d+)\s+)?found\s*</h4>', re.I)
@@ -14309,7 +14313,7 @@ def _io_place(cfg, dv):
     if state != cfg['state']:
         return None, f"outside {cfg['state']}"
     city = ' '.join(dv['fld_FCity'].split()).title() or cfg['default_city']
-    city = cfg.get('city_map', {}).get(city, city)
+    city = cfg.get('fixed_city') or cfg.get('city_map', {}).get(city, city)
     m = re.match(r'\d{5}', dv['fld_FPCode'])
     return {'name': name, 'street': street, 'city': city, 'zip': m.group(0) if m else '',
             'types': types}, ''

@@ -571,6 +571,11 @@ class FailureTests(_Base):
         self.assertEqual(set(self.holds('kansascity')), {
             f'2026-11-13|{KC_FOX}', f'2026-11-14|{KC_MARYS}', f'2026-11-13|{KC_UGLY}', f'2026-11-10|{KC_OURHOUSE}'})
 
+    def test_kansas_city_city_is_fixed(self):
+        s = Server('kansascity')
+        s.dv[KC_FOX] = s.dv[KC_FOX].replace('~Kansas City ~', '~Kanas City~')
+        self.assertEqual(_by_unid(_run(s, since='2026-11-09'))[KC_FOX]['city'], 'Kansas City')
+
     def test_stale_counters_below_the_rows_ship_every_row(self):
         # Kansas City's Thai House: counters 6 critical of 7 above 10 printed rows
         s = Server('kansascity')
