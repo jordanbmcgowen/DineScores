@@ -555,6 +555,10 @@
    "group": "MHD metros",
    "latest": "2026-11-13"
   },
+  "Amarillo Health Dept": {
+   "group": "MHD metros (midweek)",
+   "latest": "2026-11-20"
+  },
   "Arapahoe County Health Dept": {
    "group": "MHD metros",
    "latest": "2026-11-13"
@@ -1210,6 +1214,10 @@
    "group": "Orange County",
    "latest": "2026-11-13"
   },
+  "Orange County TX Health Dept": {
+   "group": "MHD metros (midweek)",
+   "latest": "2026-11-18"
+  },
   "Pima County Health Department": {
    "given_up": [
     "2025-10-13|fcb273df-8139-407e-8315-e43c14db0273",
@@ -1496,6 +1504,10 @@
   "Santa Clara County Open Data": {
    "group": "Santa Clara County",
    "latest": "2026-10-10"
+  },
+  "Smith County TX Health Dept": {
+   "group": "MHD metros (midweek)",
+   "latest": "2026-11-20"
   },
   "Southern Nevada Health District": {
    "group": "Las Vegas",
