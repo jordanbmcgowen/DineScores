@@ -13915,6 +13915,706 @@ def fetch_denton(since_date=None, limit=None):
     return results
 
 
+# ─── CORPUS CHRISTI / NUECES COUNTY, TX (InspectHub public listing) ──────────
+# The Corpus Christi-Nueces County Public Health District publishes its food
+# inspections on InspectHub (app.inspecthub.com, ColdFusion, plain server-side
+# HTML: no script, cookie or token; probed live 2026-11-22). Two pages, both
+# on one URL:
+#   remote.cfm?k=<tenant key>&s=100            the listing: EVERY location in
+#        one 527 KB response (2,203 rows), each row its LATEST inspection only:
+#        'NAME - STREET', score, the inspection form's name ("Type") and the
+#        date. No paging, no date filter, no search parameter.
+#   remote.cfm?k=<tenant key>&s=100&i=<id>     one inspection: name and street
+#        in the <h3>, 'Date: November, 03 2026', 'Score : 89', one table row
+#        per cited item ('Points Deducted' 3/2/1, the form item, the
+#        inspector's note, a corrected-during-inspection flag) and 'Other
+#        Inspections for <location>': every other inspection of the location
+#        with its id, date and score.
+# So a window costs the listing, one page per location whose latest
+# inspection falls in it and one page per earlier in-window inspection found
+# in those pages' history tables: ~75 inspections a week, one request a
+# second. Inspection ids are issued on the inspection day (1,643 of the 1,645
+# rows since May 2026 are in date order by id) and an inspection was on the
+# listing the day after it was made; whether the district ever publishes or
+# corrects one later was NOT measured, so every dated window is read
+# CC_REREAD_DAYS earlier than asked (holds stay at the start the caller asked
+# for, as the Hedgerow fetchers do it).
+#
+# Score. The district scores 100 minus demerits on a 56-item form (its page:
+# "each scoring from 3 to 1", three- and two-point items "Major Violations";
+# 0-10 demerits excellent, 11-20 good, 21-30 acceptable, 31+ poor). The page
+# prints the 0-100 number, so original_score and risk_score are both that
+# number (Dallas's convention, not McKinney's demerit total) and each cited
+# item's tier is its points: 3 priority, 2 priority foundation, 1 core.
+# Three statements of every score are compared and all must agree, or the
+# inspection is dropped and held, never shipped:
+#   - the listing row (or, for an earlier inspection, its history row),
+#   - the 'Score' line of the inspection's own page,
+#   - 100 minus the points of the rows on that page (58 of 58 inspections
+#     with rows agreed on 2026-11-22).
+# A CLEAN inspection is the trap: its own page prints 'Score : 0' over an
+# EMPTY table (12 of 12 pages the listing scored 100), which is also what a
+# page that lost its rows would look like. It ships as a 100 only when the
+# listing or history row says 100; a rowless page whose listing says anything
+# else is unread. The other rowless shapes never ship: an id the portal has
+# not published answers HTTP 200 with the table shell and "This inspection
+# does not have any violations." but no name, date or score; a pool or spa
+# page carries the name and that sentence but no score. A page counts as READ
+# only when it carries the establishment, the date and a score, and they are
+# the ones the listing gave for that id.
+#
+# Scope. The listing's "Type" is the form the inspection was written on, the
+# only type the source has: there is no routine / follow-up / complaint /
+# pre-opening field anywhere, so inspection_type is empty and a pre-opening
+# visit cannot be told from a routine one. Forms seen: '2024
+# Inspections-Restaurants' (1,810 locations), 'Restaurant' (46, the pre-2024
+# form with Texas item numbers), 'Inspection - Restaurant 2024' (1) ship;
+# the pool, spa and splash-pad forms (336) and 'Flea Market Food Vendors'
+# (10: market stalls, push carts and one-off event booths) do not. A form
+# name the rules do not know is not shipped and, from CC_UNKNOWN_FORM_MIN
+# locations, fails the fetch: the form names carry a year and will be renamed.
+# By name (the only other signal): mobile units and event booths
+# (CC_SKIP_NAME_RE), and the institutional kitchens the public cannot walk
+# into, with the rule Georgia and Louisiana use (TP_INSTITUTION_RE, plus the
+# school-district spellings the district writes): 142 of the 1,867 food
+# locations on 2026-11-22.
+#
+# City. NOTHING in the source says which town a location is in: the address
+# is the street line alone on the listing, the inspection page and the
+# printable PDF (no city, state, zip or coordinates), although the district
+# also inspects Port Aransas, Robstown, Bishop, Banquete, Agua Dulce and
+# Driscoll. Every record therefore ships as 'Corpus Christi' with an empty
+# zip (about nine in ten of the county's residents live in the city); a
+# location in another town carries the wrong city label and usually fails
+# to geocode. The city is never guessed per record: make_restaurant_id
+# hashes it, so it must not depend on a geocoder's answer.
+#
+# Text. Each cited item ships as '<form title>: <inspector's note>'. The two
+# titles that name an F-forcing hazard never ship: the pest item ('38.
+# Insects, rodents, and animals not present', the older form's '34. No
+# Evidence of Insect contamination, rodent/other animals') goes under the
+# Hedgerow fetchers' neutral heading (HH_PEST_TITLE) and the sewage item
+# ('52. Sewage and waste water properly disposed') under
+# CC_WASTEWATER_TITLE, so "Gnats present" or a leaking mop sink cannot force
+# an F through the title while "Rodent droppings found storage room" still
+# does through the note. A pest item cited with NO note keeps its printed
+# title, which jev_reader registers as a cited pest item (pest chip, no F).
+CC_BASE = 'https://app.inspecthub.com/public/remote.cfm'
+# The district's tenant key, from the link on the city's "Restaurant
+# Inspection Scores" page. A wrong key answers HTTP 200 "{ 'ERROR':'Invalid
+# Key' }": if the listing starts failing that way, re-read the key there.
+CC_TENANT_KEY = '743FNC060E68BGYIBTL4YZ0U75O1U6H0'
+CC_SCORE_BASE = 100          # the 's' parameter: the page prints s minus the points deducted
+CC_GROUP = 'Corpus Christi'
+CC_SOURCE = 'Corpus Christi-Nueces County Public Health District'
+CC_CITY = 'Corpus Christi'   # every record; see the section comment
+CC_TIMEOUT = 60              # one inspection page (measured 0.04-0.4 s)
+CC_LIST_TIMEOUT = 180        # the listing (527 KB, ~2 s)
+CC_RETRIES = 3               # attempts per request
+CC_RETRY_WAIT = 5            # seconds, times the attempt number
+CC_DELAY = 1.0               # pause after every request: one stream, about a request a second
+CC_BREAKER_TRIP = 3          # requests in a row that fail for good -> the portal is blocked this run
+CC_NO_RETRY_STATUSES = frozenset({401, 403})   # a refusal is not retried: asking again is the wrong answer
+CC_LIST_MIN_ROWS = 1000      # 2,203 rows on 2026-11-22; a much shorter listing is not trusted
+CC_REREAD_DAYS = 7           # every dated window starts this much earlier (late publication: unmeasured)
+CC_HISTORY_START = '2015-01-01'   # history tables reach back to 2015
+# Inspections whose three scores disagree are dropped and held one by one;
+# this many of them, making up more than this share of the pages read, mean
+# the page changed and the whole fetch raises (McKinney's rule).
+CC_MISMATCH_MIN = 10
+CC_MISMATCH_MAX_SHARE = 0.05
+# About half of all inspections are clean. A window of at least this many
+# in which nearly all are is a page that lost its rows, not a good week.
+CC_MASS_CLEAN_MIN = 20
+CC_MASS_CLEAN_SHARE = 0.9
+CC_UNKNOWN_FORM_MIN = 20     # locations on a form name the rules do not know -> the fetch raises
+CC_POINT_SEVERITY = {3: 'priority', 2: 'priority_foundation', 1: 'core'}
+CC_BANDS = ((10, 'Excellent'), (20, 'Good'), (30, 'Acceptable'))   # the district's own words; above: 'Poor'
+CC_FOOD_FORM_RE = re.compile(r'restaurant|food', re.I)
+CC_SKIP_FORM_RE = re.compile(r'pool|\bspas?\b|splash|flea market|vendor', re.I)
+# A mobile unit's street is its commissary or its owner's; an event booth has
+# none. 'MOBILE HOME' is a trailer park (its pool), not a food truck.
+CC_SKIP_NAME_RE = re.compile(
+    r'\b(?:mobile(?!\s+home)|food\s+trucks?|food\s+trailers?|push\s?carts?|temp(?:orary)?\.?\s+events?|'
+    r'farmers?\s+markets?)\b', re.I)
+# The school-district spellings TP_INSTITUTION_RE does not have ('CCISD
+# CONCESSIONS', 'BANQUETE ISD - ...', 'PORT ARANSAS ISD').
+CC_SCHOOL_DISTRICT_RE = re.compile(r'\b(?:[a-z]*isd|early childhood|juvenile justice)\b', re.I)
+CC_WASTEWATER_TITLE = 'Wastewater disposal'
+CC_PEST_TITLE_WORDS_RE = re.compile(r'insect|rodent|vermin|\bpests?\b', re.I)
+CC_SEWAGE_TITLE_WORDS_RE = re.compile(r'sewage', re.I)
+_CC_MONTHS = {m: i for i, m in enumerate(
+    ('january', 'february', 'march', 'april', 'may', 'june', 'july', 'august', 'september',
+     'october', 'november', 'december'), start=1)}
+# 'November 03, 2026' (listing, history) and 'November, 03 2026' (inspection page)
+_CC_DATE_RE = re.compile(r'^([A-Za-z]+),?\s+(\d{1,2}),?\s+(\d{4})$')
+_CC_TR_RE = re.compile(r'<tr\b([^>]*)>(.*?)</tr>', re.S | re.I)
+_CC_TD_RE = re.compile(r'<td\b[^>]*>(.*?)</td>', re.S | re.I)
+_CC_ROW_ID_RE = re.compile(r'[?&](?:amp;)?i=(\d+)')
+_CC_H3_RE = re.compile(r'<h3\b[^>]*>(.*?)</h3>', re.S | re.I)
+_CC_DATE_LINE_RE = re.compile(r'<strong>\s*Date:\s*</strong>([^<]*)', re.I)
+_CC_SCORE_LINE_RE = re.compile(r'<strong>\s*Score\s*:\s*</strong>([^<]*)', re.I)
+_CC_PRINT_ID_RE = re.compile(r'[?&]a=print&(?:amp;)?k=\w+&(?:amp;)?i=(\d+)')
+_CC_ITEM_RE = re.compile(r'^(\d{1,3}[a-z]?)\.\s*(.*)$', re.S)
+_CC_ANNOTATION_RE = re.compile(r'\s*\*\*[^*]*\*\*\s*')
+_CC_STATE = {'requests': 0, 'streak': 0, 'blocked': ''}   # this fetch's request count and breaker
+
+
+class _CcError(Exception):
+    """An InspectHub request that could not be completed. `cut` is True when
+    the request was not made because the breaker had tripped this run (the
+    record is held, not counted); otherwise it was tried and failed."""
+
+    def __init__(self, msg, cut=False):
+        super().__init__(msg)
+        self.cut = cut
+
+
+def _cc_session():
+    s = requests.Session()
+    s.headers.update({'User-Agent': CHROME_UA})
+    return s
+
+
+def _cc_url(insp_id=None):
+    url = f'{CC_BASE}?k={CC_TENANT_KEY}&s={CC_SCORE_BASE}'
+    return url if insp_id is None else f'{url}&i={int(insp_id)}'
+
+
+def _cc_get(session, insp_id=None):
+    """The listing (insp_id None) or one inspection page, as text. A
+    timeout, a reset, 429 and 5xx are retried CC_RETRIES times with a growing
+    pause, never past the fetch deadline; a 401/403 is not retried. Any
+    request that fails for good counts toward the breaker: CC_BREAKER_TRIP
+    of them in a row and every later request of the run fails at once
+    (`cut`). A 200 resets the streak; what the body holds is the parsers'
+    business."""
+    if _CC_STATE['blocked']:
+        raise _CcError(f"portal breaker tripped: {_CC_STATE['blocked']}", cut=True)
+    url = _cc_url(insp_id)
+    what = 'listing' if insp_id is None else f'inspection {insp_id}'
+    last, final = '', False
+    for attempt in range(1, CC_RETRIES + 1):
+        _CC_STATE['requests'] += 1
+        try:
+            r = session.get(url, timeout=CC_LIST_TIMEOUT if insp_id is None else CC_TIMEOUT)
+        except requests.RequestException as e:
+            last = f'{type(e).__name__}: {str(e)[:120]}'
+        else:
+            if r.status_code == 200:
+                _CC_STATE['streak'] = 0
+                return r.text
+            last = f'HTTP {r.status_code}'
+            if r.status_code in CC_NO_RETRY_STATUSES:
+                final = True
+                break
+        if attempt == CC_RETRIES:
+            final = True
+            break
+        if _past_deadline():
+            break
+        wait = CC_RETRY_WAIT * attempt
+        log.warning(f"  Corpus Christi: {what} failed ({last}) — retry {attempt}/{CC_RETRIES - 1} in {wait}s")
+        time.sleep(wait)
+    if final:
+        _CC_STATE['streak'] += 1
+        if _CC_STATE['streak'] >= CC_BREAKER_TRIP:
+            _CC_STATE['blocked'] = f"{_CC_STATE['streak']} requests in a row failed (last: {last})"
+            log.error(f"  Corpus Christi: {_CC_STATE['blocked']} — treating the portal as blocked; the "
+                      f"run's remaining pages are skipped and held")
+    raise _CcError(f'{what}: {last}')
+
+
+def _cc_text(fragment):
+    """An HTML fragment as one line of text."""
+    return ' '.join(html_lib.unescape(re.sub(r'<[^>]+>', ' ', fragment or '')).split())
+
+
+def _cc_date(text):
+    """'November 03, 2026' / 'November, 03 2026' -> '2026-11-03', or None
+    (the history tables hold typos such as 'April 01, 715')."""
+    m = _CC_DATE_RE.match(' '.join((text or '').split()))
+    month = _CC_MONTHS.get(m.group(1).lower()) if m else None
+    if not month:
+        return None
+    return sane_inspection_date(f'{int(m.group(3)):04d}-{month:02d}-{int(m.group(2)):02d}')
+
+
+def _cc_int(text):
+    t = (text or '').strip()
+    return int(t) if re.fullmatch(r'\d{1,3}', t) else None
+
+
+def _cc_loc_key(text):
+    """A location string for comparison: case and spacing do not matter."""
+    return ' '.join((text or '').split()).upper()
+
+
+def _cc_title(s):
+    """Whitespace collapsed; .title() only for an ALL-CAPS value, which nearly
+    every name and street is ("JOE'S", 'DON'T', '6TH STREET' -> "Joe's",
+    "Don't", '6th Street'). Deterministic: make_restaurant_id hashes the
+    result, so changing this re-keys every Corpus Christi restaurant."""
+    s = ' '.join(str(s or '').split())
+    if s.isupper():
+        s = re.sub(r"(?<=[A-Za-z])'([A-Z])\b", lambda m: "'" + m.group(1).lower(), s.title())
+        s = _HH_ORDINAL_RE.sub(lambda m: m.group(1) + m.group(2).lower(), s)
+    return s
+
+
+def _cc_clean_name(name):
+    """The establishment's name without the permit notes the district types
+    into it between asterisks ('BIEN MERITE **90 DAY TEMPORARY PERMIT**'):
+    the note goes away when the permit does, and the id must not."""
+    return ' '.join(_CC_ANNOTATION_RE.sub(' ', name or '').split())
+
+
+def _cc_form_scope(form):
+    """'food' for a form that ships, 'skip' for one that never does (pools,
+    spas, splash pads, market and event vendors), 'unknown' for a name the
+    rules have not seen."""
+    if CC_SKIP_FORM_RE.search(form or ''):
+        return 'skip'
+    return 'food' if CC_FOOD_FORM_RE.search(form or '') else 'unknown'
+
+
+def _cc_out_of_scope(name):
+    """Why an establishment does not ship, judged by its NAME (never its
+    street: '2606 HOSPITAL BLVD' is an address), or '' when it does."""
+    if CC_SKIP_NAME_RE.search(name or ''):
+        return 'mobile unit / event booth'
+    if TP_INSTITUTION_RE.search(name or '') or CC_SCHOOL_DISTRICT_RE.search(name or ''):
+        return 'school / institutional kitchen'
+    return ''
+
+
+def _cc_parse_list(html):
+    """The listing -> [{'id', 'location', 'score', 'form', 'date'}, ...], one
+    per location (its latest inspection). Raises ValueError for anything
+    that is not the listing in its known shape: the listing is the
+    completeness check of every window, so a partial or re-shaped one must
+    ship nothing. A row's score or date that cannot be read is None (the
+    caller skips and counts it); more than one row in twenty without a date
+    is a format change and raises."""
+    html = html or ''
+    if '<th>Location</th>' not in html or 'Last Inspection</th>' not in html:
+        raise ValueError(f'not the listing: {" ".join(html.split())[:80]!r}')
+    rows = []
+    for attrs, inner in _CC_TR_RE.findall(html):
+        if 'onclick' not in attrs.lower():
+            continue
+        m = _CC_ROW_ID_RE.search(attrs)
+        cells = _CC_TD_RE.findall(inner)
+        if not m or len(cells) != 4:
+            raise ValueError(f'listing row in an unknown shape: {" ".join((attrs + inner).split())[:120]!r}')
+        location = _cc_text(cells[0])
+        if not location:
+            raise ValueError(f'listing row {m.group(1)} has no location')
+        rows.append({'id': int(m.group(1)), 'location': location, 'score': _cc_int(_cc_text(cells[1])),
+                     'form': _cc_text(cells[2]), 'date': _cc_date(_cc_text(cells[3]))})
+    if len(rows) < CC_LIST_MIN_ROWS:
+        raise ValueError(f'listing has only {len(rows)} rows (expected at least {CC_LIST_MIN_ROWS})')
+    undated = sum(1 for r in rows if not r['date'])
+    if undated * 20 > len(rows):
+        raise ValueError(f'{undated} of {len(rows)} listing rows carry no readable date')
+    return rows
+
+
+def _cc_parse_detail(html):
+    """One inspection page -> {'id', 'name', 'street', 'date', 'score',
+    'rows': [(points, item, title, note, corrected)], 'empty_note',
+    'history': [(id, date, score)]}, or None when the body is not an
+    inspection page at all (an error text, a block page). Nothing is judged
+    here: a page without a name or a score parses with those fields empty,
+    and _cc_check decides whether it was read. Raises ValueError for a
+    violations table in a shape the parser does not know."""
+    html = html or ''
+    if 'Points Deducted</th>' not in html:
+        return None
+    head, _, tail = html.partition('<h2>Other Inspections')
+    name = street = ''
+    h3 = _CC_H3_RE.search(head)
+    if h3:
+        # the name on one line, ' - STREET' on a later one (two template outputs)
+        lines = [' '.join(html_lib.unescape(l).split()) for l in re.sub(r'<[^>]+>', ' ', h3.group(1)).split('\n')]
+        lines = [l for l in lines if l]
+        if len(lines) > 1 and lines[-1].startswith('-'):
+            street = lines.pop()[1:].strip()
+        name = ' '.join(lines)
+    dm = _CC_DATE_LINE_RE.search(head)
+    sm = _CC_SCORE_LINE_RE.search(head)
+    pm = _CC_PRINT_ID_RE.search(head)
+    rows, empty_note = [], False
+    body = re.search(r'<tbody\b[^>]*>(.*?)</tbody>', head, re.S | re.I)
+    if body is None:
+        raise ValueError('violations table has no body')
+    for _attrs, inner in _CC_TR_RE.findall(body.group(1)):
+        cells = [_cc_text(c) for c in _CC_TD_RE.findall(inner)]
+        if len(cells) == 1 and 'does not have any violations' in cells[0]:
+            empty_note = True
+            continue
+        if len(cells) != 4:
+            raise ValueError(f'violation row with {len(cells)} cells: {" | ".join(cells)[:120]!r}')
+        im = _CC_ITEM_RE.match(cells[1])
+        rows.append((_cc_int(cells[0]), im.group(1) if im else '', (im.group(2) if im else cells[1]).strip(),
+                     cells[2], cells[3]))
+    history = []
+    for attrs, inner in _CC_TR_RE.findall(tail):
+        m = _CC_ROW_ID_RE.search(attrs)
+        cells = [_cc_text(c) for c in _CC_TD_RE.findall(inner)]
+        if m and len(cells) == 2:
+            history.append((int(m.group(1)), _cc_date(cells[0]), _cc_int(cells[1])))
+    # every linked row of the page must be a history row that was read: a
+    # moved or re-shaped history table would otherwise lose a location's
+    # earlier inspections without a trace
+    if len(history) != len(re.findall(r'<tr\b[^>]*\bonclick', html, re.I)):
+        raise ValueError('history table in an unknown shape')
+    return {'id': int(pm.group(1)) if pm else None, 'name': name, 'street': street,
+            'date': _cc_date(dm.group(1)) if dm else None, 'score': _cc_int(sm.group(1)) if sm else None,
+            'rows': rows, 'empty_note': empty_note, 'history': history}
+
+
+def _cc_check(page, insp_id, listed):
+    """Why an inspection page does not count as READ, or ''. `listed` is what
+    the listing (or the history table of a later inspection) said about this
+    id: {'location', 'date', 'score'}. The reasons that start with 'score'
+    are the points-do-not-add-up kind and are counted for the format-change
+    check; every reason drops and holds the inspection."""
+    if page is None:
+        return 'not an inspection page'
+    if page['id'] is not None and page['id'] != insp_id:
+        return f"the page is inspection {page['id']}"
+    if not page['name'] or page['score'] is None or not page['date']:
+        return 'no establishment, date or score on the page (not published?)'
+    if _cc_loc_key(f"{page['name']} - {page['street']}" if page['street'] else page['name']) \
+            != _cc_loc_key(listed['location']):
+        return 'the page is another location'
+    if page['date'] != listed['date']:
+        return f"the page is dated {page['date']}, the listing {listed['date']}"
+    if listed['score'] is None:
+        return 'no score on the listing'
+    if not page['rows']:
+        # a clean inspection prints 'Score : 0' over an empty table; so would a page that lost its rows
+        if listed['score'] == CC_SCORE_BASE and page['score'] in (0, CC_SCORE_BASE):
+            return ''
+        return f"score: no rows on a page the listing scores {listed['score']}"
+    if any(r[0] not in CC_POINT_SEVERITY for r in page['rows']):
+        return 'score: a row without 3, 2 or 1 points'
+    computed = CC_SCORE_BASE - sum(r[0] for r in page['rows'])
+    if not (computed == page['score'] == listed['score']):
+        return (f"score: {computed} from the rows, {page['score']} on the page, "
+                f"{listed['score']} on the listing")
+    return ''
+
+
+def _cc_violations(rows):
+    """[[category, severity, text], ...] for a page's rows: the tier is the
+    points the district deducted, the text '<form title>: <inspector's
+    note>'. A title that names pests or sewage is replaced by a neutral
+    heading (see the section comment), whatever its exact wording."""
+    out = []
+    for points, _item, title, note, _corrected in rows:
+        title = ' '.join(title.split()).rstrip(' .:;')
+        note = _dfw_hole_scrub(note).rstrip(' .')
+        if CC_PEST_TITLE_WORDS_RE.search(title):
+            # Cited with no note, the item keeps its printed title when that
+            # is one of the two TX-form wordings jev_reader registers in
+            # CITED_PEST_ITEM_TITLES (pest chip, 'Pests found', never an F);
+            # with a note it goes under the neutral heading.
+            if note or not _HH_PEST_TITLE_RE.match(title):
+                title = HH_PEST_TITLE
+        elif CC_SEWAGE_TITLE_WORDS_RE.search(title):
+            title = CC_WASTEWATER_TITLE
+        text = f'{title}: {note}' if title and note else (title or note)
+        if not text:
+            text = 'Item cited on the inspection report'
+        cat, _, _ = classify_violation(text)
+        out.append([cat, CC_POINT_SEVERITY[points], text[:500]])
+    return out
+
+
+def _cc_band(demerits):
+    for ceiling, word in CC_BANDS:
+        if demerits <= ceiling:
+            return word
+    return 'Poor'
+
+
+def _cc_record(insp_id, page):
+    """One DineScores record from a page _cc_check accepted."""
+    violations = _cc_violations(page['rows'])
+    demerits = sum(r[0] for r in page['rows'])
+    score = CC_SCORE_BASE - demerits
+    pv = sum(1 for v in violations if v[1] == 'priority')
+    pfv = sum(1 for v in violations if v[1] == 'priority_foundation')
+    return {
+        'name': _cc_title(_cc_clean_name(page['name'])),
+        'address': _cc_title(page['street']),
+        'city': CC_CITY,                 # the source names no town (section comment)
+        'state': 'TX',
+        'zip': '',
+        'latitude': None,
+        'longitude': None,
+        'inspection_date': page['date'],
+        'original_score': score,         # the district's own 0-100 score, 100 - demerits
+        'risk_score': score,
+        'priority_violations': pv,
+        'priority_foundation_violations': pfv,
+        'core_violations': len(violations) - pv - pfv,
+        'total_violations': len(violations),
+        'violations': violations,
+        'inspection_type': '',           # the source has none
+        'results': f"{_cc_band(demerits)} ({demerits} demerit{'' if demerits == 1 else 's'})",
+        'source': CC_SOURCE,
+        'source_url': _cc_url(insp_id),
+        'source_id': f'cctx_{insp_id}',
+        'metro': '',
+    }
+
+
+def _cc_read(session, insp_id, listed):
+    """Fetch and check one inspection page. -> (page, '') when it was read,
+    (page or None, reason) when it was not; a page in the wrong shape or
+    with a score that does not add up is re-read once before it is given up
+    (the listing and the page are two requests, and a glitch must not cost a
+    hold). Raises _CcError when the request itself failed."""
+    page, why = None, ''
+    for attempt in (1, 2):
+        html = _cc_get(session, insp_id)
+        time.sleep(CC_DELAY)
+        try:
+            page = _cc_parse_detail(html)
+            why = _cc_check(page, insp_id, listed)
+        except ValueError as e:
+            page, why = None, str(e)
+        if not why or _past_deadline():
+            break
+    return page, why
+
+
+def fetch_corpus_christi(since_date=None, limit=None):
+    """
+    Fetch Corpus Christi / Nueces County, TX food inspections from the health
+    district's InspectHub listing (see the section notes): one record per
+    inspection dated on or after since_date, read CC_REREAD_DAYS earlier.
+    Without since_date a limit takes the `limit` most recently inspected
+    locations (test mode); with neither, everything since CC_HISTORY_START.
+
+    Scoring: the district's own 0-100 score (100 minus demerits) is both
+    original_score and risk_score; each cited item is tiered by the points
+    deducted (3 priority, 2 priority foundation, 1 core); results carries
+    the district's band and the demerit total. The listing's score, the
+    page's score and the points on the page must agree or the inspection is
+    dropped and held (CC_SOURCE, key = its id); CC_MISMATCH_MIN of those
+    making up more than CC_MISMATCH_MAX_SHARE of the pages read raise, as
+    does a window of nearly all clean inspections.
+
+    Failures: an unreadable listing raises and ships nothing. An inspection
+    page that cannot be fetched or does not count as read is dropped and
+    held, never shipped clean: the whole window is held when it was a
+    location's latest page (its earlier in-window inspections are unknown),
+    the inspection's own day otherwise. The deadline and the breaker hold
+    without counting and report 'skipped' / 'blocked'.
+
+    No coordinates, no zip and no town in the source: every record is
+    'Corpus Christi, TX' and the caller geocodes it.
+    """
+    asked = str(since_date)[:10] if since_date else None
+    log.info(f"Fetching Corpus Christi data (since={asked}, limit={limit})")
+    started = time.time()
+    _CC_STATE.update(requests=0, streak=0, blocked='')
+    session = _cc_session()
+
+    # Phase 0 — the listing (atomic: any failure raises and ships nothing).
+    try:
+        listing = _cc_parse_list(_cc_get(session))
+    except (_CcError, ValueError) as e:
+        raise RuntimeError(f'Corpus Christi: listing unreadable ({e}); nothing shipped') from e
+    skipped, unknown_forms, locations, newest = defaultdict(int), defaultdict(int), [], ''
+    for row in listing:
+        scope = _cc_form_scope(row['form'])
+        if scope == 'unknown':
+            unknown_forms[row['form']] += 1
+            continue
+        if scope == 'skip':
+            skipped['not a food form'] += 1
+            continue
+        if not row['date']:
+            skipped['no date on the listing'] += 1
+            continue
+        newest = max(newest, row['date'])          # the source's own newest food inspection
+        why = _cc_out_of_scope(row['location'].rpartition(' - ')[0] or row['location'])
+        if why:
+            skipped[why] += 1
+            continue
+        locations.append(row)
+    if unknown_forms:
+        seen_forms = ', '.join(f"'{f}' ({n})" for f, n in sorted(unknown_forms.items(), key=lambda kv: -kv[1]))
+        if sum(unknown_forms.values()) >= CC_UNKNOWN_FORM_MIN:
+            raise RuntimeError(f'Corpus Christi: inspection form(s) the fetcher does not know: {seen_forms}; '
+                               f'decide whether they are food forms (CC_FOOD_FORM_RE / CC_SKIP_FORM_RE). '
+                               f'Nothing shipped')
+        log.warning(f"  Corpus Christi: unknown inspection form(s) not shipped: {seen_forms}")
+
+    # The window: `asked` is what the caller wants and where holds point;
+    # `since` is what is read, CC_REREAD_DAYS earlier.
+    bounded = False
+    if asked:
+        since = (datetime.strptime(asked, '%Y-%m-%d') - timedelta(days=CC_REREAD_DAYS)).strftime('%Y-%m-%d')
+    elif limit:
+        since = CC_HISTORY_START
+    else:
+        asked = since = CC_HISTORY_START
+    locations = [r for r in locations if r['date'] >= since]
+    # Oldest first, so a deadline cut drops the newest tail.
+    locations.sort(key=lambda r: (r['date'], r['id']))
+    if limit and len(locations) > limit:
+        bounded = True
+        locations = locations[-limit:]
+        if not asked:
+            since = locations[0]['date']       # test mode: the newest `limit` locations and nothing older
+    hold_start = asked or since
+    log.info(f"  Corpus Christi: {len(listing)} locations listed, {len(locations)} food establishments "
+             f"inspected since {since}" + (f" ({CC_REREAD_DAYS} days before the {asked} asked for)"
+                                           if asked and asked != since else '')
+             + (f"; skipped {dict(skipped)}" if skipped else ''))
+
+    results, seen, dropped = [], set(), defaultdict(int)
+    stats = {'read': 0, 'clean': 0, 'mismatch': 0, 'unread': 0, 'corrected': 0, 'no_page_streak': 0}
+    first_mismatch = ''
+
+    def take(insp_id, listed, latest):
+        """Read one inspection; ship, skip or hold it. Returns its page when
+        the page was read (for the history table), 'cut' when the deadline
+        or the breaker stopped the phase, else None."""
+        nonlocal first_mismatch
+        if _past_deadline() or _CC_STATE['blocked']:
+            return 'cut'
+        seen.add(insp_id)
+        try:
+            page, why = _cc_read(session, insp_id, listed)
+        except _CcError as e:
+            if e.cut:
+                seen.discard(insp_id)
+                return 'cut'
+            page, why = None, f'request failed ({e})'
+        if why:
+            stats['unread'] += 1
+            if why.startswith('score'):
+                stats['mismatch'] += 1
+                first_mismatch = first_mismatch or f'{insp_id}: {why[7:]}'
+            dropped['page unread or scores disagree'] += 1
+            if stats['unread'] <= 20:
+                log.warning(f"  Corpus Christi: inspection {insp_id} ({listed['date']}) not shipped: {why}")
+            # 200s that are not inspection pages at all (an error text, a
+            # challenge) are a block too: stop asking after a few in a row
+            stats['no_page_streak'] = stats['no_page_streak'] + 1 if page is None else 0
+            if stats['no_page_streak'] >= CC_BREAKER_TRIP and not _CC_STATE['blocked']:
+                _CC_STATE['blocked'] = (f"{stats['no_page_streak']} inspection pages in a row could not be "
+                                        f"read (last: {why[:80]})")
+                log.error(f"  Corpus Christi: {_CC_STATE['blocked']} — treating the portal as blocked")
+            # a failure the breaker or the deadline is behind is the portal's
+            # or the run's, not the record's: held, never counted
+            counted = not _CC_STATE['blocked'] and not _past_deadline()
+            if latest:
+                _hold_window_start(CC_SOURCE, hold_start, counted=counted, key=str(insp_id))
+            else:
+                _hold_freshness(CC_SOURCE, listed['date'], counted=counted, key=str(insp_id))
+            return None
+        stats['read'] += 1
+        stats['no_page_streak'] = 0
+        reason = _cc_out_of_scope(page['name'])
+        if not page['street']:
+            reason = reason or 'no street address'
+        if reason:
+            skipped[reason] += 1
+        else:
+            stats['clean'] += not page['rows']
+            stats['corrected'] += sum(1 for r in page['rows'] if r[4].lower().startswith('y'))
+            results.append(_cc_record(insp_id, page))
+        return page
+
+    # Phase 1 — each location's latest inspection; its history table names
+    # the location's earlier inspections inside the window.
+    earlier, cut = [], False
+    for n, row in enumerate(locations):
+        if row['id'] in seen:
+            continue
+        page = take(row['id'], row, latest=True)
+        if page == 'cut':
+            cut = True
+            left = sum(1 for r in locations[n:] if r['id'] not in seen)
+            dropped[f"location not read ({'blocked' if _CC_STATE['blocked'] else 'deadline'})"] += left
+            # their earlier in-window inspections are unknown: the window is held, not counted
+            _hold_window_start(CC_SOURCE, hold_start, counted=False, key='locations')
+            break
+        if page is None:
+            continue
+        for hid, hdate, hscore in page['history']:
+            if hdate and hdate >= since:
+                earlier.append((hid, {'location': row['location'], 'date': hdate, 'score': hscore}))
+        if (n + 1) % 100 == 0:
+            log.info(f"  Corpus Christi: {n + 1}/{len(locations)} locations ({len(results)} inspections, "
+                     f"{time.time() - started:.0f}s)")
+
+    # Phase 2 — the earlier in-window inspections, oldest first. (A location
+    # listed twice under one name shows the other row's inspections in its
+    # history; `seen` reads each id once.)
+    earlier.sort(key=lambda e: (e[1]['date'], e[0]))
+    pending = []
+    for hid, listed in earlier:
+        if hid in seen:
+            continue
+        if cut or take(hid, listed, latest=False) == 'cut':
+            cut = True
+            seen.add(hid)
+            pending.append((hid, listed))
+    for hid, listed in pending:
+        _hold_freshness(CC_SOURCE, listed['date'], counted=False, key=str(hid))
+    if pending:
+        dropped[f"earlier inspection not read ({'blocked' if _CC_STATE['blocked'] else 'deadline'})"] += len(pending)
+
+    tried = stats['read'] + stats['unread']
+    if stats['mismatch'] >= CC_MISMATCH_MIN and stats['mismatch'] > CC_MISMATCH_MAX_SHARE * tried:
+        raise RuntimeError(f"Corpus Christi: {stats['mismatch']} of {tried} inspection pages carry scores "
+                           f"that disagree (first {first_mismatch}); the page changed, not shipping")
+    if len(results) >= CC_MASS_CLEAN_MIN and stats['clean'] > CC_MASS_CLEAN_SHARE * len(results):
+        raise RuntimeError(f"Corpus Christi: {stats['clean']} of {len(results)} inspections read as clean "
+                           f"(about half are); the pages lost their rows? Not shipping")
+    no_street = skipped.get('no street address', 0)
+    if no_street >= CC_MISMATCH_MIN and no_street * 2 > stats['read']:
+        raise RuntimeError(f"Corpus Christi: {no_street} of {stats['read']} inspection pages carry no street "
+                           f"line under the name; the page changed, not shipping")
+
+    not_read = sum(n for why, n in dropped.items() if 'not read' in why)
+    if _CC_STATE['blocked']:
+        _set_group_status(CC_GROUP, 'blocked', f"{_CC_STATE['blocked']}; {not_read} pages not read and "
+                                               f"{stats['unread']} unread, all held for the next run")
+    elif stats['unread'] >= CC_MISMATCH_MIN and stats['unread'] > 2 * CC_MISMATCH_MAX_SHARE * tried:
+        _set_group_status(CC_GROUP, 'error', f"{stats['unread']} of {tried} inspection pages could not be "
+                                             f"read (held for the next run)")
+    elif cut:
+        _set_group_status(CC_GROUP, 'skipped', f"fetch deadline reached; {not_read} pages not read "
+                                               f"(held for the next run)")
+    if dropped:
+        log.warning("  Corpus Christi: dropped " + ', '.join(f'{n} ({why})' for why, n in sorted(dropped.items()))
+                    + " — none shipped as clean")
+    _note_source_lag(CC_GROUP, newest)
+
+    # Newest day first; within a day the worst visit first (D1 keeps one
+    # inspection per restaurant per day, _same_day_rank picks the worst).
+    results.sort(key=lambda r: (r['risk_score'], -r['priority_violations'], -r['total_violations'],
+                                r['source_id']))
+    results.sort(key=lambda r: r['inspection_date'], reverse=True)
+    if limit and len(results) > limit:
+        results = results[:limit]
+    log.info(f"Corpus Christi: {len(results)} inspections ({stats['clean']} clean, {stats['corrected']} items "
+             f"corrected during the inspection) from {stats['read']} pages in {time.time() - started:.0f}s "
+             f"({_CC_STATE['requests']} requests; source newest {newest or 'n/a'}"
+             + (f"; skipped {dict(skipped)}" if skipped else '') + ")")
+    return results
+
+
 def geocode_census_batch(records, benchmark='Public_AR_Current'):
     """
     Batch-geocode US street addresses with the free Census Bureau geocoder
@@ -15334,7 +16034,8 @@ def main():
             (('williamson',), 'Williamson County', fetch_williamson),
             (('denton', 'dfw'), 'Denton', fetch_denton),
             (('mckinney', 'dfw'), 'McKinney', fetch_mckinney),
-            (('lewisville', 'dfw'), 'Lewisville', fetch_lewisville)):
+            (('lewisville', 'dfw'), 'Lewisville', fetch_lewisville),
+            (('corpuschristi',), CC_GROUP, fetch_corpus_christi)):
         if any(s in args.cities for s in slugs):
             socrata_jobs[group] = _expansion_job(group, fetcher)
 
