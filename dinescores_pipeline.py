@@ -13958,10 +13958,14 @@ def fetch_denton(since_date=None, limit=None):
 # listing or history row says 100; a rowless page whose listing says anything
 # else is unread. The other rowless shapes never ship: an id the portal has
 # not published answers HTTP 200 with the table shell and "This inspection
-# does not have any violations." but no name, date or score; a pool or spa
-# page carries the name and that sentence but no score. A page counts as READ
-# only when it carries the establishment, the date and a score, and they are
-# the ones the listing gave for that id.
+# does not have any violations." but no name or score (dropped and held); a
+# pool page, and about one food visit in twenty-five the listing scores 100
+# (CC_UNSCORED: Glow & Go Nutrition 2026-11-20, Rock's Discount Vitamins
+# 2026-10-07), carry the name and date with that sentence but no score: no
+# scored checklist was written, so it is skipped, not held (its history
+# table is still followed). An inspection ships only from a page that
+# carries the establishment, the date and a score, and they are the ones the
+# listing gave for that id.
 #
 # Scope. The listing's "Type" is the form the inspection was written on, the
 # only type the source has: there is no routine / follow-up / complaint /
@@ -14028,6 +14032,13 @@ CC_MISMATCH_MAX_SHARE = 0.05
 CC_MASS_CLEAN_MIN = 20
 CC_MASS_CLEAN_SHARE = 0.9
 CC_UNKNOWN_FORM_MIN = 20     # locations on a form name the rules do not know -> the fetch raises
+# The _cc_check verdict for a food page that names the establishment and the
+# date but prints no score, only "This inspection does not have any
+# violations." (4 of 104 clean-listed food pages sampled 2026-11-23, dated
+# 2026-10-07 to 2026-11-20: a standing shape, not a publication lag). Read,
+# not shipped, not held; more than this share of the pages read raises.
+CC_UNSCORED = 'unscored visit'
+CC_UNSCORED_MAX_SHARE = 0.25
 CC_POINT_SEVERITY = {3: 'priority', 2: 'priority_foundation', 1: 'core'}
 CC_BANDS = ((10, 'Excellent'), (20, 'Good'), (30, 'Acceptable'))   # the district's own words; above: 'Poor'
 CC_FOOD_FORM_RE = re.compile(r'restaurant|food', re.I)
@@ -14039,7 +14050,9 @@ CC_SKIP_NAME_RE = re.compile(
     r'farmers?\s+markets?)\b', re.I)
 # The school-district spellings TP_INSTITUTION_RE does not have ('CCISD
 # CONCESSIONS', 'BANQUETE ISD - ...', 'PORT ARANSAS ISD').
-CC_SCHOOL_DISTRICT_RE = re.compile(r'\b(?:[a-z]*isd|early childhood|juvenile justice)\b', re.I)
+CC_SCHOOL_DISTRICT_RE = re.compile(
+    r'\b(?:[a-z]*isd|early childhood|juvenile justice|jr\.?\s+high|senior\s+citizens?\s+cent(?:er|re)|'
+    r'senior\s+living)\b', re.I)
 CC_WASTEWATER_TITLE = 'Wastewater disposal'
 CC_PEST_TITLE_WORDS_RE = re.compile(r'insect|rodent|vermin|\bpests?\b', re.I)
 CC_SEWAGE_TITLE_WORDS_RE = re.compile(r'sewage', re.I)
@@ -14284,13 +14297,17 @@ def _cc_check(page, insp_id, listed):
         return 'not an inspection page'
     if page['id'] is not None and page['id'] != insp_id:
         return f"the page is inspection {page['id']}"
-    if not page['name'] or page['score'] is None or not page['date']:
-        return 'no establishment, date or score on the page (not published?)'
+    if not page['name'] or not page['date']:
+        return 'no establishment or date on the page (not published?)'
     if _cc_loc_key(f"{page['name']} - {page['street']}" if page['street'] else page['name']) \
             != _cc_loc_key(listed['location']):
         return 'the page is another location'
     if page['date'] != listed['date']:
         return f"the page is dated {page['date']}, the listing {listed['date']}"
+    if page['score'] is None:
+        if page['empty_note'] and not page['rows']:
+            return CC_UNSCORED            # a visit written without the scored checklist: read, never shipped
+        return 'no score on the page'
     if listed['score'] is None:
         return 'no score on the listing'
     if not page['rows']:
@@ -14387,7 +14404,7 @@ def _cc_read(session, insp_id, listed):
             why = _cc_check(page, insp_id, listed)
         except ValueError as e:
             page, why = None, str(e)
-        if not why or _past_deadline():
+        if not why or why == CC_UNSCORED or _past_deadline():
             break
     return page, why
 
@@ -14480,7 +14497,8 @@ def fetch_corpus_christi(since_date=None, limit=None):
              + (f"; skipped {dict(skipped)}" if skipped else ''))
 
     results, seen, dropped = [], set(), defaultdict(int)
-    stats = {'read': 0, 'clean': 0, 'mismatch': 0, 'unread': 0, 'corrected': 0, 'no_page_streak': 0}
+    stats = {'read': 0, 'clean': 0, 'mismatch': 0, 'unread': 0, 'corrected': 0, 'no_page_streak': 0,
+             'unscored': 0}
     first_mismatch = ''
 
     def take(insp_id, listed, latest):
@@ -14498,6 +14516,14 @@ def fetch_corpus_christi(since_date=None, limit=None):
                 seen.discard(insp_id)
                 return 'cut'
             page, why = None, f'request failed ({e})'
+        if why == CC_UNSCORED:
+            # read (its history table still counts), not shipped, not held:
+            # re-reading it a week later shows the same page
+            stats['read'] += 1
+            stats['unscored'] += 1
+            stats['no_page_streak'] = 0
+            skipped['unscored visit (no score on the page)'] += 1
+            return page
         if why:
             stats['unread'] += 1
             if why.startswith('score'):
@@ -14581,6 +14607,9 @@ def fetch_corpus_christi(since_date=None, limit=None):
     if len(results) >= CC_MASS_CLEAN_MIN and stats['clean'] > CC_MASS_CLEAN_SHARE * len(results):
         raise RuntimeError(f"Corpus Christi: {stats['clean']} of {len(results)} inspections read as clean "
                            f"(about half are); the pages lost their rows? Not shipping")
+    if stats['unscored'] >= CC_MISMATCH_MIN and stats['unscored'] > CC_UNSCORED_MAX_SHARE * stats['read']:
+        raise RuntimeError(f"Corpus Christi: {stats['unscored']} of {stats['read']} inspection pages carry no "
+                           f"score (about 4% do); the page lost its Score line? Not shipping")
     no_street = skipped.get('no street address', 0)
     if no_street >= CC_MISMATCH_MIN and no_street * 2 > stats['read']:
         raise RuntimeError(f"Corpus Christi: {no_street} of {stats['read']} inspection pages carry no street "
