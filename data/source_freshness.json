@@ -90,6 +90,16 @@
    },
    "latest": "2026-10-29"
   },
+  "El Paso": {
+   "last_run": {
+    "at": "2026-11-23",
+    "detail": "",
+    "latest": "2026-11-20",
+    "records": 19898,
+    "status": "ok"
+   },
+   "latest": "2026-11-20"
+  },
   "Fairfax County": {
    "last_run": {
     "at": "2026-11-15",
@@ -109,6 +119,16 @@
     "status": "error"
    },
    "latest": "2026-11-07"
+  },
+  "Garland": {
+   "last_run": {
+    "at": "2026-11-23",
+    "detail": "1 inspection(s) not shipped until their violations add up to the score (PT2896); re-read next run",
+    "latest": "2026-11-20",
+    "records": 1014,
+    "status": "ok"
+   },
+   "latest": "2026-11-20"
   },
   "Georgia": {
    "last_run": {
@@ -380,6 +400,16 @@
    },
    "latest": "2026-11-10"
   },
+  "Waco": {
+   "last_run": {
+    "at": "2026-11-23",
+    "detail": "",
+    "latest": "2026-11-13",
+    "records": 4026,
+    "status": "ok"
+   },
+   "latest": "2026-11-13"
+  },
   "Wake County": {
    "last_run": {
     "at": "2026-11-15",
@@ -515,6 +545,10 @@
    "group": "Cincinnati",
    "latest": "2026-11-13"
   },
+  "City of El Paso Public Health": {
+   "group": "El Paso",
+   "latest": "2026-11-20"
+  },
   "Clackamas County Health Dept": {
    "group": "MHD metros",
    "latest": "2026-10-30"
@@ -582,6 +616,10 @@
   "Frisco Health Dept": {
    "group": "DFW",
    "latest": "2026-11-13"
+  },
+  "Garland Health Inspections": {
+   "group": "Garland",
+   "latest": "2026-11-20"
   },
   "Georgia DPH": {
    "given_up": [
@@ -1565,6 +1603,10 @@
    "group": "MHD metros (midweek)",
    "latest": "2026-11-10"
   },
+  "Waco-McLennan County Public Health District": {
+   "group": "Waco",
+   "latest": "2026-11-13"
+  },
   "Wake County Open Data": {
    "group": "Wake County",
    "latest": "2026-11-10"
@@ -1586,5 +1628,5 @@
    "latest": "2026-11-13"
   }
  },
- "updated": "2026-11-18"
+ "updated": "2026-11-23"
 }
