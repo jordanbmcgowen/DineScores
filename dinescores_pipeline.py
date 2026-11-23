@@ -16750,6 +16750,670 @@ def fetch_abilene(since_date=None, limit=None):
     return results
 
 
+# ─── PARAGON "INSPECTIONS ONLINE": MISSOULA, GALLATIN, FLATHEAD MT + KANSAS CITY MO ──
+# Paragon's "Inspections Online" (https://inspectionsonline.us, IBM/HCL Lotus
+# Domino) holds one inspect.nsf database per agency. No login, no CAPTCHA, no
+# robots.txt. Surveyed live 2026-11-22 (Montana) and 2026-11-23 (Kansas City);
+# docs/expansion-2026-11b/paragon.md has the measurements. Three anonymous
+# GETs per database, the same everywhere:
+#   vw_InspectionsPubSumm-NT?SearchView&SearchOrder=4&SearchMax=0&Query=
+#       [fld_Program] CONTAINS kw_Food AND [fld_InspectionDate]>=MM/DD/YYYY AND
+#       [fld_InspectionDate]<=MM/DD/YYYY
+#       Domino full-text search over the public inspection view: '<h4>N
+#       documents found</h4>' and one row per inspection (UNID, type, date,
+#       'N RFI' / 'N critical', a score cell). Bounds are inclusive. The rows
+#       carry no facility. Two server limits shape the read: a query matches
+#       at most 1,000 documents (the header then says '1000 documents found'
+#       or 'N documents returned; 1000 found'), and Start/Count paging does
+#       not page (rows 3,5,7,8,9 for Start=6&Count=5). So every window is read
+#       whole, its row count must equal the header's, and a window that
+#       reaches the cap is split in two until it does not.
+#   (ag_getDocValues)?OpenAgent&xx_UNID=<unid>&xx_fldList=f1~f2~...
+#       '~'-separated field values of one inspection document (what the
+#       public page itself asks for): business and facility name, split
+#       address, establishment type, the inspection date and the two
+#       integrity counters fld_AllvCounter (violation lines) and
+#       fld_AllcvCounter (Risk Factor/Intervention, or Critical, lines).
+#   (ag_dspPubDetail)?OpenAgent&pUNID=<unid>
+#       the public report: one row per violation with the Food Code
+#       reference, the violation title, the tier ('RISK FACTOR/INTERVENTION'
+#       in Montana, 'CRITICAL' in Kansas City, empty for the rest), a
+#       corrected-on-site flag, boilerplate code text and the inspector's
+#       observation. A report with fewer rows (of either tier) than the
+#       document's counters is unread, never clean; more rows than the
+#       counters (a counter not refreshed after an edit) all ship.
+#
+# Scoring: Missoula, Gallatin and Kansas City publish no official score (a
+# vendor score column exists in their HTML but the agency switched it off:
+# Gallatin's shows 100.0 with 3 RFI, Kansas City's 97.4 on a report with no
+# violation, so it is never shipped). risk_score is 100 - 5 per RFI/Critical
+# line - 1 per other line (calc_risk_score over the source's own two tiers:
+# Louisiana's rule). Flathead publishes an official letter grade (Board of
+# Health Policy 2010-01 EH, demerit bands A+ 0-3 ... F 60+, in the list row's
+# score cell; per-line demerit values are not public), so the score is
+# computed the same way and then capped by the county's band: a B-range
+# grade at 89, a C-range at 79, a D-range or F at 69 — DineScores never
+# grades above the county's verdict. The letter goes to results.
+#
+# Scope: the [fld_Program] CONTAINS kw_Food filter (what the public search
+# sends) leaves out pools, lodging and wholesale. Pre-opening visits and
+# permit close-outs do not ship (IO_SKIP_TYPES), 'Other' and 'Site Visit'
+# only when they cite something; a type outside the lists is skipped and
+# counted, and a window made mostly of unknown types reports 'error' (a
+# renamed 'Routine' must not read as an empty week). Mobile units, temporary
+# events, vending and schools (Kansas City's 'Fee Exempt' type: 8 of 8 seen
+# were school kitchens) are dropped by establishment type when every type the
+# facility holds is one of them. A premises with several licensed components (Flathead:
+# 'Firebrand Lounge, The' + 'Food Service' / 'Bar/Espresso') ships under the
+# business name, so the components share one restaurant id and the pipeline's
+# one-inspection-per-day rule keeps the worst of the day.
+#
+# Window: every dated window starts IO_MARGIN_DAYS before the one asked for
+# (documents are mostly entered the day of the inspection, but 29 days late
+# was measured in Gallatin and 23 in Kansas City); holds stay at the start
+# asked for. Inspections in that margin that the store already holds
+# (--skip-known-inspections) cost one request instead of two.
+#
+# Fail-closed rules (as the Hedgerow portals): the listing is atomic (a
+# failed, short, capped-at-one-day or out-of-window list raises and the
+# group ships nothing); a 400/404/410 on one inspection drops it without a
+# hold; every other failure is retried, then the inspection is dropped AND
+# held; IO_BREAKER_TRIP requests in a row that exhaust their retries trip a
+# per-database breaker ('blocked'); the fetch deadline cuts the newest tail
+# (oldest first, held uncounted, 'skipped'). All databases share one host,
+# so requests are spaced IO_MIN_INTERVAL apart across all of them.
+IO_HOST = 'https://inspectionsonline.us/'
+IO_HEADERS = {'User-Agent': CHROME_UA, 'Accept': 'text/html,application/xhtml+xml,*/*;q=0.8'}
+IO_TIMEOUT = 120             # a 90-day list on a cold database took 6.5 s
+IO_RETRIES = 3               # attempts per request
+IO_RETRY_WAIT = 10           # seconds, times the attempt number
+IO_MIN_INTERVAL = 1.0        # seconds between request starts to the host, every database together
+IO_CAP = 1000                # Domino's full-text match cap
+IO_MARGIN_DAYS = 14          # late-entered documents (29 days late measured once in 1,600)
+IO_TEST_DAYS = 30            # test mode (no since_date): the newest `limit` of this many days
+IO_LIST_REREADS = 1          # re-reads of a window whose rows do not match its header
+IO_BREAKER_TRIP = 3          # requests in a row that exhaust their retries -> the database is blocked this run
+IO_MASS_FAILURE_MIN = 10     # unread inspections that report the group 'error' when they are also
+IO_MASS_FAILURE_FRACTION = 0.1   # ...more than this share of the inspections tried
+IO_UNKNOWN_TYPE_MIN = 10     # unknown inspection types that report 'error' when they are also
+IO_UNKNOWN_TYPE_FRACTION = 0.5   # ...more than this share of the listed rows
+IO_PERMANENT_STATUSES = frozenset({400, 404, 410})
+IO_DOC_FIELDS = ('fld_EstabName', 'fld_FaciName', 'fld_FStreetNo', 'fld_FStreetName', 'fld_FCity',
+                 'fld_FProv', 'fld_FPCode', 'fld_EstType', 'fld_EstTypeAlt', 'fld_InspectionDate',
+                 'fld_AllcvCounter', 'fld_AllvCounter', 'fld_Program')
+# The tier printed on a violation row: Montana's Risk Factor/Intervention and
+# Kansas City's Critical are the higher tier; an empty cell the other.
+IO_TIER = {'RISK FACTOR/INTERVENTION': 'priority', 'CRITICAL': 'priority', '': 'core'}
+# Inspection types seen 2026 (Montana 90 days, Kansas City 13 weeks).
+IO_SHIP_TYPES = frozenset({
+    'Routine', 'Routine Inspection', 'Ad-Hoc Routine', 'Follow-Up', 'Complaint', 'Complaint Inspection',
+    'Investigation', 'Ownership Change', 'Remodel Inspection', 'Compliance', 'Special', 'Emergency',
+    'Other', 'Site Visit',
+})
+IO_SKIP_TYPES = frozenset({'Pre-Operational', 'Closeout'})
+# 'Other' and 'Site Visit' are sometimes a full report (Missoula's 'Other' at
+# a hotel kitchen: 4 lines, 3 RFI) and sometimes an empty visit note
+# (Gallatin's 'Other', 0 lines): they ship only when they cite something,
+# so a note never reads as a clean 100.
+IO_CITED_ONLY_TYPES = frozenset({'Other', 'Site Visit'})
+# Test facilities live in the production databases: Gallatin's '000 Food
+# Service Test', Missoula's 'Practice Food New' at '100 Practice Drive' in
+# 'Practice'; their visits are not inspections (name or street matched).
+IO_TEST_NAME_RE = re.compile(r'^\s*000\b|\bpractice\s+(?:food|drive)\b', re.I)
+# A mobile unit filed under a fixed-premises type names itself ('Porter
+# Unherd Coffee Mobile', type '1. Food Service Establishment', licensed at its
+# owner's shop): dropped like the typed ones.
+IO_MOBILE_NAME_RE = re.compile(
+    r'\bmobile(?:\s+(?:unit|truck|trailer|cart|kitchen))?(?:\s*#?\d+)?\s*\)?\s*$|\bfood\s+truck\b', re.I)
+# Flathead names each licensed component of a business in fld_FaciName
+# ('Food Service', 'Bar', 'Mobile (Trailer)', 'Mobile Food (Truck)',
+# 'Temporary Food'); a component label like these is a mobile unit or a
+# temporary stand whatever its type field says (often blank).
+IO_MOBILE_COMPONENT_RE = re.compile(r'\b(?:mobile|temporary|truck|trailer|cart)\b', re.I)
+IO_SKIP_ESTTYPE_RE = re.compile(r'mobile|push\s*cart|vehicle|truck|temporary|\btemp\b|vending|school|fee exempt',
+                                re.I)
+# Flathead's letter bands (Policy 2010-01 EH, "Food Purveyor Grading Scale"):
+# the highest risk_score each letter allows. A-range letters do not cap.
+IO_GRADE_RISK_CAP = {'A+': None, 'A': None, 'A-': None, 'B+': 89, 'B': 89, 'B-': 89,
+                     'C+': 79, 'C': 79, 'C-': 79, 'D+': 69, 'D': 69, 'D-': 69, 'F': 69}
+IO_UNGRADED = frozenset({'', 'N/A'})
+IO_PORTALS = {
+    'missoula': {
+        'group': 'Missoula County', 'source': 'Missoula Public Health', 'prefix': 'mso',
+        'db': 'mt/missoulamissoula/inspect.nsf', 'state': 'MT', 'default_city': 'Missoula', 'metro': '',
+        'grade': False, 'chunk_days': 92, 'history_start': '2009-11-01',
+    },
+    'gallatin': {
+        'group': 'Gallatin County', 'source': 'Gallatin City-County Health Department', 'prefix': 'gal',
+        'db': 'mt/gallatinbozeman/inspect.nsf', 'state': 'MT', 'default_city': 'Bozeman', 'metro': '',
+        'grade': False, 'chunk_days': 92, 'history_start': '2012-05-01',
+        'city_map': {'Bozmean': 'Bozeman'},     # one facility's typo (2026-11)
+    },
+    'flathead': {
+        'group': 'Flathead County', 'source': 'Flathead City-County Health Department', 'prefix': 'fhd',
+        'db': 'mt/flatheadkalispell/inspect.nsf', 'state': 'MT', 'default_city': 'Kalispell', 'metro': '',
+        'grade': True, 'chunk_days': 61, 'history_start': '2008-11-01',
+    },
+    'kansascity': {
+        'group': 'Kansas City', 'source': 'Kansas City MO Health Department', 'prefix': 'kcmo',
+        'db': 'mo/usakansascity/inspect.nsf', 'state': 'MO', 'default_city': 'Kansas City', 'metro': '',
+        'grade': False, 'chunk_days': 7, 'history_start': '2008-01-01',
+        # The department inspects Kansas City, MO only; its city field is
+        # typed by hand ('Kanas City', 'Kasnas City', 'Kansas', 'Kc' in one
+        # 4-week window), so every record is filed under the city itself.
+        'fixed_city': 'Kansas City',
+    },
+}
+_IO_COUNT_RE = re.compile(r'<h4>\s*(\d+)\s+documents?\s+(?:returned;\s*(\d+)\s+)?found\s*</h4>', re.I)
+_IO_ROW_SPLIT = "<DIV class='gt row'>"
+_IO_ROW_RE = re.compile(
+    r"pUNID=([0-9A-F]{32})\"?\s+TARGET=_self>([^<]*)</A>.*?>\s*(\d\d/\d\d/\d{4})\s*</A>"
+    r".*?column3'[^>]*>([^<]*)</DIV>(?:.*?ID='scoreCol'[^>]*>\s*(?:<A[^>]*>([^<]*)</A>)?)?", re.S | re.I)
+_IO_VIOL_SPLIT_RE = re.compile(r'<TR\s+onMouseOver=', re.I)
+_IO_TITLE_PREFIX_RE = re.compile(r'^\((?:All|[A-Z](?:\s*(?:&|,|-|and)\s*[A-Z])*)\)\s*', re.I)
+_IO_TRAILING_ARTICLE_RE = re.compile(r'^(.*?\S)\s*(?:,\s*(?:the)|\(\s*the\s*\))\s*$', re.I)
+_IO_REQUESTS = defaultdict(int)       # slug -> requests this run (for the log)
+_IO_STREAK = defaultdict(int)         # slug -> requests in a row that exhausted their retries
+_IO_BLOCKED = {}                      # slug -> reason, once the breaker tripped this run
+_IO_LOCK = threading.Lock()
+_IO_THROTTLE = threading.Lock()
+_IO_LAST_REQUEST = [0.0]
+
+
+class _IoError(Exception):
+    """A Paragon request that could not be completed: `permanent` for a
+    400/404/410 (dropped, never held), `blocked` when the database's breaker
+    had tripped (held, not counted); otherwise transient (held, counted)."""
+
+    def __init__(self, msg, permanent=False, blocked=False):
+        super().__init__(msg)
+        self.permanent = permanent
+        self.blocked = blocked
+
+
+def _io_blocked(slug):
+    with _IO_LOCK:
+        return _IO_BLOCKED.get(slug, '')
+
+
+def _io_throttle():
+    """Space request starts IO_MIN_INTERVAL apart across every database: the
+    four agencies share one small Domino host."""
+    with _IO_THROTTLE:
+        wait = _IO_LAST_REQUEST[0] + IO_MIN_INTERVAL - time.time()
+        if wait > 0:
+            time.sleep(wait)
+        _IO_LAST_REQUEST[0] = time.time()
+
+
+def _io_decode(content):
+    """The reports are UTF-8, the field-value agent ISO-8859-1."""
+    try:
+        return content.decode('utf-8')
+    except UnicodeDecodeError:
+        return content.decode('cp1252', errors='replace')
+
+
+def _io_get(slug, path):
+    """GET one URL under the database; the decoded body. Transient failures
+    are retried IO_RETRIES times (never past the fetch deadline); a
+    400/404/410 raises at once; IO_BREAKER_TRIP requests in a row that
+    exhaust their retries trip the database's breaker."""
+    group = IO_PORTALS[slug]['group']
+    reason = _io_blocked(slug)
+    if reason:
+        raise _IoError(f'breaker tripped: {reason}', blocked=True)
+    url = IO_HOST + IO_PORTALS[slug]['db'] + '/' + path
+    last, exhausted = None, False
+    for attempt in range(1, IO_RETRIES + 1):
+        _io_throttle()
+        with _IO_LOCK:
+            _IO_REQUESTS[slug] += 1
+        try:
+            r = requests.get(url, headers=IO_HEADERS, timeout=IO_TIMEOUT)
+        except requests.RequestException as e:
+            last = _IoError(f'{type(e).__name__}: {str(e)[:120]}')
+        else:
+            if r.status_code == 200:
+                with _IO_LOCK:
+                    _IO_STREAK[slug] = 0
+                return _io_decode(r.content)
+            if r.status_code in IO_PERMANENT_STATUSES:
+                raise _IoError(f'HTTP {r.status_code}', permanent=True)
+            last = _IoError(f'HTTP {r.status_code}')
+        if attempt == IO_RETRIES:
+            exhausted = True
+            break
+        if _past_deadline():
+            break
+        wait = IO_RETRY_WAIT * attempt
+        log.warning(f"  {group}: {path[:80]} failed ({last}) — retry {attempt}/{IO_RETRIES - 1} in {wait}s")
+        time.sleep(wait)
+    if exhausted:
+        with _IO_LOCK:
+            _IO_STREAK[slug] += 1
+            tripped = _IO_STREAK[slug] >= IO_BREAKER_TRIP and slug not in _IO_BLOCKED
+            if tripped:
+                _IO_BLOCKED[slug] = f'{_IO_STREAK[slug]} requests in a row failed (last: {last})'
+        if tripped:
+            log.error(f"  {group}: {_IO_BLOCKED[slug]} — treating the database as blocked; the run's "
+                      f"remaining inspections are held")
+    raise last
+
+
+def _io_text(s):
+    """HTML fragment -> plain text on one line."""
+    s = re.sub(r'<[^>]+>', ' ', str(s or ''))
+    return ' '.join(html_lib.unescape(s).replace('\xa0', ' ').split())
+
+
+def _io_us(d):
+    """'YYYY-MM-DD' -> 'MM/DD/YYYY' (the query's and the list's format)."""
+    return f'{d[5:7]}/{d[8:10]}/{d[:4]}'
+
+
+def _io_iso(us):
+    try:
+        return datetime.strptime(str(us).strip(), '%m/%d/%Y').strftime('%Y-%m-%d')
+    except ValueError:
+        return None
+
+
+def _io_list_path(start, end):
+    return ('vw_InspectionsPubSumm-NT?SearchView&SearchOrder=4&SearchMax=0&Query='
+            '[fld_Program]+CONTAINS+kw_Food+AND+[fld_InspectionDate]%3E=' + _io_us(start)
+            + '+AND+[fld_InspectionDate]%3C=' + _io_us(end))
+
+
+def _io_parse_list(page):
+    """One search result -> (found, capped, rows). Raises ValueError for a
+    page without the result header or with a row that does not parse."""
+    m = _IO_COUNT_RE.search(page)
+    if not m:
+        raise ValueError(f'no result header in the search page: {page[:120]!r}')
+    if m.group(2):
+        found, capped = int(m.group(2)), True
+    else:
+        found = int(m.group(1))
+        capped = found >= IO_CAP
+    rows = []
+    for chunk in page.split(_IO_ROW_SPLIT)[1:]:
+        r = _IO_ROW_RE.search(chunk)
+        if not r:
+            raise ValueError(f'a result row does not parse: {chunk[:160]!r}')
+        rows.append({'unid': r.group(1), 'type': ' '.join(r.group(2).split()), 'us_date': r.group(3),
+                     'date': _io_iso(r.group(3)), 'count': ' '.join(r.group(4).split()),
+                     'score': ' '.join((r.group(5) or '').split())})
+    return found, capped, rows
+
+
+def _io_list_window(slug, start, end, depth=0):
+    """Every row of [start, end] (inclusive), the window split until no part
+    reaches the match cap. Raises RuntimeError on anything it cannot trust."""
+    cfg = IO_PORTALS[slug]
+    if _past_deadline():
+        raise RuntimeError(f"{cfg['group']}: fetch deadline reached while listing {start}..{end}")
+    for attempt in range(IO_LIST_REREADS + 1):
+        try:
+            page = _io_get(slug, _io_list_path(start, end))
+            found, capped, rows = _io_parse_list(page)
+        except (_IoError, ValueError) as e:
+            raise RuntimeError(f"{cfg['group']}: inspection list {start}..{end} failed: {e}") from e
+        if capped:
+            if start == end:
+                raise RuntimeError(f"{cfg['group']}: {start} alone matches {IO_CAP} or more inspections; "
+                                   f"the list cannot be read whole")
+            d0 = datetime.strptime(start, '%Y-%m-%d')
+            mid = (d0 + (datetime.strptime(end, '%Y-%m-%d') - d0) / 2).strftime('%Y-%m-%d')
+            nxt = (datetime.strptime(mid, '%Y-%m-%d') + timedelta(days=1)).strftime('%Y-%m-%d')
+            log.info(f"  {cfg['group']}: {start}..{end} reaches the {IO_CAP}-match cap — splitting")
+            return _io_list_window(slug, start, mid, depth + 1) + _io_list_window(slug, nxt, end, depth + 1)
+        bad = [r for r in rows if not r['date'] or not (start <= r['date'] <= end)]
+        if bad:
+            raise RuntimeError(f"{cfg['group']}: inspection list {start}..{end} holds rows outside the "
+                               f"window ({bad[0]['us_date']}); the date filter is not being applied")
+        if len(rows) == found and len({r['unid'] for r in rows}) == found:
+            return rows
+        log.warning(f"  {cfg['group']}: inspection list {start}..{end} says {found} found but "
+                    f"{len(rows)} rows parsed" + (' — re-reading' if attempt < IO_LIST_REREADS else ''))
+    raise RuntimeError(f"{cfg['group']}: inspection list {start}..{end} does not match its own header "
+                       f"({found} found, {len(rows)} rows); not trusting it")
+
+
+def _io_list(slug, since, until):
+    """Every listed inspection of [since, until], in chunk_days windows."""
+    cfg = IO_PORTALS[slug]
+    rows, seen = [], set()
+    d = datetime.strptime(since, '%Y-%m-%d')
+    stop = datetime.strptime(until, '%Y-%m-%d')
+    while d <= stop:
+        e = min(d + timedelta(days=cfg['chunk_days'] - 1), stop)
+        got = _io_list_window(slug, d.strftime('%Y-%m-%d'), e.strftime('%Y-%m-%d'))
+        for r in got:
+            if r['unid'] not in seen:
+                seen.add(r['unid'])
+                rows.append(r)
+        d = e + timedelta(days=1)
+    return rows
+
+
+def _io_parse_docvalues(text):
+    """The field-value agent's answer -> {field: value}. Raises ValueError
+    unless it holds exactly one value per field asked for."""
+    t = str(text or '').strip('\r\n')
+    parts = t.split('~')
+    if len(parts) != len(IO_DOC_FIELDS) + 1 or parts[0].strip():
+        raise ValueError(f'field values do not have the expected shape: {t[:120]!r}')
+    return {f: ' '.join(v.replace('\xa0', ' ').split()) for f, v in zip(IO_DOC_FIELDS, parts[1:])}
+
+
+def _io_keywords(v):
+    """'kw_A|kw_B' -> ['A', 'B']."""
+    return [x[3:] if x.startswith('kw_') else x for x in (s.strip() for s in str(v or '').split('|')) if x]
+
+
+def _io_name(raw):
+    """Business name as a record name: ALL CAPS -> title case, and a trailing
+    article moved to the front ('1400 HOUSE, THE', 'Bunker Bar & Grill (The)')."""
+    s = _hh_title(' '.join(str(raw or '').split()))
+    m = _IO_TRAILING_ARTICLE_RE.match(s)
+    if m and m.group(1).strip(' ,'):
+        s = 'The ' + m.group(1).strip(' ,')
+    return s
+
+
+def _io_place(cfg, dv):
+    """Field values -> the record's place fields, or (None, reason) when the
+    inspection is outside scope."""
+    if 'Food' not in _io_keywords(dv['fld_Program']):
+        return None, 'not the food program'
+    types = _io_keywords(dv['fld_EstType']) + _io_keywords(dv['fld_EstTypeAlt'])
+    if types and all(IO_SKIP_ESTTYPE_RE.search(t) for t in types):
+        return None, f'establishment type {types[0]}'
+    name = _io_name(dv['fld_EstabName']) or _io_name(dv['fld_FaciName'])
+    street = _hh_title(' '.join(f"{dv['fld_FStreetNo']} {dv['fld_FStreetName']}".split())).strip(' ,')
+    if not name:
+        return None, 'no name'
+    if IO_TEST_NAME_RE.search(name) or IO_TEST_NAME_RE.search(street):
+        return None, 'test facility'
+    component = dv['fld_FaciName']
+    if IO_MOBILE_NAME_RE.search(name) or IO_MOBILE_NAME_RE.search(component):
+        return None, 'mobile unit (by name)'
+    if (component and component.lower() != dv['fld_EstabName'].lower()
+            and IO_MOBILE_COMPONENT_RE.search(component)):
+        return None, f'mobile or temporary component ({component})'
+    if not street:
+        return None, 'no street address'
+    state = (_io_keywords(dv['fld_FProv']) or [cfg['state']])[0].strip().upper()
+    state = state_code(state) if len(state) != 2 else state
+    if state != cfg['state']:
+        return None, f"outside {cfg['state']}"
+    city = ' '.join(dv['fld_FCity'].split()).title() or cfg['default_city']
+    city = cfg.get('fixed_city') or cfg.get('city_map', {}).get(city, city)
+    m = re.match(r'\d{5}', dv['fld_FPCode'])
+    return {'name': name, 'street': street, 'city': city, 'zip': m.group(0) if m else '',
+            'types': types}, ''
+
+
+def _io_counter(v):
+    try:
+        return int(str(v).strip())
+    except (TypeError, ValueError):
+        return None
+
+
+def _io_short_title(title):
+    """'Hand Drying Provision - Each handwashing sink ... is not provided with
+    ...' -> 'Hand Drying Provision' (Kansas City's titles carry the code's
+    whole sentence after a short name); Flathead's '(A & B) ' subsection
+    prefix is dropped."""
+    t = _IO_TITLE_PREFIX_RE.sub('', title).strip()
+    head, sep, _ = t.partition(' - ')
+    if sep and 3 <= len(head) <= 60:
+        t = head
+    return t.rstrip(' .:;')
+
+
+def _io_parse_report(page, iso_date):
+    """A public report -> [[category, severity, text], ...] in page order.
+    Raises ValueError for a page that is not a report of that day or a row
+    that does not parse; the counters are checked by the caller."""
+    if 'Inspection Report' not in page or 'Violation Details' not in page:
+        raise ValueError('not an inspection report page')
+    m = re.search(r'Inspection Date\s*</TD>\s*<TD>([^<]*)</TD>', page, re.I)
+    try:
+        shown = datetime.strptime(' '.join((m.group(1) if m else '').split()), '%d %B, %Y').strftime('%Y-%m-%d')
+    except ValueError:
+        raise ValueError(f"the report's inspection date does not parse: {m.group(1) if m else None!r}")
+    if shown != iso_date:
+        raise ValueError(f'the report is dated {shown}, the list {iso_date}')
+    out = []
+    for chunk in _IO_VIOL_SPLIT_RE.split(page)[1:]:
+        t = re.search(r'<I>(.*?)</I>', chunk, re.S | re.I)
+        tier = re.search(r'</I>\s*</TD>\s*</TR>\s*<TR>\s*<TD>\s*<B>(.*?)</B>', chunk, re.S | re.I)
+        if not t or not tier:
+            raise ValueError(f'a violation row does not parse: {_io_text(chunk)[:120]!r}')
+        label = _io_text(tier.group(1)).upper()
+        if label not in IO_TIER:
+            raise ValueError(f'unknown violation tier {label!r}')
+        obs = re.search(r'OBSERVATIONS\s*&(?:amp;)?\s*CORRECTIVE\s+ACTIONS:\s*</B>(.*?)</TD>', chunk,
+                        re.S | re.I)
+        title = _io_short_title(_io_text(t.group(1)))
+        note = _io_text(obs.group(1)) if obs else ''
+        text = f'{title}: {note}' if title and note and note.lower() != title.lower() else (title or note)
+        if not text:
+            raise ValueError('a violation row has neither a title nor an observation')
+        cat, _sev, _ = classify_violation(text)
+        out.append([cat, IO_TIER[label], text[:500]])
+    return out
+
+
+def _io_record(cfg, row, place, violations):
+    """One DineScores record (see the section comment for the score rule)."""
+    risk, pv, pfv, cv = calc_risk_score(violations)    # 100 - 5 per RFI/Critical line - 1 per other
+    results = ''
+    if cfg['grade'] and row['score'] not in IO_UNGRADED:
+        cap = IO_GRADE_RISK_CAP[row['score']]
+        if cap is not None:
+            risk = min(risk, cap)        # never above the county's own band
+        results = f"Grade {row['score']}"
+    return {
+        'name': place['name'],
+        'address': place['street'],
+        'city': place['city'],
+        'state': cfg['state'],
+        'zip': place['zip'],
+        'latitude': None,
+        'longitude': None,
+        'inspection_date': row['date'],
+        'original_score': None,
+        'risk_score': risk,
+        'priority_violations': pv,
+        'priority_foundation_violations': pfv,
+        'core_violations': cv,
+        'total_violations': len(violations),
+        'violations': [list(v) for v in violations],
+        'inspection_type': row['type'],
+        'results': results,
+        'source': cfg['source'],
+        'source_url': f"{IO_HOST}{cfg['db']}/(ag_dspPubDetail)?OpenAgent&pUNID={row['unid']}",
+        'source_id': f"{cfg['prefix']}_{row['unid']}",
+        'metro': cfg['metro'],
+    }
+
+
+def _io_read_one(slug, row, margin_before):
+    """Read one listed inspection: ('ok', record) | ('skip', reason) |
+    ('gone', reason) | ('unread', reason) | ('blocked', reason)."""
+    cfg = IO_PORTALS[slug]
+    try:
+        dv = _io_parse_docvalues(_io_get(
+            slug, f"(ag_getDocValues)?OpenAgent&xx_UNID={row['unid']}&xx_fldList={'~'.join(IO_DOC_FIELDS)}"))
+    except _IoError as e:
+        return ('blocked' if e.blocked else 'gone' if e.permanent else 'unread'), f'field values: {e}'
+    except ValueError as e:
+        return 'unread', str(e)
+    if _io_iso(dv['fld_InspectionDate']) != row['date']:
+        return 'unread', f"the document is dated {dv['fld_InspectionDate']!r}, the list {row['us_date']}"
+    place, why = _io_place(cfg, dv)
+    if place is None:
+        return 'skip', why
+    if (row['date'] < margin_before and SKIP_KNOWN_INSPECTIONS and
+            (make_restaurant_id(place['name'], place['street'], place['city']), row['date'])
+            in SKIP_KNOWN_INSPECTIONS):
+        return 'skip', 'already stored (margin re-read)'
+    n_all, n_hi = _io_counter(dv['fld_AllvCounter']), _io_counter(dv['fld_AllcvCounter'])
+    if n_all is None or n_hi is None:
+        return 'unread', f"no violation counters ({dv['fld_AllvCounter']!r}, {dv['fld_AllcvCounter']!r})"
+    if row['type'] in IO_CITED_ONLY_TYPES and n_all == 0:
+        return 'skip', f"uncited {row['type']}"
+    if cfg['grade'] and row['score'] not in IO_UNGRADED and row['score'] not in IO_GRADE_RISK_CAP:
+        return 'unread', f"unknown county grade {row['score']!r}"
+    try:
+        violations = _io_parse_report(_io_get(slug, f"(ag_dspPubDetail)?OpenAgent&pUNID={row['unid']}"),
+                                      row['date'])
+    except _IoError as e:
+        return ('blocked' if e.blocked else 'gone' if e.permanent else 'unread'), f'report: {e}'
+    except ValueError as e:
+        return 'unread', str(e)
+    hi = sum(1 for v in violations if v[1] == 'priority')
+    # Fewer rows than the counters is a report not read whole. MORE rows is
+    # a document whose counters were not refreshed after an edit: Kansas
+    # City's Thai House (2026-11-09) prints 'Critical 6, Non-critical 1' in
+    # its own header above 10 rows (8 critical); every row is shipped.
+    if len(violations) < n_all or hi < n_hi or (len(violations) - hi) < (n_all - n_hi):
+        return 'unread', (f'{len(violations)} violation rows ({hi} higher-tier) against the document\'s '
+                          f'counters {n_all} ({n_hi})')
+    return 'ok', _io_record(cfg, row, place, violations)
+
+
+def _fetch_paragon(slug, since_date=None, limit=None):
+    cfg = IO_PORTALS[slug]
+    group, source = cfg['group'], cfg['source']
+    today = datetime.now().strftime('%Y-%m-%d')
+    # `asked` is the window the caller wants (holds are keyed to it); the
+    # read starts IO_MARGIN_DAYS earlier for late-entered documents. Test
+    # mode (no since_date) reads the last IO_TEST_DAYS days and keeps the
+    # newest `limit`.
+    if since_date:
+        asked = max(str(since_date)[:10], cfg['history_start'])
+        since = (datetime.strptime(asked, '%Y-%m-%d') - timedelta(days=IO_MARGIN_DAYS)).strftime('%Y-%m-%d')
+    else:
+        asked = since = (datetime.now() - timedelta(days=IO_TEST_DAYS)).strftime('%Y-%m-%d')
+    started = time.time()
+    with _IO_LOCK:
+        _IO_REQUESTS[slug] = 0
+        _IO_STREAK[slug] = 0
+        _IO_BLOCKED.pop(slug, None)
+    log.info(f"Fetching {group} data (since={since}"
+             + (f", {IO_MARGIN_DAYS} days before the {asked} asked for" if since != asked else '')
+             + f", limit={limit})")
+
+    # Phase 0 — the inspection list (atomic: anything untrustworthy raises).
+    listed = _io_list(slug, since, today)
+    newest = max((r['date'] for r in listed), default='')
+    skipped = defaultdict(int)
+    rows, unknown = [], 0
+    for r in listed:
+        if r['type'] in IO_SKIP_TYPES:
+            skipped[f"type {r['type']}"] += 1
+        elif r['type'] not in IO_SHIP_TYPES:
+            unknown += 1
+            skipped[f"unknown type {r['type'] or '(blank)'}"] += 1
+        else:
+            rows.append(r)
+    rows.sort(key=lambda r: (r['date'], r['unid']))
+    bounded = False
+    if limit and len(rows) > limit:
+        bounded = True
+        rows = rows[:limit] if since_date else rows[-limit:]
+    log.info(f"  {group}: {len(listed)} food inspections listed {since}..{today}, {len(rows)} to read"
+             + (f"; skipped {dict(skipped)}" if skipped else ''))
+
+    # Phase 1 — each inspection's field values and report, oldest first.
+    results, unread, gone, read = [], [], 0, 0
+    pending = []
+    for i, row in enumerate(rows):
+        if _past_deadline() or _io_blocked(slug):
+            pending = rows[i:]
+            break
+        outcome, detail = _io_read_one(slug, row, asked)
+        if outcome == 'blocked':
+            pending = rows[i:]
+            break
+        read += 1
+        if outcome == 'ok':
+            results.append(detail)
+        elif outcome == 'skip':
+            skipped[detail] += 1
+        elif outcome == 'gone':
+            gone += 1
+            log.debug(f"  {group}: inspection {row['unid']} ({row['date']}) is gone: {detail}")
+        else:
+            unread.append(row)
+            log.warning(f"  {group}: inspection {row['unid']} ({row['date']}) not read: {detail}")
+    blocked = bool(_io_blocked(slug))
+    for row in unread:
+        _hold_freshness(source, row['date'], counted=True, key=row['unid'])
+    for row in pending:
+        _hold_freshness(source, row['date'], counted=False, key=row['unid'])
+
+    if blocked:
+        _set_group_status(group, 'blocked', f"{_io_blocked(slug)}; {len(pending)} inspections not read and "
+                                            f"{len(unread)} unread, all held for the next run")
+    elif len(unread) >= IO_MASS_FAILURE_MIN and len(unread) > IO_MASS_FAILURE_FRACTION * max(read, 1):
+        _set_group_status(group, 'error', f"{len(unread)} of {read} inspections could not be read "
+                                          f"(held for the next run)")
+    elif unknown >= IO_UNKNOWN_TYPE_MIN and unknown > IO_UNKNOWN_TYPE_FRACTION * len(listed):
+        _set_group_status(group, 'error', f"{unknown} of {len(listed)} listed inspections have an "
+                                          f"inspection type the fetcher does not know; a vocabulary change?")
+    elif pending:
+        _set_group_status(group, 'skipped', f"fetch deadline reached; {len(pending)} inspections not read "
+                                            f"(held for the next run)")
+    if unread or gone or pending:
+        log.warning(f"  {group}: dropped {len(unread)} unread, {gone} gone, {len(pending)} not read "
+                    f"— none shipped as clean")
+    if not bounded:
+        _note_source_lag(group, newest)
+
+    # Newest day first; within a day the worst visit first.
+    results.sort(key=lambda r: (r['risk_score'], -r['priority_violations'], -r['total_violations'],
+                                r['source_id']))
+    results.sort(key=lambda r: r['inspection_date'], reverse=True)
+    with _IO_LOCK:
+        n_req = _IO_REQUESTS[slug]
+    log.info(f"{group}: {len(results)} inspections in {time.time() - started:.0f}s ({n_req} requests; "
+             f"source newest {newest or 'n/a'}" + (f"; skipped {dict(skipped)}" if skipped else '') + ")")
+    return results
+
+
+def fetch_missoula(since_date=None, limit=None):
+    """Missoula County, MT (Missoula Public Health) on Paragon Inspections
+    Online: no official score, risk_score from the county's two tiers."""
+    return _fetch_paragon('missoula', since_date, limit)
+
+
+def fetch_gallatin(since_date=None, limit=None):
+    """Gallatin County, MT (Bozeman, Belgrade, Big Sky, West Yellowstone) on
+    Paragon Inspections Online: no official score, risk_score from the
+    county's two tiers."""
+    return _fetch_paragon('gallatin', since_date, limit)
+
+
+def fetch_flathead(since_date=None, limit=None):
+    """Flathead County, MT (Kalispell, Whitefish, Columbia Falls, Bigfork) on
+    Paragon Inspections Online: risk_score from the county's two tiers,
+    capped by the county's official letter grade, which goes to results."""
+    return _fetch_paragon('flathead', since_date, limit)
+
+
+def fetch_kansas_city(since_date=None, limit=None):
+    """Kansas City, MO Health Department on Paragon Inspections Online: no
+    official score, risk_score from the city's Critical / Non-critical
+    tiers."""
+    return _fetch_paragon('kansascity', since_date, limit)
+
+
 def geocode_census_batch(records, benchmark='Public_AR_Current'):
     """
     Batch-geocode US street addresses with the free Census Bureau geocoder
@@ -18178,6 +18842,29 @@ def main():
             (('abilene',), ABL_GROUP, fetch_abilene)):
         if any(s in args.cities for s in slugs):
             socrata_jobs[group] = _expansion_job(group, fetcher)
+
+    # Paragon Inspections Online (Missoula, Gallatin, Flathead MT; Kansas
+    # City MO): scraped, two requests per inspection, so a weekly window is
+    # bounded by the portal lookback cap rather than the open-data one. All
+    # four share one host; _io_throttle spaces their requests across the
+    # pool's threads.
+    def _paragon_job(group, fetcher):
+        def run():
+            if args.mode == 'weekly':
+                since = weekly_since(group, FRESHNESS_LOOKBACK_PORTAL_DAYS)
+            else:
+                since = since_date
+            data = fetcher(since_date=since, limit=record_limit)
+            geocode_missing_coords(data)
+            return data
+        return run
+    for slugs, slug in ((('missoula',), 'missoula'), (('bozeman', 'gallatin'), 'gallatin'),
+                        (('kalispell', 'flathead'), 'flathead'), (('kansascity',), 'kansascity')):
+        if any(s in args.cities for s in slugs):
+            group = IO_PORTALS[slug]['group']
+            socrata_jobs[group] = _paragon_job(group, {'missoula': fetch_missoula, 'gallatin': fetch_gallatin,
+                                                       'flathead': fetch_flathead,
+                                                       'kansascity': fetch_kansas_city}[slug])
 
     # The API-class groups run in a pool WHILE the scraped portals (Tyler,
     # Richardson, Arlington, Orange County, the MHD groups) run on this

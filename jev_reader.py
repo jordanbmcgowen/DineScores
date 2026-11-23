@@ -1715,6 +1715,11 @@ SOURCE_TIER_SCORE_SOURCES = frozenset({
     # Pima's Priority / Priority Foundation / Core tags).
     'Louisiana LDH', 'Maricopa County Environmental Services',
     'Pima County Health Department',
+    # Paragon Inspections Online: risk computed from each line's printed
+    # tier (Montana's Risk Factor/Intervention, Kansas City's Critical);
+    # Flathead's is then capped by the county's letter band.
+    'Missoula Public Health', 'Gallatin City-County Health Department',
+    'Flathead City-County Health Department', 'Kansas City MO Health Department',
 })
 # Sources whose per-line tier is stated by the source (a level, points, a
 # demerit band, a critical flag).
@@ -1741,6 +1746,10 @@ SOURCE_TIER_SOURCES = frozenset({
     'Harris County Public Health', 'Pima County Health Department',
     'Lubbock Environmental Health', 'Mesquite Environmental Health',
     'Wichita Falls Environmental Health',
+    # Paragon Inspections Online prints every line's tier (Risk Factor/
+    # Intervention or Critical versus the rest).
+    'Missoula Public Health', 'Gallatin City-County Health Department',
+    'Flathead City-County Health Department', 'Kansas City MO Health Department',
     # McKinney's per-item TX form points (3 priority / 2 priority foundation
     # / 1 core) are the city's own tiers, and its risk_score is the TX form
     # score (100 - the city's demerit total, kept in original_score), an
