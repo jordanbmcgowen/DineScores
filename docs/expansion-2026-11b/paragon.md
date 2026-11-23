@@ -103,7 +103,8 @@ Limits that shape the read (Montana survey, re-measured on Kansas City):
   runs a truck) ships. Also dropped: a name ending in `Mobile` (`PORTER
   UNHERD COFFEE MOBILE`, typed as a restaurant), a Flathead component label
   naming a mobile/temporary unit (`Mobile (Trailer)`, `Temporary Food`, type
-  often blank), Gallatin's `000 Food Service Test` facility.
+  often blank), the test facilities kept in the live databases (Gallatin's
+  `000 Food Service Test`, Missoula's `Practice Food New`).
 - **Names and ids.** `fld_EstabName` is the business; Flathead's
   `fld_FaciName` is the licensed component (`Food Service`, `Bar/Espresso`,
   `Deli`), so components share one restaurant id and `_same_day_rank` keeps
@@ -143,6 +144,11 @@ Limits that shape the read (Montana survey, re-measured on Kansas City):
   (`blocked`; the rest held uncounted). The deadline drops the newest tail
   (oldest first; held uncounted; `skipped`). 10+ unread and >10% -> `error`.
   `_note_source_lag` from the newest listed row.
+- **Weekly cost.** A weekly window (~8 days + the 14-day margin) is ~650
+  Kansas City inspections, ~1,250 requests, ~21 minutes at 1 request/s
+  (fewer with `--skip-known-inspections`, which halves the margin's cost);
+  the three Montana databases add ~250 requests. All four share one
+  throttle, so they run serially in effect (~25 minutes) inside the pool.
 - **Politeness.** All four databases share one host; `_io_throttle` spaces
   request STARTS at least 1.0 s apart across every thread of the run.
 
@@ -204,16 +210,40 @@ shared and was not changed here.
 Skipped in Kansas City's 4 weeks: Pre-Operational 25, Fee Exempt 47, schools
 56, Mobile Unit/Pushcart 5.
 
-## Backfill
+## Backfill (2026-11-23, 12:33-14:36 UTC)
 
-See the report for the final numbers; records at
-`scratchpad/backfill/paragon/records.json.gz` (one combined file, all four
-databases, `--since-date 2026-08-24`, i.e. read from 2026-08-10).
+One combined run, all four databases, `--mode full --since-date 2026-08-24`
+(read from 2026-08-10 with the margin), `--deadline-minutes 240`: 7,347
+requests in 2 h 04 min, every group `ok`, no inspection unread, held or cut.
+One combined records file (`scratchpad/backfill/paragon/records.json.gz`).
+
+| Group | Listed | Records | Requests | Dates | Geocoded | A/B/C/F | of which text-forced F |
+|---|---|---|---|---|---|---|---|
+| Missoula | 123 | 83 | 187 | 08-11..11-20 | 95% | 40/28/6/9 | 0 |
+| Gallatin | 245 | 157 | 369 | 08-10..11-20 | 86% | 103/32/12/10 | 4 |
+| Flathead | 406 | 326 | 713 | 08-10..11-20 | 92% | 267/54/3/2 | 0 |
+| Kansas City | 3,327 | 2,871 | 6,078 | 08-10..11-22 | 92% | 2114/405/123/229 | 125 |
+
+Missoula shipped two visits of a test facility (`Practice Food New`, `100
+Practice Drive`, city `Practice`) found only in this run; the rule now drops
+it and the two records were removed from the hand-off file (the unfiltered
+file and the run's `d1.sql`, which still holds them, sit next to it).
+Gallatin's four text F's are live/dead cockroaches and mouse feces
+(`Premises not maintained free of insects, rodents or other pests:
+Observed ...`). Kansas City's 125 were scanned for lines that name only a
+device or product: 7 records are F's on wording like `Observed an open snap
+mouse trap`, `Observed 1 green rodent bait`, `Observed a bag of mouse
+repellent`, `Observed hot shot roach, spider, and ant killer` with no
+finding (Crows Coffee 10-15, Brooklyn Mart Deli 10-13, Happy Foods 09-15,
+Brick House 08-14, Cupini's 08-11, Ming's Garden 10-29, KC Art Institute -
+Cafe Nerman 08-26). That is the shared regex reading "observed ... mouse";
+Jev's named-vermin guard is what answers those lines in production.
 
 ## Known gaps and open points
 
 - **Missoula is graded much harder than the county grades itself.** 5 of 29
-  (17%) are F's by score (a bar with 8 RFI = 59), while the county's hidden
+  (17%) are F's by score in 4 weeks, 9 of 83 (11%) over the backfill, and
+  Gallatin 6 of 157 by score (a bar with 8 RFI = 59), while the county's hidden
   2026 letters were A+ 269, A 148, B 101, C 7, no F. Montana's RFI tier
   lumps priority and priority-foundation items (test strips, date marking,
   sanitizer strength) at 5 points each under Louisiana's rule. Flathead's

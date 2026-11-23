@@ -14021,9 +14021,10 @@ IO_SKIP_TYPES = frozenset({'Pre-Operational', 'Closeout'})
 # (Gallatin's 'Other', 0 lines): they ship only when they cite something,
 # so a note never reads as a clean 100.
 IO_CITED_ONLY_TYPES = frozenset({'Other', 'Site Visit'})
-# Gallatin keeps a test facility ('000 Food Service Test') in the live
-# database; its visits are not inspections.
-IO_TEST_NAME_RE = re.compile(r'^\s*000\b')
+# Test facilities live in the production databases: Gallatin's '000 Food
+# Service Test', Missoula's 'Practice Food New' at '100 Practice Drive' in
+# 'Practice'; their visits are not inspections (name or street matched).
+IO_TEST_NAME_RE = re.compile(r'^\s*000\b|\bpractice\s+(?:food|drive)\b', re.I)
 # A mobile unit filed under a fixed-premises type names itself ('Porter
 # Unherd Coffee Mobile', type '1. Food Service Establishment', licensed at its
 # owner's shop): dropped like the typed ones.
@@ -14298,7 +14299,7 @@ def _io_place(cfg, dv):
     street = _hh_title(' '.join(f"{dv['fld_FStreetNo']} {dv['fld_FStreetName']}".split())).strip(' ,')
     if not name:
         return None, 'no name'
-    if IO_TEST_NAME_RE.match(name):
+    if IO_TEST_NAME_RE.search(name) or IO_TEST_NAME_RE.search(street):
         return None, 'test facility'
     component = dv['fld_FaciName']
     if IO_MOBILE_NAME_RE.search(name) or IO_MOBILE_NAME_RE.search(component):

@@ -341,6 +341,15 @@ class MissoulaTests(_Base):
         for v in rec['violations']:
             self.assertIn(v[1], ('priority', 'core'))
 
+    def test_practice_facility_is_skipped(self):
+        s = Server('missoula')
+        s.dv[MSO_DOUBLEK] = s.dv[MSO_DOUBLEK].replace('DOUBLE K RANCH BAR', 'Practice Food New')
+        by = _by_unid(_run(s, since='2026-11-01'))
+        self.assertNotIn(MSO_DOUBLEK, by)
+        self.assertNotIn(MSO_DOUBLEK, s.reports_requested())
+        self.assertIsNotNone(dp.IO_TEST_NAME_RE.search('100 Practice Drive'))
+        self.assertIsNone(dp.IO_TEST_NAME_RE.search('Practice Range Grill'))
+
     def test_skip_known_only_in_the_margin(self):
         s = Server('missoula')
         known = [(dp.make_restaurant_id('La Quinta Inn - Food', '5059 N Reserve', 'Missoula'), '2026-10-22'),
