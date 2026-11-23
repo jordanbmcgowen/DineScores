@@ -50,6 +50,16 @@
    },
    "latest": "2026-11-13"
   },
+  "Corpus Christi": {
+   "last_run": {
+    "at": "2026-11-23",
+    "detail": "",
+    "latest": "2026-11-21",
+    "records": 945,
+    "status": "ok"
+   },
+   "latest": "2026-11-21"
+  },
   "DFW": {
    "last_run": {
     "at": "2026-11-15",
@@ -566,6 +576,10 @@
   "Clark County WA Health Dept": {
    "group": "MHD metros",
    "latest": "2026-11-14"
+  },
+  "Corpus Christi-Nueces County Public Health District": {
+   "group": "Corpus Christi",
+   "latest": "2026-11-21"
   },
   "Cuyahoga County Health Dept": {
    "group": "MHD metros (midweek)",
