@@ -13579,12 +13579,15 @@ def fetch_denton(since_date=None, limit=None):
 # supermarkets, food processors, warehouses, assisted living and hospital
 # kitchens ship; child care, schools, the school district's summer meal
 # sites, mobile units and plan reviews do not, nor does any program element
-# this list does not know (logged; many of them raise). School and
-# child-care names are dropped by the rule the other DFW cities share.
+# this list does not know (logged; many of them raise). Today that is one
+# permit, PE 1614, a smoothie stand at the Curtis Culwell Center last seen
+# 2024-06 (the center's other stands are snack bars, 1603, and ship). School
+# and child-care names are dropped by the rule the other DFW cities share,
+# which also takes the school district's warehouse and freezer (PE 1609).
 #
 # Identity: the city's own map titles a permit NAME - PROGRAM_IDENTIFIER
 # when the identifier is set ('KROGER FOOD STORE #557 - DELI', 'CORNER STOP -
-# TAQUERIA GENESIS'), and so does the record name: 121 permits share a name
+# TAQUERIA GENESIS'), and so does the record name: 193 permits share a name
 # and an address with another permit (a grocery's departments, a taqueria
 # inside a convenience store, a water park's stands), the identifier tells
 # every one of them apart, and without it a store and the kitchen inside it
