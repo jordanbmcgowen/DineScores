@@ -266,6 +266,13 @@ def _mhd_tn_bucket(metro, cities):
 # a week statewide, every one a detail page, so the districts run in the
 # midweek group.
 MHD_VA_GROUP = 'MHD metros (midweek)'
+MHD_MIDWEEK_GROUP = MHD_VA_GROUP
+# Row filters the 2026-11-22 entries share (config 'exclude' patterns).
+# A mobile unit's permit address is its commissary or its owner's home, not
+# where it serves (the Hedgerow fetchers drop them by type for the same
+# reason); a pre-opening visit is of a place that is not operating yet.
+MHD_MOBILE_PERMIT_RE = r'(?i)\bmobile\b'
+MHD_PREOPENING_PURPOSE_RE = r'(?i)^\s*(?:pre-?\s?op|opening\b)'
 
 
 def _mhd_va_district(district, default_city, metro=''):
@@ -294,13 +301,17 @@ MHD_METRO_JURISDICTIONS = {
                              'state': 'WA', 'score_scale': 'none', 'metro': 'Portland', 'lag_days': 21},
     # Colorado Front Range (demerit points, lower better)
     'epcph':                {'display_name': 'El Paso County CO', 'default_city': 'Colorado Springs',
-                             'state': 'CO', 'score_scale': 'demerit', 'metro': ''},
+                             'state': 'CO', 'score_scale': 'demerit', 'metro': '',
+                             'closed_is_f': True},
     'larimer-county-health': {'display_name': 'Larimer County', 'default_city': 'Fort Collins',
-                              'state': 'CO', 'score_scale': 'demerit', 'metro': ''},
+                              'state': 'CO', 'score_scale': 'demerit', 'metro': '',
+                              'closed_is_f': True},
     'weldcounty':           {'display_name': 'Weld County', 'default_city': 'Greeley',
-                             'state': 'CO', 'score_scale': 'demerit', 'metro': ''},
+                             'state': 'CO', 'score_scale': 'demerit', 'metro': '',
+                             'closed_is_f': True},
     'adcogoveh':            {'display_name': 'Adams County', 'default_city': 'Brighton',
-                             'state': 'CO', 'score_scale': 'demerit', 'metro': ''},
+                             'state': 'CO', 'score_scale': 'demerit', 'metro': '',
+                             'closed_is_f': True},
     # Utah County (Provo/Orem) — demerits
     'utah-utahcounty':      {'display_name': 'Utah County', 'default_city': 'Provo',
                              'state': 'UT', 'score_scale': 'demerit', 'metro': ''},
@@ -360,7 +371,7 @@ MHD_METRO_JURISDICTIONS = {
     # units carry addressLine1 '^Mobile Unit' with no city or zip — excluded.
     'acph':                 {'display_name': 'Arapahoe County', 'default_city': 'Aurora',
                              'state': 'CO', 'score_scale': 'demerit', 'metro': '',
-                             'programs': ['Retail Food'],
+                             'programs': ['Retail Food'], 'closed_is_f': True,
                              'exclude': {'addressLine1': r'^\^?\s*Mobile Unit'},
                              'group': 'MHD metros'},
     # Douglas County Health Department, CO (Castle Rock, Parker, Highlands
@@ -373,7 +384,8 @@ MHD_METRO_JURISDICTIONS = {
     # County' here would merge the two counties' freshness and Jev policy.
     'dchd':                 {'display_name': 'Douglas County CO', 'default_city': 'Castle Rock',
                              'state': 'CO', 'score_scale': 'demerit', 'metro': '',
-                             'programs': ['Retail Food'], 'group': 'MHD metros'},
+                             'programs': ['Retail Food'], 'closed_is_f': True,
+                             'group': 'MHD metros'},
     # Cuyahoga County Board of Health, OH: the 58 Cleveland suburbs (Parma,
     # Lakewood, Euclid, Strongsville, Shaker Heights, ...); the City of
     # Cleveland has its own department and is NOT here. No score of any kind
@@ -424,6 +436,200 @@ MHD_METRO_JURISDICTIONS = {
     'va-southside':         _mhd_va_district('Southside', 'South Hill'),
     'va-three-rivers':      _mhd_va_district('Three Rivers', 'Saluda'),
     'va-west-piedmont':     _mhd_va_district('West Piedmont', 'Martinsville'),
+    #
+    # ── 2026-11-22 expansion: Texas, Montana and the states around them.
+    # Each verified live that day: full sorted single-day reads of four
+    # weekdays, a six-week vocabulary read (programs, inspection types,
+    # purposes, permit types, cities) and eight detail pages through
+    # _mhd_parse_detail_html; docs/expansion-2026-11b/mhd.md has the numbers.
+    # They run in the midweek group (the Wednesday run finished in 54 minutes
+    # of its 300 on 2026-11-18; Sunday's took three hours). Three rules these
+    # entries share: mobile units are dropped by permit type (a truck's
+    # licence address is its commissary or its owner's home), pre-opening
+    # visits of a place not yet operating are dropped by purpose, and every
+    # entry lists its food program(s) explicitly.
+    #
+    # Montana DPHHS: one statewide portal, 31-56 rows a day (24-38 of them
+    # RETAIL FOOD), never near the cap. No score of any kind (score 0 or
+    # null by county habit), so risk comes from the scraped observations
+    # ('NN: <observation> Corrective Actions: <Food Code section>: <its
+    # text>'). purpose_allow is what makes the source safe: 'Other' is 40-55%
+    # of the retail-food rows and is never an inspection report — licence
+    # notes ("did not operate this year", "changed ownership") and the
+    # placeholders of the counties that write their inspections in their own
+    # systems (every Missoula, Bozeman, Kalispell, Hamilton, Red Lodge and
+    # Lewistown row seen: no observations on the page, an empty original PDF,
+    # one comment reading "Inspection completed in Paragon"). Shipped, each
+    # would be a clean 100. So Missoula, Gallatin, Flathead, Ravalli, Carbon
+    # and Fergus counties are NOT covered by this entry; Billings, Helena,
+    # Great Falls, Butte, Havre, Libby, Livingston and the small counties
+    # are. 'Pre-opening' is left out with it. WHOLESALE FOOD (manufacturers),
+    # PUBLIC ACCOMMODATIONS, campgrounds, pools and body art share the feed.
+    # A 'Routine' row can be a logged paper report too (no observations, an
+    # empty form behind it), which is what 'clean_proof' is for: see
+    # _mhd_prove_clean. Itemised reports only became common in August 2026.
+    'montana':              {'display_name': 'Montana', 'default_city': 'Billings',
+                             'state': 'MT', 'score_scale': 'none', 'metro': '',
+                             'programs': ['RETAIL FOOD'],
+                             'purpose_allow': ['Routine', 'Follow-up'],
+                             'clean_proof': 'printable-grid',
+                             'exclude': {'permitType': MHD_MOBILE_PERMIT_RE},
+                             'group': MHD_MIDWEEK_GROUP},
+    # City of Amarillo Environmental Health, TX (Potter and Randall counties:
+    # Amarillo, Canyon). GENERAL FOOD INSPECTION carries the official 0-100
+    # score (71-100 over 48 rows; 100 <-> no observations, 71 <-> 19). The
+    # inspection_types allowlist is mandatory: VENDED WATER/ICE (27-30) and
+    # FARMERS MARKET (17) inspections share programName 'Food Hygiene' on
+    # other scales and would grade F; pools (261-316) and day cares (37-40)
+    # are other programs. `purpose` is blank on most rows, so there is no
+    # pre-opening filter. ~60-85 food inspections a week since 2024-03-07.
+    'aaphd':                {'display_name': 'Amarillo', 'default_city': 'Amarillo',
+                             'state': 'TX', 'score_scale': '100', 'metro': '',
+                             'programs': ['Food Hygiene'],
+                             'inspection_types': ['GENERAL FOOD INSPECTION'],
+                             'group': MHD_MIDWEEK_GROUP},
+    # Northeast Texas Public Health District (NET Health): Tyler and the
+    # rest of Smith County (Lindale, Bullard, Flint, Whitehouse, Arp).
+    # `score` is the Texas form's demerit total (0-22 over 24 rows; one
+    # cited item 3, 2 or 1 points: item 19 alone = 3, items 40+41 = 2), so
+    # 'tx-demerit' ships the form score 100 - demerits like McKinney,
+    # Dallas and Plano. The purpose sits in purpose_retail_food (Routine,
+    # Follow-Up, Complaint). ~25-45 food inspections a week. 'Child Care'
+    # is the other program on the slug.
+    'net':                  {'display_name': 'Smith County TX', 'default_city': 'Tyler',
+                             'state': 'TX', 'score_scale': 'tx-demerit', 'metro': '',
+                             'programs': ['Food'], 'group': MHD_MIDWEEK_GROUP},
+    # Orange County, TEXAS (Orange, Vidor, Bridge City; east of Beaumont).
+    # Official 0-100 score, sent as a string ('97'; 61 <-> 21 observations,
+    # 100 <-> none). ~8-12 inspections a week, half of them school kitchens.
+    # The display name must carry 'TX': 'Orange County' is the California
+    # county's fetch group.
+    'orangecotx':           {'display_name': 'Orange County TX', 'default_city': 'Orange',
+                             'state': 'TX', 'score_scale': '100', 'metro': '',
+                             'programs': ['Food'],
+                             'exclude': {'purpose': MHD_PREOPENING_PURPOSE_RE,
+                                         'permitType': MHD_MOBILE_PERMIT_RE},
+                             'group': MHD_MIDWEEK_GROUP},
+    # Wyoming. Cheyenne-Laramie County: no score (0 on every row); the
+    # 'Food' program only ('School' is the school inspection, pools and
+    # child care the rest). Every report ends in an item '999' line, the
+    # inspector's general comments ("Proper hot holding ... Facility is
+    # clean and organized") — not a violation, hence observation_exclude:
+    # it would cost every Cheyenne restaurant a point and print praise as a
+    # finding. ~35-50 food inspections a week.
+    'cheyenne-laramie':     {'display_name': 'Cheyenne-Laramie County', 'default_city': 'Cheyenne',
+                             'state': 'WY', 'score_scale': 'none', 'metro': '',
+                             'programs': ['Food'], 'observation_exclude': r'^999:',
+                             'exclude': {'purpose': MHD_PREOPENING_PURPOSE_RE,
+                                         'permitType': MHD_MOBILE_PERMIT_RE},
+                             'group': MHD_MIDWEEK_GROUP},
+    # Casper-Natrona County: no score (null, sometimes 0), 'Food' only
+    # (hotels, child care, body art and campgrounds share the slug). ~12 a
+    # week.
+    'casper-natrona':       {'display_name': 'Casper-Natrona County', 'default_city': 'Casper',
+                             'state': 'WY', 'score_scale': 'none', 'metro': '',
+                             'programs': ['Food'],
+                             'exclude': {'purpose': MHD_PREOPENING_PURPOSE_RE,
+                                         'permitType': MHD_MOBILE_PERMIT_RE},
+                             'group': MHD_MIDWEEK_GROUP},
+    # Teton County (Jackson, Wilson, Teton Village): no score, 'Food' only,
+    # ~8-10 a week; `state` is spelled 'Wyoming' on half the rows (the
+    # parser falls back to the default).
+    'tetonwy':              {'display_name': 'Teton County WY', 'default_city': 'Jackson',
+                             'state': 'WY', 'score_scale': 'none', 'metro': '',
+                             'programs': ['Food'],
+                             'exclude': {'purpose': MHD_PREOPENING_PURPOSE_RE,
+                                         'permitType': MHD_MOBILE_PERMIT_RE},
+                             'group': MHD_MIDWEEK_GROUP},
+    # First District Health Unit, ND (Minot and seven north-central
+    # counties). inspectionType 'FOOD ESTABLISHMENT' carries the official
+    # 0-100 score (96-100 over 14 rows; 96 <-> two observations) under two
+    # programs — restaurants and the kitchens of schools, child care and
+    # lodging — so the filter is the inspection type, not the program:
+    # 'SCHOOL INSPECTION' scores 0 on another form, 'FOOD SAMPLER' and 'FOOD
+    # TEMP/MOBILE' are fair vendors with home addresses in Fargo, Minnesota
+    # and Arizona (permit types SAMPLING / TEMPORARY / MOBILE, excluded too).
+    'firstdistrict':        {'display_name': 'First District ND', 'default_city': 'Minot',
+                             'state': 'ND', 'score_scale': '100', 'metro': '',
+                             'programs': ['FOOD ESTABLISHMENT', 'CHILDCARE / SCHOOL', 'LODGING'],
+                             'inspection_types': ['FOOD ESTABLISHMENT'],
+                             'exclude': {'purpose': MHD_PREOPENING_PURPOSE_RE,
+                                         'permitType': r'(?i)\bmobile\b|\btemporary\b|\bsampling\b'},
+                             'group': MHD_MIDWEEK_GROUP},
+    # City of St. Louis, MO (the city only; St. Louis County is another
+    # department). Official 0-100 score with the city's own letter in
+    # scoreDisplay (87 is the city's A; DineScores grades the number on its
+    # own cutoffs like every official score). ~60-90 inspections a week.
+    # The city is spelled 'SAINT LOUIS', 'St Louis' and 'St. Louis' on the
+    # rows, hence city_map; trucks and carts are dropped with the mobile
+    # units; 'Opening' is the pre-opening visit.
+    'mo-stlouis':           {'display_name': 'St. Louis', 'default_city': 'St. Louis',
+                             'state': 'MO', 'score_scale': '100', 'metro': '',
+                             'programs': ['Food'],
+                             'city_map': {'Saint Louis': 'St. Louis', 'St Louis': 'St. Louis',
+                                          'St. Louis': 'St. Louis'},
+                             'exclude': {'purpose': MHD_PREOPENING_PURPOSE_RE,
+                                         'permitType': r'(?i)\bmobile\b|\btruck\b|\bcart\b'},
+                             'group': MHD_MIDWEEK_GROUP},
+    # Jackson County Environmental Health, MO: the Kansas City suburbs that
+    # are not Kansas City or Independence (Lee's Summit, Blue Springs,
+    # Raytown, Grandview, Grain Valley, Oak Grove). No score (0 on every
+    # row), observations 'Item NN: MFC <section> <text>'. ~80-110 food
+    # inspections a week. 'Lodging' shares the slug; the city arrives as
+    # 'Lees Summit' and "Lee's Summit" (plus a 'Blue Spring' and a 'KCMO').
+    'mo-jackson':           {'display_name': 'Jackson County MO', 'default_city': "Lee's Summit",
+                             'state': 'MO', 'score_scale': 'none', 'metro': '',
+                             'programs': ['Food Establishment'],
+                             'city_map': {'Lees Summit': "Lee's Summit", "Lee's Summit": "Lee's Summit",
+                                          'Blue Spring': 'Blue Springs', 'KCMO': 'Kansas City'},
+                             'exclude': {'purpose': MHD_PREOPENING_PURPOSE_RE,
+                                         'permitType': MHD_MOBILE_PERMIT_RE},
+                             'group': MHD_MIDWEEK_GROUP},
+    # Colorado. CDPHE inspects for the counties without a retail-food
+    # program of their own — the mountain and plains towns: Vail, Aspen,
+    # Breckenridge, Steamboat Springs, Durango, Glenwood Springs, Gunnison,
+    # Montrose, Alamosa, Trinidad, Fort Morgan, Sterling, Craig. Same
+    # risk-index demerit total as Arapahoe and Douglas (0-117 seen; Pass
+    # 0-49, Re-Inspection Required 50-109, Closed 110+, the verdict in
+    # scoreDisplay), so the risk is recomputed from the detail pages. ~110-140
+    # inspections a week. The display name is NOT 'Colorado': the label must
+    # not read as the whole state (Denver, Boulder and Jefferson County are
+    # not on any portal DineScores reads). 'tiers': every line prints the
+    # state's Priority / Priority Foundation / Core designation, and that is
+    # what scores it (_co_line_tier), not the keyword tier.
+    'colorado':             {'display_name': 'Colorado CDPHE', 'default_city': 'Glenwood Springs',
+                             'state': 'CO', 'score_scale': 'demerit', 'metro': '',
+                             'programs': ['Retail Food'], 'tiers': 'colorado', 'closed_is_f': True,
+                             'city_map': {'Canon City': 'Cañon City'},
+                             'exclude': {'purpose': MHD_PREOPENING_PURPOSE_RE,
+                                         'permitType': MHD_MOBILE_PERMIT_RE},
+                             'group': MHD_MIDWEEK_GROUP},
+    # Pueblo Department of Public Health and Environment: the same risk
+    # index (0-52 seen), programName 'Food' (child care, pools, body art
+    # and waste-tire inspections share the slug). ~40-50 a week. Lines cite
+    # the state library's section without its designation; 'tiers' gives
+    # each the tier CDPHE states for that section (CO_SECTION_TIERS).
+    'pueblo':               {'display_name': 'Pueblo County', 'default_city': 'Pueblo',
+                             'state': 'CO', 'score_scale': 'demerit', 'metro': '',
+                             'programs': ['Food'], 'tiers': 'colorado', 'closed_is_f': True,
+                             'exclude': {'permitType': MHD_MOBILE_PERMIT_RE},
+                             'group': MHD_MIDWEEK_GROUP},
+    # Mesa County Public Health (Grand Junction, Clifton, Fruita, Palisade):
+    # the same risk index (0-74 seen). ~20 a week.
+    'mesacountyco':         {'display_name': 'Mesa County', 'default_city': 'Grand Junction',
+                             'state': 'CO', 'score_scale': 'demerit', 'metro': '',
+                             'programs': ['Retail Food'], 'tiers': 'colorado', 'closed_is_f': True,
+                             'exclude': {'permitType': MHD_MOBILE_PERMIT_RE},
+                             'group': MHD_MIDWEEK_GROUP},
+    # City and County of Broomfield: the same risk index, a handful of
+    # inspections a week (inspectionType is the purpose here: 'Routine',
+    # 'Re-Inspection'). Two lines in three give the item number and no
+    # section; those keep the keyword tier.
+    'broomfield':           {'display_name': 'Broomfield', 'default_city': 'Broomfield',
+                             'state': 'CO', 'score_scale': 'demerit', 'metro': '',
+                             'programs': ['Retail Food'], 'tiers': 'colorado', 'closed_is_f': True,
+                             'exclude': {'permitType': MHD_MOBILE_PERMIT_RE},
+                             'group': MHD_MIDWEEK_GROUP},
 }
 
 MHD_DEFAULT_GROUP = 'MHD metros'   # fetch group of an entry without 'group'
@@ -457,6 +663,20 @@ MHD_METRO_SLUG_GROUPS = {
     'nova': ['va-arlington', 'va-alexandria', 'va-loudoun', 'va-prince-william'],
     # convenience: every VDH district
     'virginia': [k for k in MHD_METRO_JURISDICTIONS if k.startswith('va-')],
+    # 2026-11-22 expansion ('montana', 'pueblo' and 'broomfield' are their
+    # own table keys and need no alias)
+    'amarillo': ['aaphd'],
+    'tyler': ['net'],
+    'orangecountytx': ['orangecotx'],
+    'cheyenne': ['cheyenne-laramie'],
+    'casper': ['casper-natrona'],
+    'jacksonhole': ['tetonwy'],
+    'wyoming': ['cheyenne-laramie', 'casper-natrona', 'tetonwy'],
+    'minot': ['firstdistrict'],
+    'stlouis': ['mo-stlouis'],
+    'jacksoncountymo': ['mo-jackson'],
+    'coloradostate': ['colorado'],
+    'grandjunction': ['mesacountyco'],
 }
 
 CHROME_UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36'
@@ -1049,6 +1269,11 @@ STATE_BOUNDS = {  # generous per-state boxes for the states we cover
     'VA': (36.50, 39.50, -83.70, -75.20),
     'OH': (38.40, 42.00, -84.85, -80.50),
     'CO': (36.95, 41.05, -109.10, -102.00),
+    # 2026-11-22 expansion states (Montana, Wyoming, North Dakota, Missouri).
+    'MT': (44.35, 49.00, -116.05, -104.04),
+    'WY': (40.99, 45.01, -111.06, -104.05),
+    'ND': (45.93, 49.00, -104.05, -96.55),
+    'MO': (35.99, 40.62, -95.78, -89.10),
 }
 COORD_MARGIN = 0.6  # ° of slack around state boxes (metro suburbs, borders)
 
@@ -1095,6 +1320,13 @@ _NOMINATIM_LOCK = threading.Lock()   # Nominatim allows ONE request per second p
 NOMINATIM_FALLBACK_CAP = int(os.environ.get('NOMINATIM_FALLBACK_CAP', '150'))   # per geocode_missing_coords call
 
 NOMINATIM_MIN_PLACE_RANK = 26   # street level or better; never a town/suburb centroid
+# Nominatim asks every client to identify itself. The default names the
+# site. A contact address, if the owner wants one sent, comes from the
+# NOMINATIM_USER_AGENT environment variable (an Actions variable in the
+# workflows), never from this file: the file is public and is run from
+# shared machines.
+NOMINATIM_USER_AGENT = (os.environ.get('NOMINATIM_USER_AGENT') or '').strip() \
+    or 'DineScores/1.0 (+https://dinescores.com)'
 
 
 def geocode_address(address, city, state, nominatim_session=None):
@@ -1111,7 +1343,7 @@ def geocode_address(address, city, state, nominatim_session=None):
             'limit': 1,
             'addressdetails': 0,
         }
-        headers = {'User-Agent': 'DineScores/1.0 (jordanbmcgowen@gmail.com)'}
+        headers = {'User-Agent': NOMINATIM_USER_AGENT}
         with _NOMINATIM_LOCK:   # the API pool geocodes from many threads at once
             r = requests.get(url, params=params, headers=headers, timeout=5)
             time.sleep(1.1)  # Respect Nominatim rate limit
@@ -6080,16 +6312,41 @@ def _mhd_norm_city(value):
     return ' '.join(str(value or '').lower().replace('-', ' ').replace('.', '').split())
 
 
-def _mhd_row_rejection(rec, programs=(), city_allow=(), exclude=()):
+def _mhd_row_purpose(rec):
+    """A raw search row's inspection purpose. Most portals carry it in
+    `purpose`; some split it by program and leave `purpose` empty (NET
+    Health: purpose_retail_food, purpose_childcare, purposepoolspa, ...;
+    Amarillo: purpose1, purpose2) — then the first non-empty purpose* field
+    in name order."""
+    value = str(rec.get('purpose') or '').strip()
+    if value:
+        return value
+    for key in sorted(k for k in rec if str(k).lower().startswith('purpose') and k != 'purpose'):
+        value = str(rec.get(key) or '').strip()
+        if value:
+            return value
+    return ''
+
+
+def _mhd_row_rejection(rec, programs=(), city_allow=(), exclude=(), inspection_types=(),
+                       purpose_allow=()):
     """Why a raw search row falls outside a jurisdiction config ('' = keep):
     'program' when the config lists programs and the row's programName is not
-    one of them, 'city' when it lists city_allow and the row's city is not
-    one of them, 'excluded' when one of the config's exclude patterns
-    ((row field, compiled regex) pairs from _mhd_exclude_patterns) matches
-    the row's field. The sets arrive pre-normalised (lower-case programs,
+    one of them, 'type' when it lists inspection_types and the row's
+    inspectionType is not one of them, 'purpose' when it lists purpose_allow
+    and the row's purpose (_mhd_row_purpose) is not one of them, 'city' when
+    it lists city_allow and the row's city is not one of them, 'excluded'
+    when one of the config's exclude patterns ((row field, compiled regex)
+    pairs from _mhd_exclude_patterns) matches the row's field. The sets
+    arrive pre-normalised (lower-case programs, types and purposes,
     _mhd_norm_city cities); an empty set means "no filter"."""
     if programs and str(rec.get('programName') or '').strip().lower() not in programs:
         return 'program'
+    if (inspection_types
+            and str(rec.get('inspectionType') or '').strip().lower() not in inspection_types):
+        return 'type'
+    if purpose_allow and _mhd_row_purpose(rec).lower() not in purpose_allow:
+        return 'purpose'
     if city_allow and _mhd_norm_city(rec.get('city')) not in city_allow:
         return 'city'
     for field, pattern in exclude:
@@ -6127,6 +6384,25 @@ def _mhd_exclude_patterns(config):
 # in _mhd_search_page.
 MHD_SORT_INSPECTION_ID = {'field': 'inspectionID', 'direction': 'asc'}
 MHD_DEFAULT_SORT = MHD_SORT_INSPECTION_ID
+# Score scales whose official number is kept as the risk score through the
+# detail pass: '100' (a real 0-100 score) and 'tx-demerit' (the Texas form's
+# demerit total, shipped as 100 - demerits). Every other scale ('demerit',
+# 'none') has its risk recomputed from the scraped observations.
+MHD_TRUSTED_SCORE_SCALES = frozenset({'100', 'tx-demerit'})
+# The Colorado risk-index verdicts, where a portal sends them in scoreDisplay
+# instead of `result` (see _parse_mhd_record).
+MHD_RESULT_DISPLAY_RE = re.compile(r'^(?:pass|closed|re-?inspection required)$', re.I)
+# Colorado: 'Closed' is the agency's verdict that the place may not operate
+# until it is re-inspected (110 or more risk-index points, or an imminent
+# health hazard: no water, sewage, pests), and a closure can cite one line:
+# scored on its lines alone, a water-line-break closure graded A (7 CDPHE
+# closures 2026-09-21..11-23: mean risk 86, one F). Owner decision
+# 2026-11-25: a Closed inspection is an F, as Waco's FAILED is
+# (WAC_FAILED_RISK_CAP). 'closed_is_f' in a jurisdiction's config turns it
+# on; the cap only ever lowers a score, and 'Re-Inspection Required' caps
+# nothing.
+MHD_CLOSED_RESULT_RE = re.compile(r'^closed$', re.I)
+MHD_CLOSED_RISK_CAP = 65
 # A sorted query whose pages do not fit together is read again once (a row
 # posted between two page requests shifts the sequence by one) before the
 # window is failed.
@@ -6523,7 +6799,108 @@ def _mhd_fetch_inspection_detail(session, path, inspection_id, retry_count=0):
         return None
 
 
-def _mhd_fetch_details_bulk(path, records, trust_official_score=True, label=None):
+# ── Colorado: the tier the state gives each cited provision ─────────────────
+# Colorado's retail-food form cites violations from one statewide library,
+# and CDPHE's own template prints each entry's designation in the line:
+#   "38: Insects, rodents and animals not present . This is a Core item
+#    6-501.111(A-B), and (D) - Controlling Pests (C) Pests were present ..."
+# Scored on keywords instead (classify_violation, the method for portals that
+# state nothing), 405 of 836 Core lines and 894 of 1,238 Priority Foundation
+# lines counted as Priority: 119 of CDPHE's 806 inspections were F's, 61 of
+# them on a state verdict of 'Pass'; on the stated tiers 30 are (measured
+# 2026-11-23 over 2026-09-21..11-21). Pueblo, Mesa County and Broomfield cite
+# the same library without the designation ("38: 6-501.111(A-B), and (D)
+# Pests were present ..."), so their lines take the tier CDPHE's lines state
+# for that section: CO_SECTION_TIERS, read off the 3,235 CDPHE lines of that
+# window (184 sections, none stated with two tiers; it covers 98% of Pueblo's
+# lines, 99% of Mesa County's and 31% of Broomfield's, whose inspectors
+# mostly write the item number alone). The spellings are the library's own
+# ('3.306.13(B)-(C)' included). A line with neither a stated tier nor a known
+# section keeps its keyword tier and the log counts those: a growing count
+# means the table needs the new sections. The six Front Range counties
+# (Arapahoe, Douglas, El Paso, Larimer, Weld, Adams) print the same sections
+# and are NOT read this way: their stored history is keyword-scored, so
+# moving them needs a regrade of the stored rows first.
+CO_STATED_TIER_RE = re.compile(r'\bThis is a (Priority Foundation|Priority|Core) item\b')
+CO_STATED_TIER_WITHIN = 260     # the phrase follows the item title; never read it from the observation
+CO_TIER_NAMES = {'priority': 'priority', 'priority foundation': 'priority_foundation', 'core': 'core'}
+_CO_SECTIONS_BY_TIER = {
+    'priority': (
+        '2-201.11 (A), and (C)', '2-201.13', '2-301.11', '2-301.12', '2-301.14', '3-101.11',
+        '3-201.11(A)', '3-202.11(A)', '3-202.14', '3-202.16', '3-301.11(B)',
+        '3-302.11(A)(1)-(2)', '3-303.11', '3-304.11', '3-304.15(A)', '3-304.17', '3-306.11',
+        '3-401.11(A)', '3-401.14(A)-(E)', '3-401.15', '3-402.11', '3-403.11', '3-501.14',
+        '3-501.16 (A)(1)', '3-501.16 (A)(2)', '3-501.16(B)', '3-501.18',
+        '3-501.19(B)(1),(4),(5),(C)(1),(4),(5)',
+        '3-502.12 (A), (B)(4), (C), (D)(2)(b)-(e), and (E)(1)',
+        '3-801.11(A)(2)-(3)(B),(C)(1)-(3), and (E)', '4-101.14', '4-101.15', '4-501.111',
+        '4-501.114(A)-(E),(F)(1)-(2)', '4-602.11(A)(1)-(5)', '4-602.11(C)', '4-702.11',
+        '4-703.11', '5-102.11', '5-201.11', '5-202.13', '5-202.14', '5-205.15(A)', '5-402.11',
+        '7-201.11', '7-202.12(A)(2)-(3), and (B)', '7-203.11', '7-204.11', '7-206.11',
+        '7-207.11(B)', '7-301.11', '8-103.12(B)',
+    ),
+    'priority_foundation': (
+        '2-101.11', '2-102.11 (A),(B), and (C)(1),(4)-(16)', '2-102.11 (C)(2),(3), and (17)',
+        '2-103.11 (A)-(O), and (Q)', '2-103.11 (P)', '2-201.11 (B), and (E)', '2-301.15',
+        '2-403.11', '2-501.11', '3-201.11(C)', '3-202.15', '3-203.12', '3-301.11(C)',
+        '3-305.12 (B)', '3-401.13', '3-401.14(F)', '3-402.12', '3-404.11 (B)', '3-501.13',
+        '3-501.15(A)', '3-501.17', '3-501.19(A),(B)(3),(C)(2) and (3)', '3-502.11',
+        '3-502.12 (B)(1)-(3), (5)-(6), (D)(1),(2)(a), (f)-(h), (3)-(4), and (E)(2)-(4)',
+        '3-602.11(B)(5)', '3-603.11', '3.306.13(B)-(C)', '4-202.11', '4-203.11', '4-203.12',
+        '4-204.115', '4-204.117', '4-301.11', '4-301.12(A), and (B)', '4-302.12', '4-302.13',
+        '4-302.14', '4-303.11', '4-501.110', '4-501.112', '4-501.114(F)(3),(4)', '4-501.17',
+        '4-501.19', '4-502.11(B)', '4-601.11 (A)', '5-103.11', '5-103.12', '5-202.12(A)',
+        '5-203.11(A)', '5-204.11', '5-205.11', '6-301.11', '6-301.12', '6-501.111(C)',
+        '6-501.115', '7-101.11', '7-102.11', '7-202.11', '7-207.11(A)', '8-103.11',
+        '8-103.12(A), and (C)',
+    ),
+    'core': (
+        '2-102.12(A)', '2-303.11', '2-401.11', '2-402.11', '3-302.11(A)(3)-(8)', '3-302.12',
+        '3-302.15(A)', '3-303.12', '3-304.12', '3-304.14', '3-304.15(B)-(D)', '3-305.11',
+        '3-305.12 (A), and (C)-(I)', '3-305.14', '3-307.11', '3-501.12', '3-501.15(B)',
+        '3-601.11', '3-602.11(A),(B)(1-4),(6-7), and (C)', '3-602.12(A-B)', '3-602.12(C)',
+        '4-101.16', '4-101.19', '4-201.11', '4-202.18', '4-204.112(A),(B), and (D)', '4-501.11',
+        '4-501.115', '4-501.12', '4-501.16', '4-502.13', '4-601.11 (B), and (C)', '4-602.11(E)',
+        '4-602.13', '4-603.14', '4-603.16', '4-901.11', '4-903.11(A), and (C)', '4-904.11',
+        '4-904.14', '5-202.12(B)-(D)', '5-204.12', '5-205.15(B)', '5-403.12', '5-501.11',
+        '5-501.115', '5-501.15', '5-501.17', '6-201.11', '6-201.13', '6-201.16', '6-202.11',
+        '6-202.13', '6-202.15', '6-301.13', '6-301.14', '6-303.11', '6-304.11', '6-305.11',
+        '6-403.11', '6-501.11', '6-501.110', '6-501.111(A-B), and (D)', '6-501.112',
+        '6-501.114', '6-501.12', '6-501.18', '7-202.12(A)(1), and (4)', '7-206.13(B)',
+        '7-209.11', '8-201.13',
+    ),
+}
+CO_SECTION_TIERS = {sec: tier for tier, secs in _CO_SECTIONS_BY_TIER.items() for sec in secs}
+_CO_SECTIONS_LONGEST_FIRST = sorted(CO_SECTION_TIERS, key=len, reverse=True)
+_CO_ITEM_PREFIX_RE = re.compile(r'^\s*\d{1,3}\s*:\s*')
+
+
+def _co_line_tier(text):
+    """The state's tier for one Colorado observation line: the designation
+    CDPHE's template prints, else the one its lines state for the section the
+    line opens with (CO_SECTION_TIERS). None when the line carries neither;
+    the caller keeps the keyword tier then."""
+    text = text or ''
+    m = CO_STATED_TIER_RE.search(text[:CO_STATED_TIER_WITHIN])
+    if m:
+        return CO_TIER_NAMES[m.group(1).lower()]
+    body = _CO_ITEM_PREFIX_RE.sub('', text, count=1)
+    for sec in _CO_SECTIONS_LONGEST_FIRST:
+        if body.startswith(sec):
+            rest = body[len(sec):]
+            # '4-602.11(B) ...' is not the library's '4-602.11(A)(1)-(5)', and
+            # '2-101.11(X)' is not its '2-101.11': the entry must end here.
+            if rest[:1] in ('', ' ', ':') and not rest.lstrip(' :').startswith('('):
+                return CO_SECTION_TIERS[sec]
+    return None
+
+
+# 'tiers' in a jurisdiction's config → the function that reads a line's tier.
+MHD_TIER_READERS = {'colorado': _co_line_tier}
+
+
+def _mhd_fetch_details_bulk(path, records, trust_official_score=True, label=None,
+                            drop_lines=None, tier_of=None):
     """
     Fetch violation details for many inspections with a small worker pool.
     Each record with details gets its violations/risk fields updated in place.
@@ -6532,6 +6909,13 @@ def _mhd_fetch_details_bulk(path, records, trust_official_score=True, label=None
     label: name for log lines (defaults to the path; pseudo-jurisdictions
     pass their display name so four Tennessee metros don't all log as
     'tennessee').
+    drop_lines: compiled regex from a config's 'observation_exclude'; an
+    observation line it matches is not a violation and is dropped before
+    scoring (Cheyenne's '999:' general-comment line). The page still counts
+    as read: a page holding only such lines is a clean inspection.
+    tier_of: from a config's 'tiers' (MHD_TIER_READERS); a line it reads a
+    tier from is scored on that tier instead of the keyword one, and the
+    category stays the keyword's.
     trust_official_score: True for 0-100 jurisdictions whose official score
     already IS a risk score; False for demerit jurisdictions, where the risk
     score is recomputed from the scraped violations instead.
@@ -6561,7 +6945,14 @@ def _mhd_fetch_details_bulk(path, records, trust_official_score=True, label=None
         return rec, texts
 
     def apply_texts(rec, texts):
+        if drop_lines is not None:
+            texts = [t for t in texts if not drop_lines.search(t)]
         violations = [classify_violation(t) for t in texts]
+        if tier_of is not None:
+            stated = [tier_of(t) for _, _, t in violations]
+            tier_lines[0] += len(stated)
+            tier_lines[1] += sum(1 for s in stated if s)
+            violations = [(c, st or s, t) for (c, s, t), st in zip(violations, stated)]
         computed_score, pv, pfv, cv = calc_risk_score(violations)
         rec['violations'] = [[c, s, d] for c, s, d in violations]
         rec['priority_violations'] = pv
@@ -6585,6 +6976,7 @@ def _mhd_fetch_details_bulk(path, records, trust_official_score=True, label=None
     pending = list(records)
     still_failed = []
     plain_retries = 0
+    tier_lines = [0, 0]     # observation lines read, and those the source's tier scored
     while pending:
         failed = []
         done = 0
@@ -6641,6 +7033,9 @@ def _mhd_fetch_details_bulk(path, records, trust_official_score=True, label=None
         plain_retries += 1
         log.warning(f"  {label}: retrying {len(failed)} failed detail fetches")
         pending = failed
+    if tier_of is not None and tier_lines[0]:
+        log.info(f"  {label}: {tier_lines[1]}/{tier_lines[0]} observation lines scored on the "
+                 f"source's tier, {tier_lines[0] - tier_lines[1]} on keywords")
     return fetched, still_failed
 
 
@@ -6727,6 +7122,130 @@ def fetch_dfw(jurisdictions=None, since_date=None, limit_per_jurisdiction=None,
     return all_results
 
 
+# ── Proof that a zero-observation inspection is a clean one ─────────────────
+# Montana's portal also carries inspections that were written on paper and
+# only logged: a row with a real purpose ('Routine'), a detail page with an
+# empty observations block — and nothing itemised behind it. Read like every
+# other MHD page it is a clean inspection, risk 100. Measured 2026-11-22: 21
+# of the first 25 Routine rows of 2026 had no observations, and two of the
+# three whose original report could be read (Billings, February and June)
+# were such logs. The portal's printable report tells the two apart: an
+# itemised inspection prints its compliance grid, one IN / OUT / N/A / N/O
+# mark per form item (21 marks on a real clean report and on a cited one),
+# a logged paper report prints none. So a config with
+# 'clean_proof': 'printable-grid' ships a zero-observation inspection only
+# once its printable shows the grid; one without a grid is not an inspection
+# report and is dropped for good, one whose printable cannot be read is
+# dropped and held like an unread detail page. Inspections with observations
+# need no proof. The PDF text comes from the stdlib reader written for
+# Orange County's printables (_oc_pdf_text_rows). The portal builds a
+# printable on request and takes about 20 seconds the first time (0.3 s once
+# cached; measured 2026-11-23), so the phase reads one at a time: ~35 a week
+# is a quarter of an hour, the 358 of the first backfill two hours.
+MHD_GRID_MARK_RE = re.compile(r'^(?:IN|OUT|N/A|N/O)$')
+MHD_GRID_MIN_MARKS = 10      # a real report shows ~21; a logged paper report 0
+MHD_GRID_MIN_TEXT_RUNS = 5   # even an empty form prints its header fields; fewer = not read
+MHD_PRINTABLE_DELAY = float(os.environ.get('MHD_PRINTABLE_DELAY', '0.5'))
+
+
+def _mhd_printable_grid_marks(pdf_bytes):
+    """Compliance marks (standalone IN / OUT / N/A / N/O runs) on a printable
+    inspection report, or None when the bytes are not a PDF the reader can
+    read (the portal answers a missing printable with a short text body)."""
+    try:
+        pages = _oc_pdf_text_rows(pdf_bytes)
+    except Exception as e:
+        log.debug(f"  printable not readable: {e}")
+        return None
+    runs = [str(run[3]).strip() for rows in pages for row in rows for run in row]
+    if len(runs) < MHD_GRID_MIN_TEXT_RUNS:
+        # A PDF the reader gets no text from (a new generator, an image-only
+        # scan) was not read: it must not pass for a report without a grid.
+        return None
+    return sum(1 for text in runs if MHD_GRID_MARK_RE.match(text))
+
+
+def _mhd_fetch_printable(session, path, inspection_id, retry_count=0):
+    """Bytes of an inspection's printable PDF under portal `path`, or None
+    when it was not retrieved (a block, a timeout, a non-PDF body). The pKey
+    is the inspection id twice, as the detail page links it."""
+    if _MHD_PORTAL_BLOCKED:
+        return None
+    try:
+        r = session.get(f'{MHD_BASE_URL}{path}/print/',
+                        params={'task': 'getPrintable', 'path': path,
+                                'pKey': f'{inspection_id},{inspection_id}'},
+                        timeout=60)
+    except requests.RequestException as e:
+        if retry_count < 1 and not _past_deadline():
+            time.sleep(2)
+            return _mhd_fetch_printable(session, path, inspection_id, retry_count + 1)
+        log.debug(f"  printable {inspection_id} under {path} failed: {e}")
+        return None
+    if r.status_code in (403, 429) and retry_count < 1 and not _past_deadline():
+        time.sleep(MHD_RETRY_DELAY)
+        return _mhd_fetch_printable(session, path, inspection_id, retry_count + 1)
+    if r.status_code != 200 or not r.content.lstrip()[:5].startswith(b'%PDF'):
+        log.debug(f"  printable {inspection_id} under {path}: HTTP {r.status_code}, "
+                  f"{(r.content or b'')[:60]!r}")
+        return None
+    return r.content
+
+
+def _mhd_prove_clean(path, records, label):
+    """Apply the 'printable-grid' proof (see the note above) to `records`,
+    which have been through the detail pass: every zero-observation record
+    must show its compliance grid. Returns the records that ship — the ones
+    with observations, and the clean ones whose grid was read. A record
+    without a grid is dropped for good; one whose printable could not be
+    read is dropped and held so the next run reads it again."""
+    candidates = [r for r in records if not r.get('violations') and r.get('source_id')]
+    if not candidates:
+        return records
+    log.info(f"{label}: {len(candidates)} inspections have no observations — reading their "
+             f"printable reports for the compliance grid")
+    session = _mhd_session()
+    drop, unread, no_grid, proven = set(), [], 0, 0
+    for i, rec in enumerate(sorted(candidates, key=lambda r: str(r.get('inspection_date') or ''))):
+        if _past_deadline() or _MHD_PORTAL_BLOCKED:
+            unread.append(rec)
+            drop.add(id(rec))
+            continue
+        marks = _mhd_printable_grid_marks(
+            _mhd_fetch_printable(session, path, rec['source_id']) or b'')
+        if marks is None:
+            unread.append(rec)
+            drop.add(id(rec))
+        elif marks >= MHD_GRID_MIN_MARKS:
+            proven += 1
+        else:
+            no_grid += 1
+            drop.add(id(rec))
+        if (i + 1) % 25 == 0:
+            # The portal builds each PDF on request (~20 s the first time,
+            # measured 2026-11-23), so a long phase must show it is alive.
+            log.info(f"  {label}: {i + 1}/{len(candidates)} printables read "
+                     f"({proven} with a grid, {no_grid} without, {len(unread)} unread)")
+        time.sleep(MHD_PRINTABLE_DELAY)
+    log.info(f"{label}: {proven} clean inspections proven by their grid, {no_grid} dropped as "
+             f"logged reports with no grid, {len(unread)} printables unread")
+    if unread:
+        cut = _past_deadline() or _MHD_PORTAL_BLOCKED
+        for rec in unread:
+            _hold_freshness(rec.get('source'), str(rec['inspection_date'])[:10], not cut,
+                            key=rec.get('source_id'))
+        if _past_deadline():
+            _MHD_DEADLINE_CUT.add(label)
+        elif not cut and _mhd_detail_mass_failure(len(unread), len(candidates)):
+            # Most printables failing is the endpoint, not the records: report
+            # the jurisdiction instead of quietly giving its clean
+            # inspections up three runs from now.
+            _MHD_DETAIL_FAILED[label] = (len(unread), len(candidates))
+            log.error(f"{label}: {len(unread)}/{len(candidates)} printable reports unreadable "
+                      f"— reporting the jurisdiction as failed")
+    return [r for r in records if id(r) not in drop]
+
+
 def _mhd_group_lag_note(group, jurisdictions, not_fetched=()):
     """Leave the fetch group's source-lag note (_note_source_lag) once, after
     a complete read: the newest inspection date any of its jurisdictions'
@@ -6765,6 +7284,9 @@ def _fetch_mhd_jurisdiction_api(session, slug, config, since_date=None, limit=No
     purposes = [str(p) for p in (config.get('purposes') or [''])]
     programs = {str(p).strip().lower() for p in (config.get('programs') or [])}
     city_allow = {_mhd_norm_city(c) for c in (config.get('city_allow') or [])}
+    inspection_types = {str(t).strip().lower() for t in (config.get('inspection_types') or [])}
+    purpose_allow = {str(p).strip().lower() for p in (config.get('purpose_allow') or [])}
+    city_map = {_mhd_norm_city(k): str(v) for k, v in (config.get('city_map') or {}).items()}
     exclude = _mhd_exclude_patterns(config)
     bucket_mode = bool(search_terms)
     # The plain date search sorts on inspectionID unless the config says
@@ -6818,9 +7340,11 @@ def _fetch_mhd_jurisdiction_api(session, slug, config, since_date=None, limit=No
 
     all_records = []
     seen_ids = set()
+    unscored_zero = set()      # id() of kept records published with a score of 0 on a 0-100 scale
     stopped_early = False
     capped_queries = 0
     dropped_by_program = dropped_by_city = dropped_by_exclude = 0
+    dropped_by_type = dropped_by_purpose = 0
     newest_seen = ''   # newest inspection date among ALL rows returned
 
     for win_idx, (win_start, win_end) in enumerate(windows):
@@ -6869,12 +7393,19 @@ def _fetch_mhd_jurisdiction_api(session, slug, config, since_date=None, limit=No
                                f"completely — nothing shipped for this jurisdiction")
         capped_queries += len(capped)
 
-        new_count = win_program = win_city = win_excluded = 0
+        new_count = win_program = win_city = win_excluded = win_type = win_purpose = 0
         for rec in raw_records:
             newest_seen = max(newest_seen, _mhd_row_date(rec))
-            why = _mhd_row_rejection(rec, programs, city_allow, exclude)
+            why = _mhd_row_rejection(rec, programs, city_allow, exclude,
+                                     inspection_types, purpose_allow)
             if why == 'program':
                 win_program += 1
+                continue
+            if why == 'type':
+                win_type += 1
+                continue
+            if why == 'purpose':
+                win_purpose += 1
                 continue
             if why == 'city':
                 win_city += 1
@@ -6884,20 +7415,37 @@ def _fetch_mhd_jurisdiction_api(session, slug, config, since_date=None, limit=No
                 continue
             parsed = _parse_mhd_record(rec, path, display_name, default_city,
                                        default_state, score_scale, metro)
+            if parsed and city_map:
+                # One town, one spelling: the id hashes the city and the
+                # city index is keyed on it ('Saint Louis' / 'St Louis' /
+                # 'St. Louis' would be three cities).
+                parsed['city'] = city_map.get(_mhd_norm_city(parsed['city']), parsed['city'])
             if parsed:
                 uid = parsed.get('source_id') or f"{parsed['name']}|{parsed['inspection_date']}"
                 if uid not in seen_ids:
                     seen_ids.add(uid)
+                    if score_scale == '100' and parsed.get('original_score') == 0:
+                        # Not scored (see the note where unscored_zero is
+                        # used): graded from its observations like a row
+                        # without a score. Flagged only once it is kept, so
+                        # the id cannot be a discarded duplicate's.
+                        parsed['original_score'] = None
+                        parsed['risk_score'] = 70
+                        unscored_zero.add(id(parsed))
                     all_records.append(parsed)
                     new_count += 1
         dropped_by_program += win_program
         dropped_by_city += win_city
         dropped_by_exclude += win_excluded
+        dropped_by_type += win_type
+        dropped_by_purpose += win_purpose
 
         extra = ''
         if win_program or win_city or win_excluded:
             extra += (f"; dropped {win_program} by program, {win_city} by city, "
                       f"{win_excluded} excluded")
+        if win_type or win_purpose:
+            extra += f"; dropped {win_type} by inspection type, {win_purpose} by purpose"
         if capped:
             extra += f"; {len(capped)} term/purpose queries INCOMPLETE at the cap"
         log.info(f"  Window {win_idx+1}/{len(windows)} "
@@ -6910,6 +7458,9 @@ def _fetch_mhd_jurisdiction_api(session, slug, config, since_date=None, limit=No
         log.info(f"{display_name}: filtered out {dropped_by_program} rows by program, "
                  f"{dropped_by_city} by city allowlist and {dropped_by_exclude} by the "
                  f"exclude patterns")
+    if dropped_by_type or dropped_by_purpose:
+        log.info(f"{display_name}: filtered out {dropped_by_type} rows by inspection type "
+                 f"and {dropped_by_purpose} by purpose")
     if capped_queries:
         log.warning(f"{display_name}: {capped_queries} search queries hit the "
                     f"{MHD_QUERY_CAP} record cap — their buckets are incomplete and "
@@ -6955,9 +7506,17 @@ def _fetch_mhd_jurisdiction_api(session, slug, config, since_date=None, limit=No
         log.info(f"{display_name}: fetching violation details for "
                  f"{len(inspections_with_id)} inspections "
                  f"({MHD_DETAIL_WORKERS} workers)...")
+        # 'observation_exclude' is passed only when a config sets it, so the
+        # call keeps its long-standing shape for every other jurisdiction.
+        line_filter = ({'drop_lines': re.compile(str(config['observation_exclude']))}
+                       if config.get('observation_exclude') else {})
+        if config.get('tiers'):
+            # an unknown name raises: never fall back to keywords silently
+            line_filter['tier_of'] = MHD_TIER_READERS[config['tiers']]
         fetched_violations, unreadable = _mhd_fetch_details_bulk(
             path, inspections_with_id,
-            trust_official_score=score_scale == '100', label=display_name)
+            trust_official_score=score_scale in MHD_TRUSTED_SCORE_SCALES, label=display_name,
+            **line_filter)
         log.info(f"{display_name}: {fetched_violations}/{len(inspections_with_id)} "
                  f"inspections had violation details")
         if unreadable:
@@ -6984,6 +7543,40 @@ def _fetch_mhd_jurisdiction_api(session, slug, config, since_date=None, limit=No
                           f"pages unreadable — reporting the jurisdiction as failed")
             drop = {id(r) for r in unreadable}
             all_records = [r for r in all_records if id(r) not in drop]
+        if config.get('clean_proof') == 'printable-grid':
+            all_records = _mhd_prove_clean(path, all_records, display_name)
+
+    # A published 0 on a 0-100 scale is a visit the agency did not score, not
+    # a zero: Orange County TX sends it on every 'Visit' row and on unscored
+    # follow-ups (7 of 50 rows, 2026-09-21..11-23, none with an observation),
+    # the Portland-metro counties on lodging visits (Extended Stay, Motel 6,
+    # Holiday Inn Express: 40 embedded restaurants were F's at risk 0 with
+    # nothing cited when this was found, 2026-11-23). With observations it
+    # is graded from them, as a row without a score always was; with none
+    # there is nothing to grade and it does not ship (it would otherwise be
+    # an F at 0, or a 100 from a visit that inspected nothing). A window
+    # that is mostly zeros is a jurisdiction that stopped publishing scores:
+    # that raises, so the group goes red instead of losing its clean rows.
+    zeros = [r for r in all_records if id(r) in unscored_zero]
+    if zeros:
+        if len(zeros) >= DFW_HOLE_UNSCORED_MIN and len(zeros) * 2 > len(all_records):
+            raise RuntimeError(f"{display_name}: {len(zeros)} of {len(all_records)} inspections carry a "
+                               f"published score of 0 — the portal's score field has changed")
+        empty = {id(r) for r in zeros if not r.get('violations')}
+        all_records = [r for r in all_records if id(r) not in empty]
+        log.info(f"{display_name}: {len(zeros)} inspections published with a score of 0 (not scored): "
+                 f"{len(empty)} with nothing cited left out, {len(zeros) - len(empty)} graded from "
+                 f"their observations")
+
+    if config.get('closed_is_f'):
+        # After the detail pass, which recomputes the risk from the lines.
+        closed = [r for r in all_records if MHD_CLOSED_RESULT_RE.match(str(r.get('results') or '').strip())]
+        capped = [r for r in closed if (r.get('risk_score') or 0) > MHD_CLOSED_RISK_CAP]
+        for r in capped:
+            r['risk_score'] = MHD_CLOSED_RISK_CAP
+        if closed:
+            log.info(f"{display_name}: {len(closed)} inspections with the verdict Closed; "
+                     f"{len(capped)} capped at {MHD_CLOSED_RISK_CAP}")
 
     if stopped_early:
         log.warning(f"{display_name}: scrape stopped early — run again to get remaining data")
@@ -7073,6 +7666,12 @@ def _parse_mhd_record(rec, path, display_name, default_city, default_state,
             risk_score = 70
         elif score is None:
             risk_score = 70
+        elif score_scale == 'tx-demerit':
+            # The Texas (TFER) form's demerit total: 100 - demerits IS the
+            # form's score and is kept as the risk score through the detail
+            # pass (MHD_TRUSTED_SCORE_SCALES); original_score stays the
+            # published demerit total, as McKinney's does.
+            risk_score = max(0, min(100, 100 - score))
         elif score_scale == 'demerit':
             # Demerit points: lower is better. Rough mapping until the
             # detail scrape recomputes risk from actual violations.
@@ -7088,8 +7687,15 @@ def _parse_mhd_record(rec, path, display_name, default_city, default_state,
         # publishes one (Arapahoe and Douglas County CO: 'Pass',
         # 'Re-Inspection Required', 'Closed'; most portals have no field)
         insp_type = (rec.get('inspectionType') or '').strip()
-        purpose = (rec.get('purpose') or '').strip()
+        purpose = _mhd_row_purpose(rec)
         result = str(rec.get('result') or '').strip()
+        if not result:
+            # CDPHE, Pueblo and Mesa County put the same verdict in
+            # scoreDisplay; a letter grade there (St. Louis, Gwinnett) is
+            # not a result.
+            display = str(rec.get('scoreDisplay') or '').strip()
+            if MHD_RESULT_DISPLAY_RE.match(display):
+                result = display
 
         return {
             'name': name.title(),
@@ -11158,11 +11764,11 @@ def fetch_harris(since_date=None, limit=None):
     return results
 
 
-# ─── HEDGEROW PORTALS: PIMA COUNTY AZ, LUBBOCK TX, MESQUITE TX ───────────────
+# ─── HEDGEROW PORTALS: PIMA COUNTY AZ, LUBBOCK TX, MESQUITE TX, WICHITA FALLS TX ─
 # Hedgerow Software's "Hedgehog" public-disclosure portal: an Angular SPA over
 # an undocumented, anonymous JSON API at <host>/api/v0/portal/ (request shapes
-# read from the SPA bundles, probed live 2026-11-02/03). Three agencies run it
-# and one client serves all three:
+# read from the SPA bundles, probed live 2026-11-02/03; Wichita Falls
+# 2026-11-22). Four agencies run it and one client serves all four:
 #   POST disclosure/program/facilities                the program's facilities
 #        (facilityName, siteAddress as ONE string, latitude/longitude,
 #        facilityType, lastInspectionDate and the newest inspection's
@@ -11201,6 +11807,50 @@ def fetch_harris(since_date=None, limit=None):
 #   0-100 hazardScore; no observation text (item titles plus the short rule
 #   names are the violation text); 39% of rows carry no coordinates and are
 #   geocoded by main().
+# Wichita Falls TX ('Wichita Falls' / 'Wichita Falls Environmental Health';
+#   Wichita Falls-Wichita County Public Health District: Wichita Falls,
+#   Burkburnett, Iowa Park, Electra; https://wfeh-portal.hedgerowsoftware.com/,
+#   whose food program has the same GUID as Lubbock's): Lubbock's paged,
+#   newest-first list (764 rows, 2 pages on 2026-11-23; sort and page size
+#   verified across both pages) and official 0-100 hazardScore (the Texas
+#   form, 3/2/1 per cited item). Live since Oct 2024, inspections migrated
+#   back to 2024-08. What it does differently, each a config key:
+#   - facilityType is null on every row; the agency types the permit class
+#     after the name ('Taco Casa #73 - Retail Food Establishment (Medium)',
+#     'Walmart Supercenter #420 - Deli'). 'name_class_re' cuts a class off
+#     the name; scope is read from it ('skip_types': 28 pop-up vendors, one
+#     push cart, 5 caterers, three of them at one shared kitchen) and from
+#     the name ('skip_names': 37 school cafeterias, Lubbock's 'School').
+#   - cannedComments[].severity is null on 309 of 809 citations (2026-08-24
+#     to 11-19); the tier is then the '(P)' / '(PF)' / '(C)' the district
+#     typed at the end of the item's category ('tier_from_category'). One
+#     category's suffix is wrong: 'Demonstration of Knowledge/Personnel (P)'
+#     holds the PIC and food-handler items, which every citation that states
+#     a severity calls Priority Foundation (34 of 34) and the official score
+#     deducts 2 for. With that correction ('category_tier_fixes'), 403 of the
+#     403 checklists that show every citation the row counts reproduce the
+#     official score exactly (one deduction per item and tier). Categories
+#     carry no suffix before ~2025-04; the severity was stated then, and
+#     where it is not (1 of 63 sampled citations, 2023-08 to 2025-03) the
+#     suffix the district gives the same category later stands in
+#     ('category_tiers'; all 69 suffix-less citations that state a severity
+#     agree with it). A citation with no severity and a category in neither
+#     form drops and holds its inspection like an unread checklist
+#     (_HhTierError), never 'core'.
+#   - criticalInfractionCount / nonCriticalInfractionCount split the
+#     citations ('count_fields' sums them for the empty-checklist check:
+#     every empty checklist whose row counts none scored 100, 182 of 182).
+#     20 of 423 checklists show fewer citations than the row counts (16 one
+#     to five short, 4 empty; the empty four are pop-ups and a caterer); the
+#     official score still ships, as Lubbock's would.
+#   - addresses name four towns, two of them two words ('Iowa Park, TX'),
+#     with commas inside streets and no state on some rows: 'cities' splits
+#     at a known town first.
+#   - 'See violation observations above' is a placeholder, never a rule name
+#     ('rule_placeholder_re'); 'Please Select the Inspection Type' is the
+#     form's empty drop-down ('type_placeholder_re').
+#   Reports post days late (measured in the 'lag_margin_days' note on its
+#   config entry), so dated windows widen 14 days like Pima's 21.
 #
 # Scope: pools, body art, campgrounds etc. are separate programs and never
 # requested. Within the food program, temporary-event booths (Lubbock's
@@ -11261,6 +11911,10 @@ HH_MAX_PAGES = 200           # paging guard
 HH_RULE_MAX = 90             # a cited rule's short name may stand in for a missing observation
 HH_VIOLATION_RESULTS = frozenset({'Out of Compliance', 'Corrected During Inspection'})
 HH_SEVERITY = {'priority': 'priority', 'priority foundation': 'priority_foundation', 'core': 'core'}
+# The tier a portal prints at the end of a checklist category instead of (or
+# next to) the citation's severity: 'Physical Facilities (C)', '... (PF)'.
+HH_CATEGORY_TIER_RE = re.compile(r'\(\s*(P|PF|C)\s*\)$', re.I)
+HH_CATEGORY_TIERS = {'P': 'priority', 'PF': 'priority_foundation', 'C': 'core'}
 HH_MOBILE_TYPE_RE = re.compile(r'mobile|push ?cart|vehicle', re.I)
 HH_SKIP_TYPES = frozenset({'TF15 Temporary Food', 'School'})   # Lubbock's vocabulary
 HH_PERMANENT_STATUSES = frozenset({400, 404, 410})   # that record's own problem; every other status is the portal's
@@ -11310,6 +11964,53 @@ HH_PORTALS = {
         'dated_list': False, 'official_score': True, 'results': 'none',
         'title_caps': False,
         'lag_margin_days': 0,               # no dates on the list; every inspection list is read anyway
+    },
+    'wichitafalls': {
+        'group': 'Wichita Falls', 'source': 'Wichita Falls Environmental Health', 'prefix': 'wfalls',
+        'base': 'https://wfeh-portal.hedgerowsoftware.com/api/v0/portal/',
+        'site': 'https://wfeh-portal.hedgerowsoftware.com/',
+        'program': 'd88b111d-edad-49f8-83a8-8c1d7931f99b',     # the same GUID as Lubbock's food program
+        'state': 'TX', 'default_city': 'Wichita Falls', 'metro': '',
+        'history_start': '2023-01-01',      # live since Oct 2024 with records migrated back to 2024-08 (one 2023-08)
+        'list': 'paged', 'list_sort': 'lastInspectionDate', 'list_min_rows': 1,   # 764 rows, two pages
+        'dated_list': True, 'official_score': True, 'results': 'grade',
+        'title_caps': False,                # names as typed: its ALL-CAPS ones are brands (IHOP, DK, ALDI)
+        'lag_margin_days': 14,              # reports post days late, Fridays' after the weekend (section comment)
+        # What this portal does differently from the three above (each key is
+        # read with .get(), so a portal without it keeps the family's rule):
+        'name_type_sep': ' - ',             # facilityType is null: the permit class follows the name
+        'name_class_re': re.compile(         # a suffix that is a permit class, cut off the name
+            r'^(?:(?:[A-Z]{2,3}\s+Market\s+)?(?:retail\s+food|food\s+retail|food)\s+establi\w*(?:\s*\([^)]*\))?'
+            r'|multi-?departmental\s+grocery\s+store|produce\s+(?:market|department)|(?:meat|fish)\s+market'
+            r'|bakery|deli|(?:cooking\s+area\s+)?snack\s+bar|concession\s+stand|catering\s+business'
+            r'|automated\s+grocery\s+department|pop[\s-]*up\b.*)(?:\s*\(add-on\))?$', re.I),
+        'skip_types': ((re.compile(r'pop[\s-]*up', re.I), 'pop-up vendor'),
+                       (re.compile(r'^catering\s+business$', re.I), 'catering business')),
+        'skip_names': ((re.compile(r'\b(?:elementary|middle|high|christian|academy)\s+school\b'
+                                   r'|\bjunior\s+high\b|\bISD\b', re.I), 'School'),),
+        'cities': ('Wichita Falls', 'Burkburnett', 'Iowa Park', 'Electra'),
+        'tier_from_category': True,         # severity is null on the generic canned comment
+        # keyed by the category without its suffix, lower case (section comment):
+        'category_tier_fixes': {            # a category whose typed suffix its own citations contradict
+            'demonstration of knowledge/personnel': 'priority_foundation',
+        },
+        'category_tiers': {                 # the district's own suffixes, for categories printed before them
+            'approved source': 'priority', 'chemicals': 'priority',
+            'consumer advisory': 'priority_foundation', 'food identification': 'core',
+            'food temperature control/ identification': 'priority_foundation', 'physical facilities': 'core',
+            'preventing contamination by hands': 'priority', 'prevention of food contamination': 'core',
+            'proper use of utensils': 'core', 'protection from contamination': 'priority',
+            'safe water, record keeping and food package labeling': 'priority_foundation',
+            'time and temperature for food safety': 'priority',
+            'utensils, equipment, and vending': 'priority_foundation', 'water/plumbing': 'priority',
+            # never printed with a suffix (the HACCP/variance item): its 6 citations that state a
+            # severity say Priority Foundation, and the 2 of the 3 without one whose rows show a score
+            # deduct exactly 2 for it
+            'conformance with approved procedures': 'priority_foundation',
+        },
+        'rule_placeholder_re': re.compile(r'^see violation observations? above$', re.I),
+        'count_fields': ('criticalInfractionCount', 'nonCriticalInfractionCount'),
+        'type_placeholder_re': re.compile(r'^please select', re.I),
     },
 }
 # Pima's inspections carry a categorical rating. Graded visits ship with the
@@ -11385,6 +12086,7 @@ _HH_PEST_TITLE_RE = re.compile(
     r'|insects,?\s+rodents,?\s+(?:and\s+)?animals\s+(?:are\s+)?not\s+present)$', re.I)
 HH_PEST_TITLE = 'Pests and animals'
 _HH_CODE_PREFIX_RE = re.compile(r'^\s*(?:§\s*)?[\d][\w.()§-]*\s*(?:-|–|:)\s*')
+_HH_CITY_TAIL_RES = {}                # (towns, state) -> compiled known-town address rule
 _HH_REQUESTS = defaultdict(int)       # portal slug -> requests this run (for the log)
 _HH_STREAK = defaultdict(int)         # portal slug -> requests in a row that exhausted their retries
 _HH_BLOCKED = {}                      # portal slug -> reason, once the breaker tripped this run
@@ -11501,6 +12203,24 @@ def _hh_coord(v):
     return f if f and abs(f) <= 180 else None
 
 
+def _hh_city_tail_re(cfg):
+    """'STREET<space or comma>Known Town[,] [ST|State] [zip]' for a portal that
+    names its towns (cfg 'cities'). The family's rules read the city from the
+    punctuation, which fails on a two-word town once the commas are off:
+    Wichita Falls prints 'Iowa Park, TX 76367' (the comma-after-the-city rule
+    takes the last word, 'Park'), '106 S Red River, Expressway Burkburnett TX
+    76354' (a comma inside the street) and 17 rows with no state at all."""
+    key = (cfg['cities'], cfg['state'])
+    rx = _HH_CITY_TAIL_RES.get(key)
+    if rx is None:
+        towns = '|'.join(re.escape(t) for t in sorted(cfg['cities'], key=len, reverse=True))
+        states = '|'.join([cfg['state']] + [n for n, code in _HH_STATE_NAMES.items() if code == cfg['state']])
+        rx = _HH_CITY_TAIL_RES[key] = re.compile(
+            r'^(?P<street>.*?)[\s,]+(?P<city>' + towns + r')[\s,]*(?:(?P<state>' + states + r')\b[\s,]*)?'
+            r'(?:(?P<zip>\d{5})(?:-?\d{4})?)?\s*$', re.I)
+    return rx
+
+
 def _hh_split_address(addr, cfg):
     """One siteAddress string -> (street, city, state, zip) or None when there
     is no street. 'STREET[, Suite], City ST 85705' is the rule (5,163 of
@@ -11511,7 +12231,12 @@ def _hh_split_address(addr, cfg):
     addr = ' '.join(str(addr or '').split())
     if not addr:
         return None
-    m = _HH_ADDR_RE.match(addr) or _HH_ADDR_ZIP_STATE_RE.match(addr)
+    # A portal that names its towns ('cities') is split at a town it knows
+    # first, whatever the punctuation around it; anything else falls through
+    # to the family's rules.
+    m = _hh_city_tail_re(cfg).match(addr) if cfg.get('cities') else None
+    if not m:
+        m = _HH_ADDR_RE.match(addr) or _HH_ADDR_ZIP_STATE_RE.match(addr)
     if not m:
         m = _HH_ADDR_CITY_IN_STREET_RE.match(addr)
         if m and (len(m.group('city')) < 4 or m.group('city').lower() in _HH_STREET_SUFFIXES):
@@ -11542,6 +12267,19 @@ def _hh_facility(cfg, row, skipped):
     fid = str(row.get('id') or '').strip()
     name = _hh_case(row.get('facilityName'), cfg)
     ftype = ' '.join(str(row.get('facilityType') or '').split())
+    sep = cfg.get('name_type_sep')
+    if sep and not ftype and sep in name:
+        # The portal publishes no facilityType; the agency types the permit
+        # class after the name ('Taco Casa #73 - Retail Food Establishment
+        # (Medium)'). The text after the LAST separator is the type. It is cut
+        # off the name only when it is a permit class ('name_class_re'), so a
+        # re-classed permit keeps its restaurant id and a grocery's
+        # departments share the store's; a suffix that names one stand
+        # ('MPEC Kay Yeager Coliseum - NE Concession Stand (Concession #2)')
+        # stays, or four stands at one address would become one restaurant.
+        head, ftype = (part.strip() for part in name.rsplit(sep, 1))
+        if head and cfg['name_class_re'].match(ftype):
+            name = head
     if not fid or not name:
         skipped['no id or name'] += 1
         return None
@@ -11551,6 +12289,17 @@ def _hh_facility(cfg, row, skipped):
     if HH_MOBILE_TYPE_RE.search(ftype):
         skipped['mobile unit'] += 1
         return None
+    # A portal's own out-of-scope types and names (Wichita Falls: pop-up
+    # vendors, caterers at a shared commissary, school cafeterias typed only
+    # in the name).
+    for rx, label in cfg.get('skip_types', ()):
+        if rx.search(ftype):
+            skipped[label] += 1
+            return None
+    for rx, label in cfg.get('skip_names', ()):
+        if rx.search(name):
+            skipped[label] += 1
+            return None
     parts = _hh_split_address(row.get('siteAddress'), cfg)
     if parts is None:
         skipped['no address'] += 1
@@ -11642,7 +12391,31 @@ def _hh_facility_rows(slug, since):
             raise RuntimeError(f"{cfg['group']}: facility list did not end after {page} pages")
 
 
-def _hh_violations(items):
+class _HhTierError(ValueError):
+    """A citation on a 'tier_from_category' portal whose tier the portal
+    states nowhere (no severity, no category suffix): the checklist is not
+    read, never guessed."""
+
+
+def _hh_category_tier(cfg, category):
+    """The tier a checklist category states for its items, or None: a
+    correction for that category first (cfg 'category_tier_fixes'), then the
+    '(P)' / '(PF)' / '(C)' the agency typed at its end, then — for a category
+    printed without one — the suffix the agency gives the same category
+    elsewhere (cfg 'category_tiers'). Both tables are keyed by the category
+    name without its suffix, in lower case."""
+    name = _hh_clean(category.get('description') if isinstance(category, dict) else '')
+    m = HH_CATEGORY_TIER_RE.search(name)
+    bare = HH_CATEGORY_TIER_RE.sub('', name).strip().lower()
+    fixed = (cfg.get('category_tier_fixes') or {}).get(bare)
+    if fixed:
+        return fixed
+    if m:
+        return HH_CATEGORY_TIERS[m.group(1).upper()]
+    return (cfg.get('category_tiers') or {}).get(bare) if bare else None
+
+
+def _hh_violations(items, cfg=None):
     """Checklist -> [[category, severity, text], ...]: one line per citation
     (cannedComment) of each cited item ('Out of Compliance' / 'Corrected
     During Inspection'). The text is the item's title plus the inspector's
@@ -11650,9 +12423,20 @@ def _hh_violations(items):
     ("...shall be maintained free of insects, rodents...") is never shipped,
     only its short rule name when there is no observation (Mesquite). The
     severity is the agency's own; a cited item without a citation keeps the
-    classifier's. Raises ValueError for anything but a list."""
+    classifier's. Raises ValueError for anything but a list.
+
+    `cfg` switches on what one portal needs and the others must not get
+    (None, or a portal without the keys, is the family's reading above):
+    'tier_from_category' — a citation printed without a severity takes the
+    tier of its checklist category (_hh_category_tier), and one with neither
+    raises _HhTierError instead of falling back to the classifier;
+    'rule_placeholder_re' — canned comments that are not a rule name ('See
+    violation observations above') never stand in for a missing observation."""
     if not isinstance(items, list):
         raise ValueError(f'unexpected inspectionResults shape: {str(items)[:80]}')
+    cfg = cfg or {}
+    from_category = bool(cfg.get('tier_from_category'))
+    placeholder = cfg.get('rule_placeholder_re')
     out = []
     for item in items:
         if not isinstance(item, dict):
@@ -11674,7 +12458,8 @@ def _hh_violations(items):
                 text = f'{title}: {obs}' if title else obs
             elif not obs:
                 rule = _HH_CODE_PREFIX_RE.sub('', _hh_clean(c.get('description'))).rstrip(' .')
-                if rule and len(rule) <= HH_RULE_MAX and rule.lower() != title.lower():
+                if (rule and len(rule) <= HH_RULE_MAX and rule.lower() != title.lower()
+                        and not (placeholder and placeholder.search(rule))):
                     text = f'{title}: {rule}' if title else rule
             if loc:
                 text = f'{text} ({loc})' if text else loc
@@ -11682,6 +12467,14 @@ def _hh_violations(items):
                 continue
             cat, sev, _ = classify_violation(text)
             stated = HH_SEVERITY.get(_hh_clean(c.get('severity')).lower())
+            if from_category and not stated:
+                stated = _hh_category_tier(cfg, item.get('category'))
+                if not stated:
+                    category = item.get('category')
+                    raise _HhTierError(
+                        f"citation without a tier: severity {c.get('severity')!r}, category "
+                        f"{(category.get('description') if isinstance(category, dict) else category)!r}, "
+                        f"item {title[:60]!r}")
             out.append([cat, stated or sev, text[:500]])
     return out
 
@@ -11788,15 +12581,22 @@ def _hh_candidates(cfg, fac, inspections, since, skipped):
         except (TypeError, ValueError):
             score = None
         itype = ' '.join(str(insp.get('inspectionType') or '').split())
+        if cfg.get('type_placeholder_re') and cfg['type_placeholder_re'].search(itype):
+            itype = ''                   # the form's unanswered drop-down, not a visit type
         number = ' '.join(str(insp.get('inspectionNumber') or '').split())
         # The row's own word on whether anything was cited (Pima's flag,
         # Lubbock's count of every citation): the cross-check for a checklist
-        # that comes back with no cited item.
+        # that comes back with no cited item. A portal that splits the count
+        # over several fields names them ('count_fields'): Wichita Falls'
+        # criticalInfractionCount is 0 on visits whose citations are all in
+        # nonCriticalInfractionCount.
         flag = insp.get('hasInfractions')
-        try:
-            count = int(insp.get('criticalInfractionCount'))
-        except (TypeError, ValueError):
-            count = None
+        count = None
+        for field in cfg.get('count_fields') or ('criticalInfractionCount',):
+            try:
+                count = (count or 0) + int(insp.get(field))
+            except (TypeError, ValueError):
+                pass
         out.append({
             'fac': fac, 'id': iid, 'date': date, 'score': score, 'rating': rating,
             'type': itype or ' '.join(str(insp.get('inspectionReason') or '').split()),
@@ -11951,7 +12751,15 @@ def _fetch_hedgehog(slug, since_date=None, limit=None):
                         unread_checklists.append(cand)
                     continue
                 try:
-                    violations = _hh_violations(got)
+                    violations = _hh_violations(got, cfg)
+                except _HhTierError as e:
+                    # the portal states this citation's tier nowhere: the
+                    # inspection is dropped and held like any unread
+                    # checklist, and said out loud (it is the agency's gap)
+                    log.warning(f"  {group}: inspection {cand['id']} ({cand['date']}): {e} — not shipped")
+                    dropped['checklist with a citation of no stated tier'] += 1
+                    unread_checklists.append(cand)
+                    continue
                 except ValueError as e:
                     log.debug(f"  {group}: inspection {cand['id']} ({cand['date']}): {e}")
                     dropped['checklist unread'] += 1
@@ -12048,6 +12856,18 @@ def fetch_mesquite(since_date=None, limit=None):
     The list hides facility types and dates, so every facility's inspection
     list is read each run and missing coordinates are geocoded by main()."""
     return _fetch_hedgehog('mesquite', since_date, limit)
+
+
+def fetch_wichitafalls(since_date=None, limit=None):
+    """Wichita Falls-Wichita County Public Health District, TX (Wichita
+    Falls, Burkburnett, Iowa Park, Electra): official 0-100 hazardScore (both
+    original_score and risk_score, never recomputed), the letter in results
+    ('Grade A'), one line per citation with the district's own tier — the
+    citation's severity where it prints one, else the '(P)' / '(PF)' / '(C)'
+    of its checklist category; an inspection with a citation of neither is
+    dropped and held. The permit class typed after each name is cut off the
+    name and decides scope (pop-up vendors and push carts are dropped)."""
+    return _fetch_hedgehog('wichitafalls', since_date, limit)
 
 
 # ─── WILLIAMSON COUNTY, TX (WCCHD inspection-scores zip snapshot) ───────────
@@ -13506,6 +14326,3361 @@ def fetch_denton(since_date=None, limit=None):
     return results
 
 
+# ─── GARLAND, TX (city ArcGIS MapServer; a SNAPSHOT source) ──────────────────
+# The City of Garland Health Department (Dallas County, ~246k people, its own
+# food program) feeds its public "Restaurant Scores" map from a city-hosted
+# ArcGIS Server 11.5 MapServer (maps2.garlandtx.gov; probed live 2026-11-22,
+# no token, no robots.txt). It replaced the foodindex.garlandtx.gov grid,
+# which is still up but frozen at 2026-06-30 and is not read. Two objects:
+#   layer 4 'Restaurant Scores': one row per PERMIT holding its LATEST
+#     inspection (FACILITY_ID, PERMIT_NUMBER, PROGRAM_IDENTIFIER, NAME,
+#     ADDRESS, GIS_LATITUDE / GIS_LONGITUDE and a WGS84 point, INSPECTION_DATE,
+#     SCORE, PE); 1,143 permits over 1,022 facilities, newest two days old.
+#   table 3 'Restaurant violations': one row per cited item of that same
+#     inspection (VIOLATION_CODE 1601-1647 = Texas form items 1-47, POINTS,
+#     V_MEMO = the inspector's observation), or a single row with a null code
+#     for a clean inspection; it adds CITY / STATE / ZIP. 7,478 rows. It also
+#     holds 105 permits the layer leaves out (temporary events, stadium
+#     concessions, grease haulers), which are therefore never read.
+# Both filter server-side on INSPECTION_DATE (epoch ms at midnight UTC on
+# every row, so the UTC date is the inspection date), page by resultOffset
+# (maxRecordCount 2000) and answer a count. About 30 inspections a week.
+#
+# SNAPSHOT, no history: a re-inspection OVERWRITES the permit's row in both
+# objects (0 of 1,248 permits carry two dates), so the weekly run IS the
+# history. What that costs: an inspection that is followed by another one of
+# the same permit before a run has read it is never seen (a missed week
+# loses the earlier visit of every permit inspected twice since the last
+# run, typically the failed routine a follow-up replaced); nothing else is
+# lost by a missed run, because every run re-reads GAR_REREAD_DAYS. That
+# re-read is this source's replacement for freshness holds (the Williamson
+# rule: a snapshot re-reads instead of holding): an inspection that was
+# posted late, revised ("This report data may be under review and may be
+# revised", the city's own disclaimer), geocoded later, or dropped below
+# because its violations did not add up yet ships on a later run without any
+# bookkeeping, and re-shipping is idempotent (source_id is permit + date,
+# D1 keys inspections by restaurant + date). A hold would pin the group's
+# recorded latest at the drop and flag it STALE for a lag that is the city's.
+#
+# Scoring: SCORE is the city's official 0-100 score and ships unchanged as
+# original_score and risk_score. POINTS are the Texas form weights (items
+# 1-20 three points, 21-33 two, 34-47 one) and state each line's tier
+# (3 = priority, 2 = priority foundation, 1 = core); a row at 0 points is an
+# observation the inspector did not count ("not being counted as a
+# violation") and is not a violation line. Verified 2026-11-22 on the whole
+# layer: 100 - sum(POINTS) reproduces SCORE on every in-scope permit but
+# one (PT2896, a 2023 inspection on the city's retired 5/4/3-point form;
+# the other exceptions are out of scope: a plan review scored 0 through a
+# 79-point 'Other Violations' row, four school summer meal sites scored 100
+# with cited items). That arithmetic is checked per inspection and is what
+# keeps an emptied, stale or half-read violations table from ever reading
+# as a clean inspection: a score below 100 with no table rows, an item whose
+# points are not its form weight, a table row scored differently from the
+# layer, or points that do not add up to 100 - SCORE drops the inspection
+# (it is re-read next run), and GAR_MISMATCH_MIN of them making up more than
+# GAR_MISMATCH_MAX_SHARE of the window raise. A 100 without any table row
+# ships: no points is what a 100 means.
+#
+# Text: McKinney's public titles for the same 47 form items, then the
+# inspector's observation. Item 34 never ships the form title ('No Evidence
+# of Insect Contamination, Rodent/other Animals', what the table prints for
+# code 1634): it goes out under the Hedgerow fetchers' neutral heading
+# ('Pests and animals: <observation>'), item 20 (sewage) carries the
+# observation alone, and a cited item without an observation gets McKinney's
+# neutral phrase, so a title can never force an F. Every line ends in
+# sentence punctuation: the text-F regex never looks across a period, so an
+# evidence word closing one line ('... no soap found') cannot pair with a
+# pest word opening the next. Lines are capped at GAR_TEXT_MAX; when the cap
+# would cut off the sentence that names a pest or sewage finding (bilingual
+# memos run past 1,300 characters), those sentences are moved to the front.
+#
+# Scope (PE, the permit's program element; the labels are the old grid's):
+# full-service and fast-food restaurants, snack bars, convenience stores,
+# supermarkets, food processors, warehouses, assisted living and hospital
+# kitchens ship; child care, schools, the school district's summer meal
+# sites, mobile units and plan reviews do not, nor does any program element
+# this list does not know (logged; many of them raise). Today that is one
+# permit, PE 1614, a smoothie stand at the Curtis Culwell Center last seen
+# 2024-06 (the center's other stands are snack bars, 1603, and ship). School
+# and child-care names are dropped by the rule the other DFW cities share,
+# which also takes the school district's warehouse and freezer (PE 1609).
+#
+# Identity: the city's own map titles a permit NAME - PROGRAM_IDENTIFIER
+# when the identifier is set ('KROGER FOOD STORE #557 - DELI', 'CORNER STOP -
+# TAQUERIA GENESIS'), and so does the record name: 193 permits share a name
+# and an address with another permit (a grocery's departments, a taqueria
+# inside a convenience store, a water park's stands), the identifier tells
+# every one of them apart, and without it a store and the kitchen inside it
+# would take turns being one restaurant's latest inspection. The address is
+# the layer's street address (the table's LOCATION adds a suite number, in
+# several formats); the city is always Garland.
+GAR_BASE = 'https://maps2.garlandtx.gov/server2/rest/services/Health/Restaurant_Scores/MapServer'
+GAR_SCORES_LAYER = f'{GAR_BASE}/4'
+GAR_VIOLATIONS_TABLE = f'{GAR_BASE}/3'
+GAR_GROUP = 'Garland'
+GAR_SOURCE = 'Garland Health Inspections'
+# The city's own report viewer for one permit (it reads table 3 client-side).
+GAR_REPORT_URL = 'https://maps2.garlandtx.gov/customgispages/restaurantviolations/'
+GAR_HISTORY_START = '2023-10-01'          # the layer's oldest row is 2023-10-04
+GAR_TEST_WINDOW_DAYS = 60                 # a bounded read (limit set, no since)
+# Every run that is given a window start reads at least this far back (see
+# SNAPSHOT above). 90 days is ~440 layer rows and ~2,800 table rows, three
+# pages in all. 0 disables the margin.
+GAR_REREAD_DAYS = 90
+GAR_PAGE = 2000                           # the server's maxRecordCount
+GAR_REQUEST_DELAY = 1.0                   # seconds between the four reads
+GAR_TEXT_MAX = 500
+# Inspections dropped because their violations could not be read completely
+# (see Scoring above) are re-read next run; this many of them, making up
+# more than this share of the scored window, mean the table or its columns
+# changed and the whole fetch raises. The same bounds apply to rows whose
+# program element is unknown.
+GAR_MISMATCH_MIN = 10
+GAR_MISMATCH_MAX_SHARE = 0.05
+# PE -> the old grid's class label. Only these ship.
+GAR_SHIP_PROGRAMS = {
+    '1601': 'Full service', '1602': 'Fast service', '1603': 'Snack bar', '1604': 'Convenience store',
+    '1605': 'Supermarket', '1606': 'Food processor', '1609': 'Warehouse', '1611': 'Assisted living',
+    '1612': 'Hospital / nursing home',
+}
+# PE -> why it is not a fixed-address restaurant. 1610 is not in the layer
+# today; 1624 is one plan review (requirements quoted from the plans, scored
+# 0) and 1628 the school district's summer meal sites at apartment
+# complexes and recreation centers (scored 100 whatever was cited).
+GAR_SKIP_PROGRAMS = {
+    '1607': 'child care', '1608': 'school', '1610': 'mobile unit', '1624': 'plan review',
+    '1628': 'school summer meal site',
+}
+# 'INSPECTIONS ONLY' / 'FOR INSPECTIONS ONLY' in PROGRAM_IDENTIFIER is an
+# office note, not a department.
+_GAR_OFFICE_NOTE_RE = re.compile(r'^(?:for\s+)?inspections?\s+only$', re.I)
+_GAR_CODE_RE = re.compile(r'^16(\d\d)$')
+# Most memos open with a dash bullet; it is dropped so the line reads
+# 'Title: Observed ...'.
+_GAR_BULLET_RE = re.compile(r'^[\s\-–—•*]+')
+GAR_PEST_ITEM = 34
+GAR_SEVERITY = {3: 'priority', 2: 'priority_foundation', 1: 'core'}
+GAR_SCORE_FIELDS = ('OBJECTID,FACILITY_ID,PERMIT_NUMBER,PROGRAM_IDENTIFIER,NAME,ADDRESS,'
+                    'GIS_LATITUDE,GIS_LONGITUDE,INSPECTION_DATE,SCORE,PE')
+GAR_VIOLATION_FIELDS = 'OBJECTID,PERMIT_NUMBER,ZIP,INSPECTION_DATE,SCORE,VIOLATION_CODE,POINTS,V_MEMO'
+
+
+def _gar_date(ts):
+    """Epoch ms (midnight UTC on every row) -> 'YYYY-MM-DD' or None."""
+    try:
+        d = datetime.fromtimestamp(int(ts) / 1000, tz=timezone.utc).strftime('%Y-%m-%d')
+    except (TypeError, ValueError, OverflowError, OSError):
+        return None
+    return sane_inspection_date(d)
+
+
+def _gar_number(v):
+    """A JSON number (or numeric string) as a float, else None."""
+    if isinstance(v, bool):
+        return None
+    try:
+        f = float(v)
+    except (TypeError, ValueError):
+        return None
+    return f if f == f and abs(f) != float('inf') else None
+
+
+def _gar_item_weight(number):
+    """The Texas form's points for item `number` (1-47)."""
+    return 3 if number <= 20 else 2 if number <= 33 else 1
+
+
+def _gar_name(attrs):
+    """The permit's name as the city's own map titles it: NAME, then
+    ' - PROGRAM_IDENTIFIER' when the identifier names a department or a
+    tenant ('0' is the layer's empty value)."""
+    name = _dfw_hole_title(attrs.get('NAME'))
+    ident = ' '.join(str(attrs.get('PROGRAM_IDENTIFIER') or '').split())
+    if name and ident and ident != '0' and not _GAR_OFFICE_NOTE_RE.match(ident):
+        name = f'{name} - {_dfw_hole_title(ident)}'
+    return name
+
+
+def _gar_point(geometry, attrs):
+    """(lon, lat) from the feature's WGS84 point or its GIS_LATITUDE /
+    GIS_LONGITUDE columns; (None, None) when the layer has neither (25 new
+    permits; geocoded downstream). Four rows carry the two columns exchanged
+    (latitude -96.57, longitude 32.85, no point): a 'latitude' beyond 90 with
+    a 'longitude' inside it is put back. Anything not plausibly in Texas is
+    not a location."""
+    lon = lat = None
+    if isinstance(geometry, dict):
+        lon, lat = _dfw_hole_coord(geometry.get('x')), _dfw_hole_coord(geometry.get('y'))
+    if lon is None or lat is None:
+        lat, lon = _dfw_hole_coord(attrs.get('GIS_LATITUDE')), _dfw_hole_coord(attrs.get('GIS_LONGITUDE'))
+    if lon is None or lat is None:
+        return None, None
+    if abs(lat) > 90 >= abs(lon):
+        lat, lon = lon, lat
+    if not coords_plausible(lat, lon, 'TX'):
+        return None, None
+    return lon, lat
+
+
+def _gar_line(number, memo):
+    """One violation line for Texas form item `number`: the public title and
+    the inspector's observation (see Text in the section notes), at most
+    GAR_TEXT_MAX characters, always closed by sentence punctuation."""
+    title = HH_PEST_TITLE if number == GAR_PEST_ITEM else MCK_ITEMS[number - 1][1]
+    memo = _GAR_BULLET_RE.sub('', memo or '')   # '- Observed flies ...', '-Keep the rear door ...'
+    if not memo:
+        text = f'{MCK_NO_OBSERVATION_TITLES.get(number, title)} {MCK_NO_OBSERVATION}'
+    else:
+        text = f'{title}: {memo}' if title else memo
+        if (len(text) > GAR_TEXT_MAX and has_active_pest_or_sewage(text)
+                and not has_active_pest_or_sewage(text[:GAR_TEXT_MAX])):
+            # The finding sits past the cap: its sentences go first.
+            sentences = [_GAR_BULLET_RE.sub('', s) for s in re.split(r'(?<=[.!?])\s+', memo)]
+            sentences = [s for s in sentences if s]
+            hazard = [s for s in sentences if has_active_pest_or_sewage(s)]
+            if hazard:
+                body = ' '.join(hazard + [s for s in sentences if s not in hazard])
+                text = f'{title}: {body}' if title else body
+    if not text.endswith(('.', '!', '?')):
+        text = text.rstrip(' ,;:-') + '.'
+    if len(text) > GAR_TEXT_MAX:
+        text = text[:GAR_TEXT_MAX - 3].rsplit(' ', 1)[0].rstrip(' ,;:-') + '...'
+    return text
+
+
+def _gar_violations(rows, score):
+    """(violations, None) for one inspection's table-3 rows, or
+    (None, reason) when they cannot be the complete account of `score`:
+    an item code outside 1601-1647, points that are not the item's form
+    weight, a row scored differently from the layer, or points that do not
+    add up to 100 - score. A null code is the table's 'no violations' row
+    and 0 points an observation the inspector did not count; neither is a
+    line. Lines keep the report viewer's order (item, then row)."""
+    violations, points = [], 0
+    for a in sorted(rows, key=lambda a: (str(a.get('VIOLATION_CODE') or ''), _gar_number(a.get('OBJECTID')) or 0)):
+        row_score = _gar_number(a.get('SCORE'))
+        if row_score is not None and row_score != score:
+            return None, f'the violations table scores it {row_score:g}, the layer {score:g}'
+        code = str(a.get('VIOLATION_CODE') or '').strip()
+        if not code:
+            continue
+        m = _GAR_CODE_RE.match(code)
+        number = int(m.group(1)) if m else 0
+        if not 1 <= number <= len(MCK_ITEMS):
+            return None, f'unknown item code {code!r}'
+        pts = _gar_number(a.get('POINTS'))
+        if pts is None:
+            return None, f'item {number} carries no points'
+        if pts == 0:
+            continue
+        weight = _gar_item_weight(number)
+        if pts != weight:
+            return None, f'item {number} carries {pts:g} points, the Texas form weighs it {weight}'
+        text = _gar_line(number, _dfw_hole_scrub(a.get('V_MEMO')))
+        cat, _, _ = classify_violation(text)
+        violations.append([cat, GAR_SEVERITY[weight], text])
+        points += weight
+    if points != 100 - score:
+        return None, f'{points} points cited for a score of {score:g}'
+    return violations, None
+
+
+def _gar_count(url, where, label):
+    data = _dfw_hole_get(url + '/query', params={'where': where, 'returnCountOnly': 'true', 'f': 'json'},
+                         label=label)
+    if not isinstance(data, dict) or 'error' in data:
+        raise RuntimeError(f'{label}: ArcGIS error or unexpected answer {str(data)[:160]}')
+    count = data.get('count')
+    if isinstance(count, bool) or not isinstance(count, int) or count < 0:
+        raise RuntimeError(f'{label}: no count in {str(data)[:120]}')
+    return count
+
+
+def _gar_read(url, where, out_fields, what, expected):
+    """Every row of one object for the window: paged in OBJECTID order with
+    the pager's strict checks (a page without a feature list, or ids that do
+    not advance, raise) and compared with the server's own count. Anything
+    short of a complete read raises; nothing partial ships."""
+    try:
+        feats = _arcgis_query_all(url, where=where, out_fields=out_fields, page_size=GAR_PAGE, strict=True)
+        rows = [(f.get('attributes'), f.get('geometry')) for f in feats]
+    except Exception as e:
+        raise RuntimeError(f'Garland: {what} unreadable ({e}); nothing shipped') from e
+    if any(not isinstance(a, dict) for a, _ in rows):
+        raise RuntimeError(f'Garland: {what} answered rows without attributes; nothing shipped')
+    if len(rows) < expected:
+        raise RuntimeError(f'Garland: read {len(rows)} of {expected} rows of the {what}; '
+                           f'not shipping a partial window')
+    return rows
+
+
+def _gar_newest():
+    """The layer's newest inspection date ('' when the probe fails; the lag
+    note is then simply not left)."""
+    try:
+        data = _dfw_hole_get(GAR_SCORES_LAYER + '/query', params={
+            'where': '1=1', 'outFields': 'INSPECTION_DATE', 'orderByFields': 'INSPECTION_DATE DESC',
+            'resultRecordCount': 1, 'returnGeometry': 'false', 'f': 'json',
+        }, label='Garland newest')
+        return _gar_date(data['features'][0]['attributes']['INSPECTION_DATE']) or ''
+    except Exception as e:
+        log.debug(f'Garland: newest-row probe failed: {e}')
+        return ''
+
+
+def fetch_garland(since_date=None, limit=None):
+    """
+    Fetch Garland, TX food inspections from the city's ArcGIS MapServer (see
+    the section notes): one record per permit whose latest inspection is on
+    or after the window start. The start is since_date, but never later
+    than GAR_REREAD_DAYS ago (the snapshot re-read; test mode, no since: the
+    last GAR_TEST_WINDOW_DAYS; no since and no limit: everything). Four
+    requests for a weekly window: a count and a read of the scores layer,
+    then of the violations table, each read checked against its count. Any
+    request failure, shortfall or unexpected shape raises and nothing ships;
+    past the fetch deadline nothing is requested and the group is 'skipped'.
+
+    Scoring: the city's official 0-100 SCORE is original_score and
+    risk_score; each cited item is one line tiered by the points the city
+    assessed (3 priority / 2 priority foundation / 1 core), and the points
+    must add up to 100 - SCORE or the inspection is dropped and re-read
+    next run (many of them raise). No hold is written: the next window
+    covers the drop anyway.
+
+    Scope: the program elements in GAR_SHIP_PROGRAMS, minus school and
+    child-care names. Coordinates are the layer's; the few permits without
+    any are left for the geocoder.
+    """
+    requested = str(since_date)[:10] if since_date else None
+    since = requested
+    if since and GAR_REREAD_DAYS:
+        floor = (datetime.now() - timedelta(days=GAR_REREAD_DAYS)).strftime('%Y-%m-%d')
+        if since > floor:
+            since = floor
+    if not since:
+        since = ((datetime.now() - timedelta(days=GAR_TEST_WINDOW_DAYS)).strftime('%Y-%m-%d')
+                 if limit else GAR_HISTORY_START)
+    log.info(f"Fetching Garland data (since={since}"
+             + (f", widened from {requested} by the {GAR_REREAD_DAYS}-day snapshot re-read"
+                if requested and since != requested else '') + f", limit={limit})")
+    if _past_deadline():
+        _set_group_status(GAR_GROUP, 'skipped', 'fetch deadline reached before the layer was read')
+        return []
+    where = f"INSPECTION_DATE >= DATE '{since}'"
+    expected = _gar_count(GAR_SCORES_LAYER, where, 'Garland scores count')
+    time.sleep(GAR_REQUEST_DELAY)
+    layer_rows = _gar_read(GAR_SCORES_LAYER, where, GAR_SCORE_FIELDS, 'scores layer', expected)
+    log.info(f"  Garland: {len(layer_rows)} permits inspected since {since} (server count {expected})")
+
+    by_inspection = defaultdict(list)       # (permit, date) -> table-3 rows
+    if layer_rows:
+        time.sleep(GAR_REQUEST_DELAY)
+        expected = _gar_count(GAR_VIOLATIONS_TABLE, where, 'Garland violations count')
+        time.sleep(GAR_REQUEST_DELAY)
+        table_rows = _gar_read(GAR_VIOLATIONS_TABLE, where, GAR_VIOLATION_FIELDS, 'violations table', expected)
+        for a, _ in table_rows:
+            by_inspection[(str(a.get('PERMIT_NUMBER') or '').strip(), _gar_date(a.get('INSPECTION_DATE')))].append(a)
+        log.info(f"  Garland: {len(table_rows)} violation rows since {since} (server count {expected})")
+
+    results, newest, skipped, unread, seen = [], '', defaultdict(int), [], set()
+    in_scope = unscored = unknown_pe = no_rows_100 = 0
+    for a, geometry in layer_rows:
+        permit = str(a.get('PERMIT_NUMBER') or '').strip()
+        insp_date = _gar_date(a.get('INSPECTION_DATE'))
+        if not permit or not insp_date:
+            skipped['no permit number or date'] += 1
+            continue
+        newest = max(newest, insp_date)
+        if insp_date < since or (permit, insp_date) in seen:
+            continue
+        seen.add((permit, insp_date))
+        pe = str(a.get('PE') or '').strip()
+        if pe in GAR_SKIP_PROGRAMS:
+            skipped[GAR_SKIP_PROGRAMS[pe]] += 1
+            continue
+        if pe not in GAR_SHIP_PROGRAMS:
+            unknown_pe += 1
+            skipped[f'unknown program element {pe or "(none)"}'] += 1
+            continue
+        name = _gar_name(a)
+        address = _dfw_hole_title(a.get('ADDRESS'))
+        if not name or not address:
+            skipped['no name or address'] += 1
+            continue
+        if DFW_HOLE_NON_RESTAURANT_RE.search(name):
+            skipped['school / child care name'] += 1
+            continue
+        in_scope += 1
+        score = _gar_number(a.get('SCORE'))
+        if score is None or not 0 < score <= 100:
+            unscored += 1
+            continue
+        rows = by_inspection.get((permit, insp_date)) or []
+        if rows:
+            violations, problem = _gar_violations(rows, score)
+        elif score == 100:
+            violations, problem = [], None      # no points is what a 100 means
+            no_rows_100 += 1
+        else:
+            violations, problem = None, 'no row in the violations table'
+        if problem:
+            unread.append((permit, insp_date, problem))
+            continue
+        _, pv, pfv, cv = calc_risk_score(violations)
+        lon, lat = _gar_point(geometry, a)
+        facility = str(a.get('FACILITY_ID') or '').strip()
+        zip_code = next((m.group(0) for m in (re.match(r'\d{5}', str(r.get('ZIP') or '').strip())
+                                              for r in rows) if m), '')
+        official = int(score) if float(score).is_integer() else score
+        results.append({
+            'name': name,
+            'address': address,
+            'city': 'Garland',
+            'state': 'TX',
+            'zip': zip_code,
+            'latitude': lat,
+            'longitude': lon,
+            'inspection_date': insp_date,
+            'original_score': official,                      # the city's official 0-100 score
+            'risk_score': max(0, min(100, int(round(score)))),   # the same number, never recomputed
+            'priority_violations': pv,
+            'priority_foundation_violations': pfv,
+            'core_violations': cv,
+            'total_violations': len(violations),
+            'violations': violations,
+            'inspection_type': '',                           # the layer does not state one
+            'results': '',
+            'source': GAR_SOURCE,
+            'source_url': GAR_REPORT_URL + '?' + urlencode({'facilityid': facility, 'permitid': permit}),
+            'source_id': f"garland_{permit}_{insp_date.replace('-', '')}",
+            'metro': 'DFW',
+        })
+    if skipped:
+        log.info(f"  Garland: skipped {dict(skipped)}")
+    if no_rows_100:
+        log.info(f"  Garland: {no_rows_100} inspection(s) scored 100 have no row in the violations table")
+    window = in_scope + sum(skipped.values())
+    if unknown_pe >= GAR_MISMATCH_MIN and unknown_pe > GAR_MISMATCH_MAX_SHARE * window:
+        raise RuntimeError(f'Garland: {unknown_pe} of {window} permits carry a program element outside '
+                           f'{sorted(GAR_SHIP_PROGRAMS) + sorted(GAR_SKIP_PROGRAMS)}; the PE column '
+                           f'changed, not shipping')
+    if in_scope >= DFW_HOLE_UNSCORED_MIN and unscored * 2 > in_scope:
+        raise RuntimeError(f'Garland: {unscored} of {in_scope} permits since {since} carry no usable SCORE '
+                           f'(a format change?); not shipping')
+    if unscored:
+        log.info(f"  Garland: {unscored} permit(s) without a score between 1 and 100 dropped")
+    if unread:
+        scored = len(results) + len(unread)
+        first = unread[0]
+        if len(unread) >= GAR_MISMATCH_MIN and len(unread) > GAR_MISMATCH_MAX_SHARE * scored:
+            raise RuntimeError(
+                f'Garland: the violations of {len(unread)} of {scored} inspections cannot be read completely '
+                f'(first {first[0]} of {first[1]}: {first[2]}); the violations table changed or is '
+                f'behind the layer, not shipping')
+        log.warning(f"  Garland: {len(unread)} inspection(s) dropped until their violations add up "
+                    f"(re-read next run): "
+                    + '; '.join(f'{p} {d}: {why}' for p, d, why in unread[:5]))
+    truncated = bool(limit) and len(results) > limit
+    results.sort(key=lambda r: (r['inspection_date'], r['risk_score'], r['source_id']))
+    if truncated:
+        results = results[-limit:]              # the newest `limit` inspections
+    if not truncated:
+        _note_source_lag(GAR_GROUP, newest or _gar_newest())
+    if unread:
+        _GROUP_NOTES[GAR_GROUP] = '; '.join(x for x in (
+            _GROUP_NOTES.get(GAR_GROUP),
+            f"{len(unread)} inspection(s) not shipped until their violations add up to the score "
+            f"({', '.join(p for p, _, _ in unread[:5])}); re-read next run") if x)
+    log.info(f"Garland: {len(results)} inspections (source newest {newest or 'n/a'})")
+    return results
+
+
+# ─── EL PASO AND WACO, TX (score-only city sources) ─────────────────────────
+# Two Texas health departments that publish one number per inspection and
+# nothing else: no violation text, no inspection id (surveyed and probed live
+# 2026-11-21/23). Like Lewisville and Denton, each fetcher reads its window
+# completely or RAISES (the group reports 'error', its recorded latest stays
+# where it was and the next lookback re-reads the window); neither has a
+# per-record phase, so neither writes a freshness hold. Both are cheap to
+# re-read (one request for El Paso, one to three for Waco), so a weekly window
+# never starts later than a re-read margin ago (the Williamson County rule): a
+# row posted or corrected late is picked up by a later run, and re-shipping a
+# few hundred rows is idempotent (stable source ids, the data.js merge and the
+# D1 upserts keyed by restaurant + date).
+#
+# No violation text means nothing goes to Jev, no chips, no summaries and no
+# text-forced F: the grade is the score's. Scope, both cities: institutional
+# kitchens the public cannot walk into (schools, child care, nursing homes,
+# adult foster homes, jails) are dropped by name (TP_INSTITUTION_RE plus
+# TX_SCORE_ONLY_INSTITUTION_RE), since neither source has a facility type.
+TX_SCORE_ONLY_INSTITUTION_RE = re.compile(
+    r"\b(?:foster (?:care|home)|adult (?:day|care|foster|home)|elderly|personal care|"
+    r"care cent(?:er|re)|boarding home|child(?:ren'?s)? (?:development|home|cent(?:er|re))|"
+    r"learning ctr|day-care|montessori|early (?:childhood|learning|education)|[a-z]*isd|"
+    r"juvenile|probation|vet\.? home|mhmr)\b", re.I)
+# A window of at least this many rows in which more than half carry no usable
+# score is a format change, not data: the fetch raises.
+TX_SCORE_ONLY_UNSCORED_MIN = 20
+
+
+def _tx_score_only_institutional(name):
+    """True for an institutional kitchen by name (see the section notes)."""
+    return bool(TP_INSTITUTION_RE.search(name) or TX_SCORE_ONLY_INSTITUTION_RE.search(name))
+
+
+def _tx_same_day_suffixes(built):
+    """`built` is [(facility key, day, rank, record)]. Records of one facility
+    and day are put worst first (rank ascending) and all but the first get a
+    '_2', '_3' suffix on source_id, so the ids stay distinct and stable run to
+    run (the rank is computed from the row's own content). The pipeline's
+    same-day rule then ships the worst of the day. Output: oldest first."""
+    same_day = defaultdict(list)
+    for item in built:
+        same_day[(item[0], item[1])].append(item)
+    out = []
+    for (_, day), items in same_day.items():
+        items.sort(key=lambda it: it[2])
+        for n, item in enumerate(items):
+            if n:
+                item[3]['source_id'] += f'_{n + 1}'
+            out.append(item[3])
+    out.sort(key=lambda r: (r['inspection_date'], r['risk_score'], r['source_id']))
+    return out
+
+
+# ── El Paso ─────────────────────────────────────────────────────────────────
+# City of El Paso Department of Public Health, Food Inspection program: the
+# City of El Paso, Anthony, Clint, Horizon City, Socorro, Vinton and the
+# unincorporated county (~866k people). A city PHP page behind Cloudflare
+# (foodscores.elpasotexas.gov): ONE multipart POST of the search form with
+# fromDate/toDate (YYYY-MM-DD) answers every inspection of the window as one
+# HTML table (#resultsTable; DataTables pages it in the browser), no cap
+# (29,942 rows in one answer), ~12-35 s server time whatever the window.
+# fromDate is inclusive and toDate EXCLUSIVE (11-18..11-18 answered 0 rows,
+# 11-18..11-19 only the 18th), so the window ends tomorrow. 8 columns: Permit
+# ID (an Accela record id, one name and one address per permit across
+# 2024-2026), Date MM/DD/YYYY, Business Name, Address (the full postal
+# string), City, Zip Code, Sanitary Code (inspection type) and Score. The
+# 'Download CSV' file (output.csv) is ONE server-side file rewritten by any
+# visitor's last search, so it is never read. The default search excludes the
+# mobile units (HFMB permits, only with mobile=Mobile), and HFMB rows are
+# dropped anyway should they ever appear.
+#
+# Scoring: Score is the city's official 0-100 score (higher is better; the
+# city's own rule: 70+ passes, 69 or less starts closure action, 60 or less
+# closes), shipped as original_score and risk_score. '1300 Site Assessment'
+# rows (unscored pre-opening site visits) are skipped. Identity: source_id is
+# the permit plus the date ('elp_HFFX11-00387_20261113'); an exact duplicate
+# row is the same inspection listed twice and ships once, distinct rows of
+# one permit and day (a failed routine and its same-day re-inspection) are
+# each shipped, worst first, the later ones suffixed.
+#
+# Fail closed: a Cloudflare challenge or a 403 is BLOCKED (the group reports
+# 'blocked', nothing ships); an answer without the results table and its exact
+# headers, a row of the wrong shape, more than EP_MAX_BAD_ROW_SHARE
+# unparseable rows, a mostly unscored window, or a window of 21+ days with
+# fewer than EP_MIN_ROWS_PER_DAY rows a day (the quietest 21 days of 2024-2026
+# held 236 rows, ~11 a day) RAISES: an error page can never read as a quiet
+# week.
+EP_URL = 'https://foodscores.elpasotexas.gov/'
+EP_SOURCE = 'City of El Paso Public Health'
+EP_GROUP = 'El Paso'
+EP_COLUMNS = ('Permit ID', 'Date', 'Business Name', 'Address', 'City', 'Zip Code',
+              'Sanitary Code', 'Score')
+EP_HISTORY_START = '2024-01-01'       # main()'s full mode; the data reaches back to 2010
+EP_TEST_WINDOW_DAYS = 14              # a bounded read (limit set, no since)
+EP_REREAD_DAYS = 35                   # weekly windows never start later than this
+EP_TIMEOUT = 180                      # the whole-history answer took 34 s
+EP_RETRIES = 3
+EP_BACKOFF = 10.0
+EP_MIN_WINDOW_DAYS_FOR_FLOOR = 21
+EP_MIN_ROWS_PER_DAY = 4
+EP_MAX_BAD_ROW_SHARE = 0.01
+EP_SKIP_TYPES = {'1300'}              # Site Assessment: an unscored pre-opening visit
+EP_MOBILE_PERMIT_RE = re.compile(r'^HFMB', re.I)
+# Towns whose ZIP code is theirs alone: an 'EL PASO COUNTY' (unincorporated)
+# or blank City cell takes its town from the ZIP; anything else is El Paso.
+EP_ZIP_TOWNS = {'79821': 'Anthony', '79835': 'Canutillo', '79836': 'Clint', '79838': 'Fabens',
+                '79849': 'San Elizario', '79853': 'Tornillo'}
+EP_CITY_FIXES = {'HORIZON': 'HORIZON CITY'}
+EP_TOWN_NAMES = {'EL PASO', 'EL PASO COUNTY', 'SOCORRO', 'HORIZON CITY', 'HORIZON', 'CANUTILLO',
+                 'ANTHONY', 'SAN ELIZARIO', 'FABENS', 'CLINT', 'VINTON', 'TORNILLO'}
+_EP_TABLE_RE = re.compile(r'<table[^>]*\bid=["\']resultsTable["\'][^>]*>(.*?)</table>', re.S | re.I)
+_EP_ROW_RE = re.compile(r'<tr[^>]*>(.*?)</tr>', re.S | re.I)
+_EP_CELL_RE = re.compile(r'<t([dh])[^>]*>(.*?)</t[dh]>', re.S | re.I)
+_EP_EMPTY_UNIT_RE = re.compile(r'^[A-Za-z .]*#\s*$')
+_EP_UNIT_LABEL_RE = re.compile(r'^(?:addr\s*as?|plat\s*a|parcel|former|frmly\d*)\s*#\s*', re.I)
+_EP_CHALLENGE_RE = re.compile(r'Just a moment\.\.\.|cf-chl-|challenge-platform|Attention Required! \| Cloudflare'
+                              r'|cf-turnstile|Sorry, you have been blocked', re.I)
+
+
+class _EpBlocked(RuntimeError):
+    """Cloudflare (or the host) refused the request: reported 'blocked'."""
+
+
+def _ep_post(from_date, to_date):
+    """POST the search form once; the HTML. 429/5xx answers, timeouts and
+    resets are retried EP_RETRIES times (never past the fetch deadline); a
+    Cloudflare challenge or a 401/403 raises _EpBlocked at once (never worked
+    around); any other status, or an exhausted ladder, raises RuntimeError. A
+    TLS verification failure raises at once and is never relaxed."""
+    fields = {'businessName': '', 'address': '', 'city': '', 'zipCode': '',
+              'fromDate': from_date, 'toDate': to_date, 'minScore': '', 'maxScore': '', 'search': ''}
+    files = {k: (None, v) for k, v in fields.items()}       # multipart/form-data, as the form declares
+    last, attempt = '', 0
+    for attempt in range(1, EP_RETRIES + 1):
+        try:
+            r = requests.post(EP_URL, files=files, timeout=EP_TIMEOUT,
+                              headers={'User-Agent': CHROME_UA, 'Referer': EP_URL,
+                                       'Accept': 'text/html,application/xhtml+xml'})
+        except requests.exceptions.SSLError as e:
+            raise RuntimeError(f'El Paso: TLS verification failed: {e}')
+        except requests.RequestException as e:
+            last, r = f'{type(e).__name__}: {e}', None
+        if r is not None:
+            body = r.text or ''
+            challenged = (r.headers.get('cf-mitigated', '').lower() == 'challenge'
+                          or (r.status_code != 200 and _EP_CHALLENGE_RE.search(body[:20000])))
+            if challenged or r.status_code in (401, 403):
+                raise _EpBlocked(f'El Paso: HTTP {r.status_code}'
+                                 + (' (a Cloudflare challenge)' if challenged else '')
+                                 + f' from {EP_URL}; nothing shipped')
+            if r.status_code == 200:
+                return body
+            if r.status_code not in DFW_HOLE_RETRY_STATUSES:
+                raise RuntimeError(f'El Paso: HTTP {r.status_code} from {EP_URL}')
+            last = f'HTTP {r.status_code}'
+        if attempt >= EP_RETRIES or _past_deadline():
+            break
+        time.sleep(EP_BACKOFF * attempt)
+    raise RuntimeError(f'El Paso: {last} after {attempt} attempt(s) ({EP_URL})')
+
+
+def _ep_cell(raw):
+    return ' '.join(html_lib.unescape(re.sub(r'<[^>]+>', ' ', raw)).split())
+
+
+def _ep_parse(body):
+    """The results table -> list of 8-string rows. RAISES when the page is
+    not the results page (no table, other headers: an error or challenge
+    page) or a body row does not have the 8 cells."""
+    m = _EP_TABLE_RE.search(body)
+    if not m:
+        if _EP_CHALLENGE_RE.search(body[:20000]):
+            raise _EpBlocked('El Paso: a Cloudflare challenge page instead of the results; nothing shipped')
+        raise RuntimeError(f'El Paso: no #resultsTable in the answer ({len(body)} bytes; '
+                           f'starts {body[:80]!r}); not shipping')
+    header, rows = None, []
+    for tr in _EP_ROW_RE.finditer(m.group(1)):
+        cells = _EP_CELL_RE.findall(tr.group(1))
+        if not cells:
+            continue
+        values = [_ep_cell(c[1]) for c in cells]
+        if cells[0][0].lower() == 'h':
+            header = tuple(values)
+            continue
+        if len(values) != len(EP_COLUMNS):
+            raise RuntimeError(f'El Paso: a result row has {len(values)} cells, not {len(EP_COLUMNS)} '
+                               f'({values[:3]}); the table changed, not shipping')
+        rows.append(values)
+    if header != EP_COLUMNS:
+        raise RuntimeError(f'El Paso: results table headers are {header}, expected {EP_COLUMNS}; '
+                           f'not shipping')
+    return rows
+
+
+def _ep_date(value):
+    """'11/13/2026' -> '2026-11-13' or None."""
+    m = re.fullmatch(r'(\d{1,2})/(\d{1,2})/(\d{4})', (value or '').strip())
+    if not m:
+        return None
+    return sane_inspection_date(f'{m.group(3)}-{int(m.group(1)):02d}-{int(m.group(2)):02d}')
+
+
+def _ep_city(city, zip_code):
+    """The town for the record: the City cell with its typos repaired
+    ('CANUTILLO79835', 'HORIZON'), or for the 'EL PASO COUNTY' placeholder and
+    a blank cell the town that owns the ZIP, else El Paso. Title-cased."""
+    c = ' '.join(re.sub(r'\d+', ' ', city or '').split()).upper()
+    c = EP_CITY_FIXES.get(c, c)
+    if not c or c == 'EL PASO COUNTY':
+        return EP_ZIP_TOWNS.get(zip_code, 'El Paso')
+    return c.title()
+
+
+def _ep_street(address, city):
+    """The street part of the Address cell ('1921 ZARAGOZA RD, BLDG# C, EL PASO,
+    TX 79938' -> '1921 Zaragoza Rd Bldg C'): trailing ZIP, state and town
+    removed, 'SUITE# F' / 'BLDG# C' written 'Ste F' / 'Bldg C' after the street
+    (the Census geocoder strips a trailing unit written that way), ALL CAPS
+    title-cased with Texas road codes kept. '' when no street number is left
+    (the caller drops the row: it cannot be placed)."""
+    a = ' '.join((address or '').split())
+    a = re.sub(r'[,\s]*\b\d{5}(?:-\d{4})?\s*$', '', a)
+    a = re.sub(r'[,\s]+(?:TX|TEXAS)\.?\s*$', '', a, flags=re.I)
+    parts = [p.strip() for p in a.split(',')]
+    towns = EP_TOWN_NAMES | {' '.join((city or '').upper().split())}
+    while len(parts) > 1 and parts[-1].upper() in towns:
+        parts.pop()
+    # A unit field left empty in the permit system prints as its label and a
+    # bare '#' ('AddrAs#', 'plat a#', 'parcel#', 'SUITE#'): not an address part.
+    # 'Addr A# B' / 'Former# 114' keep only their value.
+    parts = [parts[0]] + [_EP_UNIT_LABEL_RE.sub('', p).strip() for p in parts[1:]]
+    a = ', '.join(p for p in parts if p and not _EP_EMPTY_UNIT_RE.match(p))
+    a = re.sub(r'[,\-]?\s*\b(SUITE|STE|BLDG|UNIT|SPACE|SPC|APT)\b\.?\s*#?\s*', r' \1 ', a, flags=re.I)
+    a = re.sub(r'\bSUITE\b', 'STE', a, flags=re.I)
+    a = ' '.join(a.strip(' ,.').split())
+    if not re.search(r'[1-9]', a.split(' ')[0] if a else ''):
+        return ''
+    return _wm_title(a, road_codes=True)
+
+
+def fetch_elpaso(since_date=None, limit=None):
+    """
+    Fetch El Paso, TX inspection scores (see the section notes): one POST for
+    the window since_date .. tomorrow. With a since_date the window never
+    starts later than EP_REREAD_DAYS ago (late postings and corrections ship
+    on a later run); without one, the last EP_TEST_WINDOW_DAYS when `limit`
+    is set (test mode), else EP_HISTORY_START. Returns oldest-first records;
+    `limit` keeps the newest. A block reports the group 'blocked' and ships
+    nothing; any other unreadable answer raises.
+    """
+    requested = str(since_date)[:10] if since_date else None
+    since = requested
+    if since:
+        floor = (datetime.now() - timedelta(days=EP_REREAD_DAYS)).strftime('%Y-%m-%d')
+        since = min(since, floor)
+    else:
+        since = ((datetime.now() - timedelta(days=EP_TEST_WINDOW_DAYS)).strftime('%Y-%m-%d')
+                 if limit else EP_HISTORY_START)
+    end = (datetime.now() + timedelta(days=1)).strftime('%Y-%m-%d')     # toDate is exclusive
+    log.info(f"Fetching El Paso data (since={since}"
+             + (f", widened from {requested} by the {EP_REREAD_DAYS}-day re-read margin"
+                if requested and since != requested else '') + f", limit={limit})")
+    if _past_deadline():
+        _set_group_status(EP_GROUP, 'skipped', 'fetch deadline reached before the window was read')
+        return []
+    try:
+        rows = _ep_parse(_ep_post(since, end))
+    except _EpBlocked as e:
+        log.error(str(e))
+        _set_group_status(EP_GROUP, 'blocked', str(e))
+        return []
+    window_days = (datetime.strptime(end, '%Y-%m-%d') - datetime.strptime(since, '%Y-%m-%d')).days
+    if window_days >= EP_MIN_WINDOW_DAYS_FOR_FLOOR and len(rows) < EP_MIN_ROWS_PER_DAY * window_days:
+        raise RuntimeError(f'El Paso: only {len(rows)} rows for the {window_days}-day window {since} .. '
+                           f'{end} (expect >= {EP_MIN_ROWS_PER_DAY * window_days}); an empty or '
+                           f'truncated answer, or the city stopped publishing: not shipping')
+    log.info(f"  El Paso: {len(rows)} rows for {since} .. {end}")
+
+    built, seen, newest = [], set(), ''
+    bad, in_window, unscored = 0, 0, 0
+    skipped = defaultdict(int)
+    for row in rows:
+        permit, date_s, name_s, addr_s, city_s, zip_s, type_s, score_s = row
+        insp_date = _ep_date(date_s)
+        if not permit or not insp_date:
+            bad += 1
+            continue
+        newest = max(newest, insp_date)
+        if insp_date < since:
+            skipped['before the window'] += 1
+            continue
+        if tuple(row) in seen:
+            skipped['exact duplicate row'] += 1
+            continue
+        seen.add(tuple(row))
+        in_window += 1
+        type_code, _, type_name = type_s.partition(' ')
+        if type_code in EP_SKIP_TYPES:
+            skipped['site assessment (pre-opening)'] += 1
+            continue
+        if EP_MOBILE_PERMIT_RE.match(permit):
+            skipped['mobile unit'] += 1
+            continue
+        try:
+            score = int(score_s)
+        except ValueError:
+            if score_s:
+                bad += 1
+            else:
+                unscored += 1
+            continue
+        if not 0 < score <= 100:
+            bad += 1
+            continue
+        name = _wm_title(name_s)
+        if not name:
+            skipped['no name'] += 1
+            continue
+        if _tx_score_only_institutional(name):
+            skipped['institutional kitchen'] += 1
+            continue
+        zip_m = re.search(r'\b(\d{5})\b', zip_s) or re.search(r'\b(\d{5})(?:-\d{4})?\s*$', addr_s)
+        zip_code = zip_m.group(1) if zip_m else ''
+        city = _ep_city(city_s, zip_code)
+        address = _ep_street(addr_s, city_s)
+        if not address:
+            skipped['no street address'] += 1
+            continue
+        rec = {
+            'name': name,
+            'address': address,
+            'city': city,
+            'state': 'TX',
+            'zip': zip_code,
+            'latitude': None,
+            'longitude': None,
+            'inspection_date': insp_date,
+            'original_score': score,
+            'risk_score': score,                     # the city's official 0-100 score
+            'priority_violations': 0,
+            'priority_foundation_violations': 0,
+            'core_violations': 0,
+            'total_violations': 0,
+            'violations': [],
+            'inspection_type': (type_name or type_s).strip(),
+            'results': '',
+            'source': EP_SOURCE,
+            'source_url': EP_URL,
+            'source_id': f"elp_{permit}_{insp_date.replace('-', '')}",
+            'metro': '',
+        }
+        # worst first; then the routine before its re-inspection
+        built.append((permit, insp_date, (score, type_code, type_s), rec))
+    if bad > EP_MAX_BAD_ROW_SHARE * max(len(rows), 1) and bad > 2:
+        raise RuntimeError(f'El Paso: {bad} of {len(rows)} rows have no permit, an unreadable date or '
+                           f'score; the table changed, not shipping')
+    if in_window >= TX_SCORE_ONLY_UNSCORED_MIN and unscored * 2 > in_window:
+        raise RuntimeError(f'El Paso: {unscored} of {in_window} rows since {since} carry no score '
+                           f'(a format change?); not shipping')
+    skipped.update({k: n for k, n in (('unreadable row', bad), ('unscored', unscored)) if n})
+    if skipped:
+        log.info(f"  El Paso: skipped {dict(skipped)}")
+    records = _tx_same_day_suffixes(built)
+    truncated = bool(limit) and len(records) > limit
+    if truncated:
+        records = records[-limit:]                 # the newest `limit` inspections
+    else:
+        _note_source_lag(EP_GROUP, newest)
+    log.info(f"El Paso: {len(records)} inspections (source newest {newest or 'n/a'})")
+    return records
+
+
+# ── Waco / McLennan County ──────────────────────────────────────────────────
+# Waco-McLennan County Public Health District (~270k people): one public
+# ArcGIS Online hosted view, 'foodScoresView' (org WacoGIS), read by the
+# city's own scores app. One row per inspection with Business, Address, City,
+# Zipcode, TotalScore, Status, SVALUE (inspection type), Date and point
+# geometry on every row; no violations, no permit or inspection number, and
+# OBJECTIDs that are renumbered when the table is reloaded (482,697-490,201
+# for 5,066 rows), so they are never an id. History from 2025-01-02 (a
+# rolling window, possibly); refreshed in batches (~9 days behind at the
+# survey). maxRecordCount 2000, server-side date filter and pagination
+# verified; the window is checked against a server-side count and raises on
+# any shortfall. `Date` holds LOCAL wall-clock time written as UTC (the UTC
+# hours peak 08-17), so its UTC calendar date is the inspection day and the
+# server's DATE '...' filter compares the same way.
+#
+# Scoring: TotalScore is DEMERIT points, lower is better ("the smaller the
+# score the better", 0-50 seen), so risk_score = 100 - demerits, the Texas
+# form score, and original_score keeps the demerit total (McKinney's rule).
+# Status (PASSED / FAILED / FAILED WITH PENALTY BLIC / ...) goes to results,
+# and a FAILED inspection is an F: risk_score is capped at
+# WAC_FAILED_RISK_CAP (the owner's decision, 2026-11-23; the same rule as the
+# other sources that publish a failed verdict). FAILED is the district's own
+# verdict that the place must be re-inspected — the county order names three
+# grounds: items or an imminent health hazard not corrected on the spot,
+# violations repeated from the previous inspection, or more than 30 demerits
+# ("you can fail an inspection with 2 points", a district inspector to KWTX:
+# no hot water) — which the demerit total alone does not carry: scored on
+# demerits only, 868 failed inspections graded A 225 / B 458 / C 155 / F 30
+# and not one Waco restaurant was an F. The cap clears itself: 812 of 868
+# failures were re-inspected (median 8 days later) and 695 of those passed;
+# the failure then weighs on the next visits through the weighted history
+# like any other F. CANCELED and REQUESTED rows are not inspections and are
+# skipped.
+#
+# Scope: the district appends '-INACTIVE' to a closed permit's name (581 of
+# 5,066 rows), so those rows are closed places and are skipped (a record
+# shipped while the place was open keeps its own id: the marker is never
+# part of a shipped name). Mobile units ('- MOBILE', 'FOOD TRUCK') and
+# one-off events ('SPRING CARNIVAL - 2025') are dropped by name, as are
+# institutional kitchens. Identity: no ids, so source_id is
+# 'wac_' + make_restaurant_id(name, address, city) + the date; an exact
+# duplicate row (same content, another timestamp) ships once, distinct rows
+# of one place and day ship worst first, the later ones suffixed.
+WAC_LAYER = ('https://services2.arcgis.com/oUXiR7ziAPAzGw6X/arcgis/rest/services/'
+             'foodScoresView/FeatureServer/0')
+WAC_APP_URL = ('https://www.waco-texas.com/Departments/Health-District/Environmental-Health/'
+               'Food-Inspection-Scores')
+WAC_SOURCE = 'Waco-McLennan County Public Health District'
+WAC_GROUP = 'Waco'
+WAC_FIELDS = ('Date', 'Business', 'Address', 'City', 'Zipcode', 'TotalScore', 'Status', 'SVALUE')
+WAC_HISTORY_START = '2025-01-01'      # the layer starts 2025-01-02
+WAC_TEST_WINDOW_DAYS = 45             # a bounded read (limit set, no since); the layer lags ~9 days
+WAC_REREAD_DAYS = 60                  # weekly windows never start later than this
+WAC_PAGE = 2000                       # the layer's maxRecordCount
+WAC_SKIP_STATUSES = {'CANCELED', 'CANCELLED', 'REQUESTED'}
+WAC_STATUS_TEXT = {
+    'PASSED': 'Passed', 'FAILED': 'Failed', 'FAILED WITH PENALTY BLIC': 'Failed with penalty (BLIC)',
+    'COMPLETED': 'Completed', 'PASSED WITH EXCEPTIONS': 'Passed with exceptions',
+    'PARTIAL PASS': 'Partial pass',
+}
+WAC_TYPE_TEXT = {'RENEWAL': 'Permit renewal', 'ROUTINE': 'Routine', 'REINSPECTION': 'Re-inspection',
+                 'PERMIT': 'Permit', 'COMPLAINT': 'Complaint', 'OTHER': 'Other'}
+WAC_INACTIVE_RE = re.compile(r'[-\s(]*\binactiv(?:e|ated?|ed)\b\)?\s*$', re.I)
+# 'Kajun Kluck Truck', 'The Pizza Truck', "Vitek's Foodtruck", 'Rositas
+# Taqueria-Mobiles'; a truck STOP is a fixed restaurant and stays.
+WAC_MOBILE_RE = re.compile(r'\bmobiles?\b|\b(?:food)?trucks?\b(?!\s+stops?\b)', re.I)
+WAC_EVENT_RE = re.compile(r'-\s*20\d\d\b')         # 'SPRING CARNIVAL - 2025', 'OTAKU FESTIVAL - 2026'
+WAC_MAX_DEMERITS = 100
+WAC_FAILED_RISK_CAP = 65                # a FAILED inspection grades F whatever its demerits (see above)
+
+
+def _wac_count(where):
+    data = _dfw_hole_get(WAC_LAYER + '/query',
+                         params={'where': where, 'returnCountOnly': 'true', 'f': 'json'}, label='Waco count')
+    if not isinstance(data, dict) or 'error' in data:
+        raise RuntimeError(f"Waco count: ArcGIS error {str(data)[:160]}")
+    try:
+        return int(data['count'])
+    except (KeyError, TypeError, ValueError):
+        raise RuntimeError(f'Waco count: no count in {str(data)[:120]}')
+
+
+def _wac_newest():
+    """The layer's newest inspection date ('' when the probe fails)."""
+    try:
+        data = _dfw_hole_get(WAC_LAYER + '/query', params={
+            'where': '1=1', 'outFields': 'Date', 'orderByFields': 'Date DESC',
+            'resultRecordCount': 1, 'f': 'json'}, label='Waco newest')
+        return _mck_date(data['features'][0]['attributes']['Date']) or ''
+    except Exception as e:
+        log.debug(f'Waco: newest-row probe failed: {e}')
+        return ''
+
+
+def _wac_city(raw):
+    """'WACO (UNINCORPORATED)' -> 'Waco'; plain .title() ('Mcgregor', the
+    label rule McKinney's comment explains)."""
+    c = re.sub(r'\(\s*unincorporated\s*\)', ' ', raw or '', flags=re.I)
+    c = ' '.join(c.split()).strip(' ,')
+    return c.title() if c else ''
+
+
+def _wac_name(raw):
+    """Whitespace collapsed; a trailing ', THE' moved to the front ('PIZZA
+    TRUCK, THE' -> 'The Pizza Truck'); ALL CAPS title-cased."""
+    n = ' '.join((raw or '').split()).strip(' -,')
+    m = re.match(r'^(.*?),\s*THE\b\s*(.*)$', n, re.I)
+    if m:
+        n = ' '.join(f'THE {m.group(1)} {m.group(2)}'.split())
+    return _wm_title(n)
+
+
+def fetch_waco(since_date=None, limit=None):
+    """
+    Fetch Waco / McLennan County, TX inspection scores from the district's
+    ArcGIS view (see the section notes). The window since_date .. now is read
+    in WAC_PAGE pages and checked against the server's count (a shortfall or
+    any request failure raises; nothing partial ships). With a since_date the
+    window never starts later than WAC_REREAD_DAYS ago; without one, the last
+    WAC_TEST_WINDOW_DAYS when `limit` is set (test mode), else the layer's
+    start. Returns oldest-first records; `limit` keeps the newest.
+    """
+    requested = str(since_date)[:10] if since_date else None
+    since = requested
+    if since:
+        floor = (datetime.now() - timedelta(days=WAC_REREAD_DAYS)).strftime('%Y-%m-%d')
+        since = min(since, floor)
+    else:
+        since = ((datetime.now() - timedelta(days=WAC_TEST_WINDOW_DAYS)).strftime('%Y-%m-%d')
+                 if limit else WAC_HISTORY_START)
+    log.info(f"Fetching Waco data (since={since}"
+             + (f", widened from {requested} by the {WAC_REREAD_DAYS}-day re-read margin"
+                if requested and since != requested else '') + f", limit={limit})")
+    if _past_deadline():
+        _set_group_status(WAC_GROUP, 'skipped', 'fetch deadline reached before the layer was read')
+        return []
+    where = f"Date >= DATE '{since}'"
+    expected = _wac_count(where)
+    try:
+        rows = _arcgis_query_all(WAC_LAYER, where=where, out_fields=','.join(WAC_FIELDS + ('OBJECTID',)),
+                                 page_size=WAC_PAGE, strict=True)
+    except Exception as e:
+        raise RuntimeError(f'Waco: layer unreadable ({e}); nothing shipped') from e
+    if len(rows) < expected:
+        raise RuntimeError(f'Waco: read {len(rows)} of {expected} rows since {since}; '
+                           f'not shipping a partial window')
+    log.info(f"  Waco: {len(rows)} rows since {since} (server count {expected})")
+
+    built, seen, newest = [], set(), ''
+    skipped, bad, unscored, in_window = defaultdict(int), 0, 0, 0
+    unknown_status = defaultdict(int)
+    for f in rows:
+        a = f.get('attributes') if isinstance(f, dict) else None
+        if not isinstance(a, dict) or any(k not in a for k in WAC_FIELDS):
+            raise RuntimeError(f'Waco: a row lacks the layer fields {WAC_FIELDS} '
+                               f'({sorted(a) if isinstance(a, dict) else a!r}); the layer changed, not shipping')
+        insp_date = _mck_date(a.get('Date'))
+        if not insp_date:
+            bad += 1
+            continue
+        newest = max(newest, insp_date)
+        if insp_date < since:
+            continue
+        status = ' '.join(str(a.get('Status') or '').split()).upper()
+        kind = ' '.join(str(a.get('SVALUE') or '').split()).upper()
+        raw_name = ' '.join(str(a.get('Business') or '').split())
+        address = _wm_address(a.get('Address'))
+        city = _wac_city(a.get('City'))
+        demerits = a.get('TotalScore')
+        content = (raw_name.upper(), address.upper(), city.upper(), insp_date, demerits, status, kind)
+        if content in seen:
+            skipped['exact duplicate row'] += 1
+            continue
+        seen.add(content)
+        in_window += 1
+        if status in WAC_SKIP_STATUSES:
+            skipped[f'status {status.lower()}'] += 1
+            continue
+        if demerits is None or demerits == '':
+            unscored += 1
+            continue
+        try:
+            demerits = int(demerits)
+        except (TypeError, ValueError):
+            bad += 1
+            continue
+        if not 0 <= demerits <= WAC_MAX_DEMERITS:
+            bad += 1
+            continue
+        if WAC_INACTIVE_RE.search(raw_name):
+            skipped['inactive (closed) permit'] += 1
+            continue
+        name = _wac_name(raw_name)
+        if not name or not address or not city:
+            skipped['no name, address or city'] += 1
+            continue
+        if WAC_MOBILE_RE.search(name) or WAC_EVENT_RE.search(raw_name):
+            skipped['mobile unit or temporary event'] += 1
+            continue
+        if _tx_score_only_institutional(name):
+            skipped['institutional kitchen'] += 1
+            continue
+        if status not in WAC_STATUS_TEXT:
+            unknown_status[status] += 1
+        status_text = WAC_STATUS_TEXT.get(status, status.title())
+        geometry = f.get('geometry') if isinstance(f.get('geometry'), dict) else {}
+        lon, lat = _dfw_hole_coord(geometry.get('x')), _dfw_hole_coord(geometry.get('y'))
+        if lon is None or lat is None:
+            lon = lat = None
+        zip_code = str(a.get('Zipcode') or '').strip()
+        rid = make_restaurant_id(name, address, city)
+        risk = max(0, min(100, 100 - demerits))              # the TX form score, McKinney's rule
+        if status.startswith('FAILED'):
+            risk = min(risk, WAC_FAILED_RISK_CAP)            # the district's verdict: an F
+        rec = {
+            'name': name,
+            'address': address,
+            'city': city,
+            'state': 'TX',
+            'zip': zip_code if re.fullmatch(r'\d{5}', zip_code) else '',
+            'latitude': lat,
+            'longitude': lon,
+            'inspection_date': insp_date,
+            'original_score': demerits,                      # the district's demerit total (lower is better)
+            'risk_score': risk,
+            'priority_violations': 0,
+            'priority_foundation_violations': 0,
+            'core_violations': 0,
+            'total_violations': 0,
+            'violations': [],
+            'inspection_type': WAC_TYPE_TEXT.get(kind, kind.title()),
+            'results': f'{demerits} demerits' + (f' ({status_text})' if status_text else ''),
+            'source': WAC_SOURCE,
+            'source_url': WAC_APP_URL,
+            'source_id': f"wac_{rid}_{insp_date.replace('-', '')}",
+            'metro': '',
+        }
+        built.append((rid, insp_date, (rec['risk_score'], status, kind), rec))
+    if bad > 2 and bad > 0.01 * max(len(rows), 1):
+        raise RuntimeError(f'Waco: {bad} of {len(rows)} rows have an unreadable date or demerit total; '
+                           f'the layer changed, not shipping')
+    if in_window >= TX_SCORE_ONLY_UNSCORED_MIN and unscored * 2 > in_window:
+        raise RuntimeError(f'Waco: {unscored} of {in_window} rows since {since} carry no TotalScore '
+                           f'(a format change?); not shipping')
+    if unknown_status:
+        log.warning(f"  Waco: Status values outside the known list shipped as published: {dict(unknown_status)}")
+    skipped.update({k: n for k, n in (('unreadable row', bad), ('unscored', unscored)) if n})
+    if skipped:
+        log.info(f"  Waco: skipped {dict(skipped)}")
+    records = _tx_same_day_suffixes(built)
+    truncated = bool(limit) and len(records) > limit
+    if truncated:
+        records = records[-limit:]
+    else:
+        _note_source_lag(WAC_GROUP, newest or _wac_newest())
+    log.info(f"Waco: {len(records)} inspections (source newest {newest or 'n/a'})")
+    return records
+
+
+# ─── CORPUS CHRISTI / NUECES COUNTY, TX (InspectHub public listing) ──────────
+# The Corpus Christi-Nueces County Public Health District publishes its food
+# inspections on InspectHub (app.inspecthub.com, ColdFusion, plain server-side
+# HTML: no script, cookie or token; probed live 2026-11-22). Two pages, both
+# on one URL:
+#   remote.cfm?k=<tenant key>&s=100            the listing: EVERY location in
+#        one 527 KB response (2,203 rows), each row its LATEST inspection only:
+#        'NAME - STREET', score, the inspection form's name ("Type") and the
+#        date. No paging, no date filter, no search parameter.
+#   remote.cfm?k=<tenant key>&s=100&i=<id>     one inspection: name and street
+#        in the <h3>, 'Date: November, 03 2026', 'Score : 89', one table row
+#        per cited item ('Points Deducted' 3/2/1, the form item, the
+#        inspector's note, a corrected-during-inspection flag) and 'Other
+#        Inspections for <location>': every other inspection of the location
+#        with its id, date and score.
+# So a window costs the listing, one page per location whose latest
+# inspection falls in it and one page per earlier in-window inspection found
+# in those pages' history tables: ~75 inspections a week, one request a
+# second. Inspection ids are issued on the inspection day (1,643 of the 1,645
+# rows since May 2026 are in date order by id) and an inspection was on the
+# listing the day after it was made; whether the district ever publishes or
+# corrects one later was NOT measured, so every dated window is read
+# CC_REREAD_DAYS earlier than asked (holds stay at the start the caller asked
+# for, as the Hedgerow fetchers do it).
+#
+# Score. The district scores 100 minus demerits on a 56-item form (its page:
+# "each scoring from 3 to 1", three- and two-point items "Major Violations";
+# 0-10 demerits excellent, 11-20 good, 21-30 acceptable, 31+ poor). The page
+# prints the 0-100 number, so original_score and risk_score are both that
+# number (Dallas's convention, not McKinney's demerit total) and each cited
+# item's tier is its points: 3 priority, 2 priority foundation, 1 core.
+# Three statements of every score are compared and all must agree, or the
+# inspection is dropped and held, never shipped:
+#   - the listing row (or, for an earlier inspection, its history row),
+#   - the 'Score' line of the inspection's own page,
+#   - 100 minus the points of the rows on that page (58 of 58 inspections
+#     with rows agreed on 2026-11-22).
+# A CLEAN inspection is the trap: its own page prints 'Score : 0' over an
+# EMPTY table (12 of 12 pages the listing scored 100), which is also what a
+# page that lost its rows would look like. It ships as a 100 only when the
+# listing or history row says 100; a rowless page whose listing says anything
+# else is unread. The other rowless shapes never ship: an id the portal has
+# not published answers HTTP 200 with the table shell and "This inspection
+# does not have any violations." but no name or score (dropped and held); a
+# pool page, and about one food visit in twenty-five the listing scores 100
+# (CC_UNSCORED: Glow & Go Nutrition 2026-11-20, Rock's Discount Vitamins
+# 2026-10-07), carry the name and date with that sentence but no score: no
+# scored checklist was written, so it is skipped, not held (its history
+# table is still followed). A page that prints a score with "Violation
+# information on this inspection is not available" in place of the items
+# (CC_NO_DETAIL) is skipped the same way. An inspection ships only from a page that
+# carries the establishment, the date and a score, and they are the ones the
+# listing gave for that id.
+#
+# Scope. The listing's "Type" is the form the inspection was written on, the
+# only type the source has: there is no routine / follow-up / complaint /
+# pre-opening field anywhere, so inspection_type is empty and a pre-opening
+# visit cannot be told from a routine one. Forms seen: '2024
+# Inspections-Restaurants' (1,810 locations), 'Restaurant' (46, the pre-2024
+# form with Texas item numbers), 'Inspection - Restaurant 2024' (1) ship;
+# the pool, spa and splash-pad forms (336) and 'Flea Market Food Vendors'
+# (10: market stalls, push carts and one-off event booths) do not. A form
+# name the rules do not know is not shipped and, from CC_UNKNOWN_FORM_MIN
+# locations, fails the fetch: the form names carry a year and will be renamed.
+# By name (the only other signal): mobile units and event booths
+# (CC_SKIP_NAME_RE), and the institutional kitchens the public cannot walk
+# into, with the rule Georgia and Louisiana use (TP_INSTITUTION_RE, plus the
+# school-district spellings the district writes): 142 of the 1,867 food
+# locations on 2026-11-22.
+#
+# City. NOTHING in the source says which town a location is in: the address
+# is the street line alone on the listing, the inspection page and the
+# printable PDF (no city, state, zip or coordinates), although the district
+# also inspects Port Aransas, Robstown, Bishop, Banquete, Agua Dulce and
+# Driscoll. Every record therefore ships as 'Corpus Christi' with an empty
+# zip (about nine in ten of the county's residents live in the city); a
+# location in another town carries the wrong city label and usually fails
+# to geocode. The city is never guessed per record: make_restaurant_id
+# hashes it, so it must not depend on a geocoder's answer.
+#
+# Text. Each cited item ships as '<form title>: <inspector's note>'. The two
+# titles that name an F-forcing hazard never ship: the pest item ('38.
+# Insects, rodents, and animals not present', the older form's '34. No
+# Evidence of Insect contamination, rodent/other animals') goes under the
+# Hedgerow fetchers' neutral heading (HH_PEST_TITLE) and the sewage item
+# ('52. Sewage and waste water properly disposed') under
+# CC_WASTEWATER_TITLE, so "Gnats present" or a leaking mop sink cannot force
+# an F through the title while "Rodent droppings found storage room" still
+# does through the note. A pest item cited with NO note keeps its printed
+# title, which jev_reader registers as a cited pest item (pest chip, no F).
+CC_BASE = 'https://app.inspecthub.com/public/remote.cfm'
+# The district's tenant key, from the link on the city's "Restaurant
+# Inspection Scores" page. A wrong key answers HTTP 200 "{ 'ERROR':'Invalid
+# Key' }": if the listing starts failing that way, re-read the key there.
+CC_TENANT_KEY = '743FNC060E68BGYIBTL4YZ0U75O1U6H0'
+CC_SCORE_BASE = 100          # the 's' parameter: the page prints s minus the points deducted
+CC_GROUP = 'Corpus Christi'
+CC_SOURCE = 'Corpus Christi-Nueces County Public Health District'
+CC_CITY = 'Corpus Christi'   # every record; see the section comment
+CC_TIMEOUT = 60              # one inspection page (measured 0.04-0.4 s)
+CC_LIST_TIMEOUT = 180        # the listing (527 KB, ~2 s)
+CC_RETRIES = 3               # attempts per request
+CC_RETRY_WAIT = 5            # seconds, times the attempt number
+CC_DELAY = 1.0               # pause after every request: one stream, about a request a second
+CC_BREAKER_TRIP = 3          # requests in a row that fail for good -> the portal is blocked this run
+CC_NO_RETRY_STATUSES = frozenset({401, 403})   # a refusal is not retried: asking again is the wrong answer
+CC_LIST_MIN_ROWS = 1000      # 2,203 rows on 2026-11-22; a much shorter listing is not trusted
+CC_REREAD_DAYS = 7           # every dated window starts this much earlier (late publication: unmeasured)
+CC_HISTORY_START = '2015-01-01'   # history tables reach back to 2015
+# Inspections whose three scores disagree are dropped and held one by one;
+# this many of them, making up more than this share of the pages read, mean
+# the page changed and the whole fetch raises (McKinney's rule).
+CC_MISMATCH_MIN = 10
+CC_MISMATCH_MAX_SHARE = 0.05
+# About half of all inspections are clean. A window of at least this many
+# in which nearly all are is a page that lost its rows, not a good week.
+CC_MASS_CLEAN_MIN = 20
+CC_MASS_CLEAN_SHARE = 0.9
+CC_UNKNOWN_FORM_MIN = 20     # locations on a form name the rules do not know -> the fetch raises
+# The _cc_check verdict for a food page that names the establishment and the
+# date but prints no score, only "This inspection does not have any
+# violations." (4 of 104 clean-listed food pages sampled 2026-11-23, dated
+# 2026-10-07 to 2026-11-20: a standing shape, not a publication lag). Read,
+# not shipped, not held; more than this share of the pages read raises.
+CC_UNSCORED = 'unscored visit'
+# The verdict for a page that prints a score but, in place of the items,
+# "Violation information on this inspection is not available. However the
+# recorded score is: [ 96 / 100 ] (4 demerits)." (1 of 171 pages read
+# 2026-11-23: Cottens Catering, 2026-11-11, beside a fully itemised 96 the
+# same day). Shipping the score with no items would show a 96 with "no
+# violations"; it is read, skipped and not held, like CC_UNSCORED.
+CC_NO_DETAIL = 'score without its items'
+CC_UNSCORED_MAX_SHARE = 0.25     # of the pages read, for the two verdicts together
+CC_POINT_SEVERITY = {3: 'priority', 2: 'priority_foundation', 1: 'core'}
+CC_BANDS = ((10, 'Excellent'), (20, 'Good'), (30, 'Acceptable'))   # the district's own words; above: 'Poor'
+CC_FOOD_FORM_RE = re.compile(r'restaurant|food', re.I)
+CC_SKIP_FORM_RE = re.compile(r'pool|\bspas?\b|splash|flea market|vendor', re.I)
+# A mobile unit's street is its commissary or its owner's; an event booth has
+# none. 'MOBILE HOME' is a trailer park (its pool), not a food truck.
+CC_SKIP_NAME_RE = re.compile(
+    r'\b(?:mobile(?!\s+home)|food\s+trucks?|food\s+trailers?|push\s?carts?|temp(?:orary)?\.?\s+events?|'
+    r'farmers?\s+markets?)\b', re.I)
+# The school-district spellings TP_INSTITUTION_RE does not have ('CCISD
+# CONCESSIONS', 'BANQUETE ISD - ...', 'PORT ARANSAS ISD').
+CC_SCHOOL_DISTRICT_RE = re.compile(
+    r'\b(?:[a-z]*isd|early childhood|juvenile justice|jr\.?\s+high|senior\s+citizens?\s+cent(?:er|re)|'
+    r'senior\s+living)\b', re.I)
+CC_WASTEWATER_TITLE = 'Wastewater disposal'
+CC_PEST_TITLE_WORDS_RE = re.compile(r'insect|rodent|vermin|\bpests?\b', re.I)
+CC_SEWAGE_TITLE_WORDS_RE = re.compile(r'sewage', re.I)
+_CC_MONTHS = {m: i for i, m in enumerate(
+    ('january', 'february', 'march', 'april', 'may', 'june', 'july', 'august', 'september',
+     'october', 'november', 'december'), start=1)}
+# 'November 03, 2026' (listing, history) and 'November, 03 2026' (inspection page)
+_CC_DATE_RE = re.compile(r'^([A-Za-z]+),?\s+(\d{1,2}),?\s+(\d{4})$')
+_CC_TR_RE = re.compile(r'<tr\b([^>]*)>(.*?)</tr>', re.S | re.I)
+_CC_TD_RE = re.compile(r'<td\b[^>]*>(.*?)</td>', re.S | re.I)
+_CC_ROW_ID_RE = re.compile(r'[?&](?:amp;)?i=(\d+)')
+_CC_H3_RE = re.compile(r'<h3\b[^>]*>(.*?)</h3>', re.S | re.I)
+_CC_DATE_LINE_RE = re.compile(r'<strong>\s*Date:\s*</strong>([^<]*)', re.I)
+_CC_SCORE_LINE_RE = re.compile(r'<strong>\s*Score\s*:\s*</strong>([^<]*)', re.I)
+_CC_PRINT_ID_RE = re.compile(r'[?&]a=print&(?:amp;)?k=\w+&(?:amp;)?i=(\d+)')
+_CC_ITEM_RE = re.compile(r'^(\d{1,3}[a-z]?)\.\s*(.*)$', re.S)
+_CC_ANNOTATION_RE = re.compile(r'\s*\*\*[^*]*\*\*\s*')
+_CC_STATE = {'requests': 0, 'streak': 0, 'blocked': ''}   # this fetch's request count and breaker
+
+
+class _CcError(Exception):
+    """An InspectHub request that could not be completed. `cut` is True when
+    the request was not made because the breaker had tripped this run (the
+    record is held, not counted); otherwise it was tried and failed."""
+
+    def __init__(self, msg, cut=False):
+        super().__init__(msg)
+        self.cut = cut
+
+
+def _cc_session():
+    s = requests.Session()
+    s.headers.update({'User-Agent': CHROME_UA})
+    return s
+
+
+def _cc_url(insp_id=None):
+    url = f'{CC_BASE}?k={CC_TENANT_KEY}&s={CC_SCORE_BASE}'
+    return url if insp_id is None else f'{url}&i={int(insp_id)}'
+
+
+def _cc_get(session, insp_id=None):
+    """The listing (insp_id None) or one inspection page, as text. A
+    timeout, a reset, 429 and 5xx are retried CC_RETRIES times with a growing
+    pause, never past the fetch deadline; a 401/403 is not retried. Any
+    request that fails for good counts toward the breaker: CC_BREAKER_TRIP
+    of them in a row and every later request of the run fails at once
+    (`cut`). A 200 resets the streak; what the body holds is the parsers'
+    business."""
+    if _CC_STATE['blocked']:
+        raise _CcError(f"portal breaker tripped: {_CC_STATE['blocked']}", cut=True)
+    url = _cc_url(insp_id)
+    what = 'listing' if insp_id is None else f'inspection {insp_id}'
+    last, final = '', False
+    for attempt in range(1, CC_RETRIES + 1):
+        _CC_STATE['requests'] += 1
+        try:
+            r = session.get(url, timeout=CC_LIST_TIMEOUT if insp_id is None else CC_TIMEOUT)
+        except requests.RequestException as e:
+            last = f'{type(e).__name__}: {str(e)[:120]}'
+        else:
+            if r.status_code == 200:
+                _CC_STATE['streak'] = 0
+                return r.text
+            last = f'HTTP {r.status_code}'
+            if r.status_code in CC_NO_RETRY_STATUSES:
+                final = True
+                break
+        if attempt == CC_RETRIES:
+            final = True
+            break
+        if _past_deadline():
+            break
+        wait = CC_RETRY_WAIT * attempt
+        log.warning(f"  Corpus Christi: {what} failed ({last}) — retry {attempt}/{CC_RETRIES - 1} in {wait}s")
+        time.sleep(wait)
+    if final:
+        _CC_STATE['streak'] += 1
+        if _CC_STATE['streak'] >= CC_BREAKER_TRIP:
+            _CC_STATE['blocked'] = f"{_CC_STATE['streak']} requests in a row failed (last: {last})"
+            log.error(f"  Corpus Christi: {_CC_STATE['blocked']} — treating the portal as blocked; the "
+                      f"run's remaining pages are skipped and held")
+    raise _CcError(f'{what}: {last}')
+
+
+def _cc_text(fragment):
+    """An HTML fragment as one line of text."""
+    return ' '.join(html_lib.unescape(re.sub(r'<[^>]+>', ' ', fragment or '')).split())
+
+
+def _cc_date(text):
+    """'November 03, 2026' / 'November, 03 2026' -> '2026-11-03', or None
+    (the history tables hold typos such as 'April 01, 715')."""
+    m = _CC_DATE_RE.match(' '.join((text or '').split()))
+    month = _CC_MONTHS.get(m.group(1).lower()) if m else None
+    if not month:
+        return None
+    return sane_inspection_date(f'{int(m.group(3)):04d}-{month:02d}-{int(m.group(2)):02d}')
+
+
+def _cc_int(text):
+    t = (text or '').strip()
+    return int(t) if re.fullmatch(r'\d{1,3}', t) else None
+
+
+def _cc_loc_key(text):
+    """A location string for comparison: case and spacing do not matter."""
+    return ' '.join((text or '').split()).upper()
+
+
+def _cc_title(s):
+    """Whitespace collapsed; .title() only for an ALL-CAPS value, which nearly
+    every name and street is ("JOE'S", 'DON'T', '6TH STREET' -> "Joe's",
+    "Don't", '6th Street'). Deterministic: make_restaurant_id hashes the
+    result, so changing this re-keys every Corpus Christi restaurant."""
+    s = ' '.join(str(s or '').split())
+    if s.isupper():
+        s = re.sub(r"(?<=[A-Za-z])'([A-Z])\b", lambda m: "'" + m.group(1).lower(), s.title())
+        s = _HH_ORDINAL_RE.sub(lambda m: m.group(1) + m.group(2).lower(), s)
+    return s
+
+
+def _cc_clean_name(name):
+    """The establishment's name without the permit notes the district types
+    into it between asterisks ('BIEN MERITE **90 DAY TEMPORARY PERMIT**'):
+    the note goes away when the permit does, and the id must not."""
+    return ' '.join(_CC_ANNOTATION_RE.sub(' ', name or '').split())
+
+
+def _cc_form_scope(form):
+    """'food' for a form that ships, 'skip' for one that never does (pools,
+    spas, splash pads, market and event vendors), 'unknown' for a name the
+    rules have not seen."""
+    if CC_SKIP_FORM_RE.search(form or ''):
+        return 'skip'
+    return 'food' if CC_FOOD_FORM_RE.search(form or '') else 'unknown'
+
+
+def _cc_out_of_scope(name):
+    """Why an establishment does not ship, judged by its NAME (never its
+    street: '2606 HOSPITAL BLVD' is an address), or '' when it does."""
+    if CC_SKIP_NAME_RE.search(name or ''):
+        return 'mobile unit / event booth'
+    if TP_INSTITUTION_RE.search(name or '') or CC_SCHOOL_DISTRICT_RE.search(name or ''):
+        return 'school / institutional kitchen'
+    return ''
+
+
+def _cc_parse_list(html):
+    """The listing -> [{'id', 'location', 'score', 'form', 'date'}, ...], one
+    per location (its latest inspection). Raises ValueError for anything
+    that is not the listing in its known shape: the listing is the
+    completeness check of every window, so a partial or re-shaped one must
+    ship nothing. A row's score or date that cannot be read is None (the
+    caller skips and counts it); more than one row in twenty without a date
+    is a format change and raises."""
+    html = html or ''
+    if '<th>Location</th>' not in html or 'Last Inspection</th>' not in html:
+        raise ValueError(f'not the listing: {" ".join(html.split())[:80]!r}')
+    rows = []
+    for attrs, inner in _CC_TR_RE.findall(html):
+        if 'onclick' not in attrs.lower():
+            continue
+        m = _CC_ROW_ID_RE.search(attrs)
+        cells = _CC_TD_RE.findall(inner)
+        if not m or len(cells) != 4:
+            raise ValueError(f'listing row in an unknown shape: {" ".join((attrs + inner).split())[:120]!r}')
+        location = _cc_text(cells[0])
+        if not location:
+            raise ValueError(f'listing row {m.group(1)} has no location')
+        rows.append({'id': int(m.group(1)), 'location': location, 'score': _cc_int(_cc_text(cells[1])),
+                     'form': _cc_text(cells[2]), 'date': _cc_date(_cc_text(cells[3]))})
+    if len(rows) < CC_LIST_MIN_ROWS:
+        raise ValueError(f'listing has only {len(rows)} rows (expected at least {CC_LIST_MIN_ROWS})')
+    undated = sum(1 for r in rows if not r['date'])
+    if undated * 20 > len(rows):
+        raise ValueError(f'{undated} of {len(rows)} listing rows carry no readable date')
+    return rows
+
+
+def _cc_parse_detail(html):
+    """One inspection page -> {'id', 'name', 'street', 'date', 'score',
+    'rows': [(points, item, title, note, corrected)], 'empty_note',
+    'history': [(id, date, score)]}, or None when the body is not an
+    inspection page at all (an error text, a block page). Nothing is judged
+    here: a page without a name or a score parses with those fields empty,
+    and _cc_check decides whether it was read. Raises ValueError for a
+    violations table in a shape the parser does not know."""
+    html = html or ''
+    if 'Points Deducted</th>' not in html:
+        return None
+    head, _, tail = html.partition('<h2>Other Inspections')
+    name = street = ''
+    h3 = _CC_H3_RE.search(head)
+    if h3:
+        # the name on one line, ' - STREET' on a later one (two template outputs)
+        lines = [' '.join(html_lib.unescape(l).split()) for l in re.sub(r'<[^>]+>', ' ', h3.group(1)).split('\n')]
+        lines = [l for l in lines if l]
+        if len(lines) > 1 and lines[-1].startswith('-'):
+            street = lines.pop()[1:].strip()
+        name = ' '.join(lines)
+    dm = _CC_DATE_LINE_RE.search(head)
+    sm = _CC_SCORE_LINE_RE.search(head)
+    pm = _CC_PRINT_ID_RE.search(head)
+    rows, empty_note, no_detail = [], False, False
+    body = re.search(r'<tbody\b[^>]*>(.*?)</tbody>', head, re.S | re.I)
+    if body is None:
+        raise ValueError('violations table has no body')
+    for _attrs, inner in _CC_TR_RE.findall(body.group(1)):
+        cells = [_cc_text(c) for c in _CC_TD_RE.findall(inner)]
+        if len(cells) == 1 and 'does not have any violations' in cells[0]:
+            empty_note = True
+            continue
+        if len(cells) == 1 and 'violation information on this inspection is not available' in cells[0].lower():
+            no_detail = True
+            continue
+        if len(cells) != 4:
+            raise ValueError(f'violation row with {len(cells)} cells: {" | ".join(cells)[:120]!r}')
+        im = _CC_ITEM_RE.match(cells[1])
+        rows.append((_cc_int(cells[0]), im.group(1) if im else '', (im.group(2) if im else cells[1]).strip(),
+                     cells[2], cells[3]))
+    history = []
+    for attrs, inner in _CC_TR_RE.findall(tail):
+        m = _CC_ROW_ID_RE.search(attrs)
+        cells = [_cc_text(c) for c in _CC_TD_RE.findall(inner)]
+        if m and len(cells) == 2:
+            history.append((int(m.group(1)), _cc_date(cells[0]), _cc_int(cells[1])))
+    # every linked row of the page must be a history row that was read: a
+    # moved or re-shaped history table would otherwise lose a location's
+    # earlier inspections without a trace
+    if len(history) != len(re.findall(r'<tr\b[^>]*\bonclick', html, re.I)):
+        raise ValueError('history table in an unknown shape')
+    return {'id': int(pm.group(1)) if pm else None, 'name': name, 'street': street,
+            'date': _cc_date(dm.group(1)) if dm else None, 'score': _cc_int(sm.group(1)) if sm else None,
+            'rows': rows, 'empty_note': empty_note, 'no_detail': no_detail, 'history': history}
+
+
+def _cc_check(page, insp_id, listed):
+    """Why an inspection page does not count as READ, or ''. `listed` is what
+    the listing (or the history table of a later inspection) said about this
+    id: {'location', 'date', 'score'}. The reasons that start with 'score'
+    are the points-do-not-add-up kind and are counted for the format-change
+    check; every reason drops and holds the inspection."""
+    if page is None:
+        return 'not an inspection page'
+    if page['id'] is not None and page['id'] != insp_id:
+        return f"the page is inspection {page['id']}"
+    if not page['name'] or not page['date']:
+        return 'no establishment or date on the page (not published?)'
+    if _cc_loc_key(f"{page['name']} - {page['street']}" if page['street'] else page['name']) \
+            != _cc_loc_key(listed['location']):
+        return 'the page is another location'
+    if page['date'] != listed['date']:
+        return f"the page is dated {page['date']}, the listing {listed['date']}"
+    if page['score'] is None:
+        if page['empty_note'] and not page['rows']:
+            return CC_UNSCORED            # a visit written without the scored checklist: read, never shipped
+        return 'no score on the page'
+    if page['no_detail'] and not page['rows']:
+        return CC_NO_DETAIL               # a score without its items: read, never shipped
+    if listed['score'] is None:
+        return 'no score on the listing'
+    if not page['rows']:
+        # a clean inspection prints 'Score : 0' over an empty table; so would a page that lost its rows
+        if listed['score'] == CC_SCORE_BASE and page['score'] in (0, CC_SCORE_BASE):
+            return ''
+        return f"score: no rows on a page the listing scores {listed['score']}"
+    if any(r[0] not in CC_POINT_SEVERITY for r in page['rows']):
+        return 'score: a row without 3, 2 or 1 points'
+    computed = CC_SCORE_BASE - sum(r[0] for r in page['rows'])
+    if not (computed == page['score'] == listed['score']):
+        return (f"score: {computed} from the rows, {page['score']} on the page, "
+                f"{listed['score']} on the listing")
+    return ''
+
+
+def _cc_violations(rows):
+    """[[category, severity, text], ...] for a page's rows: the tier is the
+    points the district deducted, the text '<form title>: <inspector's
+    note>'. A title that names pests or sewage is replaced by a neutral
+    heading (see the section comment), whatever its exact wording."""
+    out = []
+    for points, _item, title, note, _corrected in rows:
+        title = ' '.join(title.split()).rstrip(' .:;')
+        note = _dfw_hole_scrub(note).rstrip(' .')
+        if CC_PEST_TITLE_WORDS_RE.search(title):
+            # Cited with no note, the item keeps its printed title when that
+            # is one of the two TX-form wordings jev_reader registers in
+            # CITED_PEST_ITEM_TITLES (pest chip, 'Pests found', never an F);
+            # with a note it goes under the neutral heading.
+            if note or not _HH_PEST_TITLE_RE.match(title):
+                title = HH_PEST_TITLE
+        elif CC_SEWAGE_TITLE_WORDS_RE.search(title):
+            title = CC_WASTEWATER_TITLE
+        text = f'{title}: {note}' if title and note else (title or note)
+        if not text:
+            text = 'Item cited on the inspection report'
+        cat, _, _ = classify_violation(text)
+        out.append([cat, CC_POINT_SEVERITY[points], text[:500]])
+    return out
+
+
+def _cc_band(demerits):
+    for ceiling, word in CC_BANDS:
+        if demerits <= ceiling:
+            return word
+    return 'Poor'
+
+
+def _cc_record(insp_id, page):
+    """One DineScores record from a page _cc_check accepted."""
+    violations = _cc_violations(page['rows'])
+    demerits = sum(r[0] for r in page['rows'])
+    score = CC_SCORE_BASE - demerits
+    pv = sum(1 for v in violations if v[1] == 'priority')
+    pfv = sum(1 for v in violations if v[1] == 'priority_foundation')
+    return {
+        'name': _cc_title(_cc_clean_name(page['name'])),
+        'address': _cc_title(page['street']),
+        'city': CC_CITY,                 # the source names no town (section comment)
+        'state': 'TX',
+        'zip': '',
+        'latitude': None,
+        'longitude': None,
+        'inspection_date': page['date'],
+        'original_score': score,         # the district's own 0-100 score, 100 - demerits
+        'risk_score': score,
+        'priority_violations': pv,
+        'priority_foundation_violations': pfv,
+        'core_violations': len(violations) - pv - pfv,
+        'total_violations': len(violations),
+        'violations': violations,
+        'inspection_type': '',           # the source has none
+        'results': f"{_cc_band(demerits)} ({demerits} demerit{'' if demerits == 1 else 's'})",
+        'source': CC_SOURCE,
+        'source_url': _cc_url(insp_id),
+        'source_id': f'cctx_{insp_id}',
+        'metro': '',
+    }
+
+
+def _cc_read(session, insp_id, listed):
+    """Fetch and check one inspection page. -> (page, '') when it was read,
+    (page or None, reason) when it was not; a page in the wrong shape or
+    with a score that does not add up is re-read once before it is given up
+    (the listing and the page are two requests, and a glitch must not cost a
+    hold). Raises _CcError when the request itself failed."""
+    page, why = None, ''
+    for attempt in (1, 2):
+        html = _cc_get(session, insp_id)
+        time.sleep(CC_DELAY)
+        try:
+            page = _cc_parse_detail(html)
+            why = _cc_check(page, insp_id, listed)
+        except ValueError as e:
+            page, why = None, str(e)
+        if not why or why in (CC_UNSCORED, CC_NO_DETAIL) or _past_deadline():
+            break
+    return page, why
+
+
+def fetch_corpus_christi(since_date=None, limit=None):
+    """
+    Fetch Corpus Christi / Nueces County, TX food inspections from the health
+    district's InspectHub listing (see the section notes): one record per
+    inspection dated on or after since_date, read CC_REREAD_DAYS earlier.
+    Without since_date a limit takes the `limit` most recently inspected
+    locations (test mode); with neither, everything since CC_HISTORY_START.
+
+    Scoring: the district's own 0-100 score (100 minus demerits) is both
+    original_score and risk_score; each cited item is tiered by the points
+    deducted (3 priority, 2 priority foundation, 1 core); results carries
+    the district's band and the demerit total. The listing's score, the
+    page's score and the points on the page must agree or the inspection is
+    dropped and held (CC_SOURCE, key = its id); CC_MISMATCH_MIN of those
+    making up more than CC_MISMATCH_MAX_SHARE of the pages read raise, as
+    does a window of nearly all clean inspections.
+
+    Failures: an unreadable listing raises and ships nothing. An inspection
+    page that cannot be fetched or does not count as read is dropped and
+    held, never shipped clean: the whole window is held when it was a
+    location's latest page (its earlier in-window inspections are unknown),
+    the inspection's own day otherwise. The deadline and the breaker hold
+    without counting and report 'skipped' / 'blocked'.
+
+    No coordinates, no zip and no town in the source: every record is
+    'Corpus Christi, TX' and the caller geocodes it.
+    """
+    asked = str(since_date)[:10] if since_date else None
+    log.info(f"Fetching Corpus Christi data (since={asked}, limit={limit})")
+    started = time.time()
+    _CC_STATE.update(requests=0, streak=0, blocked='')
+    session = _cc_session()
+
+    # Phase 0 — the listing (atomic: any failure raises and ships nothing).
+    try:
+        listing = _cc_parse_list(_cc_get(session))
+    except (_CcError, ValueError) as e:
+        raise RuntimeError(f'Corpus Christi: listing unreadable ({e}); nothing shipped') from e
+    skipped, unknown_forms, locations, newest = defaultdict(int), defaultdict(int), [], ''
+    for row in listing:
+        scope = _cc_form_scope(row['form'])
+        if scope == 'unknown':
+            unknown_forms[row['form']] += 1
+            continue
+        if scope == 'skip':
+            skipped['not a food form'] += 1
+            continue
+        if not row['date']:
+            skipped['no date on the listing'] += 1
+            continue
+        newest = max(newest, row['date'])          # the source's own newest food inspection
+        why = _cc_out_of_scope(row['location'].rpartition(' - ')[0] or row['location'])
+        if why:
+            skipped[why] += 1
+            continue
+        locations.append(row)
+    if unknown_forms:
+        seen_forms = ', '.join(f"'{f}' ({n})" for f, n in sorted(unknown_forms.items(), key=lambda kv: -kv[1]))
+        if sum(unknown_forms.values()) >= CC_UNKNOWN_FORM_MIN:
+            raise RuntimeError(f'Corpus Christi: inspection form(s) the fetcher does not know: {seen_forms}; '
+                               f'decide whether they are food forms (CC_FOOD_FORM_RE / CC_SKIP_FORM_RE). '
+                               f'Nothing shipped')
+        log.warning(f"  Corpus Christi: unknown inspection form(s) not shipped: {seen_forms}")
+
+    # The window: `asked` is what the caller wants and where holds point;
+    # `since` is what is read, CC_REREAD_DAYS earlier.
+    bounded = False
+    if asked:
+        since = (datetime.strptime(asked, '%Y-%m-%d') - timedelta(days=CC_REREAD_DAYS)).strftime('%Y-%m-%d')
+    elif limit:
+        since = CC_HISTORY_START
+    else:
+        asked = since = CC_HISTORY_START
+    locations = [r for r in locations if r['date'] >= since]
+    # Oldest first, so a deadline cut drops the newest tail.
+    locations.sort(key=lambda r: (r['date'], r['id']))
+    if limit and len(locations) > limit:
+        bounded = True
+        locations = locations[-limit:]
+        if not asked:
+            since = locations[0]['date']       # test mode: the newest `limit` locations and nothing older
+    hold_start = asked or since
+    log.info(f"  Corpus Christi: {len(listing)} locations listed, {len(locations)} food establishments "
+             f"inspected since {since}" + (f" ({CC_REREAD_DAYS} days before the {asked} asked for)"
+                                           if asked and asked != since else '')
+             + (f"; skipped {dict(skipped)}" if skipped else ''))
+
+    results, seen, dropped = [], set(), defaultdict(int)
+    stats = {'read': 0, 'clean': 0, 'mismatch': 0, 'unread': 0, 'corrected': 0, 'no_page_streak': 0,
+             'unscored': 0}
+    first_mismatch = ''
+
+    def take(insp_id, listed, latest):
+        """Read one inspection; ship, skip or hold it. Returns its page when
+        the page was read (for the history table), 'cut' when the deadline
+        or the breaker stopped the phase, else None."""
+        nonlocal first_mismatch
+        if _past_deadline() or _CC_STATE['blocked']:
+            return 'cut'
+        seen.add(insp_id)
+        try:
+            page, why = _cc_read(session, insp_id, listed)
+        except _CcError as e:
+            if e.cut:
+                seen.discard(insp_id)
+                return 'cut'
+            page, why = None, f'request failed ({e})'
+        if why in (CC_UNSCORED, CC_NO_DETAIL):
+            # read (its history table still counts), not shipped, not held:
+            # re-reading it a week later shows the same page
+            stats['read'] += 1
+            stats['unscored'] += 1
+            stats['no_page_streak'] = 0
+            skipped[why] += 1
+            return page
+        if why:
+            stats['unread'] += 1
+            if why.startswith('score'):
+                stats['mismatch'] += 1
+                first_mismatch = first_mismatch or f'{insp_id}: {why[7:]}'
+            dropped['page unread or scores disagree'] += 1
+            if stats['unread'] <= 20:
+                log.warning(f"  Corpus Christi: inspection {insp_id} ({listed['date']}) not shipped: {why}")
+            # 200s that are not inspection pages at all (an error text, a
+            # challenge) are a block too: stop asking after a few in a row
+            stats['no_page_streak'] = stats['no_page_streak'] + 1 if page is None else 0
+            if stats['no_page_streak'] >= CC_BREAKER_TRIP and not _CC_STATE['blocked']:
+                _CC_STATE['blocked'] = (f"{stats['no_page_streak']} inspection pages in a row could not be "
+                                        f"read (last: {why[:80]})")
+                log.error(f"  Corpus Christi: {_CC_STATE['blocked']} — treating the portal as blocked")
+            # a failure the breaker or the deadline is behind is the portal's
+            # or the run's, not the record's: held, never counted
+            counted = not _CC_STATE['blocked'] and not _past_deadline()
+            if latest:
+                _hold_window_start(CC_SOURCE, hold_start, counted=counted, key=str(insp_id))
+            else:
+                _hold_freshness(CC_SOURCE, listed['date'], counted=counted, key=str(insp_id))
+            return None
+        stats['read'] += 1
+        stats['no_page_streak'] = 0
+        reason = _cc_out_of_scope(page['name'])
+        if not page['street']:
+            reason = reason or 'no street address'
+        if reason:
+            skipped[reason] += 1
+        else:
+            stats['clean'] += not page['rows']
+            stats['corrected'] += sum(1 for r in page['rows'] if r[4].lower().startswith('y'))
+            results.append(_cc_record(insp_id, page))
+        return page
+
+    # Phase 1 — each location's latest inspection; its history table names
+    # the location's earlier inspections inside the window.
+    earlier, cut = [], False
+    for n, row in enumerate(locations):
+        if row['id'] in seen:
+            continue
+        page = take(row['id'], row, latest=True)
+        if page == 'cut':
+            cut = True
+            left = sum(1 for r in locations[n:] if r['id'] not in seen)
+            dropped[f"location not read ({'blocked' if _CC_STATE['blocked'] else 'deadline'})"] += left
+            # their earlier in-window inspections are unknown: the window is held, not counted
+            _hold_window_start(CC_SOURCE, hold_start, counted=False, key='locations')
+            break
+        if page is None:
+            continue
+        for hid, hdate, hscore in page['history']:
+            if hdate and hdate >= since:
+                earlier.append((hid, {'location': row['location'], 'date': hdate, 'score': hscore}))
+        if (n + 1) % 100 == 0:
+            log.info(f"  Corpus Christi: {n + 1}/{len(locations)} locations ({len(results)} inspections, "
+                     f"{time.time() - started:.0f}s)")
+
+    # Phase 2 — the earlier in-window inspections, oldest first. (A location
+    # listed twice under one name shows the other row's inspections in its
+    # history; `seen` reads each id once.)
+    earlier.sort(key=lambda e: (e[1]['date'], e[0]))
+    pending = []
+    for hid, listed in earlier:
+        if hid in seen:
+            continue
+        if cut or take(hid, listed, latest=False) == 'cut':
+            cut = True
+            seen.add(hid)
+            pending.append((hid, listed))
+    for hid, listed in pending:
+        _hold_freshness(CC_SOURCE, listed['date'], counted=False, key=str(hid))
+    if pending:
+        dropped[f"earlier inspection not read ({'blocked' if _CC_STATE['blocked'] else 'deadline'})"] += len(pending)
+
+    tried = stats['read'] + stats['unread']
+    if stats['mismatch'] >= CC_MISMATCH_MIN and stats['mismatch'] > CC_MISMATCH_MAX_SHARE * tried:
+        raise RuntimeError(f"Corpus Christi: {stats['mismatch']} of {tried} inspection pages carry scores "
+                           f"that disagree (first {first_mismatch}); the page changed, not shipping")
+    if len(results) >= CC_MASS_CLEAN_MIN and stats['clean'] > CC_MASS_CLEAN_SHARE * len(results):
+        raise RuntimeError(f"Corpus Christi: {stats['clean']} of {len(results)} inspections read as clean "
+                           f"(about half are); the pages lost their rows? Not shipping")
+    if stats['unscored'] >= CC_MISMATCH_MIN and stats['unscored'] > CC_UNSCORED_MAX_SHARE * stats['read']:
+        raise RuntimeError(f"Corpus Christi: {stats['unscored']} of {stats['read']} inspection pages carry no "
+                           f"score or no items (a few percent do); the page changed? Not shipping")
+    no_street = skipped.get('no street address', 0)
+    if no_street >= CC_MISMATCH_MIN and no_street * 2 > stats['read']:
+        raise RuntimeError(f"Corpus Christi: {no_street} of {stats['read']} inspection pages carry no street "
+                           f"line under the name; the page changed, not shipping")
+
+    not_read = sum(n for why, n in dropped.items() if 'not read' in why)
+    if _CC_STATE['blocked']:
+        _set_group_status(CC_GROUP, 'blocked', f"{_CC_STATE['blocked']}; {not_read} pages not read and "
+                                               f"{stats['unread']} unread, all held for the next run")
+    elif stats['unread'] >= CC_MISMATCH_MIN and stats['unread'] > 2 * CC_MISMATCH_MAX_SHARE * tried:
+        _set_group_status(CC_GROUP, 'error', f"{stats['unread']} of {tried} inspection pages could not be "
+                                             f"read (held for the next run)")
+    elif cut:
+        _set_group_status(CC_GROUP, 'skipped', f"fetch deadline reached; {not_read} pages not read "
+                                               f"(held for the next run)")
+    if dropped:
+        log.warning("  Corpus Christi: dropped " + ', '.join(f'{n} ({why})' for why, n in sorted(dropped.items()))
+                    + " — none shipped as clean")
+    _note_source_lag(CC_GROUP, newest)
+
+    # Newest day first; within a day the worst visit first (D1 keeps one
+    # inspection per restaurant per day, _same_day_rank picks the worst).
+    results.sort(key=lambda r: (r['risk_score'], -r['priority_violations'], -r['total_violations'],
+                                r['source_id']))
+    results.sort(key=lambda r: r['inspection_date'], reverse=True)
+    if limit and len(results) > limit:
+        results = results[:limit]
+    log.info(f"Corpus Christi: {len(results)} inspections ({stats['clean']} clean, {stats['corrected']} items "
+             f"corrected during the inspection) from {stats['read']} pages in {time.time() - started:.0f}s "
+             f"({_CC_STATE['requests']} requests; source newest {newest or 'n/a'}"
+             + (f"; skipped {dict(skipped)}" if skipped else '') + ")")
+    return results
+
+
+# ─── ABILENE / TAYLOR COUNTY, TX (Tyler EnerGov "Civic Access" JSON API) ─────
+# The City of Abilene Environmental Health Division (Abilene-Taylor County
+# Public Health District) publishes its food inspections through Tyler
+# EnerGov's "Civic Access Public" portal: an Angular SPA over an anonymous,
+# undocumented JSON API (`civicapi/`, no cookie, token or tenant header). The
+# tenant holds only Environmental Health records. The city moved to new
+# inspection types in September 2026 ('RFE-Routine', 'RFE-Reinspection',
+# 'RFE-Bi-Annual School'); the visits before that are 'Legacy Retail Food
+# Establishment' (back to 2019).
+# A window is read in three phases, one request stream about a second apart:
+#   1. `search-inspections` over every type, filtered server-side on the
+#      REQUESTED date (the scheduled-date filter is ignored, and there is no
+#      completed-date filter), paged to the end;
+#   2. `inspection/{id}` per listed food inspection: business name, street,
+#      permit link and the COMPLETED date, which is the visit's own date;
+#   3. per kept inspection `inspection/inspection-score-violation/{id}` (the
+#      official score) and `violations-information` (one row per OUT item,
+#      with the agency's tier and the inspector's observation), plus the
+#      operational permit's summary once per permit (its class decides scope).
+# The requested date is the visit's due date, set when the previous visit
+# closed: a routine completed today can carry a requested date months ago
+# (overdue) or months ahead (done early; one completed 2026-11-20 is requested
+# 2027-05-01), so the search reads from ABL_REQUESTED_MARGIN_DAYS before the
+# window with no upper bound, and inspections are kept by completed date.
+# Visits not yet done exist as 'Scheduled' and are not listed; the public list
+# was checked against 30 permits' own inspection lists (docs/expansion-2026-
+# 11b/abilene.md): every completed food inspection was listed.
+# Score: the agency's violationScore, 100 - 3 x Priority - 2 x Priority
+# Foundation - 1 x Core, kept as original_score and risk_score. The tiers are
+# the agency's own (violationCategoryGroupName), registered in jev_reader
+# SOURCE_TIER_SOURCES. The score endpoint's own per-tier counts are unreliable
+# (blank severity names on a fifth of inspections), so the OUT lines are the
+# check: an inspection whose lines (3 / 2 / 1 per distinct form item) do not
+# reproduce its score was not read completely and is dropped and held.
+# Addresses are street-only (no city or ZIP anywhere in the API; every permit
+# seen is in the 'City of Abilene' district), so city is Abilene and main()
+# geocodes. The header carries the inspector's name and e-mail and a free-text
+# comment, the permit summary its issuer's and (in 'description') often the
+# business's contact e-mail: none of them leave this section, and the test
+# fixtures are scrubbed of them.
+
+ABL_BASE = 'https://cityofabilenetx-energovweb.tylerhost.net/apps/civic-access-public/'
+ABL_API = ABL_BASE + 'civicapi/'
+ABL_SEARCH_URL = ABL_API + 'search-inspections'
+ABL_HEADER_URL = ABL_API + 'inspection/{}'
+ABL_SCORE_URL = ABL_API + 'inspection/inspection-score-violation/{}'
+ABL_VIOLATIONS_URL = ABL_API + 'violations-information'
+ABL_PERMIT_URL = ABL_API + 'operational-permit/{}/summary'
+ABL_BUSINESS_URL = ABL_API + 'details/business/{}/page-title'
+ABL_RECORD_URL = ABL_BASE + 'details/inspection/{}'      # the SPA's own route
+ABL_SOURCE = 'Abilene Environmental Health'
+ABL_GROUP = 'Abilene'
+ABL_METRO = ''
+ABL_DEFAULT_CITY = 'Abilene'
+ABL_STATE = 'TX'
+ABL_PAGE = 100               # pageSize per search page (the server accepts 100)
+ABL_MAX_PAGES = 400          # the whole record since 2019 is ~175 pages
+ABL_TIMEOUT = 60
+ABL_RETRIES = 4              # attempts per request
+ABL_BACKOFF = 5              # seconds between attempts: 5, 15, 45
+ABL_DELAY = 1.0              # seconds after every request: one stream, ~1 request a second
+ABL_BREAKER_TRIP = 3         # exhausted requests in a row -> _ABL_BLOCKED
+# The search reads from this many days of REQUESTED date before the window
+# start. Measured 2026-11-23 over the 432 completed food inspections requested
+# since 2026-08-24: completed minus requested was 0 days for the median, 20
+# at the 90th percentile, 27 at the 95th and 49 at most (RFE-Routine; legacy
+# rows 0); a visit done EARLY has a later requested date (down to -162 days)
+# and is covered by the open upper bound.
+ABL_REQUESTED_MARGIN_DAYS = 60
+# The date-filtered search silently leaves out an inspection with no
+# scheduled date (RFEI-ROUT-000151-2026, requested 2026-09-28, is listed by a
+# search with no date and by its case number, by no requested-date window: 1
+# of the 251 routine rows on 2026-11-23). So each new food type is also
+# listed with no date filter, which reads its whole short history (the types
+# began in September 2026: 3 pages a run, ~10 after a year), and its rows
+# with no scheduled date join the window by their requested date.
+ABL_SWEEP_TYPE_IDS = {
+    'RFE-Routine': '120346cb-0c05-2aa9-bff3-500dc39b5f3c',
+    'RFE-Reinspection': '863a15ad-2c97-858b-5ab1-3de679e08c05',
+}
+# Inspections COMPLETED this many days before the window start are read and
+# shipped again (idempotent upserts): a visit is listed only once its report
+# is closed, which can be days after the visit. Already-stored ones are
+# skipped through SKIP_KNOWN_INSPECTIONS, so the margin costs only headers.
+ABL_COMPLETED_MARGIN_DAYS = 14
+# With no since_date and a limit (the pipeline's test mode) the search reads
+# this many days back instead of the whole record.
+ABL_BOUNDED_DAYS = 30
+# Once this many inspections were tried, more than half unreadable (or, for
+# the score check, more than ABL_SCORE_MISMATCH_MAX) is an outage or a layout
+# change and nothing ships.
+ABL_MASS_FAILURE_MIN = 20
+ABL_SCORE_MISMATCH_MAX = 0.05
+ABL_HEADERS = {
+    'User-Agent': CHROME_UA,
+    'Accept': 'application/json, text/plain, */*',
+    'Origin': 'https://cityofabilenetx-energovweb.tylerhost.net',
+    'Referer': ABL_BASE + 'search',
+}
+# Inspection types (every type listed since 2026-08-24: RFE-Routine 250,
+# Legacy Retail Food Establishment 158, RFE-Bi-Annual School 22,
+# RFE-Reinspection 3). The display name is the record's inspection_type.
+ABL_SHIP_TYPES = {
+    'RFE-Routine': 'Routine',
+    'RFE-Reinspection': 'Reinspection',
+    'Legacy Retail Food Establishment': 'Routine',
+}
+# Never shipped: school cafeterias (their own type and permit class), mobile
+# units and temporary events (no fixed address), and the programs that are not
+# food (pools, child care, public interactive water features). Any other type
+# is dropped with a warning so a new one gets a decision.
+ABL_DROP_TYPES = frozenset({
+    'RFE-Bi-Annual School', 'MF-Routine', 'MF-Reinspection', 'Legacy Mobile Food',
+    'Temporary Food Service', 'DAY-Annual', 'Legacy Daycare', 'POOL-Routine', 'POOL-Reinspection',
+    'POOL-Off-Season', 'Legacy Pool', 'PIWF-Routine', 'PIWF-Reinspection', 'Legacy PIWF',
+})
+# Statuses of a closed report (the search lists nothing else).
+ABL_SHIP_STATUSES = frozenset({'Completed', 'Passed', 'Failed'})
+# Operational-permit classes out of scope: institutional kitchens (schools,
+# the university dining contractor's 'Academy' permits, day cares, nursing
+# homes, hospitals), mobile units, food demonstrations and wholesalers.
+ABL_SKIP_PERMIT_CLASSES = frozenset({
+    'School - Biannual Inspection', 'Academy', 'Day Care', 'Nursing Home', 'Hospital',
+    'Mobile Food', 'Food Demo', 'Wholesale',
+})
+# Until the school class existed (September 2026) the district kitchens held
+# 'Full Service' permits (now Inactive) and were inspected as RFE-Routine or
+# Legacy visits, told apart by neither type nor class. The Tyler fetchers'
+# institution name rule (TP_INSTITUTION_RE) catches the schools; these two
+# catch an early-childhood centre and the school district's warehouse. In the
+# 90-day backfill 17 of 499 inspections matched: 14 at schools and the
+# early-childhood centre, 2 at the warehouse, and 1 at a fast-food counter
+# inside a hospital (the shared rule's 'medical center', as for Georgia and
+# Louisiana).
+_ABL_INSTITUTION_RE = re.compile(r'\b(?:early\s+childhood|\w*isd)\b', re.I)
+
+
+def _abl_institutional(name):
+    return _tp_institutional(name) or bool(_ABL_INSTITUTION_RE.search(name or ''))
+# The agency's tier per OUT line (violationCategoryGroupName).
+ABL_GROUP_SEVERITY = (
+    ('priority foundation', 'priority_foundation'),
+    ('priority', 'priority'),
+    ('core', 'core'),
+)
+ABL_SEVERITY_POINTS = {'priority': 3, 'priority_foundation': 2, 'core': 1}
+# Form item 20's title. Alone it does not trip SEWAGE_ISSUE_RE, but joined
+# after item 19's title ('... proper backflow device|||Approved Sewage/...')
+# or followed by an observation naming a floor drain it does ('back' / 'floor'
+# within 40 characters of 'sewage'), forcing false F's on a mop-bucket
+# citation. It ships under a neutral heading; an observation that says sewage
+# backed up still forces the F on its own words. Item 34's pest title ships
+# as 'Pests and animals: <observation>' (HH_PEST_TITLE, the Hedgerow rule) and
+# bare, with no observation, as the TFER title jev_reader registers in
+# CITED_PEST_ITEM_TITLES (pest chip, "Pests found", never an F).
+_ABL_SEWAGE_TITLE_RE = re.compile(r'^approved\s+sewage\s*/\s*wastewater\s+disposal\s+system\b', re.I)
+ABL_SEWAGE_TITLE = 'Wastewater disposal'
+
+_ABL_BLOCKED = False
+_ABL_EXHAUSTED_STREAK = 0
+_ABL_FAILURES_LOGGED = 0
+_ABL_LAST_ERROR = ''
+_ABL_STATS = defaultdict(int)       # this fetch's request count and outcomes (logs and tests)
+
+
+class _AblCut(Exception):
+    """A phase stopped early: the breaker tripped ('blocked') or the fetch
+    deadline passed ('skipped')."""
+
+    def __init__(self, status, detail):
+        super().__init__(detail)
+        self.status, self.detail = status, detail
+
+
+def _abl_request(session, url, body=None, info=None):
+    """JSON from one civicapi call (a POST of the JSON `body`, else a GET), or
+    None once ABL_RETRIES attempts failed. `info` says why None came back:
+    'permanent' (400/404/410: that record's own problem, not retried, not
+    counted toward the breaker), 'exhausted' (every attempt failed: a 5xx, a
+    timeout, a 403, an HTML page in place of JSON; ABL_BREAKER_TRIP in a row
+    set _ABL_BLOCKED and every further request returns None at once) or
+    'deadline' (the retry ladder was cut by the fetch deadline). Sleeps
+    ABL_DELAY after every answer: one request stream about a second apart."""
+    global _ABL_BLOCKED, _ABL_EXHAUSTED_STREAK, _ABL_FAILURES_LOGGED, _ABL_LAST_ERROR
+    last_err, permanent, deadline = None, False, False
+    for attempt in range(ABL_RETRIES):
+        if _ABL_BLOCKED:
+            return None
+        _ABL_STATS['requests'] += 1
+        try:
+            if body is not None:
+                r = session.post(url, data=json.dumps(body), timeout=ABL_TIMEOUT,
+                                 headers={**ABL_HEADERS, 'Content-Type': 'application/json'})
+            else:
+                r = session.get(url, timeout=ABL_TIMEOUT, headers=ABL_HEADERS)
+            time.sleep(ABL_DELAY)
+            r.raise_for_status()
+            data = r.json()
+            _ABL_EXHAUSTED_STREAK = 0
+            return data
+        except (requests.RequestException, ValueError) as e:
+            last_err = e
+            resp = getattr(e, 'response', None)
+            status = resp.status_code if resp is not None else None
+            if status in (400, 404, 410):
+                permanent = True
+                break
+            if attempt == ABL_RETRIES - 1:
+                break
+            if _past_deadline():
+                deadline = True
+                break
+            wait = ABL_BACKOFF * (3 ** attempt)
+            if status in (429, 503):
+                try:
+                    wait = max(wait, min(int((resp.headers or {}).get('Retry-After', 0)), 300))
+                except (TypeError, ValueError):
+                    pass
+            time.sleep(wait)
+    _ABL_LAST_ERROR = f'{type(last_err).__name__}: {str(last_err)[:120]}' if last_err else 'breaker tripped'
+    if info is not None:
+        info['permanent' if permanent else 'deadline' if deadline else 'exhausted'] = True
+    if permanent:
+        _ABL_STATS['permanent failures'] += 1
+    elif deadline:
+        _ABL_STATS['deadline cuts'] += 1
+    elif last_err is not None:
+        _ABL_STATS['exhausted failures'] += 1
+        _ABL_EXHAUSTED_STREAK += 1
+        if _ABL_EXHAUSTED_STREAK >= ABL_BREAKER_TRIP and not _ABL_BLOCKED:
+            _ABL_BLOCKED = True
+            log.error(f"  Abilene: {_ABL_EXHAUSTED_STREAK} requests in a row failed through every retry "
+                      f"({_ABL_LAST_ERROR}) — treating it as a block")
+    if _ABL_FAILURES_LOGGED < 5:
+        _ABL_FAILURES_LOGGED += 1
+        log.warning(f"  Abilene request failed ({url.replace(ABL_API, '<civicapi>/')}): {_ABL_LAST_ERROR}")
+    return None
+
+
+def _abl_outcome(info):
+    """Why a per-record request came back without data: 'gone' (400/404/410),
+    'failed' (tried through every retry, or an answer of the wrong shape),
+    'deadline' or 'blocked' (the breaker had tripped; nothing was tried)."""
+    if info.get('permanent'):
+        return 'gone'
+    if info.get('exhausted'):
+        return 'failed'
+    if info.get('deadline'):
+        return 'deadline'
+    if _ABL_BLOCKED:
+        return 'blocked'
+    return 'deadline' if _past_deadline() else 'failed'
+
+
+def _abl_search_body(read_from, page, size, type_id=''):
+    return {
+        'publicRecordsCommonSearchCriteria': {
+            'caseNumber': '', 'caseTypeId': type_id, 'caseTypeWorkClassId': '', 'caseStatusId': '',
+            'projectName': '', 'address': '', 'parcelNumber': '', 'description': ''},
+        # No upper bound: a visit done early keeps a requested date months ahead.
+        'requestedDateFrom': f'{read_from}T00:00:00' if read_from else None,
+        'requestedDateTo': None,
+        'scheduledDateFrom': None, 'scheduledDateTo': None,
+        'sortBy': 0, 'pageNumber': page, 'pageSize': size, 'value': '',
+        'isSortedInAscendingOrder': False, 'sortField': ''}
+
+
+def _abl_fields(row):
+    """A search row's searchResultFields as {label: value}."""
+    out = {}
+    for f in row.get('searchResultFields') or []:
+        if isinstance(f, dict) and f.get('label'):
+            out[f['label']] = f.get('value')
+    return out
+
+
+def _abl_list(session, read_from, type_id='', label='inspections'):
+    """Phase 1: every inspection row requested on or after `read_from` (all of
+    them when None), of one type when `type_id` is set, deduped on caseId
+    (lower-cased: the portal prints legacy GUIDs in capitals). Pages are
+    followed to a short page; the unique count must reach the server's
+    totalCount, and a page that adds no new row (the server stopped paging)
+    fails closed. Raises RuntimeError on an unreadable page or a short
+    listing, _AblCut on the deadline or the breaker."""
+    rows, page, total = {}, 1, None
+    while True:
+        if _past_deadline():
+            raise _AblCut('skipped', f'fetch deadline reached while listing {label} ({len(rows)} read)')
+        info = {}
+        data = _abl_request(session, ABL_SEARCH_URL, body=_abl_search_body(read_from, page, ABL_PAGE, type_id),
+                            info=info)
+        got = data.get('entityPublicSearchResults') if isinstance(data, dict) else None
+        if not isinstance(got, list):
+            if _ABL_BLOCKED:
+                raise _AblCut('blocked', f'the portal stopped answering while listing inspections ({_ABL_LAST_ERROR})')
+            if info.get('deadline') or _past_deadline():
+                raise _AblCut('skipped', f'fetch deadline reached while listing inspections (page {page} not read)')
+            raise RuntimeError(f'Abilene: inspection search page {page} could not be read '
+                               f'({_ABL_LAST_ERROR or str(data)[:80]}); not shipping a partial window')
+        try:
+            total = int(data.get('totalCount'))
+        except (TypeError, ValueError):
+            raise RuntimeError(f'Abilene: inspection search page {page} answered without a totalCount; '
+                               f'not shipping a partial window')
+        new = 0
+        for row in got:
+            cid = str(row.get('caseId') or '').strip().lower() if isinstance(row, dict) else ''
+            if cid and cid not in rows:
+                rows[cid] = row
+                new += 1
+        if len(got) < ABL_PAGE or len(rows) >= total:
+            break
+        if not new:
+            raise RuntimeError(f'Abilene: inspection search is not paging (page {page} added none of its '
+                               f'{len(got)} rows); not shipping a partial window')
+        page += 1
+        if page > ABL_MAX_PAGES:
+            raise RuntimeError(f'Abilene: inspection search did not end after {ABL_MAX_PAGES} pages')
+    if len(rows) < total:
+        raise RuntimeError(f'Abilene: inspection listing incomplete ({len(rows)} of {total} rows in {page} '
+                           f'pages); not shipping a partial window')
+    log.info(f"  Abilene: {len(rows)} {label} requested since {read_from or 'the start of the record'} "
+             f"({page} search pages, totalCount {total})")
+    return rows
+
+
+def _abl_fix_case(s):
+    """After .title(): possessives, ordinals and 'Mc' names ("Belle's",
+    '14th', 'McMurry')."""
+    s = re.sub(r"(\w)'S\b", r"\1's", s)
+    s = re.sub(r'\b(\d+)(St|Nd|Rd|Th)\b', lambda m: m.group(1) + m.group(2).lower(), s)
+    return re.sub(r'\bMc([a-z])', lambda m: 'Mc' + m.group(1).upper(), s)
+
+
+def _abl_title(s):
+    """Whitespace collapsed; title case for an ALL-CAPS value."""
+    s = ' '.join(str(s or '').split())
+    return _abl_fix_case(s.title()) if s.isupper() else s
+
+
+# Abilene's street directions, including the city's own two-letter ones
+# ('ES 11th St', 'EN 10th St': East South / East North).
+_ABL_DIRECTIONS_RE = re.compile(r'\b(N|S|E|W|Ne|Nw|Se|Sw|En|Es|Wn|Ws)\b')
+
+
+def _abl_address(s):
+    """'2025 S 14th ST Unit:STE A' -> '2025 S 14th St Ste A'. The portal mixes
+    capitals and mixed case per permit; every address is title-cased (with
+    ordinals lower and directions upper) so a facility reads the same however
+    it was keyed."""
+    s = ' '.join(re.sub(r'\bUnit\s*:\s*', ' ', str(s or ''), flags=re.I).split())
+    s = _abl_fix_case(s.title())
+    s = _ABL_DIRECTIONS_RE.sub(lambda m: m.group(1).upper(), s)
+    return s.strip(' ,')
+
+
+def _abl_severity(group):
+    g = ' '.join(str(group or '').split()).lower()
+    for prefix, severity in ABL_GROUP_SEVERITY:
+        if g.startswith(prefix):
+            return severity
+    return None
+
+
+def _abl_violations(items):
+    """violations-information rows -> ([[category, severity, text], ...],
+    demerits) for the OUT items, in form order. The text is the form item's
+    title and the inspector's observation ('<title>: <notes>'), or the title
+    alone when the inspector wrote none; a line repeated verbatim (the legacy
+    rows cite an item once per finding, with no notes) ships once. demerits
+    is 3 / 2 / 1 per DISTINCT form item by its tier, which is how the agency
+    scores (a legacy 71 cites items 10, 31, 37 and 45 twice each and adds up
+    only counting each once). Raises ValueError for anything but a list, or
+    an OUT row without a title or with a tier the agency does not use (a
+    layout change: the inspection is not read, never clean)."""
+    if not isinstance(items, list):
+        raise ValueError(f'unexpected violations-information shape: {str(items)[:80]}')
+    out, seen, cited = [], set(), {}
+    for item in sorted((i for i in items if isinstance(i, dict)), key=lambda i: (i.get('sortOrder') or 0)):
+        if ' '.join(str(item.get('observationType') or '').split()).upper() != 'OUT':
+            continue
+        title = ' '.join(str(item.get('violationItemText') or '').split()).rstrip(' .:;')
+        notes = ' '.join(str(item.get('inspectorNotes') or '').split())
+        severity = _abl_severity(item.get('violationCategoryGroupName'))
+        if not title or severity is None:
+            raise ValueError(f"OUT item without a title or a known tier "
+                             f"({str(item.get('violationCategoryGroupName'))[:60]!r})")
+        if _HH_PEST_TITLE_RE.match(title):
+            if notes:
+                title = HH_PEST_TITLE
+        elif _ABL_SEWAGE_TITLE_RE.match(title):
+            title = ABL_SEWAGE_TITLE
+        ref = ' '.join(str(item.get('itemReference') or '').split()) or title.lower()
+        cited[ref] = max(cited.get(ref, 0), ABL_SEVERITY_POINTS[severity])
+        text = (f'{title}: {notes}' if notes and notes.lower() != title.lower() else title)[:500]
+        if (severity, text.lower()) in seen:
+            continue
+        seen.add((severity, text.lower()))
+        cat, _, _ = classify_violation(text)
+        out.append([cat, severity, text])
+    return out, sum(cited.values())
+
+
+def _abl_score(data):
+    """The official violationScore as an int, or None when absent."""
+    try:
+        v = float(((data or {}).get('scoreDetail') or {}).get('violationScore'))
+    except (TypeError, ValueError, AttributeError):
+        return None
+    return int(round(v)) if v == v else None
+
+
+def _abl_header_fields(cid, row, header):
+    """The fields a record needs from one inspection header, or None for an
+    answer that is not an inspection header."""
+    if not isinstance(header, dict) or not isinstance(header.get('detailsHeaderInfo'), dict):
+        return None
+    info = header['detailsHeaderInfo']
+    kind = ' '.join(str(header.get('inspectionTypeName') or row.get('caseTypeWorkClassFriendlyName') or '').split())
+    return {
+        'cid': cid,
+        'case_id': str(row.get('caseId') or info.get('caseId') or cid),
+        'number': ' '.join(str(info.get('caseNumber') or row.get('caseNumber') or '').split()),
+        'type': kind,
+        'status': ' '.join(str(header.get('inspectionStatusName') or row.get('caseStatus') or '').split()),
+        'date': sane_inspection_date(header.get('completedDate')),
+        'requested': str(header.get('requestedDate') or '')[:10],
+        'name': ' '.join(str(header.get('companyName') or header.get('dba') or '').split()),
+        'address': info.get('mainAddress') or row.get('displayAddress') or '',
+        'link_id': str(header.get('linkId') or '').strip(),
+        'link_module': header.get('linkModule'),
+    }
+
+
+def _abl_record(insp, score, violations):
+    _, pv, pfv, cv = calc_risk_score(violations)
+    status = insp['status']
+    return {
+        'name': _abl_title(insp['name']),
+        'address': _abl_address(insp['address']),
+        'city': ABL_DEFAULT_CITY,
+        'state': ABL_STATE,
+        'zip': '',
+        'latitude': None,
+        'longitude': None,
+        'inspection_date': insp['date'],
+        'original_score': score,             # the agency's 100 - 3P - 2PF - C
+        'risk_score': max(0, min(100, score)),
+        'priority_violations': pv,
+        'priority_foundation_violations': pfv,
+        'core_violations': cv,
+        'total_violations': len(violations),
+        'violations': violations,
+        'inspection_type': ABL_SHIP_TYPES.get(insp['type'], insp['type']),
+        'results': status if status in ('Passed', 'Failed') else '',
+        'source': ABL_SOURCE,
+        'source_url': ABL_RECORD_URL.format(insp['case_id']),
+        'source_id': f"abl_{insp['number']}",
+        'metro': ABL_METRO,
+    }
+
+
+def fetch_abilene(since_date=None, limit=None):
+    """
+    Fetch Abilene / Taylor County, TX food inspections from the city's Tyler
+    EnerGov Civic Access API (see the section comment above): one record per
+    completed routine or scored re-inspection of a fixed food establishment,
+    the agency's official score, agency-stated P/PF/C tiers, the form item
+    title plus the inspector's observation as the violation text.
+
+    since_date is 'YYYY-MM-DD[T00:00:00]' or None (the whole record, or the
+    last ABL_BOUNDED_DAYS days when `limit` is set). Inspections COMPLETED on
+    or after since_date less ABL_COMPLETED_MARGIN_DAYS ship; the search reads
+    from ABL_REQUESTED_MARGIN_DAYS before that. limit bounds a test read to
+    the `limit` most recently requested rows (no lag note then). An
+    inspection whose score, OUT lines or permit could not be read is dropped
+    and held, never shipped clean.
+    """
+    global _ABL_BLOCKED, _ABL_EXHAUSTED_STREAK, _ABL_FAILURES_LOGGED, _ABL_LAST_ERROR
+    log.info(f"Fetching Abilene data (since={since_date}, limit={limit})")
+    since = str(since_date)[:10] if since_date else None
+    _ABL_STATS.clear()
+    _ABL_BLOCKED, _ABL_EXHAUSTED_STREAK, _ABL_FAILURES_LOGGED, _ABL_LAST_ERROR = False, 0, 0, ''
+    started = time.time()
+    session = requests.Session()
+
+    def shift(day, days):
+        return (datetime.strptime(day, '%Y-%m-%d') - timedelta(days=days)).strftime('%Y-%m-%d')
+
+    if since:
+        keep_from = shift(since, ABL_COMPLETED_MARGIN_DAYS)
+        read_from = shift(since, ABL_REQUESTED_MARGIN_DAYS)
+    elif limit:
+        keep_from = read_from = (datetime.now() - timedelta(days=ABL_BOUNDED_DAYS)).strftime('%Y-%m-%d')
+    else:
+        keep_from = read_from = None
+
+    def cut(status, detail):
+        if since:
+            # Nothing read is complete enough to advance the window.
+            _hold_window_start(ABL_SOURCE, since, counted=False, key='window')
+        _set_group_status(ABL_GROUP, status, detail)
+        log.warning(f"Abilene: {status} — {detail}")
+        return []
+
+    # Phase 1: the list, plus the rows of the new food types that the
+    # date-filtered search cannot see (no scheduled date; ABL_SWEEP_TYPE_IDS).
+    try:
+        listed = _abl_list(session, read_from)
+        unscheduled = 0
+        for kind, type_id in ABL_SWEEP_TYPE_IDS.items():
+            for cid, row in _abl_list(session, None, type_id, f'{kind} rows (no date filter)').items():
+                fields = _abl_fields(row)
+                requested = str(fields.get('Requested Date') or '')[:10]
+                if cid in listed or fields.get('Scheduled Date'):
+                    continue
+                if read_from and requested and requested < read_from:
+                    continue
+                listed[cid] = row
+                unscheduled += 1
+        if unscheduled:
+            log.info(f"  Abilene: {unscheduled} inspections with no scheduled date added from the "
+                     f"undated listing (the date filter leaves them out)")
+    except _AblCut as c:
+        return cut(c.status, c.detail)
+    skipped = defaultdict(int)
+    rows = []
+    for row in listed.values():
+        kind = ' '.join(str(row.get('caseTypeWorkClassFriendlyName') or '').split())
+        if kind in ABL_SHIP_TYPES:
+            rows.append(row)
+        elif kind in ABL_DROP_TYPES:
+            skipped[f'type {kind}'] += 1
+        else:
+            skipped[f'unknown type {kind or "(blank)"}'] += 1
+    for why, n in skipped.items():
+        if why.startswith('unknown type'):
+            log.warning(f"  Abilene: {n} inspections of an {why} were dropped — decide whether that type should ship")
+    # Oldest requested first; a bounded read keeps the most recently requested.
+    rows.sort(key=lambda r: (str(_abl_fields(r).get('Requested Date') or ''), str(r.get('caseNumber') or '')))
+    truncated = bool(limit) and len(rows) > limit
+    if truncated:
+        rows = rows[-limit:]
+
+    # Phase 2: the headers. One that cannot be read is an inspection of
+    # unknown date: the window is held at its start so the next run re-reads
+    # it (key = the inspection's caseId, so a permanently bad one is given up).
+    headers, unread_headers = [], []
+    for row in rows:
+        if _past_deadline():
+            return cut('skipped', f'fetch deadline reached while reading inspection headers '
+                                  f'({len(headers)} of {len(rows)} read)')
+        cid = str(row.get('caseId')).strip()
+        info = {}
+        data = _abl_request(session, ABL_HEADER_URL.format(cid), info=info)
+        fields = _abl_header_fields(cid, row, data)
+        if fields is None:
+            if _ABL_BLOCKED:
+                return cut('blocked', f'the portal stopped answering ({_ABL_LAST_ERROR}); '
+                                      f'{len(rows) - len(headers)} inspection headers not read')
+            why = _abl_outcome(info) if data is None else 'failed'
+            if why == 'deadline':
+                return cut('skipped', f'fetch deadline reached while reading inspection headers '
+                                      f'({len(headers)} of {len(rows)} read)')
+            unread_headers.append((cid, why))
+            continue
+        headers.append(fields)
+        if len(headers) % 200 == 0:
+            log.info(f"  Abilene: {len(headers)} of {len(rows)} inspection headers read "
+                     f"({time.time() - started:.0f}s)")
+    if len(rows) >= ABL_MASS_FAILURE_MIN and len(unread_headers) > len(rows) / 2:
+        raise RuntimeError(f"Abilene: {len(unread_headers)} of {len(rows)} inspection headers could not be read "
+                           f"({_ABL_LAST_ERROR}); not shipping")
+    for cid, why in unread_headers:
+        if since:
+            _hold_window_start(ABL_SOURCE, since, counted=True, key=cid)
+    if unread_headers:
+        log.warning(f"  Abilene: {len(unread_headers)} inspection headers could not be read "
+                    f"({', '.join(c for c, _ in unread_headers[:5])}); the window is held for a re-read")
+
+    newest = max((h['date'] for h in headers if h['date']), default='')
+    lags = []
+    candidates = []
+    for h in headers:
+        if h['status'] not in ABL_SHIP_STATUSES:
+            skipped[f"status {h['status'] or '(blank)'}"] += 1
+            continue
+        if not h['date']:
+            skipped['no completed date'] += 1
+            continue
+        if not h['number']:
+            skipped['no case number'] += 1
+            continue
+        if h['requested']:
+            try:
+                lags.append((datetime.strptime(h['date'], '%Y-%m-%d')
+                             - datetime.strptime(h['requested'], '%Y-%m-%d')).days)
+            except ValueError:
+                pass
+        if keep_from and h['date'] < keep_from:
+            skipped['completed before the window'] += 1
+            continue
+        if h['name'] and SKIP_KNOWN_INSPECTIONS and (
+                make_restaurant_id(_abl_title(h['name']), _abl_address(h['address']), ABL_DEFAULT_CITY),
+                h['date']) in SKIP_KNOWN_INSPECTIONS:
+            skipped['already stored'] += 1
+            continue
+        candidates.append(h)
+    if lags:
+        lags.sort()
+        log.info(f"  Abilene: completed minus requested date over {len(lags)} inspections: min {lags[0]}, "
+                 f"median {lags[len(lags) // 2]}, max {lags[-1]} days")
+    candidates.sort(key=lambda h: (h['date'], h['number']))      # oldest first: a cut drops the newest tail
+
+    # Phase 3: per permit its summary (scope, name fallback), per inspection
+    # its score and OUT lines. A record that cannot be read is dropped and
+    # held on its own; a breaker trip or the deadline drops the rest (held,
+    # not counted) and reports the group.
+    permits = {}             # linkId -> summary dict | 'gone' | 'failed'
+
+    def permit_of(h):
+        lid = h['link_id']
+        if not lid:
+            return None
+        if lid not in permits:
+            info = {}
+            if h['link_module'] == 15:
+                data = _abl_request(session, ABL_PERMIT_URL.format(lid), info=info)
+                ok = isinstance(data, dict) and 'licenseClassName' in data
+            else:
+                data = _abl_request(session, ABL_BUSINESS_URL.format(lid), info=info)
+                ok = isinstance(data, dict) and 'pageTitle' in data
+            permits[lid] = data if ok else (_abl_outcome(info) if data is None else 'failed')
+        return permits[lid]
+
+    results, failures, unread_lines, mismatched = [], defaultdict(int), [], []
+    tried = checked = 0
+    stop = None
+    districts, classes = defaultdict(int), defaultdict(int)
+
+    def drop(h, why, what):
+        """Drop one inspection that could not be read. A deadline or breaker
+        stops the phase: this and every later one are held without counting.
+        Any other failure holds this one, counted toward giving it up."""
+        nonlocal stop
+        if why in ('deadline', 'blocked') and stop is None:
+            stop = ('skipped', 'fetch deadline reached') if why == 'deadline' else \
+                ('blocked', f'the portal stopped answering ({_ABL_LAST_ERROR})')
+        if stop is not None and why in ('deadline', 'blocked'):
+            failures[stop[0]] += 1
+            _hold_freshness(ABL_SOURCE, h['date'], counted=False, key=h['number'])
+        else:
+            failures[f'{what} {why}'] += 1
+            _hold_freshness(ABL_SOURCE, h['date'], counted=True, key=h['number'])
+
+    for h in candidates:
+        if stop is None and (_past_deadline() or _ABL_BLOCKED):
+            stop = ('skipped', 'fetch deadline reached') if not _ABL_BLOCKED else \
+                ('blocked', f'the portal stopped answering ({_ABL_LAST_ERROR})')
+        if stop:
+            drop(h, 'blocked' if stop[0] == 'blocked' else 'deadline', 'cut')
+            continue
+        tried += 1
+        permit = permit_of(h)
+        if isinstance(permit, str):
+            drop(h, permit, 'permit')
+            continue
+        if isinstance(permit, dict):
+            klass = ' '.join(str(permit.get('licenseClassName') or '').split())
+            if klass:
+                classes[klass] += 1
+            if permit.get('districtName'):
+                districts[' '.join(str(permit['districtName']).split())] += 1
+            if klass in ABL_SKIP_PERMIT_CLASSES:
+                skipped[f'permit class {klass}'] += 1
+                continue
+            if not h['name']:
+                h['name'] = ' '.join(str(permit.get('businessName') or permit.get('dba')
+                                         or permit.get('pageTitle') or '').split())
+        if not h['name']:
+            skipped['no business name'] += 1
+            continue
+        if _abl_institutional(h['name']):
+            skipped['institutional kitchen (by name)'] += 1
+            continue
+        info = {}
+        data = _abl_request(session, ABL_SCORE_URL.format(h['case_id']), info=info)
+        if not isinstance(data, dict) or not isinstance(data.get('scoreDetail'), dict):
+            drop(h, _abl_outcome(info) if data is None else 'failed', 'score')
+            continue
+        score = _abl_score(data)
+        if score is None or score <= 0:
+            # A re-inspection that only re-checks the failed items is stored
+            # with a score of 0 (or none): no score, not a zero.
+            skipped['unscored'] += 1
+            continue
+        violations, demerits = [], 0
+        if score < 100:
+            info = {}
+            data = _abl_request(session, ABL_VIOLATIONS_URL, info=info, body={
+                'inspectionId': h['case_id'], 'isInViolation': True, 'module': 7,
+                'inspectionViolationItemId': ''})
+            if data is None:
+                drop(h, _abl_outcome(info), 'lines')
+                continue
+            try:
+                violations, demerits = _abl_violations(data)
+            except ValueError as e:
+                log.warning(f"  Abilene: {h['number']}: unreadable OUT lines ({e})")
+                drop(h, 'failed', 'lines')
+                continue
+            if not violations:
+                # Scored below 100 with no OUT line: the lines were not read.
+                unread_lines.append(h)
+                continue
+        # Every OUT item costs 3, 2 or 1 points, so the lines must add up to
+        # the official score; when they do not, part of the report was not
+        # read (or the agency changed its scoring) and it never ships.
+        checked += score < 100
+        if score != 100 - demerits:
+            mismatched.append((h, score, 100 - demerits))
+            continue
+        results.append(_abl_record(h, score, violations))
+
+    if stop:
+        _set_group_status(ABL_GROUP, stop[0], f"{stop[1]}; {failures[stop[0]]} inspections not read")
+    if tried >= ABL_MASS_FAILURE_MIN and (len(unread_lines) + sum(
+            n for k, n in failures.items() if k.startswith(('score', 'lines', 'permit')))) > tried / 2:
+        raise RuntimeError(f"Abilene: most of {tried} inspections could not be read ({dict(failures)}, "
+                           f"{len(unread_lines)} scored below 100 without an OUT line); not shipping")
+    if checked >= ABL_MASS_FAILURE_MIN and len(mismatched) > checked * ABL_SCORE_MISMATCH_MAX:
+        raise RuntimeError(f"Abilene: {len(mismatched)} of {checked} inspections' OUT lines do not add up to "
+                           f"the official score (100 - 3P - 2PF - C); the lines are not being read, not shipping")
+    for h in unread_lines:
+        _hold_freshness(ABL_SOURCE, h['date'], counted=True, key=h['number'])
+    if unread_lines:
+        log.warning(f"  Abilene: {len(unread_lines)} inspections scored below 100 came back with no OUT line; "
+                    f"dropped and held for a re-read")
+    for h, score, computed in mismatched:
+        _hold_freshness(ABL_SOURCE, h['date'], counted=True, key=h['number'])
+    if mismatched:
+        log.warning("  Abilene: dropped and held " + ', '.join(
+            f"{h['number']} (score {s}, lines {c})" for h, s, c in mismatched[:5])
+            + f"{' ...' if len(mismatched) > 5 else ''}: OUT lines do not reproduce the official score")
+    failed = {k: n for k, n in failures.items() if k not in ('skipped', 'blocked')}
+    if failed:
+        log.warning(f"  Abilene: dropped and held {dict(failed)} inspections that could not be read")
+    if skipped:
+        log.info("  Abilene: left out " + ', '.join(
+            f"{n} {why}" for why, n in sorted(skipped.items(), key=lambda kv: -kv[1])))
+    if classes:
+        log.info(f"  Abilene: permit classes read: {dict(sorted(classes.items(), key=lambda kv: -kv[1]))}")
+    if any(d != 'City of Abilene' for d in districts):
+        log.warning(f"  Abilene: permits outside the City of Abilene district: {dict(districts)} "
+                    f"(shipped with city '{ABL_DEFAULT_CITY}')")
+    # Newest first; within a day the worst visit first.
+    results.sort(key=lambda r: (r['inspection_date'], -r['risk_score'], r['total_violations'], r['source_id']),
+                 reverse=True)
+    if not truncated:
+        _note_source_lag(ABL_GROUP, newest)
+    log.info(f"Abilene: {len(results)} inspections ({_ABL_STATS.get('requests', 0)} requests, "
+             f"{time.time() - started:.0f}s)")
+    return results
+
+
+# ─── PARAGON "INSPECTIONS ONLINE": MISSOULA, GALLATIN, FLATHEAD MT + KANSAS CITY MO ──
+# Paragon's "Inspections Online" (https://inspectionsonline.us, IBM/HCL Lotus
+# Domino) holds one inspect.nsf database per agency. No login, no CAPTCHA, no
+# robots.txt. Surveyed live 2026-11-22 (Montana) and 2026-11-23 (Kansas City);
+# docs/expansion-2026-11b/paragon.md has the measurements. Three anonymous
+# GETs per database, the same everywhere:
+#   vw_InspectionsPubSumm-NT?SearchView&SearchOrder=4&SearchMax=0&Query=
+#       [fld_Program] CONTAINS kw_Food AND [fld_InspectionDate]>=MM/DD/YYYY AND
+#       [fld_InspectionDate]<=MM/DD/YYYY
+#       Domino full-text search over the public inspection view: '<h4>N
+#       documents found</h4>' and one row per inspection (UNID, type, date,
+#       'N RFI' / 'N critical', a score cell). Bounds are inclusive. The rows
+#       carry no facility. Two server limits shape the read: a query matches
+#       at most 1,000 documents (the header then says '1000 documents found'
+#       or 'N documents returned; 1000 found'), and Start/Count paging does
+#       not page (rows 3,5,7,8,9 for Start=6&Count=5). So every window is read
+#       whole, its row count must equal the header's, and a window that
+#       reaches the cap is split in two until it does not.
+#   (ag_getDocValues)?OpenAgent&xx_UNID=<unid>&xx_fldList=f1~f2~...
+#       '~'-separated field values of one inspection document (what the
+#       public page itself asks for): business and facility name, split
+#       address, establishment type, the inspection date and the two
+#       integrity counters fld_AllvCounter (violation lines) and
+#       fld_AllcvCounter (Risk Factor/Intervention, or Critical, lines).
+#   (ag_dspPubDetail)?OpenAgent&pUNID=<unid>
+#       the public report: one row per violation with the Food Code
+#       reference, the violation title, the tier ('RISK FACTOR/INTERVENTION'
+#       in Montana, 'CRITICAL' in Kansas City, empty for the rest), a
+#       corrected-on-site flag, boilerplate code text and the inspector's
+#       observation. A report with fewer rows (of either tier) than the
+#       document's counters is unread, never clean; more rows than the
+#       counters (a counter not refreshed after an edit) all ship.
+#
+# Scoring: Missoula, Gallatin and Kansas City publish no official score (a
+# vendor score column exists in their HTML but the agency switched it off:
+# Gallatin's shows 100.0 with 3 RFI, Kansas City's 97.4 on a report with no
+# violation, so it is never shipped). risk_score is 100 - 5 per RFI/Critical
+# line - 1 per other line (calc_risk_score over the source's own two tiers:
+# Louisiana's rule), with two corrections made after the report is checked
+# against its counters (_io_shipped_rows): a commendation row is not a
+# finding (IO_COMMENDATION_RE), and a Montana Risk Factor row whose standard
+# title is a Priority Foundation provision of the Food Code counts 2, not 5
+# (IO_MT_PF_TITLES). Flathead publishes an official letter grade (Board of
+# Health Policy 2010-01 EH, demerit bands A+ 0-3 ... F 60+, in the list row's
+# score cell; per-line demerit values are not public), so the score is
+# computed the same way and then capped by the county's band: a B-range
+# grade at 89, a C-range at 79, a D-range or F at 69 — DineScores never
+# grades above the county's verdict. The letter goes to results.
+#
+# Scope: the [fld_Program] CONTAINS kw_Food filter (what the public search
+# sends) leaves out pools, lodging and wholesale. Pre-opening visits and
+# permit close-outs do not ship (IO_SKIP_TYPES), 'Other' and 'Site Visit'
+# only when they cite something; a type outside the lists is skipped and
+# counted, and a window made mostly of unknown types reports 'error' (a
+# renamed 'Routine' must not read as an empty week). Mobile units, temporary
+# events, vending and schools (Kansas City's 'Fee Exempt' type: 8 of 8 seen
+# were school kitchens) are dropped by establishment type when every type the
+# facility holds is one of them. A premises with several licensed components (Flathead:
+# 'Firebrand Lounge, The' + 'Food Service' / 'Bar/Espresso') ships under the
+# business name, so the components share one restaurant id and the pipeline's
+# one-inspection-per-day rule keeps the worst of the day.
+#
+# Window: every dated window starts IO_MARGIN_DAYS before the one asked for
+# (documents are mostly entered the day of the inspection, but 29 days late
+# was measured in Gallatin and 23 in Kansas City); holds stay at the start
+# asked for. Inspections in that margin that the store already holds
+# (--skip-known-inspections) cost one request instead of two.
+#
+# Fail-closed rules (as the Hedgerow portals): the listing is atomic (a
+# failed, short, capped-at-one-day or out-of-window list raises and the
+# group ships nothing); a 400/404/410 on one inspection drops it without a
+# hold; every other failure is retried, then the inspection is dropped AND
+# held; IO_BREAKER_TRIP requests in a row that exhaust their retries trip a
+# per-database breaker ('blocked'); the fetch deadline cuts the newest tail
+# (oldest first, held uncounted, 'skipped'). All databases share one host,
+# so requests are spaced IO_MIN_INTERVAL apart across all of them.
+IO_HOST = 'https://inspectionsonline.us/'
+IO_HEADERS = {'User-Agent': CHROME_UA, 'Accept': 'text/html,application/xhtml+xml,*/*;q=0.8'}
+IO_TIMEOUT = 120             # a 90-day list on a cold database took 6.5 s
+IO_RETRIES = 3               # attempts per request
+IO_RETRY_WAIT = 10           # seconds, times the attempt number
+IO_MIN_INTERVAL = 1.0        # seconds between request starts to the host, every database together
+IO_CAP = 1000                # Domino's full-text match cap
+IO_MARGIN_DAYS = 14          # late-entered documents (29 days late measured once in 1,600)
+IO_TEST_DAYS = 30            # test mode (no since_date): the newest `limit` of this many days
+IO_LIST_REREADS = 1          # re-reads of a window whose rows do not match its header
+IO_BREAKER_TRIP = 3          # requests in a row that exhaust their retries -> the database is blocked this run
+IO_MASS_FAILURE_MIN = 10     # unread inspections that report the group 'error' when they are also
+IO_MASS_FAILURE_FRACTION = 0.1   # ...more than this share of the inspections tried
+IO_UNKNOWN_TYPE_MIN = 10     # unknown inspection types that report 'error' when they are also
+IO_UNKNOWN_TYPE_FRACTION = 0.5   # ...more than this share of the listed rows
+IO_PERMANENT_STATUSES = frozenset({400, 404, 410})
+IO_DOC_FIELDS = ('fld_EstabName', 'fld_FaciName', 'fld_FStreetNo', 'fld_FStreetName', 'fld_FCity',
+                 'fld_FProv', 'fld_FPCode', 'fld_EstType', 'fld_EstTypeAlt', 'fld_InspectionDate',
+                 'fld_AllcvCounter', 'fld_AllvCounter', 'fld_Program')
+# The tier printed on a violation row: Montana's Risk Factor/Intervention and
+# Kansas City's Critical are the higher tier; an empty cell the other.
+IO_TIER = {'RISK FACTOR/INTERVENTION': 'priority', 'CRITICAL': 'priority', '': 'core'}
+# A row that records a commendation, not a finding. Flathead prints its bonus
+# credit for temperature logs as report rows under the Risk Factor tier
+# ("Adequate daily cold holding logs are maintained. This facility exceeds
+# regulatory requirements ... Bonus credit has been awarded ..."): 78 of the
+# 232 higher-tier rows of the 90-day backfill, each of which cost a restaurant
+# 5 points for doing more than the rule asks. The document's counters count
+# them like any row; they never ship.
+IO_COMMENDATION_RE = re.compile(
+    r'exceeds\s+regulatory\s+requirements|bonus\s+credit\s+has\s+been\s+awarded', re.I)
+# Montana's higher tier is a SECTION of the state form (Foodborne Illness
+# Risk Factors and Public Health Interventions), not a severity: it holds the
+# Food Code's Priority provisions and its Priority Foundation ones alike.
+# Scored 5 points each, Missoula graded 9 of 83 inspections F in a quarter
+# (test strips, date marks, soap at a hand sink and a missing PIC at 5 points
+# apiece) while the county's own unpublished letters for 2026 had no grade
+# below C. The standard titles below cite provisions the FDA Food Code marks
+# Pf at most (3-501.17, 4-302.14, 5-205.11, 6-301.11, 5-202.12, 3-501.19(A),
+# 4-601.11(A), 3-501.15, 3-602.11, 4-501.19, 2-101.11, 2-102.11, 2-103.11,
+# 5-103.11, 3-603.11, 3-502.11, 4-301.11, 4-204.117, 4-302.13, 5-102.13,
+# 3-202.15, 4-301.12, 6-501.111), so their rows ship as priority_foundation
+# (2 points). Every other Risk Factor row stays priority, a title not seen
+# before included. Whole-title matches, lower case. Kansas City's 'Critical'
+# is the city's own severity and is never touched.
+IO_MT_PF_TITLES = frozenset({
+    'ready-to-eat time/temperature control for safety food improperly date marked',
+    'ready-to-eat phf/tcs food improperly date marked',
+    'accurate chemical test kit that measures concentration in mg/l (ppm) not provided for the chemical in use',
+    'handwashing sink not adequately supplied with hot water at a minimum of 100°f',
+    'handwashing sink used for purposes other than handwashing',
+    'handwashing sink is blocked or not easily accessible',
+    'handwashing sink not accessible',
+    'hand cleaning soap not available at each handwashing sink',
+    'inadequate documentation and tracking of time-controlled foods',
+    'equipment food-contact surfaces not clean',
+    'equipment food-contact surfaces not clean to sight or touch',
+    'inappropriate cooling methods used',
+    'improper labeling of food packaged within food establishment',
+    'temperature of wash solution in manual warewashing operation maintained at less than 43°c (110°f) '
+    'or as otherwise specified',
+    'pic did not practice active managerial controls leading to pattern of non-compliance. '
+    'pic did not perform duties',
+    'no designated pic present',
+    'pic unable to demonstrate knowledge',
+    'hot water capacity not sufficient to meet the peak needs of the establishment',
+    'hot water not sufficient to meet the peak needs of the establishment',
+    'consumer advisory for consumption of raw or undercooked animal food not adequate',
+    'variance for specialized process not obtained prior to operation',
+    'specialized processing variance not obtained when required',
+    'heating, cooling, cold and hot holding equipment is insufficient in number, capacity or ability '
+    'to maintain safe food temperatures',
+    'heating, cooling, cold and hot holding equipment capacity insufficient',
+    'warewashing machine not equipped to auto dispense detergents or sanitizers and a method for '
+    'visual verification of delivery or alarm',
+    'appropriate temperature measuring device not readily accessible for warewashing operations',
+    'non public water supply not sampled as required',
+    'food packages not in good condition',
+    'three compartment sink not provided',
+    'premises not maintained free of insects, rodents or other pests',
+})
+# Inspection types seen 2026 (Montana 90 days, Kansas City 13 weeks).
+IO_SHIP_TYPES = frozenset({
+    'Routine', 'Routine Inspection', 'Ad-Hoc Routine', 'Follow-Up', 'Complaint', 'Complaint Inspection',
+    'Investigation', 'Ownership Change', 'Remodel Inspection', 'Compliance', 'Special', 'Emergency',
+    'Other', 'Site Visit',
+})
+IO_SKIP_TYPES = frozenset({'Pre-Operational', 'Closeout'})
+# 'Other' and 'Site Visit' are sometimes a full report (Missoula's 'Other' at
+# a hotel kitchen: 4 lines, 3 RFI) and sometimes an empty visit note
+# (Gallatin's 'Other', 0 lines): they ship only when they cite something,
+# so a note never reads as a clean 100.
+IO_CITED_ONLY_TYPES = frozenset({'Other', 'Site Visit'})
+# Test facilities live in the production databases: Gallatin's '000 Food
+# Service Test', Missoula's 'Practice Food New' at '100 Practice Drive' in
+# 'Practice'; their visits are not inspections (name or street matched).
+IO_TEST_NAME_RE = re.compile(r'^\s*000\b|\bpractice\s+(?:food|drive)\b', re.I)
+# A mobile unit filed under a fixed-premises type names itself ('Porter
+# Unherd Coffee Mobile', type '1. Food Service Establishment', licensed at its
+# owner's shop): dropped like the typed ones.
+IO_MOBILE_NAME_RE = re.compile(
+    r'\bmobile(?:\s+(?:unit|truck|trailer|cart|kitchen))?(?:\s*#?\d+)?\s*\)?\s*$|\bfood\s+truck\b', re.I)
+# Flathead names each licensed component of a business in fld_FaciName
+# ('Food Service', 'Bar', 'Mobile (Trailer)', 'Mobile Food (Truck)',
+# 'Temporary Food'); a component label like these is a mobile unit or a
+# temporary stand whatever its type field says (often blank).
+IO_MOBILE_COMPONENT_RE = re.compile(r'\b(?:mobile|temporary|truck|trailer|cart)\b', re.I)
+IO_SKIP_ESTTYPE_RE = re.compile(r'mobile|push\s*cart|vehicle|truck|temporary|\btemp\b|vending|school|fee exempt',
+                                re.I)
+# Flathead's letter bands (Policy 2010-01 EH, "Food Purveyor Grading Scale"):
+# the highest risk_score each letter allows. A-range letters do not cap.
+IO_GRADE_RISK_CAP = {'A+': None, 'A': None, 'A-': None, 'B+': 89, 'B': 89, 'B-': 89,
+                     'C+': 79, 'C': 79, 'C-': 79, 'D+': 69, 'D': 69, 'D-': 69, 'F': 69}
+IO_UNGRADED = frozenset({'', 'N/A'})
+IO_PORTALS = {
+    'missoula': {
+        'group': 'Missoula County', 'source': 'Missoula Public Health', 'prefix': 'mso',
+        'db': 'mt/missoulamissoula/inspect.nsf', 'state': 'MT', 'default_city': 'Missoula', 'metro': '',
+        'grade': False, 'chunk_days': 92, 'history_start': '2009-11-01',
+    },
+    'gallatin': {
+        'group': 'Gallatin County', 'source': 'Gallatin City-County Health Department', 'prefix': 'gal',
+        'db': 'mt/gallatinbozeman/inspect.nsf', 'state': 'MT', 'default_city': 'Bozeman', 'metro': '',
+        'grade': False, 'chunk_days': 92, 'history_start': '2012-05-01',
+        'city_map': {'Bozmean': 'Bozeman'},     # one facility's typo (2026-11)
+    },
+    'flathead': {
+        'group': 'Flathead County', 'source': 'Flathead City-County Health Department', 'prefix': 'fhd',
+        'db': 'mt/flatheadkalispell/inspect.nsf', 'state': 'MT', 'default_city': 'Kalispell', 'metro': '',
+        'grade': True, 'chunk_days': 61, 'history_start': '2008-11-01',
+    },
+    'kansascity': {
+        'group': 'Kansas City', 'source': 'Kansas City MO Health Department', 'prefix': 'kcmo',
+        'db': 'mo/usakansascity/inspect.nsf', 'state': 'MO', 'default_city': 'Kansas City', 'metro': '',
+        'grade': False, 'chunk_days': 7, 'history_start': '2008-01-01',
+        # The department inspects Kansas City, MO only; its city field is
+        # typed by hand ('Kanas City', 'Kasnas City', 'Kansas', 'Kc' in one
+        # 4-week window), so every record is filed under the city itself.
+        'fixed_city': 'Kansas City',
+    },
+}
+_IO_COUNT_RE = re.compile(r'<h4>\s*(\d+)\s+documents?\s+(?:returned;\s*(\d+)\s+)?found\s*</h4>', re.I)
+_IO_ROW_SPLIT = "<DIV class='gt row'>"
+_IO_ROW_RE = re.compile(
+    r"pUNID=([0-9A-F]{32})\"?\s+TARGET=_self>([^<]*)</A>.*?>\s*(\d\d/\d\d/\d{4})\s*</A>"
+    r".*?column3'[^>]*>([^<]*)</DIV>(?:.*?ID='scoreCol'[^>]*>\s*(?:<A[^>]*>([^<]*)</A>)?)?", re.S | re.I)
+_IO_VIOL_SPLIT_RE = re.compile(r'<TR\s+onMouseOver=', re.I)
+_IO_TITLE_PREFIX_RE = re.compile(r'^\((?:All|[A-Z](?:\s*(?:&|,|-|and)\s*[A-Z])*)\)\s*', re.I)
+_IO_TRAILING_ARTICLE_RE = re.compile(r'^(.*?\S)\s*(?:,\s*(?:the)|\(\s*the\s*\))\s*$', re.I)
+_IO_REQUESTS = defaultdict(int)       # slug -> requests this run (for the log)
+_IO_STREAK = defaultdict(int)         # slug -> requests in a row that exhausted their retries
+_IO_BLOCKED = {}                      # slug -> reason, once the breaker tripped this run
+_IO_LOCK = threading.Lock()
+_IO_THROTTLE = threading.Lock()
+_IO_LAST_REQUEST = [0.0]
+
+
+class _IoError(Exception):
+    """A Paragon request that could not be completed: `permanent` for a
+    400/404/410 (dropped, never held), `blocked` when the database's breaker
+    had tripped (held, not counted); otherwise transient (held, counted)."""
+
+    def __init__(self, msg, permanent=False, blocked=False):
+        super().__init__(msg)
+        self.permanent = permanent
+        self.blocked = blocked
+
+
+def _io_blocked(slug):
+    with _IO_LOCK:
+        return _IO_BLOCKED.get(slug, '')
+
+
+def _io_throttle():
+    """Space request starts IO_MIN_INTERVAL apart across every database: the
+    four agencies share one small Domino host."""
+    with _IO_THROTTLE:
+        wait = _IO_LAST_REQUEST[0] + IO_MIN_INTERVAL - time.time()
+        if wait > 0:
+            time.sleep(wait)
+        _IO_LAST_REQUEST[0] = time.time()
+
+
+def _io_decode(content):
+    """The reports are UTF-8, the field-value agent ISO-8859-1."""
+    try:
+        return content.decode('utf-8')
+    except UnicodeDecodeError:
+        return content.decode('cp1252', errors='replace')
+
+
+def _io_get(slug, path):
+    """GET one URL under the database; the decoded body. Transient failures
+    are retried IO_RETRIES times (never past the fetch deadline); a
+    400/404/410 raises at once; IO_BREAKER_TRIP requests in a row that
+    exhaust their retries trip the database's breaker."""
+    group = IO_PORTALS[slug]['group']
+    reason = _io_blocked(slug)
+    if reason:
+        raise _IoError(f'breaker tripped: {reason}', blocked=True)
+    url = IO_HOST + IO_PORTALS[slug]['db'] + '/' + path
+    last, exhausted = None, False
+    for attempt in range(1, IO_RETRIES + 1):
+        _io_throttle()
+        with _IO_LOCK:
+            _IO_REQUESTS[slug] += 1
+        try:
+            r = requests.get(url, headers=IO_HEADERS, timeout=IO_TIMEOUT)
+        except requests.RequestException as e:
+            last = _IoError(f'{type(e).__name__}: {str(e)[:120]}')
+        else:
+            if r.status_code == 200:
+                with _IO_LOCK:
+                    _IO_STREAK[slug] = 0
+                return _io_decode(r.content)
+            if r.status_code in IO_PERMANENT_STATUSES:
+                raise _IoError(f'HTTP {r.status_code}', permanent=True)
+            last = _IoError(f'HTTP {r.status_code}')
+        if attempt == IO_RETRIES:
+            exhausted = True
+            break
+        if _past_deadline():
+            break
+        wait = IO_RETRY_WAIT * attempt
+        log.warning(f"  {group}: {path[:80]} failed ({last}) — retry {attempt}/{IO_RETRIES - 1} in {wait}s")
+        time.sleep(wait)
+    if exhausted:
+        with _IO_LOCK:
+            _IO_STREAK[slug] += 1
+            tripped = _IO_STREAK[slug] >= IO_BREAKER_TRIP and slug not in _IO_BLOCKED
+            if tripped:
+                _IO_BLOCKED[slug] = f'{_IO_STREAK[slug]} requests in a row failed (last: {last})'
+        if tripped:
+            log.error(f"  {group}: {_IO_BLOCKED[slug]} — treating the database as blocked; the run's "
+                      f"remaining inspections are held")
+    raise last
+
+
+def _io_text(s):
+    """HTML fragment -> plain text on one line."""
+    s = re.sub(r'<[^>]+>', ' ', str(s or ''))
+    return ' '.join(html_lib.unescape(s).replace('\xa0', ' ').split())
+
+
+def _io_us(d):
+    """'YYYY-MM-DD' -> 'MM/DD/YYYY' (the query's and the list's format)."""
+    return f'{d[5:7]}/{d[8:10]}/{d[:4]}'
+
+
+def _io_iso(us):
+    try:
+        return datetime.strptime(str(us).strip(), '%m/%d/%Y').strftime('%Y-%m-%d')
+    except ValueError:
+        return None
+
+
+def _io_list_path(start, end):
+    return ('vw_InspectionsPubSumm-NT?SearchView&SearchOrder=4&SearchMax=0&Query='
+            '[fld_Program]+CONTAINS+kw_Food+AND+[fld_InspectionDate]%3E=' + _io_us(start)
+            + '+AND+[fld_InspectionDate]%3C=' + _io_us(end))
+
+
+def _io_parse_list(page):
+    """One search result -> (found, capped, rows). Raises ValueError for a
+    page without the result header or with a row that does not parse."""
+    m = _IO_COUNT_RE.search(page)
+    if not m:
+        raise ValueError(f'no result header in the search page: {page[:120]!r}')
+    if m.group(2):
+        found, capped = int(m.group(2)), True
+    else:
+        found = int(m.group(1))
+        capped = found >= IO_CAP
+    rows = []
+    for chunk in page.split(_IO_ROW_SPLIT)[1:]:
+        r = _IO_ROW_RE.search(chunk)
+        if not r:
+            raise ValueError(f'a result row does not parse: {chunk[:160]!r}')
+        rows.append({'unid': r.group(1), 'type': ' '.join(r.group(2).split()), 'us_date': r.group(3),
+                     'date': _io_iso(r.group(3)), 'count': ' '.join(r.group(4).split()),
+                     'score': ' '.join((r.group(5) or '').split())})
+    return found, capped, rows
+
+
+def _io_list_window(slug, start, end, depth=0):
+    """Every row of [start, end] (inclusive), the window split until no part
+    reaches the match cap. Raises RuntimeError on anything it cannot trust."""
+    cfg = IO_PORTALS[slug]
+    if _past_deadline():
+        raise RuntimeError(f"{cfg['group']}: fetch deadline reached while listing {start}..{end}")
+    for attempt in range(IO_LIST_REREADS + 1):
+        try:
+            page = _io_get(slug, _io_list_path(start, end))
+            found, capped, rows = _io_parse_list(page)
+        except (_IoError, ValueError) as e:
+            raise RuntimeError(f"{cfg['group']}: inspection list {start}..{end} failed: {e}") from e
+        if capped:
+            if start == end:
+                raise RuntimeError(f"{cfg['group']}: {start} alone matches {IO_CAP} or more inspections; "
+                                   f"the list cannot be read whole")
+            d0 = datetime.strptime(start, '%Y-%m-%d')
+            mid = (d0 + (datetime.strptime(end, '%Y-%m-%d') - d0) / 2).strftime('%Y-%m-%d')
+            nxt = (datetime.strptime(mid, '%Y-%m-%d') + timedelta(days=1)).strftime('%Y-%m-%d')
+            log.info(f"  {cfg['group']}: {start}..{end} reaches the {IO_CAP}-match cap — splitting")
+            return _io_list_window(slug, start, mid, depth + 1) + _io_list_window(slug, nxt, end, depth + 1)
+        bad = [r for r in rows if not r['date'] or not (start <= r['date'] <= end)]
+        if bad:
+            raise RuntimeError(f"{cfg['group']}: inspection list {start}..{end} holds rows outside the "
+                               f"window ({bad[0]['us_date']}); the date filter is not being applied")
+        if len(rows) == found and len({r['unid'] for r in rows}) == found:
+            return rows
+        log.warning(f"  {cfg['group']}: inspection list {start}..{end} says {found} found but "
+                    f"{len(rows)} rows parsed" + (' — re-reading' if attempt < IO_LIST_REREADS else ''))
+    raise RuntimeError(f"{cfg['group']}: inspection list {start}..{end} does not match its own header "
+                       f"({found} found, {len(rows)} rows); not trusting it")
+
+
+def _io_list(slug, since, until):
+    """Every listed inspection of [since, until], in chunk_days windows."""
+    cfg = IO_PORTALS[slug]
+    rows, seen = [], set()
+    d = datetime.strptime(since, '%Y-%m-%d')
+    stop = datetime.strptime(until, '%Y-%m-%d')
+    while d <= stop:
+        e = min(d + timedelta(days=cfg['chunk_days'] - 1), stop)
+        got = _io_list_window(slug, d.strftime('%Y-%m-%d'), e.strftime('%Y-%m-%d'))
+        for r in got:
+            if r['unid'] not in seen:
+                seen.add(r['unid'])
+                rows.append(r)
+        d = e + timedelta(days=1)
+    return rows
+
+
+def _io_parse_docvalues(text):
+    """The field-value agent's answer -> {field: value}. Raises ValueError
+    unless it holds exactly one value per field asked for."""
+    t = str(text or '').strip('\r\n')
+    parts = t.split('~')
+    if len(parts) != len(IO_DOC_FIELDS) + 1 or parts[0].strip():
+        raise ValueError(f'field values do not have the expected shape: {t[:120]!r}')
+    return {f: ' '.join(v.replace('\xa0', ' ').split()) for f, v in zip(IO_DOC_FIELDS, parts[1:])}
+
+
+def _io_keywords(v):
+    """'kw_A|kw_B' -> ['A', 'B']."""
+    return [x[3:] if x.startswith('kw_') else x for x in (s.strip() for s in str(v or '').split('|')) if x]
+
+
+def _io_name(raw):
+    """Business name as a record name: ALL CAPS -> title case, and a trailing
+    article moved to the front ('1400 HOUSE, THE', 'Bunker Bar & Grill (The)')."""
+    s = _hh_title(' '.join(str(raw or '').split()))
+    m = _IO_TRAILING_ARTICLE_RE.match(s)
+    if m and m.group(1).strip(' ,'):
+        s = 'The ' + m.group(1).strip(' ,')
+    return s
+
+
+def _io_place(cfg, dv):
+    """Field values -> the record's place fields, or (None, reason) when the
+    inspection is outside scope."""
+    if 'Food' not in _io_keywords(dv['fld_Program']):
+        return None, 'not the food program'
+    types = _io_keywords(dv['fld_EstType']) + _io_keywords(dv['fld_EstTypeAlt'])
+    if types and all(IO_SKIP_ESTTYPE_RE.search(t) for t in types):
+        return None, f'establishment type {types[0]}'
+    name = _io_name(dv['fld_EstabName']) or _io_name(dv['fld_FaciName'])
+    street = _hh_title(' '.join(f"{dv['fld_FStreetNo']} {dv['fld_FStreetName']}".split())).strip(' ,')
+    if not name:
+        return None, 'no name'
+    if IO_TEST_NAME_RE.search(name) or IO_TEST_NAME_RE.search(street):
+        return None, 'test facility'
+    component = dv['fld_FaciName']
+    if IO_MOBILE_NAME_RE.search(name) or IO_MOBILE_NAME_RE.search(component):
+        return None, 'mobile unit (by name)'
+    if (component and component.lower() != dv['fld_EstabName'].lower()
+            and IO_MOBILE_COMPONENT_RE.search(component)):
+        return None, f'mobile or temporary component ({component})'
+    if not street:
+        return None, 'no street address'
+    state = (_io_keywords(dv['fld_FProv']) or [cfg['state']])[0].strip().upper()
+    state = state_code(state) if len(state) != 2 else state
+    if state != cfg['state']:
+        return None, f"outside {cfg['state']}"
+    city = ' '.join(dv['fld_FCity'].split()).title() or cfg['default_city']
+    city = cfg.get('fixed_city') or cfg.get('city_map', {}).get(city, city)
+    m = re.match(r'\d{5}', dv['fld_FPCode'])
+    return {'name': name, 'street': street, 'city': city, 'zip': m.group(0) if m else '',
+            'types': types}, ''
+
+
+def _io_counter(v):
+    try:
+        return int(str(v).strip())
+    except (TypeError, ValueError):
+        return None
+
+
+def _io_short_title(title):
+    """'Hand Drying Provision - Each handwashing sink ... is not provided with
+    ...' -> 'Hand Drying Provision' (Kansas City's titles carry the code's
+    whole sentence after a short name); Flathead's '(A & B) ' subsection
+    prefix is dropped."""
+    t = _IO_TITLE_PREFIX_RE.sub('', title).strip()
+    head, sep, _ = t.partition(' - ')
+    if sep and 3 <= len(head) <= 60:
+        t = head
+    return t.rstrip(' .:;')
+
+
+def _io_parse_report(page, iso_date):
+    """A public report -> [[category, severity, text], ...] in page order.
+    Raises ValueError for a page that is not a report of that day or a row
+    that does not parse; the counters are checked by the caller."""
+    if 'Inspection Report' not in page or 'Violation Details' not in page:
+        raise ValueError('not an inspection report page')
+    m = re.search(r'Inspection Date\s*</TD>\s*<TD>([^<]*)</TD>', page, re.I)
+    try:
+        shown = datetime.strptime(' '.join((m.group(1) if m else '').split()), '%d %B, %Y').strftime('%Y-%m-%d')
+    except ValueError:
+        raise ValueError(f"the report's inspection date does not parse: {m.group(1) if m else None!r}")
+    if shown != iso_date:
+        raise ValueError(f'the report is dated {shown}, the list {iso_date}')
+    out = []
+    for chunk in _IO_VIOL_SPLIT_RE.split(page)[1:]:
+        t = re.search(r'<I>(.*?)</I>', chunk, re.S | re.I)
+        tier = re.search(r'</I>\s*</TD>\s*</TR>\s*<TR>\s*<TD>\s*<B>(.*?)</B>', chunk, re.S | re.I)
+        if not t or not tier:
+            raise ValueError(f'a violation row does not parse: {_io_text(chunk)[:120]!r}')
+        label = _io_text(tier.group(1)).upper()
+        if label not in IO_TIER:
+            raise ValueError(f'unknown violation tier {label!r}')
+        obs = re.search(r'OBSERVATIONS\s*&(?:amp;)?\s*CORRECTIVE\s+ACTIONS:\s*</B>(.*?)</TD>', chunk,
+                        re.S | re.I)
+        title = _io_short_title(_io_text(t.group(1)))
+        note = _io_text(obs.group(1)) if obs else ''
+        text = f'{title}: {note}' if title and note and note.lower() != title.lower() else (title or note)
+        if not text:
+            raise ValueError('a violation row has neither a title nor an observation')
+        cat, _sev, _ = classify_violation(text)
+        out.append([cat, IO_TIER[label], text[:500]])
+    return out
+
+
+def _io_shipped_rows(cfg, violations):
+    """The rows of a report that ship, once the report has been checked
+    against its counters: a commendation is dropped (IO_COMMENDATION_RE), and
+    a Montana Risk Factor row whose standard title is a Priority Foundation
+    provision becomes priority_foundation (IO_MT_PF_TITLES)."""
+    out = []
+    for cat, sev, text in violations:
+        if IO_COMMENDATION_RE.search(text):
+            continue
+        if sev == 'priority' and cfg['state'] == 'MT':
+            title = ' '.join(text.split(': ', 1)[0].split()).lower()
+            if title in IO_MT_PF_TITLES:
+                sev = 'priority_foundation'
+        out.append([cat, sev, text])
+    return out
+
+
+def _io_record(cfg, row, place, violations):
+    """One DineScores record (see the section comment for the score rule)."""
+    risk, pv, pfv, cv = calc_risk_score(violations)    # 100 - 5 per priority row - 2 per Pf row - 1 per other
+    results = ''
+    if cfg['grade'] and row['score'] not in IO_UNGRADED:
+        cap = IO_GRADE_RISK_CAP[row['score']]
+        if cap is not None:
+            risk = min(risk, cap)        # never above the county's own band
+        results = f"Grade {row['score']}"
+    return {
+        'name': place['name'],
+        'address': place['street'],
+        'city': place['city'],
+        'state': cfg['state'],
+        'zip': place['zip'],
+        'latitude': None,
+        'longitude': None,
+        'inspection_date': row['date'],
+        'original_score': None,
+        'risk_score': risk,
+        'priority_violations': pv,
+        'priority_foundation_violations': pfv,
+        'core_violations': cv,
+        'total_violations': len(violations),
+        'violations': [list(v) for v in violations],
+        'inspection_type': row['type'],
+        'results': results,
+        'source': cfg['source'],
+        'source_url': f"{IO_HOST}{cfg['db']}/(ag_dspPubDetail)?OpenAgent&pUNID={row['unid']}",
+        'source_id': f"{cfg['prefix']}_{row['unid']}",
+        'metro': cfg['metro'],
+    }
+
+
+def _io_read_one(slug, row, margin_before):
+    """Read one listed inspection: ('ok', record) | ('skip', reason) |
+    ('gone', reason) | ('unread', reason) | ('blocked', reason)."""
+    cfg = IO_PORTALS[slug]
+    try:
+        dv = _io_parse_docvalues(_io_get(
+            slug, f"(ag_getDocValues)?OpenAgent&xx_UNID={row['unid']}&xx_fldList={'~'.join(IO_DOC_FIELDS)}"))
+    except _IoError as e:
+        return ('blocked' if e.blocked else 'gone' if e.permanent else 'unread'), f'field values: {e}'
+    except ValueError as e:
+        return 'unread', str(e)
+    if _io_iso(dv['fld_InspectionDate']) != row['date']:
+        return 'unread', f"the document is dated {dv['fld_InspectionDate']!r}, the list {row['us_date']}"
+    place, why = _io_place(cfg, dv)
+    if place is None:
+        return 'skip', why
+    if (row['date'] < margin_before and SKIP_KNOWN_INSPECTIONS and
+            (make_restaurant_id(place['name'], place['street'], place['city']), row['date'])
+            in SKIP_KNOWN_INSPECTIONS):
+        return 'skip', 'already stored (margin re-read)'
+    n_all, n_hi = _io_counter(dv['fld_AllvCounter']), _io_counter(dv['fld_AllcvCounter'])
+    if n_all is None or n_hi is None:
+        return 'unread', f"no violation counters ({dv['fld_AllvCounter']!r}, {dv['fld_AllcvCounter']!r})"
+    if row['type'] in IO_CITED_ONLY_TYPES and n_all == 0:
+        return 'skip', f"uncited {row['type']}"
+    if cfg['grade'] and row['score'] not in IO_UNGRADED and row['score'] not in IO_GRADE_RISK_CAP:
+        return 'unread', f"unknown county grade {row['score']!r}"
+    try:
+        violations = _io_parse_report(_io_get(slug, f"(ag_dspPubDetail)?OpenAgent&pUNID={row['unid']}"),
+                                      row['date'])
+    except _IoError as e:
+        return ('blocked' if e.blocked else 'gone' if e.permanent else 'unread'), f'report: {e}'
+    except ValueError as e:
+        return 'unread', str(e)
+    hi = sum(1 for v in violations if v[1] == 'priority')
+    # Fewer rows than the counters is a report not read whole. MORE rows is
+    # a document whose counters were not refreshed after an edit: Kansas
+    # City's Thai House (2026-11-09) prints 'Critical 6, Non-critical 1' in
+    # its own header above 10 rows (8 critical); every row is shipped.
+    if len(violations) < n_all or hi < n_hi or (len(violations) - hi) < (n_all - n_hi):
+        return 'unread', (f'{len(violations)} violation rows ({hi} higher-tier) against the document\'s '
+                          f'counters {n_all} ({n_hi})')
+    shipped = _io_shipped_rows(cfg, violations)
+    if row['type'] in IO_CITED_ONLY_TYPES and not shipped:
+        return 'skip', f"uncited {row['type']}"
+    return 'ok', _io_record(cfg, row, place, shipped)
+
+
+def _fetch_paragon(slug, since_date=None, limit=None):
+    cfg = IO_PORTALS[slug]
+    group, source = cfg['group'], cfg['source']
+    today = datetime.now().strftime('%Y-%m-%d')
+    # `asked` is the window the caller wants (holds are keyed to it); the
+    # read starts IO_MARGIN_DAYS earlier for late-entered documents. Test
+    # mode (no since_date) reads the last IO_TEST_DAYS days and keeps the
+    # newest `limit`.
+    if since_date:
+        asked = max(str(since_date)[:10], cfg['history_start'])
+        since = (datetime.strptime(asked, '%Y-%m-%d') - timedelta(days=IO_MARGIN_DAYS)).strftime('%Y-%m-%d')
+    else:
+        asked = since = (datetime.now() - timedelta(days=IO_TEST_DAYS)).strftime('%Y-%m-%d')
+    started = time.time()
+    with _IO_LOCK:
+        _IO_REQUESTS[slug] = 0
+        _IO_STREAK[slug] = 0
+        _IO_BLOCKED.pop(slug, None)
+    log.info(f"Fetching {group} data (since={since}"
+             + (f", {IO_MARGIN_DAYS} days before the {asked} asked for" if since != asked else '')
+             + f", limit={limit})")
+
+    # Phase 0 — the inspection list (atomic: anything untrustworthy raises).
+    listed = _io_list(slug, since, today)
+    newest = max((r['date'] for r in listed), default='')
+    skipped = defaultdict(int)
+    rows, unknown = [], 0
+    for r in listed:
+        if r['type'] in IO_SKIP_TYPES:
+            skipped[f"type {r['type']}"] += 1
+        elif r['type'] not in IO_SHIP_TYPES:
+            unknown += 1
+            skipped[f"unknown type {r['type'] or '(blank)'}"] += 1
+        else:
+            rows.append(r)
+    rows.sort(key=lambda r: (r['date'], r['unid']))
+    bounded = False
+    if limit and len(rows) > limit:
+        bounded = True
+        rows = rows[:limit] if since_date else rows[-limit:]
+    log.info(f"  {group}: {len(listed)} food inspections listed {since}..{today}, {len(rows)} to read"
+             + (f"; skipped {dict(skipped)}" if skipped else ''))
+
+    # Phase 1 — each inspection's field values and report, oldest first.
+    results, unread, gone, read = [], [], 0, 0
+    pending = []
+    for i, row in enumerate(rows):
+        if _past_deadline() or _io_blocked(slug):
+            pending = rows[i:]
+            break
+        outcome, detail = _io_read_one(slug, row, asked)
+        if outcome == 'blocked':
+            pending = rows[i:]
+            break
+        read += 1
+        if outcome == 'ok':
+            results.append(detail)
+        elif outcome == 'skip':
+            skipped[detail] += 1
+        elif outcome == 'gone':
+            gone += 1
+            log.debug(f"  {group}: inspection {row['unid']} ({row['date']}) is gone: {detail}")
+        else:
+            unread.append(row)
+            log.warning(f"  {group}: inspection {row['unid']} ({row['date']}) not read: {detail}")
+    blocked = bool(_io_blocked(slug))
+    for row in unread:
+        _hold_freshness(source, row['date'], counted=True, key=row['unid'])
+    for row in pending:
+        _hold_freshness(source, row['date'], counted=False, key=row['unid'])
+
+    if blocked:
+        _set_group_status(group, 'blocked', f"{_io_blocked(slug)}; {len(pending)} inspections not read and "
+                                            f"{len(unread)} unread, all held for the next run")
+    elif len(unread) >= IO_MASS_FAILURE_MIN and len(unread) > IO_MASS_FAILURE_FRACTION * max(read, 1):
+        _set_group_status(group, 'error', f"{len(unread)} of {read} inspections could not be read "
+                                          f"(held for the next run)")
+    elif unknown >= IO_UNKNOWN_TYPE_MIN and unknown > IO_UNKNOWN_TYPE_FRACTION * len(listed):
+        _set_group_status(group, 'error', f"{unknown} of {len(listed)} listed inspections have an "
+                                          f"inspection type the fetcher does not know; a vocabulary change?")
+    elif pending:
+        _set_group_status(group, 'skipped', f"fetch deadline reached; {len(pending)} inspections not read "
+                                            f"(held for the next run)")
+    if unread or gone or pending:
+        log.warning(f"  {group}: dropped {len(unread)} unread, {gone} gone, {len(pending)} not read "
+                    f"— none shipped as clean")
+    if not bounded:
+        _note_source_lag(group, newest)
+
+    # Newest day first; within a day the worst visit first.
+    results.sort(key=lambda r: (r['risk_score'], -r['priority_violations'], -r['total_violations'],
+                                r['source_id']))
+    results.sort(key=lambda r: r['inspection_date'], reverse=True)
+    with _IO_LOCK:
+        n_req = _IO_REQUESTS[slug]
+    log.info(f"{group}: {len(results)} inspections in {time.time() - started:.0f}s ({n_req} requests; "
+             f"source newest {newest or 'n/a'}" + (f"; skipped {dict(skipped)}" if skipped else '') + ")")
+    return results
+
+
+def fetch_missoula(since_date=None, limit=None):
+    """Missoula County, MT (Missoula Public Health) on Paragon Inspections
+    Online: no official score, risk_score from the county's two tiers."""
+    return _fetch_paragon('missoula', since_date, limit)
+
+
+def fetch_gallatin(since_date=None, limit=None):
+    """Gallatin County, MT (Bozeman, Belgrade, Big Sky, West Yellowstone) on
+    Paragon Inspections Online: no official score, risk_score from the
+    county's two tiers."""
+    return _fetch_paragon('gallatin', since_date, limit)
+
+
+def fetch_flathead(since_date=None, limit=None):
+    """Flathead County, MT (Kalispell, Whitefish, Columbia Falls, Bigfork) on
+    Paragon Inspections Online: risk_score from the county's two tiers,
+    capped by the county's official letter grade, which goes to results."""
+    return _fetch_paragon('flathead', since_date, limit)
+
+
+def fetch_kansas_city(since_date=None, limit=None):
+    """Kansas City, MO Health Department on Paragon Inspections Online: no
+    official score, risk_score from the city's Critical / Non-critical
+    tiers."""
+    return _fetch_paragon('kansascity', since_date, limit)
+
+
 def geocode_census_batch(records, benchmark='Public_AR_Current'):
     """
     Batch-geocode US street addresses with the free Census Bureau geocoder
@@ -14922,12 +19097,41 @@ def main():
             (('pima', 'tucson'), 'Pima County', fetch_pima),
             (('lubbock',), 'Lubbock', fetch_lubbock),
             (('mesquite', 'dfw'), 'Mesquite', fetch_mesquite),
+            (('wichitafalls',), 'Wichita Falls', fetch_wichitafalls),
             (('williamson',), 'Williamson County', fetch_williamson),
             (('denton', 'dfw'), 'Denton', fetch_denton),
             (('mckinney', 'dfw'), 'McKinney', fetch_mckinney),
-            (('lewisville', 'dfw'), 'Lewisville', fetch_lewisville)):
+            (('lewisville', 'dfw'), 'Lewisville', fetch_lewisville),
+            (('garland', 'dfw'), GAR_GROUP, fetch_garland),
+            (('elpaso',), EP_GROUP, fetch_elpaso),
+            (('waco',), WAC_GROUP, fetch_waco),
+            (('corpuschristi',), CC_GROUP, fetch_corpus_christi),
+            (('abilene',), ABL_GROUP, fetch_abilene)):
         if any(s in args.cities for s in slugs):
             socrata_jobs[group] = _expansion_job(group, fetcher)
+
+    # Paragon Inspections Online (Missoula, Gallatin, Flathead MT; Kansas
+    # City MO): scraped, two requests per inspection, so a weekly window is
+    # bounded by the portal lookback cap rather than the open-data one. All
+    # four share one host; _io_throttle spaces their requests across the
+    # pool's threads.
+    def _paragon_job(group, fetcher):
+        def run():
+            if args.mode == 'weekly':
+                since = weekly_since(group, FRESHNESS_LOOKBACK_PORTAL_DAYS)
+            else:
+                since = since_date
+            data = fetcher(since_date=since, limit=record_limit)
+            geocode_missing_coords(data)
+            return data
+        return run
+    for slugs, slug in ((('missoula',), 'missoula'), (('bozeman', 'gallatin'), 'gallatin'),
+                        (('kalispell', 'flathead'), 'flathead'), (('kansascity',), 'kansascity')):
+        if any(s in args.cities for s in slugs):
+            group = IO_PORTALS[slug]['group']
+            socrata_jobs[group] = _paragon_job(group, {'missoula': fetch_missoula, 'gallatin': fetch_gallatin,
+                                                       'flathead': fetch_flathead,
+                                                       'kansascity': fetch_kansas_city}[slug])
 
     # The API-class groups run in a pool WHILE the scraped portals (Tyler,
     # Richardson, Arlington, Orange County, the MHD groups) run on this

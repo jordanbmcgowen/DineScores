@@ -1,0 +1,588 @@
+{
+ "displayFieldName": "NAME",
+ "fieldAliases": {
+  "OBJECTID": "OBJECTID",
+  "FACILITY_ID": "FACILITY_ID",
+  "PERMIT_NUMBER": "PERMIT_NUMBER",
+  "PROGRAM_IDENTIFIER": "PROGRAM_IDENTIFIER",
+  "NAME": "NAME",
+  "ADDRESS": "ADDRESS",
+  "GIS_LATITUDE": "GIS_LATITUDE",
+  "GIS_LONGITUDE": "GIS_LONGITUDE",
+  "INSPECTION_DATE": "INSPECTION_DATE",
+  "SCORE": "SCORE",
+  "PE": "PE"
+ },
+ "geometryType": "esriGeometryPoint",
+ "spatialReference": {
+  "wkid": 4326,
+  "latestWkid": 4326
+ },
+ "fields": [
+  {
+   "name": "OBJECTID",
+   "type": "esriFieldTypeOID",
+   "alias": "OBJECTID"
+  },
+  {
+   "name": "FACILITY_ID",
+   "type": "esriFieldTypeString",
+   "alias": "FACILITY_ID",
+   "length": 50
+  },
+  {
+   "name": "PERMIT_NUMBER",
+   "type": "esriFieldTypeString",
+   "alias": "PERMIT_NUMBER",
+   "length": 100
+  },
+  {
+   "name": "PROGRAM_IDENTIFIER",
+   "type": "esriFieldTypeString",
+   "alias": "PROGRAM_IDENTIFIER",
+   "length": 255
+  },
+  {
+   "name": "NAME",
+   "type": "esriFieldTypeString",
+   "alias": "NAME",
+   "length": 255
+  },
+  {
+   "name": "ADDRESS",
+   "type": "esriFieldTypeString",
+   "alias": "ADDRESS",
+   "length": 500
+  },
+  {
+   "name": "GIS_LATITUDE",
+   "type": "esriFieldTypeDouble",
+   "alias": "GIS_LATITUDE"
+  },
+  {
+   "name": "GIS_LONGITUDE",
+   "type": "esriFieldTypeDouble",
+   "alias": "GIS_LONGITUDE"
+  },
+  {
+   "name": "INSPECTION_DATE",
+   "type": "esriFieldTypeDate",
+   "alias": "INSPECTION_DATE",
+   "length": 8
+  },
+  {
+   "name": "SCORE",
+   "type": "esriFieldTypeDouble",
+   "alias": "SCORE"
+  },
+  {
+   "name": "PE",
+   "type": "esriFieldTypeString",
+   "alias": "PE",
+   "length": 20
+  }
+ ],
+ "features": [
+  {
+   "attributes": {
+    "OBJECTID": 10,
+    "FACILITY_ID": "FA0000031",
+    "PERMIT_NUMBER": "PT0031",
+    "PROGRAM_IDENTIFIER": "0",
+    "NAME": "CVS PHARMACY #7481",
+    "ADDRESS": "1372 BELT LINE RD",
+    "GIS_LATITUDE": 32.9445269,
+    "GIS_LONGITUDE": -96.6469598,
+    "INSPECTION_DATE": 1791763200000,
+    "SCORE": 100.0,
+    "PE": "1604"
+   },
+   "geometry": {
+    "x": -96.64695979999999,
+    "y": 32.94452690000003
+   }
+  },
+  {
+   "attributes": {
+    "OBJECTID": 11,
+    "FACILITY_ID": "FA0000034",
+    "PERMIT_NUMBER": "PT0034",
+    "PROGRAM_IDENTIFIER": "0",
+    "NAME": "GRILL 64",
+    "ADDRESS": "600 W CAMPBELL RD",
+    "GIS_LATITUDE": 32.9768838,
+    "GIS_LONGITUDE": -96.6348411,
+    "INSPECTION_DATE": 1776124800000,
+    "SCORE": 85.0,
+    "PE": "1602"
+   },
+   "geometry": {
+    "x": -96.63484109999996,
+    "y": 32.97688380000005
+   }
+  },
+  {
+   "attributes": {
+    "OBJECTID": 20,
+    "FACILITY_ID": "FA0000047",
+    "PERMIT_NUMBER": "PT0048",
+    "PROGRAM_IDENTIFIER": "DELI",
+    "NAME": "KROGER FOOD STORE #557",
+    "ADDRESS": "6850 N SHILOH RD",
+    "GIS_LATITUDE": 32.9773869,
+    "GIS_LONGITUDE": -96.6637974,
+    "INSPECTION_DATE": 1785283200000,
+    "SCORE": 89.0,
+    "PE": "1602"
+   },
+   "geometry": {
+    "x": -96.66379739999996,
+    "y": 32.977386900000056
+   }
+  },
+  {
+   "attributes": {
+    "OBJECTID": 31,
+    "FACILITY_ID": "FA0000109",
+    "PERMIT_NUMBER": "PT0106",
+    "PROGRAM_IDENTIFIER": "0",
+    "NAME": "STARBUCKS COFFEE #1489",
+    "ADDRESS": "5301 N GARLAND AVE",
+    "GIS_LATITUDE": 32.9656504,
+    "GIS_LONGITUDE": -96.6468061,
+    "INSPECTION_DATE": 1759881600000,
+    "SCORE": 91.0,
+    "PE": "1603"
+   },
+   "geometry": {
+    "x": -96.64680609999999,
+    "y": 32.96565040000007
+   }
+  },
+  {
+   "attributes": {
+    "OBJECTID": 42,
+    "FACILITY_ID": "FA0000155",
+    "PERMIT_NUMBER": "PT0148",
+    "PROGRAM_IDENTIFIER": "0",
+    "NAME": "CARMEN'S TACOS AND GORDITAS",
+    "ADDRESS": "1311 MARKETPLACE DR",
+    "GIS_LATITUDE": 32.860188,
+    "GIS_LONGITUDE": -96.6471608,
+    "INSPECTION_DATE": 1789603200000,
+    "SCORE": 73.0,
+    "PE": "1601"
+   },
+   "geometry": {
+    "x": -96.64716079999994,
+    "y": 32.86018800000005
+   }
+  },
+  {
+   "attributes": {
+    "OBJECTID": 100,
+    "FACILITY_ID": "FA0000383",
+    "PERMIT_NUMBER": "PT0369",
+    "PROGRAM_IDENTIFIER": "0",
+    "NAME": "GISD ALTERNATIVE EDUCATION CENTER",
+    "ADDRESS": "2015 S COUNTRY CLUB RD",
+    "GIS_LATITUDE": 32.89287,
+    "GIS_LONGITUDE": -96.615055,
+    "INSPECTION_DATE": 1792540800000,
+    "SCORE": 100.0,
+    "PE": "1608"
+   },
+   "geometry": {
+    "x": -96.61505499999998,
+    "y": 32.89287000000007
+   }
+  },
+  {
+   "attributes": {
+    "OBJECTID": 109,
+    "FACILITY_ID": "FA0000401",
+    "PERMIT_NUMBER": "PT0388",
+    "PROGRAM_IDENTIFIER": "0",
+    "NAME": "GARLAND ISD WAREHOUSE",
+    "ADDRESS": "701 N FIRST ST",
+    "GIS_LATITUDE": 32.919583,
+    "GIS_LONGITUDE": -96.632405,
+    "INSPECTION_DATE": 1778716800000,
+    "SCORE": 99.0,
+    "PE": "1609"
+   },
+   "geometry": {
+    "x": -96.63240499999995,
+    "y": 32.919583000000046
+   }
+  },
+  {
+   "attributes": {
+    "OBJECTID": 121,
+    "FACILITY_ID": "FA0000444",
+    "PERMIT_NUMBER": "PT0431",
+    "PROGRAM_IDENTIFIER": "0",
+    "NAME": "BLUE IVEY SCHOOL",
+    "ADDRESS": "2101 FIREWHEEL PKWY",
+    "GIS_LATITUDE": 32.9316906,
+    "GIS_LONGITUDE": -96.5978286,
+    "INSPECTION_DATE": 1784160000000,
+    "SCORE": 97.0,
+    "PE": "1607"
+   },
+   "geometry": {
+    "x": -96.59782859999996,
+    "y": 32.931690600000024
+   }
+  },
+  {
+   "attributes": {
+    "OBJECTID": 143,
+    "FACILITY_ID": "FA0000521",
+    "PERMIT_NUMBER": "PT0507",
+    "PROGRAM_IDENTIFIER": "INSPECTIONS ONLY",
+    "NAME": "PEARL C ANDERSON CHILDCARE GROUP",
+    "ADDRESS": "625 E AVENUE B",
+    "GIS_LATITUDE": 32.9093494,
+    "GIS_LONGITUDE": -96.6240015,
+    "INSPECTION_DATE": 1766016000000,
+    "SCORE": 84.0,
+    "PE": "1607"
+   },
+   "geometry": {
+    "x": -96.62400149999996,
+    "y": 32.90934940000005
+   }
+  },
+  {
+   "attributes": {
+    "OBJECTID": 320,
+    "FACILITY_ID": "FA0001543",
+    "PERMIT_NUMBER": "PT1681",
+    "PROGRAM_IDENTIFIER": "0",
+    "NAME": "LA MEDIA LUNA",
+    "ADDRESS": "3460 W WALNUT ST",
+    "GIS_LATITUDE": 32.9155686,
+    "GIS_LONGITUDE": -96.6815045,
+    "INSPECTION_DATE": 1795132800000,
+    "SCORE": 97.0,
+    "PE": "1603"
+   },
+   "geometry": {
+    "x": -96.68150449999996,
+    "y": 32.91556860000003
+   }
+  },
+  {
+   "attributes": {
+    "OBJECTID": 427,
+    "FACILITY_ID": "FA0002121",
+    "PERMIT_NUMBER": "PT2286",
+    "PROGRAM_IDENTIFIER": "0",
+    "NAME": "MIRCH MASALA",
+    "ADDRESS": "4550 W BUCKINGHAM RD",
+    "GIS_LATITUDE": 32.9312251,
+    "GIS_LONGITUDE": -96.7018678,
+    "INSPECTION_DATE": 1786060800000,
+    "SCORE": 60.0,
+    "PE": "1601"
+   },
+   "geometry": {
+    "x": -96.70186779999995,
+    "y": 32.93122510000006
+   }
+  },
+  {
+   "attributes": {
+    "OBJECTID": 509,
+    "FACILITY_ID": "FA0002418",
+    "PERMIT_NUMBER": "PT2896",
+    "PROGRAM_IDENTIFIER": "DELI",
+    "NAME": "OK MINI MART",
+    "ADDRESS": "3022 S SHILOH RD",
+    "GIS_LATITUDE": 32.879205,
+    "GIS_LONGITUDE": -96.665135,
+    "INSPECTION_DATE": 1696377600000,
+    "SCORE": 89.0,
+    "PE": "1602"
+   },
+   "geometry": {
+    "x": -96.66513499999996,
+    "y": 32.87920500000007
+   }
+  },
+  {
+   "attributes": {
+    "OBJECTID": 528,
+    "FACILITY_ID": "FA0002499",
+    "PERMIT_NUMBER": "PT3161",
+    "PROGRAM_IDENTIFIER": "STREET TACO",
+    "NAME": "GARLAND HOMEBOY'S",
+    "ADDRESS": "450 E INTERSTATE 30",
+    "GIS_LATITUDE": 32.8494673,
+    "GIS_LONGITUDE": -96.5700753,
+    "INSPECTION_DATE": 1794787200000,
+    "SCORE": 95.0,
+    "PE": "1602"
+   },
+   "geometry": {
+    "x": -96.57007529999998,
+    "y": 32.84946730000007
+   }
+  },
+  {
+   "attributes": {
+    "OBJECTID": 616,
+    "FACILITY_ID": "FA0002862",
+    "PERMIT_NUMBER": "PT3261",
+    "PROGRAM_IDENTIFIER": "0",
+    "NAME": "TACO BELL #35446",
+    "ADDRESS": "3178 LAVON DR",
+    "GIS_LATITUDE": 32.944963,
+    "GIS_LONGITUDE": -96.619062,
+    "INSPECTION_DATE": 1766016000000,
+    "SCORE": 93.0,
+    "PE": "1602"
+   },
+   "geometry": {
+    "x": -96.61906199999999,
+    "y": 32.94496300000003
+   }
+  },
+  {
+   "attributes": {
+    "OBJECTID": 660,
+    "FACILITY_ID": "FA0002988",
+    "PERMIT_NUMBER": "PT3390",
+    "PROGRAM_IDENTIFIER": "0",
+    "NAME": "THE BLUE RAT THAI KITCHEN",
+    "ADDRESS": "608 MAIN ST",
+    "GIS_LATITUDE": 32.912553,
+    "GIS_LONGITUDE": -96.63815,
+    "INSPECTION_DATE": 1769040000000,
+    "SCORE": 71.0,
+    "PE": "1601"
+   },
+   "geometry": {
+    "x": -96.63814999999994,
+    "y": 32.91255300000006
+   }
+  },
+  {
+   "attributes": {
+    "OBJECTID": 688,
+    "FACILITY_ID": "FA0003035",
+    "PERMIT_NUMBER": "PT3447",
+    "PROGRAM_IDENTIFIER": "0",
+    "NAME": "FENG CHA GARLAND",
+    "ADDRESS": "2645 ARAPAHO RD",
+    "GIS_LATITUDE": 32.960588,
+    "GIS_LONGITUDE": -96.666789,
+    "INSPECTION_DATE": 1767744000000,
+    "SCORE": 81.0,
+    "PE": "1603"
+   },
+   "geometry": {
+    "x": -96.66678899999994,
+    "y": 32.96058800000003
+   }
+  },
+  {
+   "attributes": {
+    "OBJECTID": 960,
+    "FACILITY_ID": "FA0003844",
+    "PERMIT_NUMBER": "PT4449",
+    "PROGRAM_IDENTIFIER": "TED E'S KITCHEN 1",
+    "NAME": "CURTIS CULWELL CENTER CONCESSIONS",
+    "ADDRESS": "4999 NAAMAN FOREST BLVD",
+    "GIS_LATITUDE": 32.958666,
+    "GIS_LONGITUDE": -96.641811,
+    "INSPECTION_DATE": 1784592000000,
+    "SCORE": 93.0,
+    "PE": "1603"
+   },
+   "geometry": {
+    "x": -96.64181099999996,
+    "y": 32.95866600000005
+   }
+  },
+  {
+   "attributes": {
+    "OBJECTID": 961,
+    "FACILITY_ID": "FA0003844",
+    "PERMIT_NUMBER": "PT4450",
+    "PROGRAM_IDENTIFIER": "TED E'S KITCHEN 2",
+    "NAME": "CURTIS CULWELL CENTER CONCESSIONS",
+    "ADDRESS": "4999 NAAMAN FOREST BLVD",
+    "GIS_LATITUDE": 32.958666,
+    "GIS_LONGITUDE": -96.641811,
+    "INSPECTION_DATE": 1784592000000,
+    "SCORE": 96.0,
+    "PE": "1603"
+   },
+   "geometry": {
+    "x": -96.64181099999996,
+    "y": 32.95866600000005
+   }
+  },
+  {
+   "attributes": {
+    "OBJECTID": 962,
+    "FACILITY_ID": "FA0003844",
+    "PERMIT_NUMBER": "PT4451",
+    "PROGRAM_IDENTIFIER": "TED E'S KITCHEN 3",
+    "NAME": "CURTIS CULWELL CENTER CONCESSIONS",
+    "ADDRESS": "4999 NAAMAN FOREST BLVD",
+    "GIS_LATITUDE": 32.958666,
+    "GIS_LONGITUDE": -96.641811,
+    "INSPECTION_DATE": 1784592000000,
+    "SCORE": 97.0,
+    "PE": "1603"
+   },
+   "geometry": {
+    "x": -96.64181099999996,
+    "y": 32.95866600000005
+   }
+  },
+  {
+   "attributes": {
+    "OBJECTID": 963,
+    "FACILITY_ID": "FA0003844",
+    "PERMIT_NUMBER": "PT4452",
+    "PROGRAM_IDENTIFIER": "TED E'S KITCHEN 5",
+    "NAME": "CURTIS CULWELL CENTER CONCESSIONS",
+    "ADDRESS": "4999 NAAMAN FOREST BLVD",
+    "GIS_LATITUDE": 32.958666,
+    "GIS_LONGITUDE": -96.641811,
+    "INSPECTION_DATE": 1784592000000,
+    "SCORE": 97.0,
+    "PE": "1603"
+   },
+   "geometry": {
+    "x": -96.64181099999996,
+    "y": 32.95866600000005
+   }
+  },
+  {
+   "attributes": {
+    "OBJECTID": 964,
+    "FACILITY_ID": "FA0003844",
+    "PERMIT_NUMBER": "PT4453",
+    "PROGRAM_IDENTIFIER": "MAUI WOWI SMOOTHIES",
+    "NAME": "CURTIS CULWELL CENTER CONCESSIONS",
+    "ADDRESS": "4999 NAAMAN FOREST BLVD",
+    "GIS_LATITUDE": 32.958666,
+    "GIS_LONGITUDE": -96.641811,
+    "INSPECTION_DATE": 1718323200000,
+    "SCORE": 97.0,
+    "PE": "1614"
+   },
+   "geometry": {
+    "x": -96.64181099999996,
+    "y": 32.95866600000005
+   }
+  },
+  {
+   "attributes": {
+    "OBJECTID": 965,
+    "FACILITY_ID": "FA0003844",
+    "PERMIT_NUMBER": "PT4454",
+    "PROGRAM_IDENTIFIER": "DIPPIN DOTS/DOC POPCORN",
+    "NAME": "CURTIS CULWELL CENTER CONCESSIONS",
+    "ADDRESS": "4999 NAAMAN FOREST BLVD",
+    "GIS_LATITUDE": 32.958666,
+    "GIS_LONGITUDE": -96.641811,
+    "INSPECTION_DATE": 1755648000000,
+    "SCORE": 95.0,
+    "PE": "1603"
+   },
+   "geometry": {
+    "x": -96.64181099999996,
+    "y": 32.95866600000005
+   }
+  },
+  {
+   "attributes": {
+    "OBJECTID": 966,
+    "FACILITY_ID": "FA0003844",
+    "PERMIT_NUMBER": "PT4830",
+    "PROGRAM_IDENTIFIER": "MAUI WOWI/DIPPIN DOTS #3",
+    "NAME": "CURTIS CULWELL CENTER CONCESSIONS",
+    "ADDRESS": "4999 NAAMAN FOREST BLVD",
+    "GIS_LATITUDE": 32.958666,
+    "GIS_LONGITUDE": -96.641811,
+    "INSPECTION_DATE": 1755648000000,
+    "SCORE": 91.0,
+    "PE": "1603"
+   },
+   "geometry": {
+    "x": -96.64181099999996,
+    "y": 32.95866600000005
+   }
+  },
+  {
+   "attributes": {
+    "OBJECTID": 1021,
+    "FACILITY_ID": "FA0003963",
+    "PERMIT_NUMBER": "PT4746",
+    "PROGRAM_IDENTIFIER": "0",
+    "NAME": "BOBTOWN EXPRESS FOOD MART",
+    "ADDRESS": "4102 BOBTOWN RD",
+    "GIS_LATITUDE": -96.569114,
+    "GIS_LONGITUDE": 32.848245,
+    "INSPECTION_DATE": 1786492800000,
+    "SCORE": 82.0,
+    "PE": "1604"
+   }
+  },
+  {
+   "attributes": {
+    "OBJECTID": 1060,
+    "FACILITY_ID": "FA0004046",
+    "PERMIT_NUMBER": "PT4921",
+    "PROGRAM_IDENTIFIER": "0",
+    "NAME": "PRO FIT SOLUTIONS",
+    "ADDRESS": "1910 PENDELTON DR",
+    "GIS_LATITUDE": null,
+    "GIS_LONGITUDE": null,
+    "INSPECTION_DATE": 1789603200000,
+    "SCORE": 86.0,
+    "PE": "1603"
+   }
+  },
+  {
+   "attributes": {
+    "OBJECTID": 1088,
+    "FACILITY_ID": "FA0004095",
+    "PERMIT_NUMBER": "PT5031",
+    "PROGRAM_IDENTIFIER": "0",
+    "NAME": "EGGSQUISITE CAFE",
+    "ADDRESS": "5325 N PRES. GEORGE BUSH HWY",
+    "GIS_LATITUDE": 32.964494,
+    "GIS_LONGITUDE": -96.642041,
+    "INSPECTION_DATE": 1766966400000,
+    "SCORE": 0.0,
+    "PE": "1624"
+   },
+   "geometry": {
+    "x": -96.64204099999995,
+    "y": 32.96449400000006
+   }
+  },
+  {
+   "attributes": {
+    "OBJECTID": 1132,
+    "FACILITY_ID": "FA0004161",
+    "PERMIT_NUMBER": "PT5192",
+    "PROGRAM_IDENTIFIER": "GRANGER REC CENTER",
+    "NAME": "GARLAND ISD STUDENT NUTRITION SERVICES",
+    "ADDRESS": "720 STADIUM DR",
+    "GIS_LATITUDE": null,
+    "GIS_LONGITUDE": null,
+    "INSPECTION_DATE": 1783468800000,
+    "SCORE": 100.0,
+    "PE": "1628"
+   }
+  }
+ ]
+}

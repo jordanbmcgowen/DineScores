@@ -1,0 +1,674 @@
+[
+ {
+  "authorizationModule": 7,
+  "moduleName": "Inspection",
+  "caseId": "2e0ad5f2-56d9-4ed0-abb2-298ac102043c",
+  "caseNumber": "RFEI-ROUT-000414-2026",
+  "caseStatus": "Failed",
+  "caseTypeWorkClassFriendlyName": "RFE-Routine",
+  "caseNumberWithCategory": "RFEI-ROUT-000414-2026",
+  "displayAddress": "4534 BUFFALO GAP RD",
+  "mainParcel": "",
+  "description": null,
+  "searchResultFields": [
+   {
+    "label": "Main Parcel",
+    "value": "",
+    "valueType": 0
+   },
+   {
+    "label": "Requested Date",
+    "value": "2026-11-17T00:00:00",
+    "valueType": 1
+   },
+   {
+    "label": "Scheduled Date",
+    "value": "2026-11-17T00:00:00",
+    "valueType": 1
+   },
+   {
+    "label": "Completed Date",
+    "value": null,
+    "valueType": 1
+   }
+  ],
+  "entitySearchResultAddressInfo": {
+   "addressLine1": "4534",
+   "addressLine2": "BUFFALO GAP"
+  },
+  "entitySearchResultStatusInfo": {
+   "statusIssued": false,
+   "statusFailed": false,
+   "statusCancelled": false,
+   "statusCompleted": false,
+   "statusHold": false,
+   "statusSuccess": false,
+   "statusWait": false,
+   "statusInViolation": true,
+   "statusReInspection": true,
+   "statusPartialPass": false,
+   "statusCompliant": false,
+   "statusScheduled": false,
+   "statusExpired": false,
+   "statusRevoked": false
+  },
+  "highlights": null,
+  "isFavorite": false
+ },
+ {
+  "authorizationModule": 7,
+  "moduleName": "Inspection",
+  "caseId": "3fd84f76-8d3e-4076-8f8b-2cd83b219012",
+  "caseNumber": "RFEI-ROUT-000605-2026",
+  "caseStatus": "Completed",
+  "caseTypeWorkClassFriendlyName": "RFE-Routine",
+  "caseNumberWithCategory": "RFEI-ROUT-000605-2026",
+  "displayAddress": "2439 N Judge Ely BLVD",
+  "mainParcel": "",
+  "description": null,
+  "searchResultFields": [
+   {
+    "label": "Main Parcel",
+    "value": "",
+    "valueType": 0
+   },
+   {
+    "label": "Requested Date",
+    "value": "2026-11-02T00:00:00",
+    "valueType": 1
+   },
+   {
+    "label": "Scheduled Date",
+    "value": "2026-11-02T00:00:00",
+    "valueType": 1
+   },
+   {
+    "label": "Completed Date",
+    "value": null,
+    "valueType": 1
+   }
+  ],
+  "entitySearchResultAddressInfo": {
+   "addressLine1": "2439",
+   "addressLine2": "Judge Ely"
+  },
+  "entitySearchResultStatusInfo": {
+   "statusIssued": false,
+   "statusFailed": false,
+   "statusCancelled": false,
+   "statusCompleted": false,
+   "statusHold": false,
+   "statusSuccess": true,
+   "statusWait": false,
+   "statusInViolation": false,
+   "statusReInspection": false,
+   "statusPartialPass": false,
+   "statusCompliant": false,
+   "statusScheduled": false,
+   "statusExpired": false,
+   "statusRevoked": false
+  },
+  "highlights": null,
+  "isFavorite": false
+ },
+ {
+  "authorizationModule": 7,
+  "moduleName": "Inspection",
+  "caseId": "4afcd747-c231-4ef1-ab6c-922540394244",
+  "caseNumber": "RFEI-ROUT-000318-2026",
+  "caseStatus": "Completed",
+  "caseTypeWorkClassFriendlyName": "RFE-Routine",
+  "caseNumberWithCategory": "RFEI-ROUT-000318-2026",
+  "displayAddress": "6361 Memorial DR",
+  "mainParcel": "",
+  "description": null,
+  "searchResultFields": [
+   {
+    "label": "Main Parcel",
+    "value": "",
+    "valueType": 0
+   },
+   {
+    "label": "Requested Date",
+    "value": "2026-11-02T00:00:00",
+    "valueType": 1
+   },
+   {
+    "label": "Scheduled Date",
+    "value": "2026-11-02T00:00:00",
+    "valueType": 1
+   },
+   {
+    "label": "Completed Date",
+    "value": null,
+    "valueType": 1
+   }
+  ],
+  "entitySearchResultAddressInfo": {
+   "addressLine1": "6361",
+   "addressLine2": "Memorial"
+  },
+  "entitySearchResultStatusInfo": {
+   "statusIssued": false,
+   "statusFailed": false,
+   "statusCancelled": false,
+   "statusCompleted": false,
+   "statusHold": false,
+   "statusSuccess": true,
+   "statusWait": false,
+   "statusInViolation": false,
+   "statusReInspection": false,
+   "statusPartialPass": false,
+   "statusCompliant": false,
+   "statusScheduled": false,
+   "statusExpired": false,
+   "statusRevoked": false
+  },
+  "highlights": null,
+  "isFavorite": false
+ },
+ {
+  "authorizationModule": 7,
+  "moduleName": "Inspection",
+  "caseId": "9d501c17-d643-48f4-887d-8c5df3e0c3bd",
+  "caseNumber": "RFEI-ROUT-000400-2026",
+  "caseStatus": "Completed",
+  "caseTypeWorkClassFriendlyName": "RFE-Routine",
+  "caseNumberWithCategory": "RFEI-ROUT-000400-2026",
+  "displayAddress": "1327 N JUDGE ELY BLVD",
+  "mainParcel": "",
+  "description": null,
+  "searchResultFields": [
+   {
+    "label": "Main Parcel",
+    "value": "",
+    "valueType": 0
+   },
+   {
+    "label": "Requested Date",
+    "value": "2026-11-02T00:00:00",
+    "valueType": 1
+   },
+   {
+    "label": "Scheduled Date",
+    "value": "2026-11-02T00:00:00",
+    "valueType": 1
+   },
+   {
+    "label": "Completed Date",
+    "value": null,
+    "valueType": 1
+   }
+  ],
+  "entitySearchResultAddressInfo": {
+   "addressLine1": "1327",
+   "addressLine2": "JUDGE ELY"
+  },
+  "entitySearchResultStatusInfo": {
+   "statusIssued": false,
+   "statusFailed": false,
+   "statusCancelled": false,
+   "statusCompleted": false,
+   "statusHold": false,
+   "statusSuccess": true,
+   "statusWait": false,
+   "statusInViolation": false,
+   "statusReInspection": false,
+   "statusPartialPass": false,
+   "statusCompliant": false,
+   "statusScheduled": false,
+   "statusExpired": false,
+   "statusRevoked": false
+  },
+  "highlights": null,
+  "isFavorite": false
+ },
+ {
+  "authorizationModule": 7,
+  "moduleName": "Inspection",
+  "caseId": "bf342c3e-5932-4f69-9b88-6ce9e5a312ef",
+  "caseNumber": "RFEI-REIN-000871-2026",
+  "caseStatus": "Completed",
+  "caseTypeWorkClassFriendlyName": "RFE-Reinspection",
+  "caseNumberWithCategory": "RFEI-REIN-000871-2026",
+  "displayAddress": "1402 E OVERLAND TRL",
+  "mainParcel": "",
+  "description": null,
+  "searchResultFields": [
+   {
+    "label": "Main Parcel",
+    "value": "",
+    "valueType": 0
+   },
+   {
+    "label": "Requested Date",
+    "value": "2026-11-19T00:00:00",
+    "valueType": 1
+   },
+   {
+    "label": "Scheduled Date",
+    "value": "2026-11-19T00:00:00",
+    "valueType": 1
+   },
+   {
+    "label": "Completed Date",
+    "value": null,
+    "valueType": 1
+   }
+  ],
+  "entitySearchResultAddressInfo": {
+   "addressLine1": "1402",
+   "addressLine2": "OVERLAND"
+  },
+  "entitySearchResultStatusInfo": {
+   "statusIssued": false,
+   "statusFailed": false,
+   "statusCancelled": false,
+   "statusCompleted": false,
+   "statusHold": false,
+   "statusSuccess": true,
+   "statusWait": false,
+   "statusInViolation": false,
+   "statusReInspection": false,
+   "statusPartialPass": false,
+   "statusCompliant": false,
+   "statusScheduled": false,
+   "statusExpired": false,
+   "statusRevoked": false
+  },
+  "highlights": null,
+  "isFavorite": false
+ },
+ {
+  "authorizationModule": 7,
+  "moduleName": "Inspection",
+  "caseId": "d4ed954c-67b1-4e45-b8f1-ccd7eb0d5da5",
+  "caseNumber": "RFEI-ROUT-000151-2026",
+  "caseStatus": "Passed",
+  "caseTypeWorkClassFriendlyName": "RFE-Routine",
+  "caseNumberWithCategory": "RFEI-ROUT-000151-2026",
+  "displayAddress": "841 N JUDGE ELY BLVD",
+  "mainParcel": "",
+  "description": null,
+  "searchResultFields": [
+   {
+    "label": "Main Parcel",
+    "value": "",
+    "valueType": 0
+   },
+   {
+    "label": "Requested Date",
+    "value": "2026-09-28T00:00:00",
+    "valueType": 1
+   },
+   {
+    "label": "Scheduled Date",
+    "value": null,
+    "valueType": 1
+   },
+   {
+    "label": "Completed Date",
+    "value": null,
+    "valueType": 1
+   }
+  ],
+  "entitySearchResultAddressInfo": {
+   "addressLine1": "841",
+   "addressLine2": "JUDGE ELY"
+  },
+  "entitySearchResultStatusInfo": {
+   "statusIssued": false,
+   "statusFailed": false,
+   "statusCancelled": false,
+   "statusCompleted": false,
+   "statusHold": false,
+   "statusSuccess": true,
+   "statusWait": false,
+   "statusInViolation": false,
+   "statusReInspection": false,
+   "statusPartialPass": false,
+   "statusCompliant": false,
+   "statusScheduled": false,
+   "statusExpired": false,
+   "statusRevoked": false
+  },
+  "highlights": null,
+  "isFavorite": false
+ },
+ {
+  "authorizationModule": 7,
+  "moduleName": "Inspection",
+  "caseId": "3fa5e0c7-7863-43b0-8403-ec97ceccb1f1",
+  "caseNumber": "RFEI-ROUT-000886-2026",
+  "caseStatus": "Completed",
+  "caseTypeWorkClassFriendlyName": "RFE-Routine",
+  "caseNumberWithCategory": "RFEI-ROUT-000886-2026",
+  "displayAddress": "2025 S 14th ST Unit: STE A",
+  "mainParcel": "",
+  "description": null,
+  "searchResultFields": [
+   {
+    "label": "Main Parcel",
+    "value": "",
+    "valueType": 0
+   },
+   {
+    "label": "Requested Date",
+    "value": "2027-05-01T00:00:00",
+    "valueType": 1
+   },
+   {
+    "label": "Scheduled Date",
+    "value": "2027-05-01T00:00:00",
+    "valueType": 1
+   },
+   {
+    "label": "Completed Date",
+    "value": null,
+    "valueType": 1
+   }
+  ],
+  "entitySearchResultAddressInfo": {
+   "addressLine1": "2025",
+   "addressLine2": "14th"
+  },
+  "entitySearchResultStatusInfo": {
+   "statusIssued": false,
+   "statusFailed": false,
+   "statusCancelled": false,
+   "statusCompleted": false,
+   "statusHold": false,
+   "statusSuccess": true,
+   "statusWait": false,
+   "statusInViolation": false,
+   "statusReInspection": false,
+   "statusPartialPass": false,
+   "statusCompliant": false,
+   "statusScheduled": false,
+   "statusExpired": false,
+   "statusRevoked": false
+  },
+  "highlights": null,
+  "isFavorite": false
+ },
+ {
+  "authorizationModule": 7,
+  "moduleName": "Inspection",
+  "caseId": "49C06099-E8E9-4462-A026-A91CC9376FA9",
+  "caseNumber": "69082",
+  "caseStatus": "Completed",
+  "caseTypeWorkClassFriendlyName": "Legacy Retail Food Establishment",
+  "caseNumberWithCategory": "69082",
+  "displayAddress": "825 N JUDGE ELY BLVD",
+  "mainParcel": "",
+  "description": null,
+  "searchResultFields": [
+   {
+    "label": "Main Parcel",
+    "value": "",
+    "valueType": 0
+   },
+   {
+    "label": "Requested Date",
+    "value": "2026-09-09T00:00:00",
+    "valueType": 1
+   },
+   {
+    "label": "Scheduled Date",
+    "value": "2026-09-09T00:00:00",
+    "valueType": 1
+   },
+   {
+    "label": "Completed Date",
+    "value": null,
+    "valueType": 1
+   }
+  ],
+  "entitySearchResultAddressInfo": {
+   "addressLine1": "825",
+   "addressLine2": "JUDGE ELY"
+  },
+  "entitySearchResultStatusInfo": {
+   "statusIssued": false,
+   "statusFailed": false,
+   "statusCancelled": false,
+   "statusCompleted": false,
+   "statusHold": false,
+   "statusSuccess": true,
+   "statusWait": false,
+   "statusInViolation": false,
+   "statusReInspection": false,
+   "statusPartialPass": false,
+   "statusCompliant": false,
+   "statusScheduled": false,
+   "statusExpired": false,
+   "statusRevoked": false
+  },
+  "highlights": null,
+  "isFavorite": false
+ },
+ {
+  "authorizationModule": 7,
+  "moduleName": "Inspection",
+  "caseId": "3D5FBF9B-1D68-4AE8-82E2-3E8C508F23EE",
+  "caseNumber": "69070",
+  "caseStatus": "Completed",
+  "caseTypeWorkClassFriendlyName": "Legacy Retail Food Establishment",
+  "caseNumberWithCategory": "69070",
+  "displayAddress": "7925 Buffalo Gap RD",
+  "mainParcel": "",
+  "description": null,
+  "searchResultFields": [
+   {
+    "label": "Main Parcel",
+    "value": "",
+    "valueType": 0
+   },
+   {
+    "label": "Requested Date",
+    "value": "2026-09-09T00:00:00",
+    "valueType": 1
+   },
+   {
+    "label": "Scheduled Date",
+    "value": "2026-09-09T00:00:00",
+    "valueType": 1
+   },
+   {
+    "label": "Completed Date",
+    "value": null,
+    "valueType": 1
+   }
+  ],
+  "entitySearchResultAddressInfo": {
+   "addressLine1": "7925",
+   "addressLine2": "Buffalo Gap"
+  },
+  "entitySearchResultStatusInfo": {
+   "statusIssued": false,
+   "statusFailed": false,
+   "statusCancelled": false,
+   "statusCompleted": false,
+   "statusHold": false,
+   "statusSuccess": true,
+   "statusWait": false,
+   "statusInViolation": false,
+   "statusReInspection": false,
+   "statusPartialPass": false,
+   "statusCompliant": false,
+   "statusScheduled": false,
+   "statusExpired": false,
+   "statusRevoked": false
+  },
+  "highlights": null,
+  "isFavorite": false
+ },
+ {
+  "authorizationModule": 7,
+  "moduleName": "Inspection",
+  "caseId": "07B0D547-784E-40A7-A8EF-3F2B45F8FE4F",
+  "caseNumber": "69016",
+  "caseStatus": "Completed",
+  "caseTypeWorkClassFriendlyName": "Legacy Retail Food Establishment",
+  "caseNumberWithCategory": "69016",
+  "displayAddress": "4450 BUFFALO GAP RD",
+  "mainParcel": "",
+  "description": null,
+  "searchResultFields": [
+   {
+    "label": "Main Parcel",
+    "value": "",
+    "valueType": 0
+   },
+   {
+    "label": "Requested Date",
+    "value": "2026-09-01T00:00:00",
+    "valueType": 1
+   },
+   {
+    "label": "Scheduled Date",
+    "value": "2026-09-01T00:00:00",
+    "valueType": 1
+   },
+   {
+    "label": "Completed Date",
+    "value": null,
+    "valueType": 1
+   }
+  ],
+  "entitySearchResultAddressInfo": {
+   "addressLine1": "4450",
+   "addressLine2": "BUFFALO GAP"
+  },
+  "entitySearchResultStatusInfo": {
+   "statusIssued": false,
+   "statusFailed": false,
+   "statusCancelled": false,
+   "statusCompleted": false,
+   "statusHold": false,
+   "statusSuccess": true,
+   "statusWait": false,
+   "statusInViolation": false,
+   "statusReInspection": false,
+   "statusPartialPass": false,
+   "statusCompliant": false,
+   "statusScheduled": false,
+   "statusExpired": false,
+   "statusRevoked": false
+  },
+  "highlights": null,
+  "isFavorite": false
+ },
+ {
+  "authorizationModule": 7,
+  "moduleName": "Inspection",
+  "caseId": "9df09cb3-dd1f-4ac2-9135-6d44d31af42e",
+  "caseNumber": "RFEI-ROUT-000157-2026",
+  "caseStatus": "Completed",
+  "caseTypeWorkClassFriendlyName": "RFE-Routine",
+  "caseNumberWithCategory": "RFEI-ROUT-000157-2026",
+  "displayAddress": "1850 Campus Center",
+  "mainParcel": "",
+  "description": null,
+  "searchResultFields": [
+   {
+    "label": "Main Parcel",
+    "value": "",
+    "valueType": 0
+   },
+   {
+    "label": "Requested Date",
+    "value": "2026-11-02T00:00:00",
+    "valueType": 1
+   },
+   {
+    "label": "Scheduled Date",
+    "value": "2026-11-02T00:00:00",
+    "valueType": 1
+   },
+   {
+    "label": "Completed Date",
+    "value": null,
+    "valueType": 1
+   }
+  ],
+  "entitySearchResultAddressInfo": {
+   "addressLine1": "1850",
+   "addressLine2": "Campus Center"
+  },
+  "entitySearchResultStatusInfo": {
+   "statusIssued": false,
+   "statusFailed": false,
+   "statusCancelled": false,
+   "statusCompleted": false,
+   "statusHold": false,
+   "statusSuccess": true,
+   "statusWait": false,
+   "statusInViolation": false,
+   "statusReInspection": false,
+   "statusPartialPass": false,
+   "statusCompliant": false,
+   "statusScheduled": false,
+   "statusExpired": false,
+   "statusRevoked": false
+  },
+  "highlights": null,
+  "isFavorite": false
+ },
+ {
+  "authorizationModule": 7,
+  "moduleName": "Inspection",
+  "caseId": "9124ebb1-4aa0-4948-a280-25f87e76af3a",
+  "caseNumber": "RFEI-BAS-000119-2026",
+  "caseStatus": "Completed",
+  "caseTypeWorkClassFriendlyName": "RFE-Bi-Annual School",
+  "caseNumberWithCategory": "RFEI-BAS-000119-2026",
+  "displayAddress": "2034 Quantum LOOP",
+  "mainParcel": "",
+  "description": null,
+  "searchResultFields": [
+   {
+    "label": "Main Parcel",
+    "value": "",
+    "valueType": 0
+   },
+   {
+    "label": "Requested Date",
+    "value": "2026-09-01T00:00:00",
+    "valueType": 1
+   },
+   {
+    "label": "Scheduled Date",
+    "value": "2026-09-01T00:00:00",
+    "valueType": 1
+   },
+   {
+    "label": "Completed Date",
+    "value": null,
+    "valueType": 1
+   }
+  ],
+  "entitySearchResultAddressInfo": {
+   "addressLine1": "2034",
+   "addressLine2": "Quantum"
+  },
+  "entitySearchResultStatusInfo": {
+   "statusIssued": false,
+   "statusFailed": false,
+   "statusCancelled": false,
+   "statusCompleted": false,
+   "statusHold": false,
+   "statusSuccess": true,
+   "statusWait": false,
+   "statusInViolation": false,
+   "statusReInspection": false,
+   "statusPartialPass": false,
+   "statusCompliant": false,
+   "statusScheduled": false,
+   "statusExpired": false,
+   "statusRevoked": false
+  },
+  "highlights": null,
+  "isFavorite": false
+ }
+]

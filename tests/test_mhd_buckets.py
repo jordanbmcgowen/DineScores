@@ -25,6 +25,12 @@ def _row(iid, name='Degthai', addr='1 Main St', city='Nashville',
             'programName': program, 'programCode': '605'}
 
 
+# The 2026-11-22 entries (Texas, Montana and the states around them).
+NOV22_KEYS = ('montana', 'aaphd', 'net', 'orangecotx', 'cheyenne-laramie', 'casper-natrona',
+              'tetonwy', 'firstdistrict', 'mo-stlouis', 'mo-jackson', 'colorado', 'pueblo',
+              'mesacountyco', 'broomfield')
+
+
 class FakeSearch:
     """Stand-in for _mhd_search_page: records every call and answers from a
     table keyed by (date_range, search_str, purpose) -> rows, served in
@@ -753,7 +759,7 @@ class GroupTests(unittest.TestCase):
         midweek = {k for k, c in dp.MHD_METRO_JURISDICTIONS.items()
                    if c.get('group') == 'MHD metros (midweek)'}
         self.assertEqual(midweek, {'ccbh'} | {k for k in dp.MHD_METRO_JURISDICTIONS
-                                             if k.startswith('va-')})
+                                             if k.startswith('va-')} | set(NOV22_KEYS))
         for key in ('fbceh', 'acph', 'dchd'):
             self.assertEqual(dp.MHD_METRO_JURISDICTIONS[key]['group'], 'MHD metros')
 
@@ -1340,3 +1346,922 @@ class DeadPestTitleTests(unittest.TestCase):
     def test_the_regex_is_in_the_grading_path(self):
         import inspect
         self.assertIn('DEAD_PEST_TITLE_RE', inspect.getsource(dp.has_active_pest_or_sewage))
+
+
+class Nov22FilterTests(unittest.TestCase):
+    """The row filters the 2026-11-22 entries added: inspection_types,
+    purpose_allow, the purpose* fallback, city_map, observation_exclude and
+    the 'tx-demerit' scale."""
+
+    def test_row_purpose_falls_back_to_the_split_fields(self):
+        self.assertEqual(dp._mhd_row_purpose({'purpose': ' Routine '}), 'Routine')
+        self.assertEqual(dp._mhd_row_purpose({'purpose': '', 'purpose_retail_food': 'Follow-Up',
+                                              'purpose_childcare': ''}), 'Follow-Up')
+        self.assertEqual(dp._mhd_row_purpose({'purpose': '', 'purpose1': '', 'purpose2': 'Pre-Opening'}),
+                         'Pre-Opening')
+        self.assertEqual(dp._mhd_row_purpose({'purpose': None}), '')
+        self.assertEqual(dp._mhd_row_purpose({}), '')
+        # `purpose` wins over a split field, and other keys are not purposes
+        self.assertEqual(dp._mhd_row_purpose({'purpose': 'Routine', 'purpose2': 'Complaint'}), 'Routine')
+        self.assertEqual(dp._mhd_row_purpose({'InspectionType': 'Routine'}), '')
+
+    def test_rejection_reasons_and_their_order(self):
+        row = {'programName': 'Food Hygiene', 'inspectionType': 'VENDED WATER/ICE INSPECTION',
+               'purpose': 'Other', 'city': 'Amarillo'}
+        rej = dp._mhd_row_rejection
+        self.assertEqual(rej(row), '')
+        self.assertEqual(rej(row, programs={'pools'}), 'program')
+        self.assertEqual(rej(row, programs={'food hygiene'},
+                             inspection_types={'general food inspection'}), 'type')
+        self.assertEqual(rej(row, inspection_types={'vended water/ice inspection'},
+                             purpose_allow={'routine'}), 'purpose')
+        self.assertEqual(rej(row, purpose_allow={'other'}, city_allow={'canyon'}), 'city')
+        self.assertEqual(rej(row, purpose_allow={'other'}), '')
+        # a row with no purpose at all is not on an allowlist
+        self.assertEqual(rej({'programName': 'RETAIL FOOD'}, purpose_allow={'routine'}), 'purpose')
+
+    def test_shared_exclude_patterns(self):
+        import re
+        mobile = re.compile(dp.MHD_MOBILE_PERMIT_RE)
+        for kept in ('RETAIL FOOD SMALL 2 or less employees', 'Full Service', 'Automobile Dealer Cafe'):
+            self.assertIsNone(mobile.search(kept), kept)
+        for dropped in ('MOBILE FOOD LARGE', 'Mobile Unit (full service food)', 'Mobile Food Unit',
+                        'Full Service Mobile - 6300', 'Mobile Unit - low priority'):
+            self.assertIsNotNone(mobile.search(dropped), dropped)
+        preop = re.compile(dp.MHD_PREOPENING_PURPOSE_RE)
+        for dropped in ('Pre-opening', 'Pre-Opening', 'Pre-Operational', 'Pre-Op', 'Preopening',
+                        'Opening', ' opening '):
+            self.assertIsNotNone(preop.search(dropped), dropped)
+        for kept in ('Routine', 'Follow-Up', 'Re-inspection', 'Re-Inspection', 'Complaint', 'Other',
+                     'Reopening', ''):
+            self.assertIsNone(preop.search(kept), kept)
+
+    def test_tx_demerit_scale(self):
+        row = _row('N1', score=22, state='TX')
+        rec = dp._parse_mhd_record(row, 'net', 'Smith County TX', 'Tyler', 'TX', 'tx-demerit', '')
+        self.assertEqual((rec['original_score'], rec['risk_score']), (22, 78))
+        self.assertEqual(dp.calculate_vetted_grade(rec['risk_score']), 'C')
+        clean = dp._parse_mhd_record(_row('N2', score=0, state='TX'), 'net', 'Smith County TX',
+                                     'Tyler', 'TX', 'tx-demerit', '')
+        self.assertEqual((clean['original_score'], clean['risk_score']), (0, 100))
+        bad = dp._parse_mhd_record(_row('N3', score=140, state='TX'), 'net', 'Smith County TX',
+                                   'Tyler', 'TX', 'tx-demerit', '')
+        self.assertEqual(bad['risk_score'], 0)
+        none = dp._parse_mhd_record(_row('N4', score=None, state='TX'), 'net', 'Smith County TX',
+                                    'Tyler', 'TX', 'tx-demerit', '')
+        self.assertEqual((none['original_score'], none['risk_score']), (None, 70))
+        self.assertEqual(dp.MHD_TRUSTED_SCORE_SCALES, frozenset({'100', 'tx-demerit'}))
+        # the plain demerit mapping is untouched
+        plain = dp._parse_mhd_record(_row('N5', score=22, state='TX'), 'frisco', 'Frisco', 'Frisco',
+                                     'TX', 'demerit', 'DFW')
+        self.assertEqual(plain['risk_score'], 100 - 2 * 22)
+
+    def _detail_call(self, key, row):
+        cfg = dp.MHD_METRO_JURISDICTIONS[key]
+        day = dp._mhd_row_date(row)
+        fake = FakeSearch({(f'{day} to {day}', '', ''): [row]})
+        seen = {}
+
+        def fake_bulk(path, records, trust_official_score=True, label=None, **kw):
+            seen.update(path=path, trust=trust_official_score, label=label, kw=kw)
+            return len(records), []
+        with mock.patch.object(dp, '_mhd_fetch_details_bulk', side_effect=fake_bulk):
+            _run(key, cfg, fake, fetch_violations=True, since_date=day, until_date=day)
+        return seen
+
+    def test_detail_phase_trusts_the_official_scales_only(self):
+        net = self._detail_call('net', _fixture_rows('search_net.json')[0])
+        self.assertEqual((net['path'], net['trust'], net['label'], net['kw']),
+                         ('net', True, 'Smith County TX', {}))
+        ama = self._detail_call('aaphd', _fixture_rows('search_aaphd.json')[0])
+        self.assertEqual((ama['trust'], ama['kw']), (True, {}))
+        with mock.patch.object(dp, '_mhd_prove_clean', side_effect=lambda p, recs, label: recs) as proof:
+            mt = self._detail_call('montana', _fixture_rows('search_montana.json')[0])
+        self.assertEqual((mt['trust'], mt['kw']), (False, {}))
+        self.assertEqual(proof.call_count, 1, 'Montana proves its zero-observation inspections')
+        self.assertEqual(proof.call_args.args[0], 'montana')
+        pueblo = self._detail_call('pueblo', _fixture_rows('search_pueblo.json')[0])
+        self.assertEqual(pueblo['trust'], False, 'the Colorado risk index is recomputed')
+
+    def test_only_montana_asks_for_the_clean_proof(self):
+        with_proof = [k for k, c in dp.MHD_METRO_JURISDICTIONS.items() if c.get('clean_proof')]
+        self.assertEqual(with_proof, ['montana'])
+        self.assertEqual(dp.MHD_METRO_JURISDICTIONS['montana']['clean_proof'], 'printable-grid')
+        with mock.patch.object(dp, '_mhd_prove_clean') as proof:
+            self._detail_call('aaphd', _fixture_rows('search_aaphd.json')[0])
+            self._detail_call('pueblo', _fixture_rows('search_pueblo.json')[0])
+        self.assertEqual(proof.call_count, 0)
+
+    def test_observation_exclude_reaches_the_detail_phase_only_where_set(self):
+        seen = self._detail_call('cheyenne-laramie', _fixture_rows('search_cheyenne_laramie.json')[0])
+        self.assertEqual(seen['trust'], False)
+        self.assertEqual(list(seen['kw']), ['drop_lines'])
+        self.assertTrue(seen['kw']['drop_lines'].search('999: 999 Proper cold holding temperatures.'))
+        self.assertIsNone(seen['kw']['drop_lines'].search('35: 4.1 Labels missing on items in freezer.'))
+        with_filter = [k for k, c in dp.MHD_METRO_JURISDICTIONS.items() if c.get('observation_exclude')]
+        self.assertEqual(with_filter, ['cheyenne-laramie'])
+
+    def test_drop_lines_removes_the_comment_line_before_scoring(self):
+        import re
+        texts = dp._mhd_parse_detail_html(_fixture_html('detail_cheyenne_999.html'))
+        self.assertEqual(len(texts), 3)
+        self.assertTrue(texts[-1].startswith('999: 999 '))
+
+        class Session:
+            pass
+        rec = {'source_id': 'X', 'original_score': None, 'risk_score': 70}
+        with mock.patch.object(dp, '_mhd_fetch_inspection_detail', return_value=list(texts)), \
+             mock.patch.object(dp, '_mhd_session', return_value=Session()), \
+             mock.patch.object(dp.time, 'sleep'):
+            fetched, failed = dp._mhd_fetch_details_bulk(
+                'cheyenne-laramie', [rec], trust_official_score=False,
+                drop_lines=re.compile(r'^999:'))
+        self.assertEqual((fetched, failed), (1, []))
+        self.assertEqual(rec['total_violations'], 2)
+        self.assertFalse(any(v[2].startswith('999:') for v in rec['violations']))
+        self.assertEqual(rec['risk_score'], dp.calc_risk_score(
+            [dp.classify_violation(t) for t in texts[:2]])[0])
+        # a page holding nothing but the comment line is a clean inspection, and it was read
+        clean = {'source_id': 'Y', 'original_score': None, 'risk_score': 70}
+        with mock.patch.object(dp, '_mhd_fetch_inspection_detail', return_value=[texts[-1]]), \
+             mock.patch.object(dp, '_mhd_session', return_value=Session()), \
+             mock.patch.object(dp.time, 'sleep'):
+            fetched, failed = dp._mhd_fetch_details_bulk(
+                'cheyenne-laramie', [clean], trust_official_score=False,
+                drop_lines=re.compile(r'^999:'))
+        self.assertEqual((fetched, failed, clean['total_violations'], clean['risk_score']),
+                         (1, [], 0, 100))
+        # without the filter the line counts (every other jurisdiction's behaviour)
+        plain = {'source_id': 'Z', 'original_score': None, 'risk_score': 70}
+        with mock.patch.object(dp, '_mhd_fetch_inspection_detail', return_value=list(texts)), \
+             mock.patch.object(dp, '_mhd_session', return_value=Session()), \
+             mock.patch.object(dp.time, 'sleep'):
+            dp._mhd_fetch_details_bulk('x', [plain], trust_official_score=False)
+        self.assertEqual(plain['total_violations'], 3)
+
+    def test_result_from_score_display_only_for_verdict_words(self):
+        base = _row('R1', state='CO')
+        for display, want in (('Pass', 'Pass'), ('Closed', 'Closed'),
+                              ('Re-Inspection Required', 'Re-Inspection Required'),
+                              ('A', ''), ('B', ''), ('', ''), (None, '')):
+            rec = dp._parse_mhd_record({**base, 'scoreDisplay': display}, 'colorado', 'Colorado CDPHE',
+                                       'Glenwood Springs', 'CO', 'demerit', '')
+            self.assertEqual(rec['results'], want, display)
+        # the portal's own `result` field wins (Arapahoe)
+        rec = dp._parse_mhd_record({**base, 'result': 'Closed', 'scoreDisplay': 'Pass'}, 'acph',
+                                   'Arapahoe County', 'Aurora', 'CO', 'demerit', '')
+        self.assertEqual(rec['results'], 'Closed')
+
+
+class Nov22ConfigTests(unittest.TestCase):
+    def test_every_entry_sets_the_defaults_explicitly(self):
+        for key in NOV22_KEYS:
+            cfg = dp.MHD_METRO_JURISDICTIONS[key]
+            for field in ('display_name', 'default_city', 'state', 'score_scale', 'metro',
+                          'programs', 'group'):
+                self.assertIn(field, cfg, f'{key} lacks {field}')
+            self.assertEqual(cfg['group'], 'MHD metros (midweek)', key)
+            self.assertEqual(cfg['metro'], '', key)
+            self.assertTrue(cfg['programs'], key)
+            self.assertNotIn('path', cfg, key)
+            self.assertNotIn('search_terms', cfg, key)
+            self.assertNotIn('window_days', cfg, f'{key}: one-day windows')
+            self.assertNotIn('sort', cfg, f'{key}: the default inspectionID sort')
+            self.assertIn(cfg['score_scale'], ('100', 'tx-demerit', 'demerit', 'none'), key)
+            for field, rx in (cfg.get('exclude') or {}).items():
+                import re
+                re.compile(rx)
+                self.assertIn(field, ('purpose', 'permitType'), key)
+
+    def test_scales(self):
+        scale = {k: dp.MHD_METRO_JURISDICTIONS[k]['score_scale'] for k in NOV22_KEYS}
+        self.assertEqual(scale, {
+            'montana': 'none', 'aaphd': '100', 'net': 'tx-demerit', 'orangecotx': '100',
+            'cheyenne-laramie': 'none', 'casper-natrona': 'none', 'tetonwy': 'none',
+            'firstdistrict': '100', 'mo-stlouis': '100', 'mo-jackson': 'none',
+            'colorado': 'demerit', 'pueblo': 'demerit', 'mesacountyco': 'demerit',
+            'broomfield': 'demerit'})
+
+    def test_states_and_labels(self):
+        state = {k: dp.MHD_METRO_JURISDICTIONS[k]['state'] for k in NOV22_KEYS}
+        self.assertEqual(state, {
+            'montana': 'MT', 'aaphd': 'TX', 'net': 'TX', 'orangecotx': 'TX',
+            'cheyenne-laramie': 'WY', 'casper-natrona': 'WY', 'tetonwy': 'WY',
+            'firstdistrict': 'ND', 'mo-stlouis': 'MO', 'mo-jackson': 'MO', 'colorado': 'CO',
+            'pueblo': 'CO', 'mesacountyco': 'CO', 'broomfield': 'CO'})
+        names = {k: dp.MHD_METRO_JURISDICTIONS[k]['display_name'] for k in NOV22_KEYS}
+        # Orange County is the California county's group; 'Colorado' alone
+        # would read as the whole state; Teton and Jackson exist in other states
+        self.assertEqual(names['orangecotx'], 'Orange County TX')
+        self.assertEqual(names['colorado'], 'Colorado CDPHE')
+        self.assertEqual(names['tetonwy'], 'Teton County WY')
+        self.assertEqual(names['mo-jackson'], 'Jackson County MO')
+        self.assertEqual(names['net'], 'Smith County TX')
+        self.assertNotIn('Orange County', names.values())
+
+    def test_montana_ships_inspection_reports_only(self):
+        cfg = dp.MHD_METRO_JURISDICTIONS['montana']
+        self.assertEqual(cfg['programs'], ['RETAIL FOOD'])
+        self.assertEqual(cfg['purpose_allow'], ['Routine', 'Follow-up'])
+        self.assertNotIn('Other', cfg['purpose_allow'], "'Other' rows are placeholders, never reports")
+        self.assertEqual(cfg['score_scale'], 'none')
+
+    def test_amarillo_and_minot_filter_on_the_inspection_type(self):
+        self.assertEqual(dp.MHD_METRO_JURISDICTIONS['aaphd']['inspection_types'],
+                         ['GENERAL FOOD INSPECTION'])
+        self.assertEqual(dp.MHD_METRO_JURISDICTIONS['aaphd']['programs'], ['Food Hygiene'])
+        fd = dp.MHD_METRO_JURISDICTIONS['firstdistrict']
+        self.assertEqual(fd['inspection_types'], ['FOOD ESTABLISHMENT'])
+        self.assertEqual(fd['programs'], ['FOOD ESTABLISHMENT', 'CHILDCARE / SCHOOL', 'LODGING'])
+
+    def test_slug_groups(self):
+        groups = dp.MHD_METRO_SLUG_GROUPS
+        self.assertEqual(groups['amarillo'], ['aaphd'])
+        self.assertEqual(groups['tyler'], ['net'])
+        self.assertEqual(groups['orangecountytx'], ['orangecotx'])
+        self.assertEqual(groups['wyoming'], ['cheyenne-laramie', 'casper-natrona', 'tetonwy'])
+        self.assertEqual(groups['cheyenne'], ['cheyenne-laramie'])
+        self.assertEqual(groups['casper'], ['casper-natrona'])
+        self.assertEqual(groups['jacksonhole'], ['tetonwy'])
+        self.assertEqual(groups['minot'], ['firstdistrict'])
+        self.assertEqual(groups['stlouis'], ['mo-stlouis'])
+        self.assertEqual(groups['jacksoncountymo'], ['mo-jackson'])
+        self.assertEqual(groups['coloradostate'], ['colorado'])
+        self.assertEqual(groups['grandjunction'], ['mesacountyco'])
+        # table keys are CLI slugs too
+        self.assertEqual(dp._mhd_metro_keys(['montana', 'pueblo', 'broomfield']),
+                         ['montana', 'pueblo', 'broomfield'])
+        self.assertNotEqual(groups['orangecountytx'], ['orange-county'])
+        self.assertNotIn('orangecounty', groups, "'orangecounty' is the California poll's slug")
+        cli = ['montana', 'amarillo', 'tyler', 'orangecountytx', 'wyoming', 'minot', 'stlouis',
+               'jacksoncountymo', 'coloradostate', 'pueblo', 'grandjunction', 'broomfield']
+        self.assertEqual(set(dp._mhd_metro_keys(cli)), set(NOV22_KEYS))
+        self.assertEqual(list(dp._mhd_metro_groups(dp._mhd_metro_keys(cli))), ['MHD metros (midweek)'])
+        for slug in cli:
+            self.assertTrue(dp._wants_portal_sources([slug]), slug)
+
+    def test_the_midweek_workflow_list_fetches_every_entry(self):
+        import re
+        path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                            '.github', 'workflows', 'refresh-data.yml')
+        text = open(path).read()
+        midweek = re.search(r'MIDWEEK="([^"]+)"', text).group(1).split()
+        sunday = re.search(r'SUNDAY="([^"]+)"', text).group(1).split()
+        self.assertEqual(set(NOV22_KEYS) - set(dp._mhd_metro_keys(midweek)), set())
+        self.assertEqual(set(dp._mhd_metro_keys(sunday)) & set(NOV22_KEYS), set())
+        mid_keys = dp._mhd_metro_keys(midweek)
+        self.assertEqual({k for k, c in dp.MHD_METRO_JURISDICTIONS.items()
+                          if c.get('group') == 'MHD metros (midweek)'}, set(mid_keys))
+
+
+class Nov22ParseTests(unittest.TestCase):
+    """Rows captured 2026-11-22 from the new jurisdictions (comments blanked)."""
+
+    def _records(self, key, fixture):
+        cfg = dp.MHD_METRO_JURISDICTIONS[key]
+        rows = _fixture_rows(fixture)
+        fake = FakeSearch({('2026-10-01 to 2026-11-20', '', ''): rows})
+        return _run(key, {**cfg, 'window_days': 400}, fake,
+                    since_date='2026-10-01', until_date='2026-11-20')
+
+    def test_montana_keeps_routine_and_follow_up_only(self):
+        rows = _fixture_rows('search_montana.json')
+        self.assertEqual({(r['programName'], r['purpose']) for r in rows} >= {
+            ('RETAIL FOOD', 'Routine'), ('RETAIL FOOD', 'Other'), ('RETAIL FOOD', 'Follow-up'),
+            ('RETAIL FOOD', 'Pre-opening')}, True)
+        records = self._records('montana', 'search_montana.json')
+        self.assertEqual(sorted((r['name'], r['purpose']) for r in records),
+                         [('Macs Market', 'Routine'), ('Mazevo Coffee', 'Follow-up')])
+        rec = next(r for r in records if r['name'] == 'Macs Market')
+        self.assertEqual((rec['city'], rec['state'], rec['metro'], rec['source']),
+                         ('Libby', 'MT', '', 'Montana Health Dept'))
+        self.assertEqual((rec['original_score'], rec['risk_score']), (None, 70),
+                         'no score: neutral until the detail pass')
+        self.assertTrue(rec['source_url'].startswith(
+            'https://inspections.myhealthdepartment.com/montana/inspection/?inspectionID='))
+        dropped = {r['establishmentName'] for r in rows} - {'MACS MARKET', 'MAZEVO COFFEE'}
+        self.assertEqual(len(dropped), 5, 'the Other placeholder, the pre-opening visit, the mobile '
+                                          'unit, the manufacturer and the hotel')
+
+    def test_amarillo_drops_the_other_forms(self):
+        rows = _fixture_rows('search_aaphd.json')
+        self.assertEqual({r['inspectionType'] for r in rows} - {'GENERAL FOOD INSPECTION'},
+                         {'VENDED WATER/ICE INSPECTION', 'GROUP CARE INSPECTION (INSTITUTIONAL)',
+                          'RECREATIONAL WATER INSPECTION'})
+        records = self._records('aaphd', 'search_aaphd.json')
+        self.assertEqual([r['name'] for r in records], ['La Chiquita Bakery'])
+        rec = records[0]
+        self.assertEqual((rec['original_score'], rec['risk_score'], rec['city'], rec['state']),
+                         (95, 95, 'Amarillo', 'TX'))
+        self.assertEqual(rec['source'], 'Amarillo Health Dept')
+        # the vended-water row scores 30 on another scale: shipped, it would be an F
+        water = next(r for r in rows if r['inspectionType'] == 'VENDED WATER/ICE INSPECTION')
+        self.assertEqual(water['programName'], 'Food Hygiene')
+        self.assertEqual(dp.calculate_vetted_grade(int(water['score'])), 'F')
+
+    def test_smith_county_demerits_and_purpose(self):
+        records = self._records('net', 'search_net.json')
+        by = {r['name']: r for r in records}
+        self.assertEqual(set(by), {'Culture Etx', 'The Foundry Coffee House',
+                                   'Lindale Early Childhood Center'}, 'child care dropped')
+        self.assertEqual((by['Culture Etx']['original_score'], by['Culture Etx']['risk_score']), (22, 78))
+        self.assertEqual(by['The Foundry Coffee House']['risk_score'], 97)
+        self.assertEqual(by['Lindale Early Childhood Center']['risk_score'], 100)
+        self.assertEqual(by['Culture Etx']['purpose'], 'Routine', 'read from purpose_retail_food')
+        self.assertEqual(by['Culture Etx']['source'], 'Smith County TX Health Dept')
+
+    def test_orange_county_texas_string_scores(self):
+        records = self._records('orangecotx', 'search_orangecotx.json')
+        by = {r['name']: r for r in records}
+        self.assertEqual(by['Mongolian Grill And Sushi']['original_score'], 61)
+        self.assertEqual(by['Mongolian Grill And Sushi']['risk_score'], 61)
+        self.assertEqual(by['Precious Child Daycare']['risk_score'], 100)
+        self.assertEqual({r['source'] for r in records}, {'Orange County TX Health Dept'})
+        self.assertEqual({r['state'] for r in records}, {'TX'})
+
+    def test_wyoming_rows(self):
+        chey = self._records('cheyenne-laramie', 'search_cheyenne_laramie.json')
+        self.assertEqual([r['name'] for r in chey], ['Dazbog Coffee #39'], 'school and pool dropped')
+        self.assertEqual((chey[0]['original_score'], chey[0]['risk_score']), (None, 70))
+        casper = self._records('casper-natrona', 'search_casper_natrona.json')
+        self.assertEqual(len(casper), 1, 'hotel and mobile unit dropped')
+        self.assertEqual(casper[0]['source'], 'Casper-Natrona County Health Dept')
+        teton = self._records('tetonwy', 'search_tetonwy.json')
+        self.assertEqual([r['name'] for r in teton], ['Jackson Hole Middle School'])
+        self.assertEqual(teton[0]['state'], 'WY', "'Wyoming' spelled out falls back to the default")
+
+    def test_minot_keeps_food_establishment_inspections_of_every_program(self):
+        records = self._records('firstdistrict', 'search_firstdistrict.json')
+        self.assertEqual(sorted(r['name'] for r in records),
+                         ['Meg-A-Latte Llc', 'Tadpole Childcare Center'])
+        by = {r['name']: r for r in records}
+        self.assertEqual(by['Meg-A-Latte Llc']['risk_score'], 96)
+        self.assertEqual(by['Tadpole Childcare Center']['risk_score'], 100)
+        self.assertEqual({r['inspection_type'] for r in records}, {'FOOD ESTABLISHMENT'})
+
+    def test_st_louis_is_one_city(self):
+        rows = _fixture_rows('search_mo_stlouis.json')
+        self.assertEqual({r['city'] for r in rows} >= {'SAINT LOUIS', 'St Louis', 'St. Louis'}, True)
+        records = self._records('mo-stlouis', 'search_mo_stlouis.json')
+        self.assertEqual(len(records), 3, 'the Opening visit and the truck dropped')
+        self.assertEqual({r['city'] for r in records}, {'St. Louis'})
+        rec = next(r for r in records if r['original_score'] == 83)
+        self.assertEqual(rec['risk_score'], 83)
+        self.assertEqual(rec['results'], '', "the city's letter is not a result")
+        self.assertEqual(dp.calculate_vetted_grade(83), 'B')
+        self.assertEqual(dp.make_restaurant_id(rec['name'], rec['address'], rec['city']),
+                         dp.make_restaurant_id(rec['name'], rec['address'], 'St. Louis'))
+
+    def test_jackson_county_city_spellings(self):
+        records = self._records('mo-jackson', 'search_mo_jackson.json')
+        self.assertEqual(len(records), 3, 'pre-opening, lodging and the mobile unit dropped')
+        self.assertEqual(sorted({r['city'] for r in records} - {'Blue Springs', 'Raytown', 'Grandview',
+                                                               'Grain Valley', 'Oak Grove'}),
+                         ["Lee's Summit"])
+        self.assertEqual({r['state'] for r in records}, {'MO'})
+        cfg = dp.MHD_METRO_JURISDICTIONS['mo-jackson']
+        cmap = {dp._mhd_norm_city(k): v for k, v in cfg['city_map'].items()}
+        self.assertEqual(cmap[dp._mhd_norm_city("Lee'S Summit")], "Lee's Summit")
+        self.assertEqual(cmap[dp._mhd_norm_city('LEES SUMMIT')], "Lee's Summit")
+        self.assertEqual(cmap[dp._mhd_norm_city('Blue Spring')], 'Blue Springs')
+
+    def test_colorado_state_rows(self):
+        records = self._records('colorado', 'search_colorado.json')
+        by = {r['name']: r for r in records}
+        self.assertEqual(len(records), 3, 'pre-operational, opening and the mobile unit dropped')
+        closed = by['Himalayan Cuisine']
+        self.assertEqual((closed['original_score'], closed['results']), (117, 'Closed'))
+        self.assertEqual(closed['risk_score'], 0, 'placeholder until the detail pass recomputes it')
+        self.assertEqual(closed['source'], 'Colorado CDPHE Health Dept')
+        self.assertIn('Cañon City', {r['city'] for r in records})
+        passed = next(r for r in records if r['original_score'] == 20)
+        self.assertEqual(passed['results'], 'Pass')
+
+    def test_colorado_counties(self):
+        pueblo = self._records('pueblo', 'search_pueblo.json')
+        self.assertEqual([r['name'] for r in pueblo], ['Black Eyed Pea'])
+        self.assertEqual((pueblo[0]['original_score'], pueblo[0]['results']),
+                         (52, 'Re-Inspection Required'))
+        mesa = self._records('mesacountyco', 'search_mesacountyco.json')
+        self.assertEqual([r['name'] for r in mesa], ['Grand Vista Hotel'],
+                         "the taco truck (address 'Mesa County') and the school-age child care dropped")
+        self.assertEqual((mesa[0]['original_score'], mesa[0]['results'], mesa[0]['source']),
+                         (74, 'Re-Inspection Required', 'Mesa County Health Dept'))
+        broom = self._records('broomfield', 'search_broomfield.json')
+        self.assertEqual([r['name'] for r in broom], ['The Wonder Grill'])
+
+    def test_detail_pages_parse(self):
+        counts = {'detail_montana.html': 3, 'detail_cheyenne_999.html': 3,
+                  'detail_aaphd_score95.html': 4, 'detail_net_demerit3.html': 1,
+                  'detail_mo_jackson.html': 1, 'detail_colorado_closed.html': 9,
+                  'detail_mo_stlouis_score83.html': 7}
+        for name, n in counts.items():
+            html = _fixture_html(name)
+            self.assertTrue(dp._mhd_is_inspection_page(html), name)
+            obs = dp._mhd_parse_detail_html(html)
+            self.assertEqual(len(obs), n, name)
+            for text in obs:
+                self.assertLessEqual(len(text), 500)
+                self.assertNotIn('\n', text)
+
+    def test_montana_code_text_never_forces_an_f_on_its_own(self):
+        obs = dp._mhd_parse_detail_html(_fixture_html('detail_montana.html'))
+        pest = next(t for t in obs if t.startswith('38:'))
+        self.assertIn('Mouse poop observed', pest)
+        self.assertIn('Corrective Actions: 6-501.111', pest)
+        # the Food Code section Montana prints after every pest observation
+        rule = pest[pest.index('Corrective Actions:'):]
+        self.assertFalse(dp.has_active_pest_or_sewage(rule),
+                         'the rule text alone names every pest and none')
+        self.assertFalse(dp.has_active_pest_or_sewage(
+            '38: Back door propped open. ' + rule))
+        self.assertTrue(dp.has_active_pest_or_sewage(
+            '38: Rodent droppings on the floor of the dry storage room. ' + rule))
+
+
+def _synthetic_pdf(texts):
+    """A minimal one-page PDF whose content stream shows each text as its own
+    run (BT .. Tm (text) Tj ET), the shape the stdlib reader reads."""
+    ops = b''.join(b'BT /F1 9 Tf 1 0 0 1 %d %d Tm (%s) Tj ET\n'
+                   % (40 + 60 * (i % 6), 700 - 14 * (i // 6), t.encode('latin-1'))
+                   for i, t in enumerate(texts))
+    objs = [b'<< /Type /Catalog /Pages 2 0 R >>',
+            b'<< /Type /Pages /Kids [3 0 R] /Count 1 >>',
+            b'<< /Type /Page /Parent 2 0 R /Resources << /Font << /F1 5 0 R >> >> /Contents 4 0 R >>',
+            b'<< /Length %d >>\nstream\n' % len(ops) + ops + b'\nendstream',
+            b'<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>']
+    return b'%PDF-1.4\n' + b''.join(b'%d 0 obj\n%s\nendobj\n' % (i + 1, o)
+                                     for i, o in enumerate(objs)) + b'%%EOF\n'
+
+
+HEADER_RUNS = ['Facility Name', 'MACS MARKET', 'Loc Add', '710 MINERAL AVE', 'City', 'LIBBY',
+               'County', 'Lincoln County', 'Lic Number', '12345']
+GRID_RUNS = ['IN'] * 14 + ['N/A'] * 5 + ['N/O'] * 2
+
+
+class CleanProofTests(unittest.TestCase):
+    """Montana: a zero-observation inspection ships only when its printable
+    report shows the compliance grid (_mhd_prove_clean)."""
+
+    def setUp(self):
+        dp._FRESHNESS_HOLDS.clear()
+        dp._MHD_DETAIL_FAILED.clear()
+        dp._MHD_DEADLINE_CUT.clear()
+        self.addCleanup(dp._FRESHNESS_HOLDS.clear)
+        self.addCleanup(dp._MHD_DETAIL_FAILED.clear)
+        self.addCleanup(dp._MHD_DEADLINE_CUT.clear)
+
+    def test_grid_marks_on_an_itemised_report(self):
+        self.assertEqual(dp._mhd_printable_grid_marks(_synthetic_pdf(HEADER_RUNS + GRID_RUNS)), 21)
+
+    def test_a_logged_paper_report_has_no_grid(self):
+        self.assertEqual(dp._mhd_printable_grid_marks(_synthetic_pdf(HEADER_RUNS)), 0)
+        # words that merely contain a mark are not marks
+        self.assertEqual(dp._mhd_printable_grid_marks(
+            _synthetic_pdf(HEADER_RUNS + ['INSPECTION', 'OUTSIDE', 'Time in', 'ROUTINE'])), 0)
+
+    def test_unreadable_bodies_are_not_a_missing_grid(self):
+        marks = dp._mhd_printable_grid_marks
+        self.assertIsNone(marks(b''))
+        self.assertIsNone(marks(b'error retrieving printable - error code g243qrfg34'))
+        self.assertIsNone(marks(b'<html><body>My Health Department</body></html>'))
+        self.assertIsNone(marks(_synthetic_pdf([])), 'a PDF with no text was not read')
+        self.assertIsNone(marks(_synthetic_pdf(['Page', '1'])), 'too little text to be the form')
+
+    def _rec(self, sid, date='2026-11-10', violations=()):
+        return {'source_id': sid, 'inspection_date': date, 'source': 'Montana Health Dept',
+                'violations': list(violations), 'name': sid}
+
+    def _prove(self, records, pdfs):
+        calls = []
+
+        def fake_fetch(session, path, inspection_id, retry_count=0):
+            calls.append((path, inspection_id))
+            return pdfs.get(inspection_id)
+        with mock.patch.object(dp, '_mhd_fetch_printable', side_effect=fake_fetch), \
+             mock.patch.object(dp, '_mhd_session', return_value=object()), \
+             mock.patch.object(dp.time, 'sleep'):
+            kept = dp._mhd_prove_clean('montana', records, 'Montana')
+        return kept, calls
+
+    def test_only_zero_observation_records_are_checked(self):
+        cited = self._rec('CITED', violations=[['pest_control', 'priority', '38: Mouse poop observed']])
+        clean = self._rec('CLEAN')
+        logged = self._rec('LOGGED')
+        kept, calls = self._prove([cited, clean, logged], {
+            'CLEAN': _synthetic_pdf(HEADER_RUNS + GRID_RUNS), 'LOGGED': _synthetic_pdf(HEADER_RUNS)})
+        self.assertEqual([r['source_id'] for r in kept], ['CITED', 'CLEAN'])
+        self.assertEqual(sorted(calls), [('montana', 'CLEAN'), ('montana', 'LOGGED')])
+        self.assertEqual(dp._FRESHNESS_HOLDS, {}, 'a report without a grid is dropped for good, not held')
+        self.assertEqual(dp._MHD_DETAIL_FAILED, {})
+
+    def test_an_unread_printable_drops_and_holds(self):
+        a, b = self._rec('A', '2026-11-10'), self._rec('B', '2026-11-12')
+        kept, _ = self._prove([a, b], {'A': None, 'B': _synthetic_pdf(HEADER_RUNS + GRID_RUNS)})
+        self.assertEqual([r['source_id'] for r in kept], ['B'])
+        self.assertEqual(dp._FRESHNESS_HOLDS, {'Montana Health Dept': {'2026-11-10|A': (True, False)}})
+        self.assertEqual(dp._MHD_DETAIL_FAILED, {}, 'one of two is not a mass failure')
+
+    def test_the_portals_error_body_is_unread_not_gridless(self):
+        a = self._rec('A')
+        kept, _ = self._prove([a], {'A': b'error retrieving printable - error code g243qrfg34'})
+        self.assertEqual(kept, [])
+        self.assertIn('2026-11-10|A', dp._FRESHNESS_HOLDS['Montana Health Dept'])
+
+    def test_mass_failure_reports_the_jurisdiction(self):
+        records = [self._rec(f'R{i:02d}') for i in range(20)]
+        kept, _ = self._prove(records, {})
+        self.assertEqual(kept, [])
+        self.assertEqual(dp._MHD_DETAIL_FAILED, {'Montana': (20, 20)})
+        self.assertEqual(len(dp._FRESHNESS_HOLDS['Montana Health Dept']), 20)
+
+    def test_the_deadline_holds_without_counting(self):
+        a = self._rec('A')
+        with mock.patch.object(dp, '_past_deadline', return_value=True):
+            kept, calls = self._prove([a], {'A': _synthetic_pdf(HEADER_RUNS + GRID_RUNS)})
+        self.assertEqual((kept, calls), ([], []))
+        self.assertEqual(dp._FRESHNESS_HOLDS, {'Montana Health Dept': {'2026-11-10|A': (False, False)}})
+        self.assertIn('Montana', dp._MHD_DEADLINE_CUT)
+        self.assertEqual(dp._MHD_DETAIL_FAILED, {})
+
+    def test_nothing_to_prove_makes_no_request(self):
+        cited = self._rec('CITED', violations=[['x', 'core', '45: floor']])
+        kept, calls = self._prove([cited], {})
+        self.assertEqual((kept, calls), ([cited], []))
+
+    def test_printable_request_shape(self):
+        class Resp:
+            status_code = 200
+            content = b'%PDF-1.5 body'
+            headers = {}
+
+        class Session:
+            def __init__(self):
+                self.calls = []
+
+            def get(self, url, params=None, timeout=None):
+                self.calls.append((url, params))
+                return Resp()
+        s = Session()
+        self.assertEqual(dp._mhd_fetch_printable(s, 'montana', 'ABC'), b'%PDF-1.5 body')
+        self.assertEqual(s.calls, [('https://inspections.myhealthdepartment.com/montana/print/',
+                                    {'task': 'getPrintable', 'path': 'montana', 'pKey': 'ABC,ABC'})])
+        Resp.content = b'error retrieving printable - error code g243qrfg34'
+        self.assertIsNone(dp._mhd_fetch_printable(s, 'montana', 'ABC'))
+        Resp.status_code, Resp.content = 500, b'%PDF-1.5'
+        self.assertIsNone(dp._mhd_fetch_printable(s, 'montana', 'ABC'))
+
+
+class UnscoredZeroTests(unittest.TestCase):
+    """A published score of 0 on a 0-100 scale is a visit the agency did not
+    score: graded from its observations, left out when it cites nothing."""
+    DAY = '2026-11-10 to 2026-11-10'
+
+    def setUp(self):
+        self.cfg = dp.MHD_METRO_JURISDICTIONS['orangecotx']
+        self.assertEqual(self.cfg['score_scale'], '100')
+        saved = dict(dp._FRESHNESS_HOLDS)
+        dp._FRESHNESS_HOLDS.clear()
+        self.addCleanup(lambda: (dp._FRESHNESS_HOLDS.clear(), dp._FRESHNESS_HOLDS.update(saved)))
+
+    def _rows(self, *specs):
+        return [_row(iid, name=f'Cafe {iid}', addr=f'{n} Main St', city='Orange', state='TX',
+                     program='Food', purpose=purpose,
+                     date='2026-11-10T00:00:00.000Z', score=score)
+                for n, (iid, score, purpose) in enumerate(specs, 1)]
+
+    def _fetch(self, rows, texts=None, cfg=None, key='orangecotx'):
+        fake = FakeSearch({(self.DAY, '', ''): rows})
+
+        def fake_bulk(path, records, trust_official_score=True, label=None, **kw):
+            for rec in records:
+                violations = [dp.classify_violation(t) for t in (texts or {}).get(rec['source_id'], [])]
+                rec['violations'] = [list(v) for v in violations]
+                if not trust_official_score or rec.get('original_score') is None:
+                    rec['risk_score'] = dp.calc_risk_score(violations)[0]
+            return len(records), []
+        with mock.patch.object(dp, '_mhd_fetch_details_bulk', side_effect=fake_bulk):
+            return _run(key, cfg or self.cfg, fake, fetch_violations=texts is not None,
+                        since_date='2026-11-10', until_date='2026-11-10')
+
+    def test_a_zero_with_nothing_cited_does_not_ship(self):
+        rows = self._rows(('S97', '97', 'Routine'), ('V0', '0', 'Visit'), ('F0', 0, 'Follow-Up'))
+        recs = self._fetch(rows, texts={})
+        self.assertEqual([(r['source_id'], r['original_score'], r['risk_score']) for r in recs],
+                         [('S97', 97, 97)])
+        self.assertEqual(dict(dp._FRESHNESS_HOLDS), {}, 'an unscored visit is not an unread one')
+
+    def test_a_zero_with_observations_is_graded_from_them(self):
+        rows = self._rows(('S61', 61, 'Routine'), ('Z0', 0, 'Complaint'))
+        texts = {'Z0': ['Raw chicken stored above ready-to-eat salad in the walk-in cooler',
+                        'Floor under the fryer is dirty']}
+        recs = {r['source_id']: r for r in self._fetch(rows, texts=texts)}
+        self.assertEqual(recs['S61']['risk_score'], 61)
+        z = recs['Z0']
+        self.assertIsNone(z['original_score'])
+        self.assertEqual(z['risk_score'], dp.calc_risk_score([dp.classify_violation(t) for t in texts['Z0']])[0])
+        self.assertTrue(0 < z['risk_score'] < 100)
+        self.assertEqual(len(z['violations']), 2)
+
+    def test_search_only_runs_leave_zeros_out(self):
+        recs = self._fetch(self._rows(('S90', 90, 'Routine'), ('V0', 0, 'Visit')))
+        self.assertEqual([r['source_id'] for r in recs], ['S90'])
+
+    def test_a_window_of_mostly_zeros_raises(self):
+        n = dp.DFW_HOLE_UNSCORED_MIN
+        rows = self._rows(*[(f'Z{i}', 0, 'Routine') for i in range(n)], ('S95', 95, 'Routine'))
+        with self.assertRaisesRegex(RuntimeError, 'published score of 0'):
+            self._fetch(rows, texts={})
+        # a few zeros among scored rows are ordinary
+        rows = self._rows(*[(f'Z{i}', 0, 'Visit') for i in range(3)],
+                          *[(f'S{i}', 90, 'Routine') for i in range(n)])
+        self.assertEqual(len(self._fetch(rows, texts={})), n)
+
+    def test_other_scales_keep_their_zero(self):
+        net = dp.MHD_METRO_JURISDICTIONS['net']                 # tx-demerit: 0 demerits is a perfect form
+        rows = [_row('N0', name='Cafe N0', city='Tyler', state='TX', program='Food',
+                     date='2026-11-10T00:00:00.000Z', score=0)]
+        recs = self._fetch(rows, texts={}, cfg=net, key='net')
+        self.assertEqual([(r['original_score'], r['risk_score']) for r in recs], [(0, 100)])
+        demerit = dp.MHD_METRO_JURISDICTIONS['broomfield']       # demerit: recomputed from the page
+        rows = [_row('B0', name='Cafe B0', city='Broomfield', state='CO', program=demerit['programs'][0],
+                     date='2026-11-10T00:00:00.000Z', score=0)]
+        recs = self._fetch(rows, texts={}, cfg=demerit, key='broomfield')
+        self.assertEqual(len(recs), 1)
+        self.assertEqual(recs[0]['risk_score'], 100)
+
+
+class ColoradoTierTests(unittest.TestCase):
+    """Colorado lines are scored on the state's Priority / Priority
+    Foundation / Core designation: printed on CDPHE's lines, carried by the
+    cited library section on Pueblo's, Mesa County's and Broomfield's."""
+    CDPHE = [
+        '38: Insects, rodents and animals not present . This is a Core item 6-501.111(A-B), and (D) - '
+        'Controlling Pests (C) Pests were present in the establishment. Observed fruit flies at the bar.',
+        '10: Adequate handwashing sinks properly supplied and accessible . This is a Priority Foundation '
+        'item 6-301.12 - Hand Drying Provision (Pf) (Corrected on Site) A handwashing sink within the '
+        'facility lacks readily available paper towels.',
+        '22: Proper cold holding temperatures . This is a Priority item 3-501.16 (A)(2) - TCS Food, Cold '
+        'Holding (P) Food item(s) were cold-holding at internal temperatures greater than 41°F.',
+        '37: Food properly labeled; original container . This is a Core item 3-602.12(C) - Major Food '
+        'Allergens as an Ingredient in Unpackaged Food (C) (Repeat) Consumers were not notified.',
+    ]
+
+    def test_the_table(self):
+        sizes = {t: len(s) for t, s in dp._CO_SECTIONS_BY_TIER.items()}
+        self.assertEqual(sizes, {'priority': 52, 'priority_foundation': 61, 'core': 71})
+        self.assertEqual(len(dp.CO_SECTION_TIERS), 184, 'no section sits under two tiers')
+        self.assertEqual(set(dp.CO_SECTION_TIERS.values()), {'priority', 'priority_foundation', 'core'})
+        for sec in dp.CO_SECTION_TIERS:
+            self.assertEqual(sec, ' '.join(sec.split()), 'keys are matched against whitespace-collapsed lines')
+        self.assertEqual(dp.MHD_TIER_READERS, {'colorado': dp._co_line_tier})
+
+    def test_cdphe_states_the_tier(self):
+        self.assertEqual([dp._co_line_tier(t) for t in self.CDPHE],
+                         ['core', 'priority_foundation', 'priority', 'core'])
+        # the keyword reading is harsher on three of the four: that was the bug
+        keyword = [dp.classify_violation(t)[1] for t in self.CDPHE]
+        self.assertEqual(keyword.count('priority'), 3)
+        self.assertNotEqual(keyword, [dp._co_line_tier(t) for t in self.CDPHE])
+
+    def test_a_closure_line_states_no_tier(self):
+        line = ('57: Imminent Health Hazard Closure . This is a item - Imminent Health Hazard Closure '
+                'Water line break. No running water.')
+        self.assertIsNone(dp._co_line_tier(line))
+
+    def test_the_phrase_is_read_from_the_heading_only(self):
+        late = '55: ' + 'x' * 300 + ' This is a Priority item'
+        self.assertIsNone(dp._co_line_tier(late))
+
+    def test_county_lines_take_the_tier_of_the_cited_section(self):
+        cases = {
+            '22: 3-501.16 (A)(2) Food item(s) that require temperature control for safety were cold '
+            'holding at internal temperatures greater than 41°F.': 'priority',
+            '38: 6-202.13 Observed fly strips placed above countertops in the kitchen.': 'core',
+            '10: 6-301.11 1. Hand washing sinks were observed being used for activities that were not '
+            'hand washing.': 'priority_foundation',
+            '48: 4-302.14 A test kit or other device that accurately measures the concentration of '
+            'sanitizing solution was not available at time of inspection.': 'priority_foundation',
+            '38: 6-501.111(A-B), and (D) Pests were present in the establishment.': 'core',
+            '38: 6-501.111(C) Pest control records were not kept.': 'priority_foundation',
+            '23: 3-501.18 The kitchen walk-in cooler contained multiple preassembled pizzas with an '
+            'expiration date of September 22, 2026.': 'priority',
+            '6-501.112': 'core',
+        }
+        for line, tier in cases.items():
+            self.assertEqual(dp._co_line_tier(line), tier, line)
+
+    def test_an_unknown_citation_keeps_the_keyword_tier(self):
+        for line in (
+                # sections the state's lines never cited in the window the table was read from
+                '53: 6-501.19 A toilet room located on the premises was not completely enclosed.',
+                '18: 3-401.12(A),(B), and (D) Raw liquid eggs were not allowed to stand covered.',
+                # another paragraph of a section the table holds only in part
+                '16: 4-602.11(B) Surfaces of utensils were not cleaned between uses.',
+                '1: 2-101.11(X) No person in charge.',
+                '22: 3-501.16 (C) Eggs were received warm.',
+                # Broomfield: the item number and the observation, no section
+                '37: No method of notification of major food allergens is provided to consumers.',
+                '', None):
+            self.assertIsNone(dp._co_line_tier(line), line)
+        # Broomfield writes a colon after the section it does cite
+        self.assertEqual(dp._co_line_tier('13: 2-301.14: An employee did not wash hands.'), 'priority')
+
+    def _bulk(self, texts, **kw):
+        class Session:
+            pass
+        rec = {'source_id': 'X', 'original_score': 46, 'risk_score': 8}
+        with mock.patch.object(dp, '_mhd_fetch_inspection_detail', return_value=list(texts)), \
+             mock.patch.object(dp, '_mhd_session', return_value=Session()), \
+             mock.patch.object(dp.time, 'sleep'):
+            self.assertEqual(dp._mhd_fetch_details_bulk('colorado', [rec], trust_official_score=False, **kw),
+                             (1, []))
+        return rec
+
+    def test_the_detail_phase_scores_on_the_stated_tier(self):
+        rec = self._bulk(self.CDPHE, tier_of=dp._co_line_tier)
+        self.assertEqual([v[1] for v in rec['violations']],
+                         ['core', 'priority_foundation', 'priority', 'core'])
+        self.assertEqual((rec['priority_violations'], rec['priority_foundation_violations'],
+                          rec['core_violations']), (1, 1, 2))
+        self.assertEqual(rec['risk_score'], 100 - 5 - 2 - 2)
+        # the category is still the keyword's (chips), and the text is untouched
+        self.assertEqual([v[0] for v in rec['violations']],
+                         [dp.classify_violation(t)[0] for t in self.CDPHE])
+        self.assertEqual([v[2] for v in rec['violations']], self.CDPHE)
+        # without the reader the same page is keyword-scored, as on every other portal
+        plain = self._bulk(self.CDPHE)
+        self.assertEqual(plain['risk_score'],
+                         dp.calc_risk_score([dp.classify_violation(t) for t in self.CDPHE])[0])
+        self.assertLess(plain['risk_score'], rec['risk_score'])
+
+    def test_a_line_without_a_tier_falls_back_to_keywords(self):
+        texts = ['37: No method of notification of major food allergens is provided to consumers.',
+                 '38: 6-501.111(A-B), and (D) Pests were present in the establishment.']
+        rec = self._bulk(texts, tier_of=dp._co_line_tier)
+        self.assertEqual(rec['violations'][0][1], dp.classify_violation(texts[0])[1])
+        self.assertEqual(rec['violations'][1][1], 'core')
+
+    def test_the_fixture_page(self):
+        obs = dp._mhd_parse_detail_html(_fixture_html('detail_colorado_closed.html'))
+        tiers = [dp._co_line_tier(t) for t in obs]
+        self.assertEqual(len(tiers), 9)
+        for text, tier in zip(obs, tiers):
+            m = dp.CO_STATED_TIER_RE.search(text)
+            self.assertEqual(tier, dp.CO_TIER_NAMES[m.group(1).lower()] if m else None, text[:80])
+        self.assertGreaterEqual(sum(1 for t in tiers if t), 8)
+
+    def test_only_the_four_colorado_portals_ask_for_it(self):
+        with_tiers = sorted(k for k, c in dp.MHD_METRO_JURISDICTIONS.items() if c.get('tiers'))
+        self.assertEqual(with_tiers, ['broomfield', 'colorado', 'mesacountyco', 'pueblo'])
+        self.assertFalse(any(c.get('tiers') for c in dp.DFW_JURISDICTIONS.values()))
+        for key in with_tiers:
+            self.assertEqual(dp.MHD_METRO_JURISDICTIONS[key]['tiers'], 'colorado')
+        # the Front Range counties stay keyword-scored until their history is regraded
+        for key in ('acph', 'dchd', 'epcph', 'larimer-county-health', 'weldcounty', 'adcogoveh'):
+            self.assertNotIn('tiers', dp.MHD_METRO_JURISDICTIONS[key], key)
+
+    def test_the_reader_reaches_the_detail_phase(self):
+        seen = {}
+
+        def fake_bulk(path, records, trust_official_score=True, label=None, **kw):
+            seen[path] = kw
+            return len(records), []
+        for key, fixture in (('colorado', 'search_colorado.json'), ('pueblo', 'search_pueblo.json'),
+                             ('aaphd', 'search_aaphd.json')):
+            cfg = dp.MHD_METRO_JURISDICTIONS[key]
+            row = _fixture_rows(fixture)[0]
+            day = dp._mhd_row_date(row)
+            fake = FakeSearch({(f'{day} to {day}', '', ''): [row]})
+            with mock.patch.object(dp, '_mhd_fetch_details_bulk', side_effect=fake_bulk):
+                _run(key, cfg, fake, fetch_violations=True, since_date=day, until_date=day)
+        self.assertIs(seen['colorado']['tier_of'], dp._co_line_tier)
+        self.assertIs(seen['pueblo']['tier_of'], dp._co_line_tier)
+        self.assertNotIn('tier_of', seen['aaphd'])
+
+    def test_an_unknown_reader_name_raises(self):
+        cfg = dict(dp.MHD_METRO_JURISDICTIONS['pueblo'], tiers='no-such-reader')
+        row = _fixture_rows('search_pueblo.json')[0]
+        day = dp._mhd_row_date(row)
+        fake = FakeSearch({(f'{day} to {day}', '', ''): [row]})
+        with mock.patch.object(dp, '_mhd_fetch_details_bulk', return_value=(1, [])):
+            with self.assertRaises(KeyError):
+                _run('pueblo', cfg, fake, fetch_violations=True, since_date=day, until_date=day)
+
+    def test_jev_never_moves_a_stated_tier(self):
+        import jev_reader as jr
+        for source in ('Colorado CDPHE Health Dept', 'Pueblo County Health Dept', 'Mesa County Health Dept'):
+            self.assertEqual(jr.tier_policy(source), 'fixed', source)
+            self.assertEqual(jr.score_policy(source, 46), 'source_tiers', source)
+        # Broomfield mostly cites no section: keyword tiers, like the Front Range counties
+        self.assertEqual(jr.tier_policy('Broomfield Health Dept'), 'free')
+        self.assertEqual(jr.score_policy('Broomfield Health Dept', 46), 'computed')
+        self.assertEqual(jr.score_policy('Arapahoe County Health Dept', 46), 'computed')
+
+
+class ColoradoClosedTests(unittest.TestCase):
+    """Owner decision 2026-11-25: a Colorado inspection with the verdict
+    Closed is an F, whatever its lines add up to."""
+    DAY = '2026-11-10 to 2026-11-10'
+
+    def _fetch(self, key, rows, texts, cfg=None):
+        cfg = cfg or dp.MHD_METRO_JURISDICTIONS[key]
+        fake = FakeSearch({(self.DAY, '', ''): rows})
+
+        def fake_bulk(path, records, trust_official_score=True, label=None, **kw):
+            for rec in records:
+                violations = [dp.classify_violation(t) for t in texts.get(rec['source_id'], [])]
+                rec['violations'] = [list(v) for v in violations]
+                if not trust_official_score or rec.get('original_score') is None:
+                    rec['risk_score'] = dp.calc_risk_score(violations)[0]
+            return len(records), []
+        with mock.patch.object(dp, '_mhd_fetch_details_bulk', side_effect=fake_bulk):
+            return {r['source_id']: r for r in _run(key, cfg, fake, fetch_violations=True,
+                                                    since_date='2026-11-10', until_date='2026-11-10')}
+
+    def _rows(self, cfg, *specs):
+        rows = []
+        for n, (iid, score, display, result) in enumerate(specs, 1):
+            row = _row(iid, name=f'Cafe {iid}', addr=f'{n} Main St', city=cfg['default_city'],
+                       state=cfg['state'], program=cfg['programs'][0] if cfg.get('programs') else 'Retail Food',
+                       date='2026-11-10T00:00:00.000Z', score=score)
+            row['scoreDisplay'] = display
+            if result is not None:
+                row['result'] = result
+            rows.append(row)
+        return rows
+
+    def test_the_ten_colorado_portals_and_nobody_else(self):
+        on = sorted(k for k, c in dp.MHD_METRO_JURISDICTIONS.items() if c.get('closed_is_f'))
+        self.assertEqual(on, sorted(['acph', 'adcogoveh', 'broomfield', 'colorado', 'dchd', 'epcph',
+                                     'larimer-county-health', 'mesacountyco', 'pueblo', 'weldcounty']))
+        for key in on:
+            self.assertEqual(dp.MHD_METRO_JURISDICTIONS[key]['state'], 'CO', key)
+        self.assertFalse(any(c.get('closed_is_f') for c in dp.DFW_JURISDICTIONS.values()))
+        self.assertEqual(dp.MHD_CLOSED_RISK_CAP, 65)
+        self.assertLess(dp.MHD_CLOSED_RISK_CAP, 70, 'the cap must sit under the F cutoff')
+
+    def test_a_closed_inspection_is_an_f_whatever_its_lines_say(self):
+        cfg = dp.MHD_METRO_JURISDICTIONS['colorado']
+        rows = self._rows(cfg, ('WATER', 110, 'Closed', None), ('PASS', 5, 'Pass', None),
+                          ('REINSP', 60, 'Re-Inspection Required', None))
+        one_line = ['57: Imminent Health Hazard Closure . This is a item - Imminent Health Hazard '
+                    'Closure Water line break. No running water.']
+        recs = self._fetch('colorado', rows, {'WATER': one_line, 'PASS': one_line, 'REINSP': one_line})
+        self.assertEqual(recs['WATER']['results'], 'Closed')
+        self.assertEqual(recs['WATER']['risk_score'], 65)
+        self.assertEqual(recs['WATER']['original_score'], 110, 'the demerit total is kept')
+        self.assertEqual(len(recs['WATER']['violations']), 1, 'the lines are kept')
+        # the same page under another verdict is scored on its lines
+        uncapped = dp.calc_risk_score([dp.classify_violation(one_line[0])])[0]
+        self.assertGreater(uncapped, 65)
+        self.assertEqual(recs['PASS']['risk_score'], uncapped)
+        self.assertEqual(recs['REINSP']['risk_score'], uncapped, 'a re-inspection caps nothing')
+
+    def test_the_cap_only_lowers(self):
+        cfg = dp.MHD_METRO_JURISDICTIONS['colorado']
+        rows = self._rows(cfg, ('BAD', 117, 'Closed', None))
+        lines = [f'{n}: Proper cold holding temperatures . This is a Priority item 3-501.16 (A)(2) - TCS '
+                 f'Food, Cold Holding (P) Item {n} was held at 50°F.' for n in range(1, 11)]
+        recs = self._fetch('colorado', rows, {'BAD': lines})
+        expected = dp.calc_risk_score([dp.classify_violation(t) for t in lines])[0]
+        self.assertLess(expected, 65)
+        self.assertEqual(recs['BAD']['risk_score'], expected)
+
+    def test_the_result_field_counts_like_the_score_display(self):
+        cfg = dp.MHD_METRO_JURISDICTIONS['acph']          # Arapahoe sends `result`, scoreDisplay ''
+        rows = self._rows(cfg, ('A1', 112, '', 'Closed'), ('A2', 112, '', 'closed '), ('A3', 20, '', 'Pass'))
+        recs = self._fetch('acph', rows, {})
+        self.assertEqual((recs['A1']['risk_score'], recs['A2']['risk_score'], recs['A3']['risk_score']),
+                         (65, 65, 100))
+
+    def test_other_states_are_not_capped(self):
+        cfg = dp.MHD_METRO_JURISDICTIONS['mo-jackson']
+        rows = self._rows(cfg, ('J1', 0, '', 'Closed'))
+        recs = self._fetch('mo-jackson', rows, {})
+        self.assertEqual(recs['J1']['risk_score'], 100)
+        without = dict(dp.MHD_METRO_JURISDICTIONS['colorado'])
+        without.pop('closed_is_f')
+        rows = self._rows(without, ('C1', 110, 'Closed', None))
+        recs = self._fetch('colorado', rows, {}, cfg=without)
+        self.assertEqual(recs['C1']['risk_score'], 100)
+
+    def test_a_search_only_run_is_capped_too(self):
+        cfg = dp.MHD_METRO_JURISDICTIONS['pueblo']
+        rows = self._rows(cfg, ('P1', 10, 'Closed', None))     # interim mapping 100 - 2 x 10 = 80
+        fake = FakeSearch({(self.DAY, '', ''): rows})
+        recs = _run('pueblo', cfg, fake, fetch_violations=False, since_date='2026-11-10',
+                    until_date='2026-11-10')
+        self.assertEqual([r['risk_score'] for r in recs], [65])
+
+
+class GeocoderIdentityTests(unittest.TestCase):
+    def test_the_source_carries_no_contact_address(self):
+        with open(dp.__file__, encoding='utf-8') as f:
+            src = f.read()
+        self.assertNotRegex(src, r"User-Agent'\s*:\s*'[^']*@[^']*'")
+        self.assertIn("headers = {'User-Agent': NOMINATIM_USER_AGENT}", src)
+
+    def test_the_default_names_the_site(self):
+        if not os.environ.get('NOMINATIM_USER_AGENT'):
+            self.assertEqual(dp.NOMINATIM_USER_AGENT, 'DineScores/1.0 (+https://dinescores.com)')

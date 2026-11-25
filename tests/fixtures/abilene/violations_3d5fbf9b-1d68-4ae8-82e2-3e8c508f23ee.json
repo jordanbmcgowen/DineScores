@@ -1,0 +1,74 @@
+[
+ {
+  "inspectionId": "3D5FBF9B-1D68-4AE8-82E2-3E8C508F23EE",
+  "inspectionNumber": "69070",
+  "itemReference": "36",
+  "sortOrder": 36,
+  "violationItemText": "Wiping Cloths; properly used and stored",
+  "observationType": "OUT",
+  "violationCategoryGroupName": "Core Items (1 Point)",
+  "violationCategoryName": "Prevention of Food Contamination",
+  "inspectorNotes": null,
+  "violationItemId": "bc8ba33b-8b91-46ad-a954-32fcc79ed09f"
+ },
+ {
+  "inspectionId": "3D5FBF9B-1D68-4AE8-82E2-3E8C508F23EE",
+  "inspectionNumber": "69070",
+  "itemReference": "37",
+  "sortOrder": 37,
+  "violationItemText": "Environmental contamination",
+  "observationType": "OUT",
+  "violationCategoryGroupName": "Core Items (1 Point)",
+  "violationCategoryName": "Prevention of Food Contamination",
+  "inspectorNotes": null,
+  "violationItemId": "7374d451-4680-4789-ab31-a53ce2905b2f"
+ },
+ {
+  "inspectionId": "3D5FBF9B-1D68-4AE8-82E2-3E8C508F23EE",
+  "inspectionNumber": "69070",
+  "itemReference": "37",
+  "sortOrder": 37,
+  "violationItemText": "Environmental contamination",
+  "observationType": "OUT",
+  "violationCategoryGroupName": "Core Items (1 Point)",
+  "violationCategoryName": "Prevention of Food Contamination",
+  "inspectorNotes": null,
+  "violationItemId": "7374d451-4680-4789-ab31-a53ce2905b2f"
+ },
+ {
+  "inspectionId": "3D5FBF9B-1D68-4AE8-82E2-3E8C508F23EE",
+  "inspectionNumber": "69070",
+  "itemReference": "39",
+  "sortOrder": 39,
+  "violationItemText": "Utensils, equipment, & linens; properly used, stored, dried, & handled/ In use utensils; properly used",
+  "observationType": "OUT",
+  "violationCategoryGroupName": "Core Items (1 Point)",
+  "violationCategoryName": "Proper Use of Utensils",
+  "inspectorNotes": null,
+  "violationItemId": "1cb42b06-b234-477c-ae6b-0f702002497c"
+ },
+ {
+  "inspectionId": "3D5FBF9B-1D68-4AE8-82E2-3E8C508F23EE",
+  "inspectionNumber": "69070",
+  "itemReference": "41",
+  "sortOrder": 41,
+  "violationItemText": "Original container labeling (Bulk Food)",
+  "observationType": "OUT",
+  "violationCategoryGroupName": "Core Items (1 Point)",
+  "violationCategoryName": "Food Identification",
+  "inspectorNotes": null,
+  "violationItemId": "de6decc0-3b56-42cd-ae79-53c45de088be"
+ },
+ {
+  "inspectionId": "3D5FBF9B-1D68-4AE8-82E2-3E8C508F23EE",
+  "inspectionNumber": "69070",
+  "itemReference": "42",
+  "sortOrder": 42,
+  "violationItemText": "Non-Food Contact surfaces clean",
+  "observationType": "OUT",
+  "violationCategoryGroupName": "Core Items (1 Point)",
+  "violationCategoryName": "Physical Facilities",
+  "inspectorNotes": null,
+  "violationItemId": "e125ea6a-fc18-41f2-a7b0-13cbeed54285"
+ }
+]

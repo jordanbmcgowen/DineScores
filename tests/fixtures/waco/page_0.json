@@ -1,0 +1,876 @@
+{
+"objectIdFieldName": "OBJECTID",
+"uniqueIdField": {
+"name": "OBJECTID",
+"isSystemMaintained": true
+},
+"globalIdFieldName": "",
+"geometryType": "esriGeometryPoint",
+"spatialReference": {
+"wkid": 4326,
+"latestWkid": 4326
+},
+"fields": [
+{
+"name": "Date",
+"type": "esriFieldTypeDate",
+"alias": "Date",
+"sqlType": "sqlTypeOther",
+"length": 8,
+"domain": null,
+"defaultValue": null,
+"description": "{\"value\":\"\",\"fieldValueType\":\"dateAndTime\"}"
+},
+{
+"name": "Business",
+"type": "esriFieldTypeString",
+"alias": "Business",
+"sqlType": "sqlTypeOther",
+"length": 100,
+"domain": null,
+"defaultValue": null
+},
+{
+"name": "Address",
+"type": "esriFieldTypeString",
+"alias": "Address",
+"sqlType": "sqlTypeOther",
+"length": 80,
+"domain": null,
+"defaultValue": null
+},
+{
+"name": "City",
+"type": "esriFieldTypeString",
+"alias": "City",
+"sqlType": "sqlTypeOther",
+"length": 40,
+"domain": null,
+"defaultValue": null
+},
+{
+"name": "Zipcode",
+"type": "esriFieldTypeString",
+"alias": "Zipcode",
+"sqlType": "sqlTypeOther",
+"length": 5,
+"domain": null,
+"defaultValue": null
+},
+{
+"name": "TotalScore",
+"type": "esriFieldTypeInteger",
+"alias": "TotalScore",
+"sqlType": "sqlTypeOther",
+"domain": null,
+"defaultValue": null
+},
+{
+"name": "Status",
+"type": "esriFieldTypeString",
+"alias": "Status",
+"sqlType": "sqlTypeOther",
+"length": 50,
+"domain": null,
+"defaultValue": null
+},
+{
+"name": "IORDER",
+"type": "esriFieldTypeInteger",
+"alias": "IORDER",
+"sqlType": "sqlTypeOther",
+"domain": null,
+"defaultValue": null
+},
+{
+"name": "SVALUE",
+"type": "esriFieldTypeString",
+"alias": "SVALUE",
+"sqlType": "sqlTypeOther",
+"length": 50,
+"domain": null,
+"defaultValue": null
+},
+{
+"name": "mapDate",
+"type": "esriFieldTypeString",
+"alias": "mapDate",
+"sqlType": "sqlTypeOther",
+"length": 200,
+"domain": null,
+"defaultValue": null,
+"description": "{\"value\":\"\",\"fieldValueType\":\"dateAndTime\"}"
+},
+{
+"name": "OBJECTID",
+"type": "esriFieldTypeOID",
+"alias": "OBJECTID",
+"sqlType": "sqlTypeOther",
+"domain": null,
+"defaultValue": null
+}
+],
+"exceededTransferLimit": true,
+"features": [
+{
+"attributes": {
+"Date": 1737129713000,
+"Business": "SISON TACOS",
+"Address": "601  FRANKLIN AVE",
+"City": "WACO",
+"Zipcode": "76701",
+"TotalScore": 0,
+"Status": "PASSED",
+"IORDER": 1,
+"SVALUE": "RENEWAL",
+"mapDate": null,
+"OBJECTID": 482813
+},
+"geometry": {
+"x": -97.13215518593005,
+"y": 31.555232250254512
+}
+},
+{
+"attributes": {
+"Date": 1737129385000,
+"Business": "SISON TACOS",
+"Address": "601  FRANKLIN AVE",
+"City": "WACO",
+"Zipcode": "76701",
+"TotalScore": 0,
+"Status": "PASSED",
+"IORDER": 1,
+"SVALUE": "RENEWAL",
+"mapDate": null,
+"OBJECTID": 482841
+},
+"geometry": {
+"x": -97.13215518593005,
+"y": 31.555232250254512
+}
+},
+{
+"attributes": {
+"Date": 1737039460000,
+"Business": "MACDADDY'S PUB ",
+"Address": "101 E LONG ST",
+"City": "ELM MOTT (UNINCORPORATED)",
+"Zipcode": "76640",
+"TotalScore": 0,
+"Status": "PASSED",
+"IORDER": 1,
+"SVALUE": "RENEWAL",
+"mapDate": null,
+"OBJECTID": 482852
+},
+"geometry": {
+"x": -97.0981697733251,
+"y": 31.669560527881295
+}
+},
+{
+"attributes": {
+"Date": 1736341772000,
+"Business": "KING DONUT-INACTIVE",
+"Address": "2720  BELLMEAD DR",
+"City": "BELLMEAD",
+"Zipcode": "76705",
+"TotalScore": 10,
+"Status": "PASSED",
+"IORDER": 2,
+"SVALUE": "ROUTINE",
+"mapDate": null,
+"OBJECTID": 482908
+},
+"geometry": {
+"x": -97.10339881156834,
+"y": 31.58737089833317
+}
+},
+{
+"attributes": {
+"Date": 1739356676000,
+"Business": "KAJUN KLUCK TRUCK",
+"Address": "2500  AUSTIN AVE",
+"City": "WACO",
+"Zipcode": "76710",
+"TotalScore": 1,
+"Status": "PASSED",
+"IORDER": 0,
+"SVALUE": "PERMIT",
+"mapDate": null,
+"OBJECTID": 483013
+},
+"geometry": {
+"x": -97.15021051238209,
+"y": 31.540172028523585
+}
+},
+{
+"attributes": {
+"Date": 1740075300000,
+"Business": "NINFA'S WACO",
+"Address": "220 S 3RD ST",
+"City": "WACO",
+"Zipcode": "76701",
+"TotalScore": 8,
+"Status": "REQUESTED",
+"IORDER": 3,
+"SVALUE": "REINSPECTION",
+"mapDate": null,
+"OBJECTID": 483149
+},
+"geometry": {
+"x": -97.12816837232293,
+"y": 31.557243101777505
+}
+},
+{
+"attributes": {
+"Date": 1741870995000,
+"Business": "CAMP FIMFO WACO",
+"Address": "1000  CHICKADEE LN",
+"City": "WACO",
+"Zipcode": "76708",
+"TotalScore": 10,
+"Status": "PASSED",
+"IORDER": 2,
+"SVALUE": "ROUTINE",
+"mapDate": null,
+"OBJECTID": 483328
+},
+"geometry": {
+"x": -97.17513218640444,
+"y": 31.597455923406578
+}
+},
+{
+"attributes": {
+"Date": 1741873048000,
+"Business": "CAMP FIMFO WACO",
+"Address": "1000  CHICKADEE LN",
+"City": "WACO",
+"Zipcode": "76708",
+"TotalScore": 4,
+"Status": "FAILED WITH PENALTY BLIC",
+"IORDER": 2,
+"SVALUE": "ROUTINE",
+"mapDate": null,
+"OBJECTID": 483365
+},
+"geometry": {
+"x": -97.17513218640444,
+"y": 31.597455923406578
+}
+},
+{
+"attributes": {
+"Date": 1741871391000,
+"Business": "CAMP FIMFO WACO",
+"Address": "1000  CHICKADEE LN",
+"City": "WACO",
+"Zipcode": "76708",
+"TotalScore": 0,
+"Status": "PASSED",
+"IORDER": 2,
+"SVALUE": "ROUTINE",
+"mapDate": null,
+"OBJECTID": 483366
+},
+"geometry": {
+"x": -97.17513218640444,
+"y": 31.597455923406578
+}
+},
+{
+"attributes": {
+"Date": 1741717703000,
+"Business": "HELADOS LA AZTECA - VALLEY MILLS DR",
+"Address": "1412 N VALLEY MILLS DR",
+"City": "WACO",
+"Zipcode": "76710",
+"TotalScore": 50,
+"Status": "FAILED",
+"IORDER": 1,
+"SVALUE": "RENEWAL",
+"mapDate": null,
+"OBJECTID": 483367
+},
+"geometry": {
+"x": -97.19268449337419,
+"y": 31.53060381304718
+}
+},
+{
+"attributes": {
+"Date": 1742903919000,
+"Business": "WEST ISD-HIGH/MIDDLE SCHOOL",
+"Address": "1008  JERRY MASHEK DR",
+"City": "WEST",
+"Zipcode": "76691",
+"TotalScore": 2,
+"Status": "PASSED",
+"IORDER": 2,
+"SVALUE": "ROUTINE",
+"mapDate": null,
+"OBJECTID": 483447
+},
+"geometry": {
+"x": -97.08536085936801,
+"y": 31.8116395672706
+}
+},
+{
+"attributes": {
+"Date": 1744723686000,
+"Business": "LOS COMPADRES-INACTIVE",
+"Address": "1516 N IH 35 ",
+"City": "LACY LAKEVIEW",
+"Zipcode": "76705",
+"TotalScore": 34,
+"Status": "FAILED WITH PENALTY BLIC",
+"IORDER": 1,
+"SVALUE": "RENEWAL",
+"mapDate": null,
+"OBJECTID": 483655
+},
+"geometry": {
+"x": -97.10988669734321,
+"y": 31.600257591423905
+}
+},
+{
+"attributes": {
+"Date": 1744811792000,
+"Business": "DOMINOS PIZZA #6992",
+"Address": "9901  CHINA SPRING RD",
+"City": "WACO",
+"Zipcode": "76708",
+"TotalScore": 0,
+"Status": "FAILED",
+"IORDER": 0,
+"SVALUE": "PERMIT",
+"mapDate": null,
+"OBJECTID": 483711
+},
+"geometry": {
+"x": -97.23522385279767,
+"y": 31.6287238399846
+}
+},
+{
+"attributes": {
+"Date": 1742474345000,
+"Business": "GLORY BELL COFFEE",
+"Address": "600  COLUMBUS AVE",
+"City": "WACO",
+"Zipcode": null,
+"TotalScore": 3,
+"Status": "PASSED",
+"IORDER": 1,
+"SVALUE": "RENEWAL",
+"mapDate": null,
+"OBJECTID": 483804
+},
+"geometry": {
+"x": -97.13499043469575,
+"y": 31.55720262212236
+}
+},
+{
+"attributes": {
+"Date": 1763651827000,
+"Business": "PIZZA TRUCK, THE",
+"Address": "602 S VALLEY MILLS DR",
+"City": "BEVERLY HILLS",
+"Zipcode": "76711",
+"TotalScore": 17,
+"Status": "FAILED",
+"IORDER": 1,
+"SVALUE": "RENEWAL",
+"mapDate": null,
+"OBJECTID": 486987
+},
+"geometry": {
+"x": -97.15389184520629,
+"y": 31.52705794770693
+}
+},
+{
+"attributes": {
+"Date": 1758378905000,
+"Business": "BAYLOR FOOTBALL - 2025 - INACTIVE",
+"Address": "1001 S MARTIN LUTHER KING JR BLVD",
+"City": "WACO",
+"Zipcode": "76704",
+"TotalScore": 0,
+"Status": "CANCELED",
+"IORDER": 0,
+"SVALUE": "PERMIT",
+"mapDate": null,
+"OBJECTID": 487347
+},
+"geometry": {
+"x": -97.11581203765395,
+"y": 31.55920333436207
+}
+},
+{
+"attributes": {
+"Date": 1786789309000,
+"Business": "OTAKU FESTIVAL - 2026",
+"Address": "6001 W WACO DR",
+"City": "WACO",
+"Zipcode": "76710",
+"TotalScore": 0,
+"Status": "PASSED",
+"IORDER": 0,
+"SVALUE": "PERMIT",
+"mapDate": null,
+"OBJECTID": 489278
+},
+"geometry": {
+"x": -97.18886779879463,
+"y": 31.51629632794563
+}
+},
+{
+"attributes": {
+"Date": 1794493246000,
+"Business": "SHAAN SEA FOOD RESTAURANT",
+"Address": "1824 W WACO DR",
+"City": "WACO",
+"Zipcode": "76701",
+"TotalScore": 12,
+"Status": "FAILED WITH PENALTY BLIC",
+"IORDER": 1,
+"SVALUE": "RENEWAL",
+"mapDate": null,
+"OBJECTID": 490143
+},
+"geometry": {
+"x": -97.14775459153705,
+"y": 31.548238447794507
+}
+},
+{
+"attributes": {
+"Date": 1794410377000,
+"Business": "TROPICAL SMOOTHIE CAFE",
+"Address": "922 S 10TH ST",
+"City": "WACO",
+"Zipcode": "76706",
+"TotalScore": 4,
+"Status": "PASSED",
+"IORDER": 1,
+"SVALUE": "RENEWAL",
+"mapDate": null,
+"OBJECTID": 490145
+},
+"geometry": {
+"x": -97.12765451217003,
+"y": 31.546155374242545
+}
+},
+{
+"attributes": {
+"Date": 1794327748000,
+"Business": "SUMMER GROCERY",
+"Address": "3204  SUMMER AVE",
+"City": "WACO",
+"Zipcode": "76708",
+"TotalScore": 0,
+"Status": "PASSED",
+"IORDER": 3,
+"SVALUE": "REINSPECTION",
+"mapDate": null,
+"OBJECTID": 490147
+},
+"geometry": {
+"x": -97.18215832933413,
+"y": 31.563722396204973
+}
+},
+{
+"attributes": {
+"Date": 1794577715000,
+"Business": "JESS SOUL FOOD SOUTHERN COMFORT",
+"Address": "2001  HARRISON ST",
+"City": "BELLMEAD",
+"Zipcode": "76705",
+"TotalScore": 0,
+"Status": "PASSED",
+"IORDER": 0,
+"SVALUE": "PERMIT",
+"mapDate": null,
+"OBJECTID": 490148
+},
+"geometry": {
+"x": -97.10820731287879,
+"y": 31.58066636301258
+}
+},
+{
+"attributes": {
+"Date": 1794482990000,
+"Business": "MIDWAY BOOSTER CLUB",
+"Address": "8200  MARS DR",
+"City": "WACO",
+"Zipcode": "76712",
+"TotalScore": 7,
+"Status": "PASSED",
+"IORDER": 3,
+"SVALUE": "REINSPECTION",
+"mapDate": null,
+"OBJECTID": 490149
+},
+"geometry": {
+"x": -97.19932184051477,
+"y": 31.48357765003212
+}
+},
+{
+"attributes": {
+"Date": 1794315074000,
+"Business": "DAIRY QUEEN",
+"Address": "1310 W MCGREGOR DR",
+"City": "MCGREGOR",
+"Zipcode": "76657",
+"TotalScore": 11,
+"Status": "FAILED",
+"IORDER": 1,
+"SVALUE": "RENEWAL",
+"mapDate": null,
+"OBJECTID": 490151
+},
+"geometry": {
+"x": -97.41948071618198,
+"y": 31.44035171125746
+}
+},
+{
+"attributes": {
+"Date": 1794487045000,
+"Business": "TAQUERIA EL CRUCERO",
+"Address": "2505  ROBINSON DR",
+"City": "WACO",
+"Zipcode": "76706",
+"TotalScore": 0,
+"Status": "PASSED",
+"IORDER": 1,
+"SVALUE": "RENEWAL",
+"mapDate": null,
+"OBJECTID": 490152
+},
+"geometry": {
+"x": -97.13085157392543,
+"y": 31.518788925868236
+}
+},
+{
+"attributes": {
+"Date": 1794393277000,
+"Business": "ALOFT WACO DOWNTOWN",
+"Address": "900 S 11TH ST",
+"City": "WACO",
+"Zipcode": "76706",
+"TotalScore": 13,
+"Status": "FAILED WITH PENALTY BLIC",
+"IORDER": 1,
+"SVALUE": "RENEWAL",
+"mapDate": null,
+"OBJECTID": 490153
+},
+"geometry": {
+"x": -97.1288140343804,
+"y": 31.545482581858938
+}
+},
+{
+"attributes": {
+"Date": 1794488068000,
+"Business": "SP FOOD MART",
+"Address": "7500  BOSQUE BLVD",
+"City": "WACO",
+"Zipcode": "76712",
+"TotalScore": 0,
+"Status": "PASSED",
+"IORDER": 3,
+"SVALUE": "REINSPECTION",
+"mapDate": null,
+"OBJECTID": 490156
+},
+"geometry": {
+"x": -97.2125976004782,
+"y": 31.519302773690026
+}
+},
+{
+"attributes": {
+"Date": 1794323856000,
+"Business": "BAHAMA BUCK'S",
+"Address": "5201  BOSQUE BLVD",
+"City": "WACO",
+"Zipcode": "76710",
+"TotalScore": 22,
+"Status": "FAILED WITH PENALTY BLIC",
+"IORDER": 1,
+"SVALUE": "RENEWAL",
+"mapDate": null,
+"OBJECTID": 490157
+},
+"geometry": {
+"x": -97.19127940162666,
+"y": 31.534820962592914
+}
+},
+{
+"attributes": {
+"Date": 1794399095000,
+"Business": "GREAT AMERICAN COOKIES",
+"Address": "6001 W WACO DR",
+"City": "WACO",
+"Zipcode": "76710",
+"TotalScore": 0,
+"Status": "PASSED",
+"IORDER": 1,
+"SVALUE": "RENEWAL",
+"mapDate": null,
+"OBJECTID": 490159
+},
+"geometry": {
+"x": -97.18886779879463,
+"y": 31.51629632794563
+}
+},
+{
+"attributes": {
+"Date": 1794391287000,
+"Business": "LA QUINTA INN & SUITES",
+"Address": "911 S 10TH ST",
+"City": "WACO",
+"Zipcode": "76706",
+"TotalScore": 4,
+"Status": "PASSED",
+"IORDER": 1,
+"SVALUE": "RENEWAL",
+"mapDate": null,
+"OBJECTID": 490160
+},
+"geometry": {
+"x": -97.1283600979037,
+"y": 31.545850909110563
+}
+},
+{
+"attributes": {
+"Date": 1794311919000,
+"Business": "SUSHIC LLC",
+"Address": "1311 S 5TH ST",
+"City": "WACO",
+"Zipcode": "76706",
+"TotalScore": 5,
+"Status": "PASSED",
+"IORDER": 1,
+"SVALUE": "RENEWAL",
+"mapDate": null,
+"OBJECTID": 490161
+},
+"geometry": {
+"x": -97.1203042464824,
+"y": 31.54522736894829
+}
+},
+{
+"attributes": {
+"Date": 1794310021000,
+"Business": "DOLLAR TREE #2078",
+"Address": "1428  WOODED ACRES DR",
+"City": "WACO",
+"Zipcode": "76710",
+"TotalScore": 0,
+"Status": "PASSED",
+"IORDER": 1,
+"SVALUE": "RENEWAL",
+"mapDate": null,
+"OBJECTID": 490162
+},
+"geometry": {
+"x": -97.19074059158295,
+"y": 31.53331506194036
+}
+},
+{
+"attributes": {
+"Date": 1794304859000,
+"Business": "TOWNEPLACE SUITES WACO SOUTH",
+"Address": "5621  LEGENDLAKE PKWY",
+"City": "WACO",
+"Zipcode": "76712",
+"TotalScore": 0,
+"Status": "PASSED",
+"IORDER": 1,
+"SVALUE": "RENEWAL",
+"mapDate": null,
+"OBJECTID": 490164
+},
+"geometry": {
+"x": -97.16077313890189,
+"y": 31.49387287376756
+}
+},
+{
+"attributes": {
+"Date": 1794410030000,
+"Business": "SLOWRISE",
+"Address": "1620 N MARTIN LUTHER KING JR BLVD",
+"City": "WACO",
+"Zipcode": "76704",
+"TotalScore": 16,
+"Status": "PASSED",
+"IORDER": 3,
+"SVALUE": "REINSPECTION",
+"mapDate": null,
+"OBJECTID": 490166
+},
+"geometry": {
+"x": -97.14274820617482,
+"y": 31.57350815967365
+}
+},
+{
+"attributes": {
+"Date": 1794494460000,
+"Business": "LONE STAR TAVERN AND STEAKHOUSE",
+"Address": "4713  BELLMEAD DR",
+"City": "BELLMEAD",
+"Zipcode": "76705",
+"TotalScore": 9,
+"Status": "PASSED",
+"IORDER": 1,
+"SVALUE": "RENEWAL",
+"mapDate": null,
+"OBJECTID": 490168
+},
+"geometry": {
+"x": -97.07403410471741,
+"y": 31.606726457766687
+}
+},
+{
+"attributes": {
+"Date": 1794586551000,
+"Business": "SIP CITY",
+"Address": "9111  JORDAN LN",
+"City": "WOODWAY",
+"Zipcode": "76712",
+"TotalScore": 6,
+"Status": "PASSED",
+"IORDER": 1,
+"SVALUE": "RENEWAL",
+"mapDate": null,
+"OBJECTID": 490170
+},
+"geometry": {
+"x": -97.22241272930366,
+"y": 31.497162121177606
+}
+},
+{
+"attributes": {
+"Date": 1794481921000,
+"Business": "CHATEAU WACO, THE",
+"Address": "2430  MARKETPLACE DR",
+"City": "WACO",
+"Zipcode": "76711",
+"TotalScore": 7,
+"Status": "PASSED",
+"IORDER": 1,
+"SVALUE": "RENEWAL",
+"mapDate": null,
+"OBJECTID": 490171
+},
+"geometry": {
+"x": -97.15831454126544,
+"y": 31.502076475609933
+}
+},
+{
+"attributes": {
+"Date": 1794318884000,
+"Business": "TIA JUANITA'S FISH CAMP WACO",
+"Address": "4671 S JACK KULTGEN EXPY",
+"City": "WACO",
+"Zipcode": "76711",
+"TotalScore": 2,
+"Status": "PASSED",
+"IORDER": 3,
+"SVALUE": "REINSPECTION",
+"mapDate": null,
+"OBJECTID": 490173
+},
+"geometry": {
+"x": -97.15045665188937,
+"y": 31.497023126749387
+}
+},
+{
+"attributes": {
+"Date": 1794399470000,
+"Business": "BLVD STEAKHOUSE, THE",
+"Address": "110 S MARTIN LUTHER KING JR BLVD",
+"City": "WACO",
+"Zipcode": "76704",
+"TotalScore": 4,
+"Status": "PASSED",
+"IORDER": 1,
+"SVALUE": "RENEWAL",
+"mapDate": null,
+"OBJECTID": 490175
+},
+"geometry": {
+"x": -97.12476939616332,
+"y": 31.562351776242746
+}
+},
+{
+"attributes": {
+"Date": 1794499632000,
+"Business": "MURPHY USA #7895",
+"Address": "1519 N IH 35 ",
+"City": "BELLMEAD",
+"Zipcode": "76705",
+"TotalScore": 2,
+"Status": "PASSED",
+"IORDER": 3,
+"SVALUE": "REINSPECTION",
+"mapDate": null,
+"OBJECTID": 490176
+},
+"geometry": {
+"x": -97.10721414663577,
+"y": 31.60094032352407
+}
+},
+{
+"attributes": {
+"Date": 1794582795000,
+"Business": "SHOOTERS",
+"Address": "528 N NEW RD",
+"City": "WACO",
+"Zipcode": "76710",
+"TotalScore": 4,
+"Status": "FAILED",
+"IORDER": 3,
+"SVALUE": "REINSPECTION",
+"mapDate": null,
+"OBJECTID": 490177
+},
+"geometry": {
+"x": -97.17342321629954,
+"y": 31.527508806526715
+}
+}
+]
+}

@@ -5,11 +5,13 @@ on:
     # Every Sunday at 9:17 AM UTC (4:17 AM CDT). Off the top of the hour, when
     # GitHub's scheduler is busiest: the 09:00 runs started 4.5 to 5.5 hours late.
     - cron: '17 9 * * 0'
-    # Wednesday: the heavy MyHealthDepartment jurisdictions added in November
-    # 2026 (Virginia's VDH districts, Cuyahoga County) run under their own
-    # group with their own detail-page ban budget and fetch deadline, so they
-    # cannot starve DFW and the other metros on Sunday. The "Pick the sources"
-    # step maps each cron to its --cities list.
+    # Wednesday: the MyHealthDepartment jurisdictions added in November 2026
+    # (Virginia's VDH districts, Cuyahoga County, then Montana, Amarillo,
+    # Tyler, Wyoming, St. Louis, the Colorado state counties and the rest of
+    # the 2026-11-22 group) run under their own group with their own
+    # detail-page ban budget and fetch deadline, so they cannot starve DFW
+    # and the other metros on Sunday. The "Pick the sources" step maps each
+    # cron to its --cities list.
     - cron: '17 9 * * 3'
   workflow_dispatch:  # Allow manual trigger from GitHub Actions UI
     inputs:
@@ -76,8 +78,10 @@ jobs:
 
       - name: Pick the sources for this run
         # One workflow, two crons. Sunday fetches every source except the
-        # heavy MyHealthDepartment jurisdictions added in November 2026
-        # (Virginia's VDH districts, Cuyahoga County); those run on Wednesday
+        # MyHealthDepartment jurisdictions added in November 2026 (Virginia's
+        # VDH districts, Cuyahoga County, and the 2026-11-22 group: Montana,
+        # Amarillo, Tyler, Orange County TX, Wyoming, Minot, St. Louis, Jackson
+        # County MO, the Colorado state counties); those run on Wednesday
         # under their own fetch group ('MHD metros (midweek)') so they get
         # their own detail-page ban budget and fetch deadline instead of
         # starving DFW and the other metros. A manual run may pass its own
@@ -86,8 +90,8 @@ jobs:
           REQUESTED: ${{ inputs.cities }}
           SCHEDULE: ${{ github.event.schedule }}
         run: |
-          SUNDAY="chicago nyc sf austin boston seattle florida nys wake vegas la louisville minneapolis cincinnati delaware montgomery detroit sacramento southcarolina fairfax portland coloradosprings larimer weld adams utahcounty yolo santaclara sandiego omaha orangecounty gwinnett nashville memphis knoxville chattanooga houston sanantonio dc dallas plano frisco fort-worth-texas tarrant arlington richardson georgia louisiana maricopa harris pima lubbock mesquite williamson mckinney lewisville denton fortbend arapahoe douglas"
-          MIDWEEK="cuyahoga virginia"
+          SUNDAY="chicago nyc sf austin boston seattle florida nys wake vegas la louisville minneapolis cincinnati delaware montgomery detroit sacramento southcarolina fairfax portland coloradosprings larimer weld adams utahcounty yolo santaclara sandiego omaha orangecounty gwinnett nashville memphis knoxville chattanooga houston sanantonio dc dallas plano frisco fort-worth-texas tarrant arlington richardson georgia louisiana maricopa harris pima lubbock mesquite williamson mckinney lewisville denton fortbend arapahoe douglas garland elpaso waco corpuschristi wichitafalls abilene missoula bozeman kalispell kansascity"
+          MIDWEEK="cuyahoga virginia montana amarillo tyler orangecountytx wyoming minot stlouis jacksoncountymo coloradostate pueblo grandjunction broomfield"
           if [ -n "$REQUESTED" ] && [ "$REQUESTED" != "midweek" ]; then
             CITIES="$REQUESTED"; RUN_LABEL="manual"
           elif [ "$REQUESTED" = "midweek" ] || [ "$SCHEDULE" = "17 9 * * 3" ]; then
@@ -103,6 +107,10 @@ jobs:
         env:
           # Optional: raises Socrata rate limits if the secret is configured
           SOCRATA_APP_TOKEN: ${{ secrets.SOCRATA_APP_TOKEN }}
+          # Optional: the User-Agent the OpenStreetMap geocoder is sent (a
+          # repository variable, e.g. "DineScores/1.0 (contact address)").
+          # Unset, the pipeline identifies itself by the site's URL.
+          NOMINATIM_USER_AGENT: ${{ vars.NOMINATIM_USER_AGENT }}
           # Egress for the portals that refuse GitHub's runner ranges. The
           # MyHealthDepartment portal (Dallas, Plano, Frisco, Fort Worth,
           # Tarrant, Portland metro, CO Front Range, Utah County, Yolo) answers

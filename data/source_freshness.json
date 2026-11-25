@@ -1,5 +1,15 @@
 {
  "groups": {
+  "Abilene": {
+   "last_run": {
+    "at": "2026-11-23",
+    "detail": "",
+    "latest": "2026-11-20",
+    "records": 499,
+    "status": "ok"
+   },
+   "latest": "2026-11-20"
+  },
   "Arlington": {
    "last_run": {
     "at": "2026-11-22",
@@ -50,6 +60,16 @@
    },
    "latest": "2026-11-19"
   },
+  "Corpus Christi": {
+   "last_run": {
+    "at": "2026-11-23",
+    "detail": "",
+    "latest": "2026-11-21",
+    "records": 945,
+    "status": "ok"
+   },
+   "latest": "2026-11-21"
+  },
   "DFW": {
    "last_run": {
     "at": "2026-11-22",
@@ -90,6 +110,16 @@
    },
    "latest": "2026-11-05"
   },
+  "El Paso": {
+   "last_run": {
+    "at": "2026-11-23",
+    "detail": "",
+    "latest": "2026-11-20",
+    "records": 19898,
+    "status": "ok"
+   },
+   "latest": "2026-11-20"
+  },
   "Fairfax County": {
    "last_run": {
     "at": "2026-11-22",
@@ -100,6 +130,16 @@
    },
    "latest": "2026-11-11"
   },
+  "Flathead County": {
+   "last_run": {
+    "at": "2026-11-23",
+    "detail": "",
+    "latest": "2026-11-20",
+    "records": 299,
+    "status": "ok"
+   },
+   "latest": "2026-11-20"
+  },
   "Florida": {
    "last_run": {
     "at": "2026-11-22",
@@ -109,6 +149,26 @@
     "status": "error"
    },
    "latest": "2026-11-09"
+  },
+  "Gallatin County": {
+   "last_run": {
+    "at": "2026-11-23",
+    "detail": "",
+    "latest": "2026-11-20",
+    "records": 124,
+    "status": "ok"
+   },
+   "latest": "2026-11-20"
+  },
+  "Garland": {
+   "last_run": {
+    "at": "2026-11-23",
+    "detail": "1 inspection(s) not shipped until their violations add up to the score (PT2896); re-read next run",
+    "latest": "2026-11-20",
+    "records": 1014,
+    "status": "ok"
+   },
+   "latest": "2026-11-20"
   },
   "Georgia": {
    "last_run": {
@@ -129,6 +189,16 @@
     "status": "ok"
    },
    "latest": "2026-11-18"
+  },
+  "Kansas City": {
+   "last_run": {
+    "at": "2026-11-23",
+    "detail": "",
+    "latest": "2026-11-22",
+    "records": 2871,
+    "status": "ok"
+   },
+   "latest": "2026-11-22"
   },
   "LA County": {
    "last_run": {
@@ -249,6 +319,16 @@
     "status": "ok"
    },
    "latest": "2026-11-17"
+  },
+  "Missoula County": {
+   "last_run": {
+    "at": "2026-11-23",
+    "detail": "",
+    "latest": "2026-11-20",
+    "records": 29,
+    "status": "ok"
+   },
+   "latest": "2026-11-20"
   },
   "Montgomery County": {
    "last_run": {
@@ -380,12 +460,32 @@
    },
    "latest": "2026-11-18"
   },
+  "Waco": {
+   "last_run": {
+    "at": "2026-11-23",
+    "detail": "",
+    "latest": "2026-11-13",
+    "records": 4026,
+    "status": "ok"
+   },
+   "latest": "2026-11-13"
+  },
   "Wake County": {
    "last_run": {
     "at": "2026-11-22",
     "detail": "",
     "latest": "2026-11-19",
     "records": 211,
+    "status": "ok"
+   },
+   "latest": "2026-11-19"
+  },
+  "Wichita Falls": {
+   "last_run": {
+    "at": "2026-11-23",
+    "detail": "",
+    "latest": "2026-11-19",
+    "records": 2812,
     "status": "ok"
    },
    "latest": "2026-11-19"
@@ -487,9 +587,17 @@
   "status": "ok"
  },
  "sources": {
+  "Abilene Environmental Health": {
+   "group": "Abilene",
+   "latest": "2026-11-20"
+  },
   "Adams County Health Dept": {
    "group": "MHD metros",
    "latest": "2026-11-13"
+  },
+  "Amarillo Health Dept": {
+   "group": "MHD metros (midweek)",
+   "latest": "2026-11-20"
   },
   "Arapahoe County Health Dept": {
    "group": "MHD metros",
@@ -507,6 +615,18 @@
    "group": "Boston",
    "latest": "2026-11-19"
   },
+  "Broomfield Health Dept": {
+   "group": "MHD metros (midweek)",
+   "latest": "2026-11-20"
+  },
+  "Casper-Natrona County Health Dept": {
+   "group": "MHD metros (midweek)",
+   "latest": "2026-11-21"
+  },
+  "Cheyenne-Laramie County Health Dept": {
+   "group": "MHD metros (midweek)",
+   "latest": "2026-11-20"
+  },
   "Chicago Open Data": {
    "group": "Chicago",
    "latest": "2026-11-20"
@@ -515,6 +635,10 @@
    "group": "Cincinnati",
    "latest": "2026-11-19"
   },
+  "City of El Paso Public Health": {
+   "group": "El Paso",
+   "latest": "2026-11-20"
+  },
   "Clackamas County Health Dept": {
    "group": "MHD metros",
    "latest": "2026-11-07"
@@ -522,6 +646,14 @@
   "Clark County WA Health Dept": {
    "group": "MHD metros",
    "latest": "2026-11-14"
+  },
+  "Colorado CDPHE Health Dept": {
+   "group": "MHD metros (midweek)",
+   "latest": "2026-11-23"
+  },
+  "Corpus Christi-Nueces County Public Health District": {
+   "group": "Corpus Christi",
+   "latest": "2026-11-21"
   },
   "Cuyahoga County Health Dept": {
    "group": "MHD metros (midweek)",
@@ -567,6 +699,14 @@
    "group": "Fairfax County",
    "latest": "2026-11-11"
   },
+  "First District ND Health Dept": {
+   "group": "MHD metros (midweek)",
+   "latest": "2026-11-19"
+  },
+  "Flathead City-County Health Department": {
+   "group": "Flathead County",
+   "latest": "2026-11-20"
+  },
   "Florida DBPR": {
    "group": "Florida",
    "hold": {
@@ -586,6 +726,14 @@
   "Frisco Health Dept": {
    "group": "DFW",
    "latest": "2026-11-13"
+  },
+  "Gallatin City-County Health Department": {
+   "group": "Gallatin County",
+   "latest": "2026-11-20"
+  },
+  "Garland Health Inspections": {
+   "group": "Garland",
+   "latest": "2026-11-20"
   },
   "Georgia DPH": {
    "given_up": [
@@ -684,6 +832,14 @@
   "Houston Health Dept": {
    "group": "houston",
    "latest": "2026-11-12"
+  },
+  "Jackson County MO Health Dept": {
+   "group": "MHD metros (midweek)",
+   "latest": "2026-11-20"
+  },
+  "Kansas City MO Health Department": {
+   "group": "Kansas City",
+   "latest": "2026-11-22"
   },
   "King County Open Data": {
    "group": "Seattle",
@@ -1135,6 +1291,10 @@
    "group": "McKinney",
    "latest": "2026-11-19"
   },
+  "Mesa County Health Dept": {
+   "group": "MHD metros (midweek)",
+   "latest": "2026-11-20"
+  },
   "Mesquite Environmental Health": {
    "group": "Mesquite",
    "latest": "2026-11-20"
@@ -1142,6 +1302,26 @@
   "Minneapolis Open Data": {
    "group": "Minneapolis",
    "latest": "2026-11-17"
+  },
+  "Missoula Public Health": {
+   "group": "Missoula County",
+   "latest": "2026-11-20"
+  },
+  "Montana Health Dept": {
+   "given_up": [
+    "2026-08-18|BCA78AAF-2C73-4ACF-89E7-1E2E18E1D675"
+   ],
+   "group": "MHD metros (midweek)",
+   "hold": {
+    "date": "2026-11-13",
+    "failures": {
+     "2026-11-13|7E7CFEE5-8CD2-4389-87E6-4AF750A0DE8E": 1,
+     "2026-11-17|17261973-D899-46B2-A11E-F4B898BC199E": 1,
+     "2026-11-17|2565CBC1-BD50-483D-9E00-5FF427992E33": 1,
+     "2026-11-19|4836FCAE-1A45-4C7F-B647-87F8E4F69D32": 1
+    }
+   },
+   "latest": "2026-11-12"
   },
   "Montgomery County Open Data": {
    "group": "Montgomery County",
@@ -1162,6 +1342,10 @@
   "Orange County Health Care Agency": {
    "group": "Orange County",
    "latest": "2026-11-20"
+  },
+  "Orange County TX Health Dept": {
+   "group": "MHD metros (midweek)",
+   "latest": "2026-11-18"
   },
   "Pima County Health Department": {
    "given_up": [
@@ -1414,6 +1598,10 @@
    "group": "DFW",
    "latest": "2026-11-13"
   },
+  "Pueblo County Health Dept": {
+   "group": "MHD metros (midweek)",
+   "latest": "2026-11-20"
+  },
   "Richardson Health Dept": {
    "group": "Richardson",
    "latest": "2026-11-20"
@@ -1438,9 +1626,17 @@
    "group": "Santa Clara County",
    "latest": "2026-10-10"
   },
+  "Smith County TX Health Dept": {
+   "group": "MHD metros (midweek)",
+   "latest": "2026-11-20"
+  },
   "Southern Nevada Health District": {
    "group": "Las Vegas",
    "latest": "2026-11-21"
+  },
+  "St. Louis Health Dept": {
+   "group": "MHD metros (midweek)",
+   "latest": "2026-11-20"
   },
   "Tarrant County Health Dept": {
    "group": "DFW",
@@ -1461,6 +1657,13 @@
   "Tennessee DOH (Nashville) Health Dept": {
    "group": "MHD metros",
    "latest": "2026-11-13"
+  },
+  "Teton County WY Health Dept": {
+   "given_up": [
+    "2026-09-30|A9AB246E-2F29-4386-8CB1-31FA0A2B60AE"
+   ],
+   "group": "MHD metros (midweek)",
+   "latest": "2026-11-20"
   },
   "Utah County Health Dept": {
    "group": "MHD metros",
@@ -1604,6 +1807,10 @@
    "group": "MHD metros (midweek)",
    "latest": "2026-11-18"
   },
+  "Waco-McLennan County Public Health District": {
+   "group": "Waco",
+   "latest": "2026-11-13"
+  },
   "Wake County Open Data": {
    "group": "Wake County",
    "latest": "2026-11-19"
@@ -1615,6 +1822,26 @@
   "Weld County Health Dept": {
    "group": "MHD metros",
    "latest": "2026-11-13"
+  },
+  "Wichita Falls Environmental Health": {
+   "given_up": [
+    "2025-11-10|b80c7515-f3c5-43f1-87ad-b70f58337d37",
+    "2025-11-10|e45fdee1-f4d3-441d-97df-63d7ea1dfb9f",
+    "2025-12-19|8812670b-7bab-4ece-8072-36e6c5433132",
+    "2025-12-31|8bbead4c-08f3-48a9-9af9-39dcc22df7f6",
+    "2026-03-13|d4bf4c0b-e934-4a24-8e94-403a18f4ee1a",
+    "2026-03-18|9e1ecb28-55b9-416d-a8a5-960b823d8c7d",
+    "2026-03-18|cd59cfe7-cb56-4901-b8ba-cdcf3cee0c0e",
+    "2026-05-15|257e3631-0b9f-44f4-a3b4-e9ecd98bc606",
+    "2026-05-15|83ef40ab-21cd-4617-9c82-b6fdb606f91a",
+    "2026-06-08|d68242ca-db56-4e66-ba0d-2e85b75df1d0",
+    "2026-06-22|9472c566-5c56-42a0-972d-422e27882318",
+    "2026-07-07|fa1911f2-54e5-43fd-8e30-6b52ef251ec7",
+    "2026-07-09|758549c4-8e23-48d6-8439-891194b4162b",
+    "2026-07-10|153fb04c-3c9b-423f-a5d5-45ec20639074"
+   ],
+   "group": "Wichita Falls",
+   "latest": "2026-11-19"
   },
   "Williamson County and Cities Health District": {
    "group": "Williamson County",

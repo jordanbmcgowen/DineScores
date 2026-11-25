@@ -1,0 +1,71 @@
+[
+ {
+  "id": "f2d00562-312b-4ddb-af7c-188a9f2ad969",
+  "description": "Person in Charge (PIC) present, demonstration of knowledge, and perform duties; Certified Food Manager (CFM)",
+  "result": "Out of Compliance",
+  "isCritical": false,
+  "writtenComment": null,
+  "responseComment": null,
+  "category": {
+   "id": "1bf19ef5-2a66-46b5-a5ee-e248a8564e8c",
+   "description": "Demonstration of Knowledge/Personnel (P)"
+  },
+  "cannedComments": [
+   {
+    "id": "4c90bcef-7400-4711-a135-b4e4e2da9d8f",
+    "description": "Local Sec. 58-228 (2) A certified food protection manager shall be scheduled and available to the food establishment or pop-up food vendor during all hours of operation as required in FDA Food Code, §2-101. 11 and §2-102.12 (EXECPT for establishments that handle only prepackaged food and do not package food, do not prepare or handle exposed Time/ Temperature Control for Safety( TCS), as defined by the FDA Food Code, or are a temporary food establishment)",
+    "severity": "Priority Foundation",
+    "locationComment": null,
+    "observationComment": "The certified manager is not present during inspection. The manager present has an expired food manager certificate.",
+    "responseComment": null,
+    "readings": null
+   }
+  ]
+ },
+ {
+  "id": "5d35e1c3-43d6-4aea-a98c-aa43856f7829",
+  "description": "Environmental Contamination",
+  "result": "Out of Compliance",
+  "isCritical": false,
+  "writtenComment": null,
+  "responseComment": null,
+  "category": {
+   "id": "dcb44641-fb25-4fcb-807e-aa99fa0dc56f",
+   "description": "Prevention of Food Contamination (C)"
+  },
+  "cannedComments": [
+   {
+    "id": "24329dfa-86aa-4952-9c2d-99d287d9be81",
+    "description": "3-307.11 - Preventing contamination from other sources. Miscellaneous sources of Contamination",
+    "severity": "Core",
+    "locationComment": null,
+    "observationComment": "Observed ice build up in large white chest freezer and in mini white fridge.",
+    "responseComment": null,
+    "readings": null
+   }
+  ]
+ },
+ {
+  "id": "27b54729-5cdd-42c0-bb30-5194e49e10a8",
+  "description": "Other Violations (Signs, Documents, First Aid, Other)",
+  "result": "Out of Compliance",
+  "isCritical": false,
+  "writtenComment": null,
+  "responseComment": null,
+  "category": {
+   "id": "1d5a48e7-91ac-41e7-a057-b6310e8ead5e",
+   "description": "Physical Facilities (C)"
+  },
+  "cannedComments": [
+   {
+    "id": "a588a407-b247-4c06-a92c-a023ccaa65b4",
+    "description": "228.31 - Certified Food Protection Manager Certificate Posted. (b) The original food manager certificate shall be posted in a location in the food establishment that is conspicuous to consumers.",
+    "severity": "Core",
+    "locationComment": null,
+    "observationComment": "A current certified food manager certificate is not posted during inspection.",
+    "responseComment": null,
+    "readings": null
+   }
+  ]
+ }
+]

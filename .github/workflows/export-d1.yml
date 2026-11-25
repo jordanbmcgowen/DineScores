@@ -10,6 +10,11 @@ name: Export D1 for a regrade
 
 on:
   workflow_dispatch:
+    inputs:
+      sources:
+        description: 'Optional: source labels separated by | (exports only their restaurants, with every stored inspection)'
+        required: false
+        default: ''
 
 permissions:
   contents: read
@@ -33,7 +38,10 @@ jobs:
         uses: actions/checkout@v5
 
       - name: Export restaurants and their latest inspections
-        run: python3 scripts/d1_export.py --out d1_export.jsonl.gz --summary "$GITHUB_STEP_SUMMARY"
+        env:
+          # read from the environment, never interpolated into the script
+          EXPORT_SOURCES: ${{ inputs.sources }}
+        run: python3 scripts/d1_export.py --out d1_export.jsonl.gz --summary "$GITHUB_STEP_SUMMARY" --sources "$EXPORT_SOURCES"
 
       - name: Upload the export
         uses: actions/upload-artifact@v4

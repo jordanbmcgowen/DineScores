@@ -654,7 +654,10 @@ class WindowAndLimitTests(HarrisTestCase):
         self.assertEqual(dp._GROUP_NOTES, {})
 
     def test_a_fresh_source_leaves_no_note(self):
-        self.fetch()
+        # The fixture's newest row is 2026-10-30; "fresh" must not depend on
+        # the day the suite runs (this went red on 2026-11-21, 22 days on).
+        with mock.patch.object(dp, 'SOURCE_LAG_NOTE_DAYS', 10 ** 6):
+            self.fetch()
         self.assertEqual(dp._GROUP_NOTES, {})
 
     def test_an_empty_window_is_empty_and_still_probes_the_newest_date(self):
@@ -979,7 +982,8 @@ class FailureTests(HarrisTestCase):
     def test_the_breaker_trips_in_the_item_phase(self):
         portal = self.portal()
         portal.fail_all.add('items')
-        records, portal, _ = self.fetch(portal=portal)
+        with mock.patch.object(dp, 'SOURCE_LAG_NOTE_DAYS', 10 ** 6):     # fixture rows are dated 2026-10
+            records, portal, _ = self.fetch(portal=portal)
         self.assertTrue(dp._HARRIS_BLOCKED)
         self.assertEqual(set(by_id(records)), {'hcph_I0493090', 'hcph_I0493159'})    # the 100s need no read
         self.assertEqual(len(portal.gets(dp.HARRIS_VIOLATIONS_URL)), dp.HARRIS_BREAKER_TRIP * dp.HARRIS_RETRIES)
