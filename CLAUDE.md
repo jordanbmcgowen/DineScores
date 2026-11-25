@@ -670,27 +670,42 @@ read yet. The ones worth building next:
   makes `_co_line_tier` read the printed designation, or for Pueblo, Mesa
   County and Broomfield (same library, section printed without the
   designation) the tier CDPHE states for that section (`CO_SECTION_TIERS`,
-  184 sections). A line with neither keeps its keyword tier; the fetch log
-  counts them ("N/M observation lines scored on the source's tier"), and a
-  growing remainder means the table needs the new sections (read them off
-  CDPHE's own lines, never guess). Broomfield's inspectors mostly write the
-  item number alone, so about two thirds of its lines stay keyword-tiered.
-  The six Front Range counties are on it since 2026-11-25, and how much it
-  reaches depends on how each county writes: El Paso County (Colorado
-  Springs) prints the designation in brackets after the cited provision's
-  title ("3-501.17 Ready-To-Eat ..., Date Marking (Pf)."; `CO_PRINTED_TIER_RE`,
-  94% of its lines; the bracket belongs to the provision quoted, which is not
-  always the library section the line is filed under, and the bracket wins),
-  Douglas cites the library section on 74% of lines, Adams 12%, Arapahoe
-  10%, Larimer 3%, Weld 2% (item number and the inspector's own sentence:
-  those lines stay keyword-tiered, and so do most of those counties'
-  grades). Their stored rows were regraded the same day with
-  `scripts/co_regrade.py` from a per-source D1 export (2,050 inspections,
-  1,710 restaurants; F's El Paso County 82 to 38, Adams 129 to 113, Arapahoe
-  115 to 102, Douglas 5 to 2, Larimer 87 to 84, Weld 39;
-  `docs/co-frontrange-regrade-2026-11-25.md`). Re-run it the same way if the
-  table ever grows: export with `sources`, dry run, then `--seed` and
-  `--write-data-js`.
+  184 sections). The six Front Range counties are on it since 2026-11-25,
+  and how many lines STATE a tier depends on how each county writes: El Paso
+  County (Colorado Springs) prints the designation in brackets after the
+  cited provision's title ("3-501.17 Ready-To-Eat ..., Date Marking (Pf).";
+  `CO_PRINTED_TIER_RE`, 94% of its lines; the bracket belongs to the
+  provision quoted, which is not always the library section the line is
+  filed under, and the bracket wins), Douglas cites the library section on
+  74% of lines, Broomfield 31%, Adams 12%, Arapahoe 10%, Larimer 3%, Weld 2%.
+- **A Colorado line that states nothing takes its form item's usual tier,
+  not a keyword tier.** Those inspectors write the form's item number and a
+  sentence ("13: Three dented cans ..."). The form is one statewide form, so
+  `CO_ITEM_TIERS` gives 49 of its items the tier most of the state's lines
+  under that item carry (counted over the 12,970 lines of the ten portals
+  that state theirs; an item needs four stated lines and a majority; item 29
+  has none and stays on keywords). Tested held out (table from CDPHE, Pueblo
+  and Mesa; scored on the other counties' stated lines): tier right on
+  80-92% of lines, inspection letter right on 83-95%, score off by 0.6-1.4
+  points; keywords got 37-41%, 56-69% and 3.7-5.8. **The violation reader's
+  category does not fix this** (tier right on 42-56%): `SEVERITY_MAP` gives a
+  category one tier, and "no certified food protection manager" is Core on
+  this form. `_co_tier` returns (tier, 'stated' | 'item'); the fetch log
+  prints how many lines went each way and how many fell to keywords. It is
+  an estimate, weakest on the split items (13, 14, 18, 28, 33, 51: 59-69%),
+  and it lines up with the counties' own demerit totals: F's on inspections
+  a county scored in its Pass band went 99 to 27 in Adams, 84 to 31 in
+  Arapahoe, 65 to 8 in Larimer, 23 to 0 in Weld. Never read another
+  program's report this way (a child-care item 22 is not cold holding): the
+  portals are `programs: ['Retail Food']`. All ten Colorado sources are
+  `tier_policy` 'fixed' in `jev_reader`, so a category can never move these
+  tiers. Stored rows were regraded twice on 2026-11-25 with
+  `scripts/co_regrade.py` from a per-source D1 export (stated tiers: 1,710
+  restaurants; then item tiers: 3,309 more changes; F's across the ten
+  sources 398 to 206, Adams 111 to 38, Arapahoe 102 to 47, Larimer 72 to 26,
+  Weld 26 to 12; `docs/co-frontrange-regrade-2026-11-25.md`). Re-run it the
+  same way if a table grows: export with `sources`, dry run, then `--seed`
+  and `--write-data-js`.
 - **A Colorado inspection with the verdict Closed is an F** (owner decision
   2026-11-25; `closed_is_f` on the ten Colorado portal configs,
   `MHD_CLOSED_RISK_CAP` 65, like Waco's FAILED). Closed means the place may
@@ -704,9 +719,16 @@ read yet. The ones worth building next:
   Adams, Weld and Larimer publish Child Care, Body Art, Waste Tire and pool
   inspections on the same slugs, and until 2026-11-25 those shipped as
   restaurants (a tyre dealer and a preschool pass `_mhd_is_food_record`).
-  All six are `programs: ['Retail Food']` now. 945 such places were stored
+  All six are `programs: ['Retail Food']` now. The 945 such places stored
   when this was found (601 child care, 173 body art, 162 waste tyre, 9
-  pools); removing them is a DELETE seed that waits for the owner's word.
+  pools) were deleted the same day on the owner's word
+  (`scripts/co_nonfood.py`: a place is deleted only if none of its stored
+  inspections is a food one, guarded again in SQL; two schools with a
+  cafeteria AND a child-care licence kept their rows, rebuilt from the food
+  inspection). The stored inspection type names the program on three of the
+  portals; Larimer leaves it empty on child-care rows, which was checked
+  against the portal row by row (218 of 220 confirmed; one is a Retail Food
+  test record, excepted by id).
 - **Teton County WY follow-up reports reprint the routine inspection's
   lines** (12 lines in, 12 lines out, a dated note on the corrected ones),
   so a follow-up grades like the visit it follows. That is the county's
@@ -814,19 +836,18 @@ impact and the open policy decisions; `scripts/jev_shadow.py` reproduces it.
 - **Policy lives in code.** `F_FORCING_HAZARDS` (vermin, sewage; not flies,
   not `pests_unspecified`), `SCORE_FROM_TIERS_SOURCES` / `SOURCE_TIER_SCORE_SOURCES`
   (score computed from tiers the source states: Boston, Detroit, Louisiana,
-  Maricopa, Pima, the four Paragon portals, Colorado CDPHE, Pueblo, Mesa
-  County and El Paso County CO) / `SOURCE_TIER_SOURCES`
+  Maricopa, Pima, the four Paragon portals and the ten Colorado portals) /
+  `SOURCE_TIER_SOURCES`
   / `BOUNDED_TIER_SOURCES` (which sources may be re-scored or re-tiered), the
   chip and summary-severity maps. A source-stated tier never moves (Omaha,
   Santa Clara, San Diego, Orange County, McKinney, Georgia, Louisiana,
   Maricopa County, Harris County (P/F/C violation groups), the Hedgerow
   portals (Pima County, Lubbock, Mesquite, Wichita Falls), Garland, Corpus
   Christi and Abilene (Texas-form item points or stated groups), the Paragon
-  portals (tier fixed by `_io_shipped_rows`), Colorado CDPHE, Pueblo, Mesa
-  County and El Paso County CO (the state library's designation,
-  `_co_line_tier`; Broomfield and the other five Front Range counties are
-  not listed, most of their lines cite no section) included: their agencies
-  state it; McKinney's TX-form item
+  portals (tier fixed by `_io_shipped_rows`) and the ten Colorado portals
+  (the state library's designation, or the form item's usual tier where a
+  line states none: `_co_tier`) included: their agencies state it;
+  McKinney's TX-form item
   points are the city's tiers and its `risk_score` is the form score 100 −
   demerits, never recomputed; Georgia's (p)/(pf)/(c) designations carry its
   official score; Louisiana's Critical/Non-Critical and Maricopa's

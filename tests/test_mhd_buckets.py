@@ -2014,7 +2014,7 @@ class ColoradoTierTests(unittest.TestCase):
         self.assertEqual(set(dp.CO_SECTION_TIERS.values()), {'priority', 'priority_foundation', 'core'})
         for sec in dp.CO_SECTION_TIERS:
             self.assertEqual(sec, ' '.join(sec.split()), 'keys are matched against whitespace-collapsed lines')
-        self.assertEqual(dp.MHD_TIER_READERS, {'colorado': dp._co_line_tier})
+        self.assertEqual(dp.MHD_TIER_READERS, {'colorado': dp._co_tier})
 
     def test_cdphe_states_the_tier(self):
         self.assertEqual([dp._co_line_tier(t) for t in self.CDPHE],
@@ -2079,7 +2079,7 @@ class ColoradoTierTests(unittest.TestCase):
         return rec
 
     def test_the_detail_phase_scores_on_the_stated_tier(self):
-        rec = self._bulk(self.CDPHE, tier_of=dp._co_line_tier)
+        rec = self._bulk(self.CDPHE, tier_of=dp._co_tier)
         self.assertEqual([v[1] for v in rec['violations']],
                          ['core', 'priority_foundation', 'priority', 'core'])
         self.assertEqual((rec['priority_violations'], rec['priority_foundation_violations'],
@@ -2095,12 +2095,47 @@ class ColoradoTierTests(unittest.TestCase):
                          dp.calc_risk_score([dp.classify_violation(t) for t in self.CDPHE])[0])
         self.assertLess(plain['risk_score'], rec['risk_score'])
 
-    def test_a_line_without_a_tier_falls_back_to_keywords(self):
+    def test_a_line_that_states_nothing_takes_its_form_items_usual_tier(self):
         texts = ['37: No method of notification of major food allergens is provided to consumers.',
-                 '38: 6-501.111(A-B), and (D) Pests were present in the establishment.']
-        rec = self._bulk(texts, tier_of=dp._co_line_tier)
-        self.assertEqual(rec['violations'][0][1], dp.classify_violation(texts[0])[1])
-        self.assertEqual(rec['violations'][1][1], 'core')
+                 '38: 6-501.111(A-B), and (D) Pests were present in the establishment.',
+                 '22: Sliced tomatoes (43-47F) were stored above 41F in the cold top refrigerator.',
+                 '2: A certified food protection manager was not on staff.',
+                 '29: The HACCP plan for the sushi rice was not on file.',
+                 'The floor under the fryer was soiled.']
+        rec = self._bulk(texts, tier_of=dp._co_tier)
+        tiers = [v[1] for v in rec['violations']]
+        self.assertEqual(tiers[:4], ['core', 'core', 'priority', 'core'])
+        # item 29 has no majority tier and a line with no item number has no item: keywords
+        self.assertEqual(tiers[4:], [dp.classify_violation(t)[1] for t in texts[4:]])
+        self.assertEqual(rec['risk_score'], dp.calc_risk_score([(None, t, None) for t in tiers])[0])
+        # the keyword reading of the same four lines is harsher: that is what this replaces
+        keyword = [dp.classify_violation(t)[1] for t in texts[:4]]
+        self.assertGreater(sum(k == 'priority' for k in keyword), 1)
+
+    def test_the_item_table(self):
+        sizes = {t: len(i) for t, i in dp._CO_ITEMS_BY_TIER.items()}
+        self.assertEqual(sum(sizes.values()), len(dp.CO_ITEM_TIERS), 'no item sits under two tiers')
+        self.assertEqual(len(dp.CO_ITEM_TIERS), 49)
+        self.assertEqual(set(dp.CO_ITEM_TIERS.values()), {'priority', 'priority_foundation', 'core'})
+        self.assertTrue(all(1 <= i <= 56 for i in dp.CO_ITEM_TIERS))
+        for item in (7, 26, 29, 34, 57, 999):
+            self.assertNotIn(item, dp.CO_ITEM_TIERS, 'seen once, no majority tier, or not a form item')
+        self.assertEqual((dp.CO_ITEM_TIERS[22], dp.CO_ITEM_TIERS[2], dp.CO_ITEM_TIERS[10]),
+                         ('priority', 'core', 'priority_foundation'))
+
+    def test_co_tier_says_where_the_tier_came_from(self):
+        self.assertEqual(dp._co_tier(self.CDPHE[0]), ('core', 'stated'))
+        self.assertEqual(dp._co_tier('22: 3-501.16 (A)(2) Tomatoes were held at 47F.'), ('priority', 'stated'))
+        self.assertEqual(dp._co_tier('13: Three dented cans of oyster sauce were on the shelf.'),
+                         ('priority_foundation', 'item'))
+        # a stated tier wins over the item's usual one (item 10 is usually Priority Foundation)
+        self.assertEqual(dp._co_tier('10: 6-301.14 The hand sink at the bar lacked signage.'), ('core', 'stated'))
+        self.assertEqual(dp._co_item_tier('10: 6-301.14 The hand sink at the bar lacked signage.'),
+                         'priority_foundation')
+        for line in ('29: The HACCP plan was not on file.', '57: Imminent Health Hazard Closure . This is a item - x',
+                     '999: 999 General comments.', '4.7: 4.7.4 Combined chlorine was above 1.0 ppm.',
+                     'No number at all.', '', None):
+            self.assertEqual(dp._co_tier(line), (None, None), line)
 
     def test_the_fixture_page(self):
         obs = dp._mhd_parse_detail_html(_fixture_html('detail_colorado_closed.html'))
@@ -2181,8 +2216,8 @@ class ColoradoTierTests(unittest.TestCase):
             fake = FakeSearch({(f'{day} to {day}', '', ''): [row]})
             with mock.patch.object(dp, '_mhd_fetch_details_bulk', side_effect=fake_bulk):
                 _run(key, cfg, fake, fetch_violations=True, since_date=day, until_date=day)
-        self.assertIs(seen['colorado']['tier_of'], dp._co_line_tier)
-        self.assertIs(seen['pueblo']['tier_of'], dp._co_line_tier)
+        self.assertIs(seen['colorado']['tier_of'], dp._co_tier)
+        self.assertIs(seen['pueblo']['tier_of'], dp._co_tier)
         self.assertNotIn('tier_of', seen['aaphd'])
 
     def test_an_unknown_reader_name_raises(self):
@@ -2194,16 +2229,20 @@ class ColoradoTierTests(unittest.TestCase):
             with self.assertRaises(KeyError):
                 _run('pueblo', cfg, fake, fetch_violations=True, since_date=day, until_date=day)
 
-    def test_jev_never_moves_a_stated_tier(self):
+    def test_jev_never_moves_a_colorado_tier(self):
         import jev_reader as jr
-        for source in ('Colorado CDPHE Health Dept', 'Pueblo County Health Dept', 'Mesa County Health Dept',
-                       'El Paso County CO Health Dept'):
+        labels = sorted(c['display_name'] + jr.MHD_SOURCE_SUFFIX for c in dp.MHD_METRO_JURISDICTIONS.values()
+                        if c.get('tiers') == 'colorado')
+        self.assertEqual(len(labels), 10)
+        for source in labels:
             self.assertEqual(jr.tier_policy(source), 'fixed', source)
             self.assertEqual(jr.score_policy(source, 46), 'source_tiers', source)
-        # Broomfield mostly cites no section: keyword tiers, like the Front Range counties
-        self.assertEqual(jr.tier_policy('Broomfield Health Dept'), 'free')
-        self.assertEqual(jr.score_policy('Broomfield Health Dept', 46), 'computed')
-        self.assertEqual(jr.score_policy('Arapahoe County Health Dept', 46), 'computed')
+        # a keyword-scored portal elsewhere is untouched by this
+        self.assertEqual(jr.tier_policy('Utah County Health Dept'), 'free')
+        self.assertEqual(jr.score_policy('Utah County Health Dept', 46), 'computed')
+        # Omaha's label is NOT Douglas County CO's
+        self.assertIn('Douglas County Health Dept', jr.SOURCE_TIER_SOURCES)
+        self.assertIn('Douglas County CO Health Dept', jr.SOURCE_TIER_SOURCES)
 
 
 class ColoradoClosedTests(unittest.TestCase):

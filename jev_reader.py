@@ -1725,14 +1725,18 @@ SOURCE_TIER_SCORE_SOURCES = frozenset({
     # cite the same library's section, which carries it (the pipeline's
     # _co_line_tier). These names end in MHD_SOURCE_SUFFIX and their portals
     # publish demerits, so without the entry they would read as 'computed'.
-    # Broomfield is left out: two of its lines in three cite no section and
-    # are keyword-tiered like any other portal's. El Paso County prints the
-    # designation after each provision's title (94% of its lines). The other
-    # Front Range counties mostly write the item number alone (Douglas cites
-    # a section on three lines in four, Adams, Arapahoe, Larimer and Weld on
-    # one in ten or fewer) and stay 'computed'.
+    # El Paso County prints the designation after each provision's title.
+    # The other Colorado portals (Douglas, Adams, Arapahoe, Larimer, Weld,
+    # Broomfield) mostly write the form's item number alone, and those lines
+    # take the tier the state's lines usually carry under that item
+    # (_co_item_tier). Either way the tier comes from the state's form, and
+    # a category must never move it: measured 2026-11-25 on the lines that
+    # state their tier, SEVERITY_MAP[Jev's category] matches the state's
+    # tier on 42-56% of lines (keywords 37-41%, the form item 86-92%).
     'Colorado CDPHE Health Dept', 'Pueblo County Health Dept', 'Mesa County Health Dept',
-    'El Paso County CO Health Dept',
+    'El Paso County CO Health Dept', 'Douglas County CO Health Dept', 'Adams County Health Dept',
+    'Arapahoe County Health Dept', 'Larimer County Health Dept', 'Weld County Health Dept',
+    'Broomfield Health Dept',
 })
 # Sources whose per-line tier is stated by the source (a level, points, a
 # demerit band, a critical flag).
@@ -1765,9 +1769,12 @@ SOURCE_TIER_SOURCES = frozenset({
     'Flathead City-County Health Department', 'Kansas City MO Health Department',
     # Colorado's state designation, printed by CDPHE and carried by the
     # cited section on Pueblo's and Mesa County's lines, printed in brackets
-    # on El Paso County's.
+    # on El Paso County's, and read off the form's item number on the lines
+    # of the other Colorado portals that state nothing.
     'Colorado CDPHE Health Dept', 'Pueblo County Health Dept', 'Mesa County Health Dept',
-    'El Paso County CO Health Dept',
+    'El Paso County CO Health Dept', 'Douglas County CO Health Dept', 'Adams County Health Dept',
+    'Arapahoe County Health Dept', 'Larimer County Health Dept', 'Weld County Health Dept',
+    'Broomfield Health Dept',
     # McKinney's per-item TX form points (3 priority / 2 priority foundation
     # / 1 core) are the city's own tiers, and its risk_score is the TX form
     # score (100 - the city's demerit total, kept in original_score), an
