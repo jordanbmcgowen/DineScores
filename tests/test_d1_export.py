@@ -60,6 +60,41 @@ class ExportTests(unittest.TestCase):
         self.assertEqual((rows[0]['vetted_grade'], rows[0]['infractions'], rows[0]['updated_at']),
                          ('A', '["pests"]', '2026-10-03T00:00:00+00:00'))
 
+    def test_history_mode_exports_every_inspection_of_the_named_sources(self):
+        self.db.execute("UPDATE restaurants SET source = 'Other Source' WHERE id IN ('r01', 'r05')")
+        self.db.execute("UPDATE restaurants SET source = 'Second Source' WHERE id = 'r06'")
+        self.db.execute("UPDATE inspections SET results = 'Closed', inspection_type = 'Routine', "
+                        "original_score = 112, source_id = 'ABC' WHERE id = 'r00_20261002'")
+        with tempfile.TemporaryDirectory() as tmp:
+            out = os.path.join(tmp, 'export.jsonl.gz')
+            env = {'CLOUDFLARE_API_TOKEN': 'x', 'CLOUDFLARE_ACCOUNT_ID': 'y'}
+            with mock.patch.dict(os.environ, env), mock.patch.object(d1_export, 'query', self.fake_query), \
+                    mock.patch('builtins.print'):
+                stats = d1_export.export_history(out, ['Test Source', 'Second Source'], page_size=2)
+            with gzip.open(out, 'rt') as f:
+                header, *rows = [json.loads(line) for line in f]
+        self.assertEqual((header['history'], header['sources']), (True, ['Test Source', 'Second Source']))
+        self.assertEqual([r['id'] for r in rows], ['r00', 'r02', 'r03', 'r04', 'r06'])
+        self.assertEqual((stats['restaurants'], stats['inspections'], stats['no_inspection_rows']), (5, 8, 1))
+        self.assertNotIn('latest', rows[0])
+        first = rows[0]['inspections']
+        self.assertEqual([i['inspection_date'] for i in first], ['2026-10-02', '2026-04-01'], 'newest first')
+        self.assertEqual((first[0]['results'], first[0]['inspection_type'], first[0]['original_score'],
+                          first[0]['source_id']), ('Closed', 'Routine', 112, 'ABC'))
+        self.assertEqual(json.loads(first[1]['violations']), [['pest_control', 'core', 'Older line']])
+        self.assertEqual(rows[2]['inspections'], [], 'a restaurant with no inspection rows is still exported')
+
+    def test_history_mode_is_chosen_by_the_sources_argument(self):
+        with mock.patch.object(d1_export, 'export') as plain, mock.patch.object(d1_export, 'export_history') as hist:
+            d1_export.main(['--out', 'x.gz', '--sources', ' A County | B County |'])
+            hist.assert_called_once_with('x.gz', ['A County', 'B County'], 500, None)
+            plain.assert_not_called()
+            d1_export.main(['--out', 'y.gz', '--sources', ''])
+            plain.assert_called_once_with('y.gz', 1000, None)
+        with mock.patch.dict(os.environ, {'CLOUDFLARE_API_TOKEN': 'x', 'CLOUDFLARE_ACCOUNT_ID': 'y'}):
+            with self.assertRaises(SystemExit):
+                d1_export.export_history(os.devnull, [])
+
     def test_needs_both_credentials(self):
         with mock.patch.dict(os.environ, {'CLOUDFLARE_API_TOKEN': '', 'CLOUDFLARE_ACCOUNT_ID': ''}):
             with self.assertRaises(SystemExit):
