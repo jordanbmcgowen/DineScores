@@ -889,6 +889,23 @@ Note on cache keys: 45,587 stored lines (4.8%) sit at the 400-character D1 store
 
 8. **Summary wording.** "Roaches found" for "Live roaches found" (used for dead roaches today and in the question), "Rodents or droppings found" for "Rodent activity detected", and new phrases "Pests found" (unspecified pests, about 5,700 lines) and "Bare-hand contact with food" (no phrase today). No grade impact; a question-set bump when you decide.
 
+### Added 2026-11-25: category against a form's own tiers
+
+The grade impact above assumes the tier is `SEVERITY_MAP[category]`. Colorado
+gave the first chance to check that against tiers an agency states itself:
+12,970 lines across ten portals print or imply their Priority / Priority
+Foundation / Core designation. On those lines, where Jev's category is at or
+above the floor, `SEVERITY_MAP[category]` matches the stated tier on 42-56%
+of lines (the regex's category: 37-41%), and an inspection scored that way
+gets the letter its stated tiers give it on about 70% of inspections (regex
+56-69%). The category is usually a sensible reading; the one-tier-per-category
+map is the weak link ("no certified food protection manager" is employee
+training, Priority Foundation in the map, and Core on Colorado's form).
+The form's item number gets 80-92% and 83-95%, and is what Colorado's
+portals now use (`docs/co-frontrange-regrade-2026-11-25.md`). Deciding
+categories with Jev would still tidy chips and summaries, but it should not
+be expected to make computed scores track an agency's tiers.
+
 ## Appendix: hand-check rows
 
 `who` is my verdict; confidence is Jev's. Full text in the CSVs.

@@ -6919,8 +6919,61 @@ def _co_line_tier(text):
     return None
 
 
-# 'tiers' in a jurisdiction's config → the function that reads a line's tier.
-MHD_TIER_READERS = {'colorado': _co_line_tier}
+# Most lines of Adams, Arapahoe, Larimer, Weld and Broomfield state nothing:
+# the inspector writes the form's item number and a sentence ("13: Three
+# dented cans of oyster sauce ..."). Colorado's form is one statewide form,
+# and each of its 56 items covers a handful of library provisions, so the
+# item number says most of what the tier is: over the 12,970 lines of the
+# ten portals that DO state their tier (2026-11-25), a line given the tier
+# most lines under its item carry is right on 90.7% of them. Tested held
+# out (table from CDPHE, Pueblo and Mesa County; scored on the other
+# counties' stated lines): tier right on 80-92% of lines (El Paso County
+# 92%, Larimer's 208 lines 80%), and an inspection scored this way gets the
+# letter the state's tiers give it on 83-95% of inspections, mean score
+# error 0.6-1.4 points. The keyword tier the same lines had: right on
+# 37-41%, the letter on 56-69%, error 3.7-5.8 points.
+# The violation reader's category does not close that gap (tier right on
+# 42-56%): SEVERITY_MAP gives a category one tier, and "no certified food
+# protection manager" (employee training) is Core on this form.
+# An item is in the table when at least four stated lines carry it and more
+# than half of them share a tier. Item 29 (variance / HACCP: 40% Priority,
+# 38% Priority Foundation, 22% Core) has no majority and stays on keywords,
+# as do the items seen once (7, 26, 34). It is an estimate, weakest on the
+# split items (13, 14, 18, 28, 33, 51: 59-69%); a line that states its tier
+# never uses it.
+_CO_ITEMS_BY_TIER = {
+    'priority': (4, 8, 9, 11, 12, 15, 16, 18, 19, 20, 21, 22, 28, 31, 51, 52),
+    'priority_foundation': (1, 3, 5, 10, 13, 14, 23, 24, 25, 32, 33, 35, 36, 48, 50),
+    'core': (2, 6, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 49, 53, 54, 55, 56),
+}
+CO_ITEM_TIERS = {item: tier for tier, items in _CO_ITEMS_BY_TIER.items() for item in items}
+_CO_ITEM_NUMBER_RE = re.compile(r'^\s*(\d{1,2})\s*:')
+
+
+def _co_item_tier(text):
+    """The tier most of the state's lines under this line's form item carry
+    (CO_ITEM_TIERS), or None for a line with no item number or an item the
+    table does not hold."""
+    m = _CO_ITEM_NUMBER_RE.match(text or '')
+    return CO_ITEM_TIERS.get(int(m.group(1))) if m else None
+
+
+def _co_tier(text):
+    """(tier, basis) for one Colorado observation line: the tier the line
+    itself carries ('stated', _co_line_tier), else its form item's usual tier
+    ('item'), else (None, None) and the caller keeps the keyword tier."""
+    stated = _co_line_tier(text)
+    if stated:
+        return stated, 'stated'
+    usual = _co_item_tier(text)
+    if usual:
+        return usual, 'item'
+    return None, None
+
+
+# 'tiers' in a jurisdiction's config → the function that reads a line's tier:
+# text -> (tier, basis) or (None, None).
+MHD_TIER_READERS = {'colorado': _co_tier}
 
 
 def _mhd_fetch_details_bulk(path, records, trust_official_score=True, label=None,
@@ -6937,9 +6990,9 @@ def _mhd_fetch_details_bulk(path, records, trust_official_score=True, label=None
     observation line it matches is not a violation and is dropped before
     scoring (Cheyenne's '999:' general-comment line). The page still counts
     as read: a page holding only such lines is a clean inspection.
-    tier_of: from a config's 'tiers' (MHD_TIER_READERS); a line it reads a
-    tier from is scored on that tier instead of the keyword one, and the
-    category stays the keyword's.
+    tier_of: from a config's 'tiers' (MHD_TIER_READERS): text -> (tier,
+    basis). A line it reads a tier from is scored on that tier instead of
+    the keyword one, and the category stays the keyword's.
     trust_official_score: True for 0-100 jurisdictions whose official score
     already IS a risk score; False for demerit jurisdictions, where the risk
     score is recomputed from the scraped violations instead.
@@ -6973,10 +7026,10 @@ def _mhd_fetch_details_bulk(path, records, trust_official_score=True, label=None
             texts = [t for t in texts if not drop_lines.search(t)]
         violations = [classify_violation(t) for t in texts]
         if tier_of is not None:
-            stated = [tier_of(t) for _, _, t in violations]
-            tier_lines[0] += len(stated)
-            tier_lines[1] += sum(1 for s in stated if s)
-            violations = [(c, st or s, t) for (c, s, t), st in zip(violations, stated)]
+            read = [tier_of(t) for _, _, t in violations]
+            for _, basis in read:
+                tier_lines[basis or 'keyword'] = tier_lines.get(basis or 'keyword', 0) + 1
+            violations = [(c, tier or s, t) for (c, s, t), (tier, _) in zip(violations, read)]
         computed_score, pv, pfv, cv = calc_risk_score(violations)
         rec['violations'] = [[c, s, d] for c, s, d in violations]
         rec['priority_violations'] = pv
@@ -7000,7 +7053,7 @@ def _mhd_fetch_details_bulk(path, records, trust_official_score=True, label=None
     pending = list(records)
     still_failed = []
     plain_retries = 0
-    tier_lines = [0, 0]     # observation lines read, and those the source's tier scored
+    tier_lines = {}         # basis ('stated', 'item', 'keyword') -> observation lines scored on it
     while pending:
         failed = []
         done = 0
@@ -7057,9 +7110,11 @@ def _mhd_fetch_details_bulk(path, records, trust_official_score=True, label=None
         plain_retries += 1
         log.warning(f"  {label}: retrying {len(failed)} failed detail fetches")
         pending = failed
-    if tier_of is not None and tier_lines[0]:
-        log.info(f"  {label}: {tier_lines[1]}/{tier_lines[0]} observation lines scored on the "
-                 f"source's tier, {tier_lines[0] - tier_lines[1]} on keywords")
+    if tier_of is not None and tier_lines:
+        total = sum(tier_lines.values())
+        log.info(f"  {label}: {total} observation lines: {tier_lines.get('stated', 0)} scored on the "
+                 f"tier the line states, {tier_lines.get('item', 0)} on the form item's usual tier, "
+                 f"{tier_lines.get('keyword', 0)} on keywords")
     return fetched, still_failed
 
 

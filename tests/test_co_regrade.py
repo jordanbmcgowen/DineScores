@@ -18,7 +18,9 @@ CFPM = '2: 2-102.12(A) 2-102.12(A) Certified Food Protection Manager (C). The pe
 COLD = '22: 3-501.16 (A)(2) 3-501.16(A)(2) TCS Food, Cold Holding (P). Sliced tomatoes were held at 47F.'
 DATE = '23: 3-501.17 3-501.17 Ready-To-Eat TCS Food, Date Marking (Pf). Cooked rice was not date marked.'
 WIPE = '41: 3-304.14 Wiping cloths were stored on the cutting board.'
-FREE = '10: The hand sink by the grill was blocked by a bucket.'
+FREE = '10: The hand sink by the grill was blocked by a bucket.'     # item 10: usually Priority Foundation
+NOITEM = 'The floor under the fryer was soiled.'                     # no item number: nothing to read
+HACCP = '29: The HACCP plan for the sushi rice was not on file.'     # item 29 has no usual tier
 ROACH = '38: 6-501.111(A-B), and (D) Live roaches were observed under the dish machine.'
 
 
@@ -54,9 +56,9 @@ class InspectionTests(unittest.TestCase):
         self.assertEqual(i['risk_score'], 100 - 5 - 5 - 5 - 2 - 5)
         out = cr.regrade_inspection(i)
         self.assertEqual([v[1] for v in out['lines']],
-                         ['core', 'priority', 'priority_foundation', 'core', 'priority'])
-        self.assertEqual((out['stated'], out['retiered'], out['n']), (4, 3, 5))
-        self.assertEqual(out['new_risk'], 100 - 1 - 5 - 2 - 1 - 5)
+                         ['core', 'priority', 'priority_foundation', 'core', 'priority_foundation'])
+        self.assertEqual((out['stated'], out['item'], out['retiered'], out['n']), (4, 1, 4, 5))
+        self.assertEqual(out['new_risk'], 100 - 1 - 5 - 2 - 1 - 2)
         self.assertTrue(out['changed'])
         self.assertEqual([v[2] for v in out['lines']], [CFPM, COLD, DATE, WIPE, FREE], 'text untouched')
 
@@ -65,12 +67,35 @@ class InspectionTests(unittest.TestCase):
         out = cr.regrade_inspection(i)
         self.assertEqual((out['old_risk'], out['new_risk']), (99, 95))
 
-    def test_nothing_stated_nothing_moves(self):
-        i = insp('r1', '2026-11-10', [('priority', FREE), ('core', '9: 7.9.1(A)(1) Jackets on the floor.')])
+    def test_a_line_that_states_nothing_takes_its_form_items_usual_tier(self):
+        i = insp('r1', '2026-11-10', [('priority', FREE), ('priority', '2: No certified manager on staff.'),
+                                      ('core', '22: Sliced tomatoes were held at 47F.')])
+        out = cr.regrade_inspection(i)
+        self.assertEqual([v[1] for v in out['lines']], ['priority_foundation', 'core', 'priority'])
+        self.assertEqual((out['stated'], out['item'], out['retiered']), (0, 3, 3))
+        self.assertEqual((out['old_risk'], out['new_risk']), (100 - 5 - 5 - 1, 100 - 2 - 1 - 5))
+
+    def test_nothing_to_read_nothing_moves(self):
+        i = insp('r1', '2026-11-10', [('priority', NOITEM), ('priority_foundation', HACCP)])
         out = cr.regrade_inspection(i)
         self.assertEqual((out['changed'], out['lines'], out['new_risk']), (False, None, i['risk_score']))
+        self.assertEqual((out['stated'], out['item']), (0, 0))
         clean = cr.regrade_inspection(insp('r1', '2026-11-11', []))
         self.assertEqual((clean['changed'], clean['new_risk']), (False, 100))
+
+    def test_a_restaurant_with_another_programs_inspection_is_left_to_the_cleanup(self):
+        care = insp('r1', '2026-11-10', [('priority', '22: 7.9.1(A)(1) Jackets were on the floor.')],
+                    itype='Child Care - Routine')
+        food = insp('r1', '2026-05-01', [('priority', CFPM)])
+        r = cr.regrade_restaurant(row('r1', [care, food], source='Adams County Health Dept'), {})
+        self.assertEqual((r['skip'], r['changed'], r['inspections']), ('has_non_food_inspections', False, []))
+        # item 22 on the food form is cold holding; on a child-care report it is not
+        self.assertEqual(json.loads(care['violations'])[0][1], 'priority')
+        untyped = insp('r2', '2026-11-10', [('priority', '26: Toys are sanitized once a week.')], itype='')
+        r = cr.regrade_restaurant(row('r2', [untyped], source='Larimer County Health Dept'), {})
+        self.assertEqual(r['skip'], 'has_non_food_inspections')
+        r = cr.regrade_restaurant(row('r2', [untyped], source='Broomfield Health Dept'), {})
+        self.assertIsNone(r['skip'], 'only the four mixed portals carry other programs')
 
     def test_a_score_the_stored_tiers_do_not_explain_is_left_alone(self):
         i = insp('r1', '2026-11-10', [('priority', CFPM)], risk=80)
@@ -177,7 +202,7 @@ class SeedTests(unittest.TestCase):
         self.rows = [
             row('r1', [insp('r1', '2026-11-10', [('priority', CFPM)] * 7),
                        insp('r1', '2026-05-01', [('priority', COLD)])]),
-            row('r2', [insp('r2', '2026-11-09', [('priority', FREE)])]),                 # nothing stated
+            row('r2', [insp('r2', '2026-11-09', [('priority', NOITEM)])]),               # nothing to read
             row('r3', [insp('r3', '2026-11-08', [('priority', COLD)], results='Closed')]),
         ]
         for r in self.rows:

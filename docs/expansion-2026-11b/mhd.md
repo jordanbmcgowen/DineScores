@@ -172,11 +172,12 @@ keeps the keyword tier, and the fetch log counts them.
 | Broomfield | 221 | 69 (31%) | 14 of 38 | 10 |
 
 Broomfield's inspectors mostly write the item number and their own sentence
-(`37: No method of notification of major food allergens ...`), so two thirds
-of its lines stay keyword-tiered and its grades stay the harshest of the
-group (9 of 32 restaurants an F, four of them real roach or dropping
-findings). The form's item number does not settle the tier: only 14 of the
-52 items CDPHE cited were always one tier.
+(`37: No method of notification of major food allergens ...`). Those lines
+were keyword-tiered at first, on the ground that the item number does not
+settle the tier. Measured two days later it nearly does: a line given its
+form item's usual tier is right nine times in ten (`CO_ITEM_TIERS`, see
+`docs/co-frontrange-regrade-2026-11-25.md`), and Broomfield went from 9 F's
+in 32 restaurants to 5, four of them real roach or dropping findings.
 
 The six Front Range counties (Arapahoe, Douglas, El Paso, Larimer, Weld,
 Adams) followed on 2026-11-25: they read the tier the same way, and their

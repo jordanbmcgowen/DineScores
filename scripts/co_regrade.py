@@ -16,12 +16,20 @@ inspection. The report (report.md, changes.jsonl.gz) is written either way;
 Why: until 2026-11-25 these counties' lines were tiered on keywords
 (classify_violation). Where a line cites a section of the state's violation
 library, or prints the designation as El Paso County's do, the state's own
-tier is known (dinescores_pipeline._co_line_tier), and the fetcher reads it
-from that date on. This brings the rows stored before into line.
+tier is known (dinescores_pipeline._co_line_tier). Where it states nothing,
+the form item it is filed under has a usual tier (_co_item_tier: right on
+nine stated lines in ten, against four in ten for keywords). The fetcher
+reads lines this way (_co_tier) from that date on; this brings the rows
+stored before into line. It ran twice that day: first on stated tiers only,
+then with the item tiers.
 
 What moves and what never does:
-  - A line's tier moves only when the line itself carries the state's tier.
-    A line that cites nothing keeps its stored (keyword) tier.
+  - A line's tier moves to the tier it states, else to its form item's usual
+    tier. A line with neither (no item number, or item 29) keeps its stored
+    tier.
+  - Inspections of another program (child care, body art, waste tyres,
+    pools: scripts/co_nonfood.py) are never read as food-form lines, and a
+    restaurant that has one is left to that cleanup.
   - An inspection's risk score is recomputed (100 - 5P - 2PF - C) only when
     its stored score is exactly what its stored tiers give, which holds for
     every stored inspection of these sources but one. An inspection at the
@@ -67,6 +75,7 @@ sys.path.insert(0, HERE)
 import dinescores_pipeline as dp   # noqa: E402
 import jev_reader as jr            # noqa: E402
 import jev_regrade as jg           # noqa: E402
+import co_nonfood as nf            # noqa: E402
 
 POINTS = {'priority': 5, 'priority_foundation': 2, 'core': 1}
 LINES_PER_INSPECTION = jg.LINES_PER_INSPECTION
@@ -137,8 +146,8 @@ def _risk(lines):
 def regrade_inspection(insp):
     """New tiers and risk score for one stored inspection."""
     out = {'id': insp['id'], 'date': insp.get('inspection_date'), 'old_risk': insp.get('risk_score'),
-           'new_risk': insp.get('risk_score'), 'lines': None, 'retiered': 0, 'stated': 0, 'n': 0,
-           'note': None, 'closed': False}
+           'new_risk': insp.get('risk_score'), 'lines': None, 'retiered': 0, 'stated': 0, 'item': 0, 'n': 0,
+           'note': None, 'closed': False, 'changed': False}
     old = insp.get('risk_score')
     lines = _lines(insp)
     if lines is None or old is None:
@@ -147,12 +156,12 @@ def regrade_inspection(insp):
     out['n'] = len(lines)
     new_lines = []
     for cat, tier, text in lines:
-        stated = dp._co_line_tier(text)
-        if stated:
-            out['stated'] += 1
-            if stated != tier:
+        read, basis = dp._co_tier(text)
+        if read:
+            out[basis] += 1
+            if read != tier:
                 out['retiered'] += 1
-        new_lines.append([cat, stated or tier, text])
+        new_lines.append([cat, read or tier, text])
     risk = old
     if out['retiered']:
         if len(lines) < LINES_PER_INSPECTION and _risk(lines) == old:
@@ -197,7 +206,14 @@ def regrade_restaurant(row, judgments):
            'inspection_date': row.get('inspection_date'), 'updated_at': row.get('updated_at'),
            'old_rs': row.get('risk_score'), 'old_ws': row.get('weighted_score'), 'old_vg': row.get('vetted_grade'),
            'skip': None, 'kept': [], 'changed': False}
-    insps = [regrade_inspection(i) for i in (row.get('inspections') or [])]
+    exported = row.get('inspections') or []
+    if any(nf.is_non_food(out['source'], i.get('inspection_type'), i.get('source_id')) for i in exported):
+        # not a food-form report: its item numbers mean something else. The
+        # non-food cleanup deletes or rebuilds these rows.
+        out.update(inspections=[], insp_by_date={}, new_rs=out['old_rs'], new_ws=out['old_ws'],
+                   new_vg=out['old_vg'], text_f=None, skip='has_non_food_inspections')
+        return out
+    insps = [regrade_inspection(i) for i in exported]
     out['inspections'] = insps
     out['insp_by_date'] = {i['date']: i for i in insps}
     ws, rs, vg = out['old_ws'], out['old_rs'], out['old_vg']
@@ -387,6 +403,7 @@ def report(results, header, out_dir):
             b['inspections'] += 1
             b['lines'] += i['n']
             b['lines on the state tier'] += i['stated']
+            b['lines on the item tier'] += i['item']
             b['lines re-tiered'] += i['retiered']
             if i.get('note'):
                 b[f"inspection: {i['note']}"] += 1
@@ -406,14 +423,14 @@ def report(results, header, out_dir):
             trans[(r['source'], r['old_vg'], r['new_vg'])] += 1
     lines = ['# Colorado Front Range regrade', '',
              f"Export taken {header.get('exported_at')}; {len(results)} restaurants.", '',
-             '| source | restaurants | inspections | lines | on the state tier | re-tiered | inspections changed '
-             '| restaurants changed | A | B | C | F | A after | B after | C after | F after |',
-             '|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|']
+             '| source | restaurants | inspections | lines | tier stated | item tier | re-tiered '
+             '| inspections changed | restaurants changed | A | B | C | F | A after | B after | C after | F after |',
+             '|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|']
     for src in sorted(by):
         b = by[src]
         lines.append('| ' + ' | '.join(str(x) for x in [
             src, b['restaurants'], b['inspections'], b['lines'], b['lines on the state tier'],
-            b['lines re-tiered'], b['inspections changed'], b['restaurants changed'],
+            b['lines on the item tier'], b['lines re-tiered'], b['inspections changed'], b['restaurants changed'],
             b['grade before A'], b['grade before B'], b['grade before C'], b['grade before F'],
             b['grade after A'], b['grade after B'], b['grade after C'], b['grade after F']]) + ' |')
     lines += ['', '## Grade moves', '', '| source | from | to | restaurants |', '|---|---|---|---|']

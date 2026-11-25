@@ -84,13 +84,19 @@ at 73% of what it held (New York 610, a new city at the 1,000 cap 730).
 
 Decided and done on 2026-11-25:
 
-- **Colorado's Closed verdict is an F** (`closed_is_f`, cap 65), on the four
-  new portals and the six Front Range counties.
-- **Front Range regrade.** The six counties read the state's tier where a
-  line carries it, and their stored rows were regraded:
-  `docs/co-frontrange-regrade-2026-11-25.md`. It fixes El Paso County
-  (Colorado Springs) and Douglas; Adams, Arapahoe, Larimer and Weld mostly
-  write no section, so most of their lines stay keyword-tiered.
+- **Colorado's Closed verdict is an F** (`closed_is_f`, cap 65) on all ten
+  Colorado portals.
+- **Front Range regrade**, in two passes
+  (`docs/co-frontrange-regrade-2026-11-25.md`). A line that states its tier
+  is scored on it (El Paso County, Douglas). A line that states nothing
+  takes its form item's usual tier, which is right nine times in ten where
+  keywords were right four times in ten; that is what moved Adams,
+  Arapahoe, Larimer, Weld and Broomfield. F's across the ten Colorado
+  sources: 398 to 206.
+- **945 places that are not restaurants were deleted** from El Paso County,
+  Adams, Weld and Larimer (child care centres, tattoo studios, tyre
+  dealers, splash pads). Those portals publish every program on one slug;
+  the configs are `programs: ['Retail Food']` now.
 - **Map pins.** A second geocoding pass (OpenStreetMap, street level or
   better) placed 579 of the 1,085 restaurants the Census geocoder had
   missed (El Paso 173, Kansas City 143). Every pin lies within 40 km of its
@@ -100,21 +106,15 @@ Decided and done on 2026-11-25:
   Robstown are labelled Corpus Christi), so a street match could land in
   the wrong town.
 
-Decisions for the owner:
-
-- **945 places that are not restaurants** are stored under El Paso County,
-  Adams, Weld and Larimer (child care centres, tattoo studios, tyre dealers,
-  splash pads): those portals publish every program on one slug. No more
-  arrive (`programs: ['Retail Food']`); removing the stored ones is a DELETE
-  seed that waits for a yes.
-
 Known limits, no decision needed:
 
-- Broomfield, Adams, Arapahoe, Larimer and Weld: most lines cite no section
-  and stay keyword-tiered, which runs harsh (56 to 71% of lines counted
-  Priority against 36% on the state's own tiers). Reading each line's
-  category with the violation reader is the remaining way to fix that
-  (`docs/jev-shadow-report.md`).
+- The Colorado item tier is an estimate: about one line in ten gets the
+  wrong tier, mostly on the form's split items.
+- The violation reader's category is not a route to better tiers on forms
+  like Colorado's (measured: right on 42-56% of lines). Whether to let it
+  decide categories elsewhere is still the open call in
+  `docs/jev-shadow-report.md`; this measurement is a point against expecting
+  much from it for scoring.
 - Jackson WY: about a third of Teton County's inspections grade F. Its
   inspectors cite a median of five items a visit; the share holds under two
   other ways of tiering.
@@ -135,6 +135,8 @@ Found along the way, not fixed here:
   thing prevented should not count as a named vermin.
 - Six Kansas City F's are floor-drain back-ups read as sewage (existing
   policy).
+- Larimer's portal carries a test record ("Deb's Test Record Brewhause",
+  graded A) under Retail Food.
 
 ## Reachable from GitHub's runners
 
