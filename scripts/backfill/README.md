@@ -24,6 +24,10 @@ scripts/backfill/freshness_copy.py <wt freshness.json> <records.json.gz>
 scripts/backfill/geocode_backlog.py [--patch] <out.records.json.gz> <nominatim cap> <records.json.gz>...
     one more geocoding pass over the restaurants a backfill left without
     coordinates (absorb.sh runs it with --patch on every chunk)
+scripts/backfill/pins_seed.py <placed.records.json.gz> --reference <records.json.gz>... [--seed ...] [--data-js ... --write-data-js]
+    coordinates found AFTER a backfill was absorbed go back as coordinates
+    only (guarded `AND lat IS NULL` updates plus the same fill in data.js);
+    a pin more than 40 km from its town's other restaurants is left out
 scripts/backfill/trim_holds.py [--horizon-days 45] <group>...
 scripts/backfill/trim_holds.py [--horizon-days 45] --source <label> --newest YYYY-MM-DD
     after a long backfill, keep only recent held failures so the first
