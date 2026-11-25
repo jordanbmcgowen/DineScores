@@ -107,6 +107,10 @@ jobs:
         env:
           # Optional: raises Socrata rate limits if the secret is configured
           SOCRATA_APP_TOKEN: ${{ secrets.SOCRATA_APP_TOKEN }}
+          # Optional: the User-Agent the OpenStreetMap geocoder is sent (a
+          # repository variable, e.g. "DineScores/1.0 (contact address)").
+          # Unset, the pipeline identifies itself by the site's URL.
+          NOMINATIM_USER_AGENT: ${{ vars.NOMINATIM_USER_AGENT }}
           # Egress for the portals that refuse GitHub's runner ranges. The
           # MyHealthDepartment portal (Dallas, Plano, Frisco, Fort Worth,
           # Tarrant, Portland metro, CO Front Range, Utah County, Yolo) answers

@@ -229,11 +229,17 @@ class RecordTests(LewisvilleBase):
 
 class WindowTests(LewisvilleBase):
     def test_window_is_reapplied_and_limit_keeps_the_newest(self):
-        records, _ = run_fetch(since='2026-10-01')
-        self.assertEqual(sorted(_by_id(records)), ['lew_270819', 'lew_271483', 'lew_271487'])
-        records, _ = run_fetch(since='2026-01-01', limit=2)
-        self.assertEqual(sorted(_by_id(records)), ['lew_271483', 'lew_271487'])
-        self.assertNotIn('Lewisville', dp._GROUP_NOTES)
+        # The lag note is judged on the source's own newest row and only by a
+        # complete read. The call is checked instead of _GROUP_NOTES: the
+        # note itself depends on today's date (the fixture's newest row is
+        # 2026-11-02, and "no note" started failing 22 days later).
+        with mock.patch.object(dp, '_note_source_lag') as lag:
+            records, _ = run_fetch(since='2026-10-01')
+            self.assertEqual(sorted(_by_id(records)), ['lew_270819', 'lew_271483', 'lew_271487'])
+            self.assertEqual([c.args for c in lag.call_args_list], [('Lewisville', '2026-11-02')])
+            records, _ = run_fetch(since='2026-01-01', limit=2)
+            self.assertEqual(sorted(_by_id(records)), ['lew_271483', 'lew_271487'])
+            self.assertEqual(lag.call_count, 1, 'a truncated read never saw the whole source')
 
     def test_duplicate_inspection_ids_collapse(self):
         payload = _load('bydate.json')

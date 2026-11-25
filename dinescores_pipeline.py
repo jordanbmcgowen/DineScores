@@ -301,13 +301,17 @@ MHD_METRO_JURISDICTIONS = {
                              'state': 'WA', 'score_scale': 'none', 'metro': 'Portland', 'lag_days': 21},
     # Colorado Front Range (demerit points, lower better)
     'epcph':                {'display_name': 'El Paso County CO', 'default_city': 'Colorado Springs',
-                             'state': 'CO', 'score_scale': 'demerit', 'metro': ''},
+                             'state': 'CO', 'score_scale': 'demerit', 'metro': '',
+                             'closed_is_f': True},
     'larimer-county-health': {'display_name': 'Larimer County', 'default_city': 'Fort Collins',
-                              'state': 'CO', 'score_scale': 'demerit', 'metro': ''},
+                              'state': 'CO', 'score_scale': 'demerit', 'metro': '',
+                              'closed_is_f': True},
     'weldcounty':           {'display_name': 'Weld County', 'default_city': 'Greeley',
-                             'state': 'CO', 'score_scale': 'demerit', 'metro': ''},
+                             'state': 'CO', 'score_scale': 'demerit', 'metro': '',
+                             'closed_is_f': True},
     'adcogoveh':            {'display_name': 'Adams County', 'default_city': 'Brighton',
-                             'state': 'CO', 'score_scale': 'demerit', 'metro': ''},
+                             'state': 'CO', 'score_scale': 'demerit', 'metro': '',
+                             'closed_is_f': True},
     # Utah County (Provo/Orem) — demerits
     'utah-utahcounty':      {'display_name': 'Utah County', 'default_city': 'Provo',
                              'state': 'UT', 'score_scale': 'demerit', 'metro': ''},
@@ -367,7 +371,7 @@ MHD_METRO_JURISDICTIONS = {
     # units carry addressLine1 '^Mobile Unit' with no city or zip — excluded.
     'acph':                 {'display_name': 'Arapahoe County', 'default_city': 'Aurora',
                              'state': 'CO', 'score_scale': 'demerit', 'metro': '',
-                             'programs': ['Retail Food'],
+                             'programs': ['Retail Food'], 'closed_is_f': True,
                              'exclude': {'addressLine1': r'^\^?\s*Mobile Unit'},
                              'group': 'MHD metros'},
     # Douglas County Health Department, CO (Castle Rock, Parker, Highlands
@@ -380,7 +384,8 @@ MHD_METRO_JURISDICTIONS = {
     # County' here would merge the two counties' freshness and Jev policy.
     'dchd':                 {'display_name': 'Douglas County CO', 'default_city': 'Castle Rock',
                              'state': 'CO', 'score_scale': 'demerit', 'metro': '',
-                             'programs': ['Retail Food'], 'group': 'MHD metros'},
+                             'programs': ['Retail Food'], 'closed_is_f': True,
+                             'group': 'MHD metros'},
     # Cuyahoga County Board of Health, OH: the 58 Cleveland suburbs (Parma,
     # Lakewood, Euclid, Strongsville, Shaker Heights, ...); the City of
     # Cleveland has its own department and is NOT here. No score of any kind
@@ -594,7 +599,7 @@ MHD_METRO_JURISDICTIONS = {
     # what scores it (_co_line_tier), not the keyword tier.
     'colorado':             {'display_name': 'Colorado CDPHE', 'default_city': 'Glenwood Springs',
                              'state': 'CO', 'score_scale': 'demerit', 'metro': '',
-                             'programs': ['Retail Food'], 'tiers': 'colorado',
+                             'programs': ['Retail Food'], 'tiers': 'colorado', 'closed_is_f': True,
                              'city_map': {'Canon City': 'Cañon City'},
                              'exclude': {'purpose': MHD_PREOPENING_PURPOSE_RE,
                                          'permitType': MHD_MOBILE_PERMIT_RE},
@@ -606,14 +611,14 @@ MHD_METRO_JURISDICTIONS = {
     # each the tier CDPHE states for that section (CO_SECTION_TIERS).
     'pueblo':               {'display_name': 'Pueblo County', 'default_city': 'Pueblo',
                              'state': 'CO', 'score_scale': 'demerit', 'metro': '',
-                             'programs': ['Food'], 'tiers': 'colorado',
+                             'programs': ['Food'], 'tiers': 'colorado', 'closed_is_f': True,
                              'exclude': {'permitType': MHD_MOBILE_PERMIT_RE},
                              'group': MHD_MIDWEEK_GROUP},
     # Mesa County Public Health (Grand Junction, Clifton, Fruita, Palisade):
     # the same risk index (0-74 seen). ~20 a week.
     'mesacountyco':         {'display_name': 'Mesa County', 'default_city': 'Grand Junction',
                              'state': 'CO', 'score_scale': 'demerit', 'metro': '',
-                             'programs': ['Retail Food'], 'tiers': 'colorado',
+                             'programs': ['Retail Food'], 'tiers': 'colorado', 'closed_is_f': True,
                              'exclude': {'permitType': MHD_MOBILE_PERMIT_RE},
                              'group': MHD_MIDWEEK_GROUP},
     # City and County of Broomfield: the same risk index, a handful of
@@ -622,7 +627,7 @@ MHD_METRO_JURISDICTIONS = {
     # section; those keep the keyword tier.
     'broomfield':           {'display_name': 'Broomfield', 'default_city': 'Broomfield',
                              'state': 'CO', 'score_scale': 'demerit', 'metro': '',
-                             'programs': ['Retail Food'], 'tiers': 'colorado',
+                             'programs': ['Retail Food'], 'tiers': 'colorado', 'closed_is_f': True,
                              'exclude': {'permitType': MHD_MOBILE_PERMIT_RE},
                              'group': MHD_MIDWEEK_GROUP},
 }
@@ -1315,6 +1320,13 @@ _NOMINATIM_LOCK = threading.Lock()   # Nominatim allows ONE request per second p
 NOMINATIM_FALLBACK_CAP = int(os.environ.get('NOMINATIM_FALLBACK_CAP', '150'))   # per geocode_missing_coords call
 
 NOMINATIM_MIN_PLACE_RANK = 26   # street level or better; never a town/suburb centroid
+# Nominatim asks every client to identify itself. The default names the
+# site. A contact address, if the owner wants one sent, comes from the
+# NOMINATIM_USER_AGENT environment variable (an Actions variable in the
+# workflows), never from this file: the file is public and is run from
+# shared machines.
+NOMINATIM_USER_AGENT = (os.environ.get('NOMINATIM_USER_AGENT') or '').strip() \
+    or 'DineScores/1.0 (+https://dinescores.com)'
 
 
 def geocode_address(address, city, state, nominatim_session=None):
@@ -1331,7 +1343,7 @@ def geocode_address(address, city, state, nominatim_session=None):
             'limit': 1,
             'addressdetails': 0,
         }
-        headers = {'User-Agent': 'DineScores/1.0 (jordanbmcgowen@gmail.com)'}
+        headers = {'User-Agent': NOMINATIM_USER_AGENT}
         with _NOMINATIM_LOCK:   # the API pool geocodes from many threads at once
             r = requests.get(url, params=params, headers=headers, timeout=5)
             time.sleep(1.1)  # Respect Nominatim rate limit
@@ -6380,6 +6392,17 @@ MHD_TRUSTED_SCORE_SCALES = frozenset({'100', 'tx-demerit'})
 # The Colorado risk-index verdicts, where a portal sends them in scoreDisplay
 # instead of `result` (see _parse_mhd_record).
 MHD_RESULT_DISPLAY_RE = re.compile(r'^(?:pass|closed|re-?inspection required)$', re.I)
+# Colorado: 'Closed' is the agency's verdict that the place may not operate
+# until it is re-inspected (110 or more risk-index points, or an imminent
+# health hazard: no water, sewage, pests), and a closure can cite one line:
+# scored on its lines alone, a water-line-break closure graded A (7 CDPHE
+# closures 2026-09-21..11-23: mean risk 86, one F). Owner decision
+# 2026-11-25: a Closed inspection is an F, as Waco's FAILED is
+# (WAC_FAILED_RISK_CAP). 'closed_is_f' in a jurisdiction's config turns it
+# on; the cap only ever lowers a score, and 'Re-Inspection Required' caps
+# nothing.
+MHD_CLOSED_RESULT_RE = re.compile(r'^closed$', re.I)
+MHD_CLOSED_RISK_CAP = 65
 # A sorted query whose pages do not fit together is read again once (a row
 # posted between two page requests shifts the sequence by one) before the
 # window is failed.
@@ -7544,6 +7567,16 @@ def _fetch_mhd_jurisdiction_api(session, slug, config, since_date=None, limit=No
         log.info(f"{display_name}: {len(zeros)} inspections published with a score of 0 (not scored): "
                  f"{len(empty)} with nothing cited left out, {len(zeros) - len(empty)} graded from "
                  f"their observations")
+
+    if config.get('closed_is_f'):
+        # After the detail pass, which recomputes the risk from the lines.
+        closed = [r for r in all_records if MHD_CLOSED_RESULT_RE.match(str(r.get('results') or '').strip())]
+        capped = [r for r in closed if (r.get('risk_score') or 0) > MHD_CLOSED_RISK_CAP]
+        for r in capped:
+            r['risk_score'] = MHD_CLOSED_RISK_CAP
+        if closed:
+            log.info(f"{display_name}: {len(closed)} inspections with the verdict Closed; "
+                     f"{len(capped)} capped at {MHD_CLOSED_RISK_CAP}")
 
     if stopped_early:
         log.warning(f"{display_name}: scrape stopped early — run again to get remaining data")

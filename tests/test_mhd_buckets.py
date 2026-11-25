@@ -2157,3 +2157,111 @@ class ColoradoTierTests(unittest.TestCase):
         self.assertEqual(jr.tier_policy('Broomfield Health Dept'), 'free')
         self.assertEqual(jr.score_policy('Broomfield Health Dept', 46), 'computed')
         self.assertEqual(jr.score_policy('Arapahoe County Health Dept', 46), 'computed')
+
+
+class ColoradoClosedTests(unittest.TestCase):
+    """Owner decision 2026-11-25: a Colorado inspection with the verdict
+    Closed is an F, whatever its lines add up to."""
+    DAY = '2026-11-10 to 2026-11-10'
+
+    def _fetch(self, key, rows, texts, cfg=None):
+        cfg = cfg or dp.MHD_METRO_JURISDICTIONS[key]
+        fake = FakeSearch({(self.DAY, '', ''): rows})
+
+        def fake_bulk(path, records, trust_official_score=True, label=None, **kw):
+            for rec in records:
+                violations = [dp.classify_violation(t) for t in texts.get(rec['source_id'], [])]
+                rec['violations'] = [list(v) for v in violations]
+                if not trust_official_score or rec.get('original_score') is None:
+                    rec['risk_score'] = dp.calc_risk_score(violations)[0]
+            return len(records), []
+        with mock.patch.object(dp, '_mhd_fetch_details_bulk', side_effect=fake_bulk):
+            return {r['source_id']: r for r in _run(key, cfg, fake, fetch_violations=True,
+                                                    since_date='2026-11-10', until_date='2026-11-10')}
+
+    def _rows(self, cfg, *specs):
+        rows = []
+        for n, (iid, score, display, result) in enumerate(specs, 1):
+            row = _row(iid, name=f'Cafe {iid}', addr=f'{n} Main St', city=cfg['default_city'],
+                       state=cfg['state'], program=cfg['programs'][0] if cfg.get('programs') else 'Retail Food',
+                       date='2026-11-10T00:00:00.000Z', score=score)
+            row['scoreDisplay'] = display
+            if result is not None:
+                row['result'] = result
+            rows.append(row)
+        return rows
+
+    def test_the_ten_colorado_portals_and_nobody_else(self):
+        on = sorted(k for k, c in dp.MHD_METRO_JURISDICTIONS.items() if c.get('closed_is_f'))
+        self.assertEqual(on, sorted(['acph', 'adcogoveh', 'broomfield', 'colorado', 'dchd', 'epcph',
+                                     'larimer-county-health', 'mesacountyco', 'pueblo', 'weldcounty']))
+        for key in on:
+            self.assertEqual(dp.MHD_METRO_JURISDICTIONS[key]['state'], 'CO', key)
+        self.assertFalse(any(c.get('closed_is_f') for c in dp.DFW_JURISDICTIONS.values()))
+        self.assertEqual(dp.MHD_CLOSED_RISK_CAP, 65)
+        self.assertLess(dp.MHD_CLOSED_RISK_CAP, 70, 'the cap must sit under the F cutoff')
+
+    def test_a_closed_inspection_is_an_f_whatever_its_lines_say(self):
+        cfg = dp.MHD_METRO_JURISDICTIONS['colorado']
+        rows = self._rows(cfg, ('WATER', 110, 'Closed', None), ('PASS', 5, 'Pass', None),
+                          ('REINSP', 60, 'Re-Inspection Required', None))
+        one_line = ['57: Imminent Health Hazard Closure . This is a item - Imminent Health Hazard '
+                    'Closure Water line break. No running water.']
+        recs = self._fetch('colorado', rows, {'WATER': one_line, 'PASS': one_line, 'REINSP': one_line})
+        self.assertEqual(recs['WATER']['results'], 'Closed')
+        self.assertEqual(recs['WATER']['risk_score'], 65)
+        self.assertEqual(recs['WATER']['original_score'], 110, 'the demerit total is kept')
+        self.assertEqual(len(recs['WATER']['violations']), 1, 'the lines are kept')
+        # the same page under another verdict is scored on its lines
+        uncapped = dp.calc_risk_score([dp.classify_violation(one_line[0])])[0]
+        self.assertGreater(uncapped, 65)
+        self.assertEqual(recs['PASS']['risk_score'], uncapped)
+        self.assertEqual(recs['REINSP']['risk_score'], uncapped, 'a re-inspection caps nothing')
+
+    def test_the_cap_only_lowers(self):
+        cfg = dp.MHD_METRO_JURISDICTIONS['colorado']
+        rows = self._rows(cfg, ('BAD', 117, 'Closed', None))
+        lines = [f'{n}: Proper cold holding temperatures . This is a Priority item 3-501.16 (A)(2) - TCS '
+                 f'Food, Cold Holding (P) Item {n} was held at 50°F.' for n in range(1, 11)]
+        recs = self._fetch('colorado', rows, {'BAD': lines})
+        expected = dp.calc_risk_score([dp.classify_violation(t) for t in lines])[0]
+        self.assertLess(expected, 65)
+        self.assertEqual(recs['BAD']['risk_score'], expected)
+
+    def test_the_result_field_counts_like_the_score_display(self):
+        cfg = dp.MHD_METRO_JURISDICTIONS['acph']          # Arapahoe sends `result`, scoreDisplay ''
+        rows = self._rows(cfg, ('A1', 112, '', 'Closed'), ('A2', 112, '', 'closed '), ('A3', 20, '', 'Pass'))
+        recs = self._fetch('acph', rows, {})
+        self.assertEqual((recs['A1']['risk_score'], recs['A2']['risk_score'], recs['A3']['risk_score']),
+                         (65, 65, 100))
+
+    def test_other_states_are_not_capped(self):
+        cfg = dp.MHD_METRO_JURISDICTIONS['mo-jackson']
+        rows = self._rows(cfg, ('J1', 0, '', 'Closed'))
+        recs = self._fetch('mo-jackson', rows, {})
+        self.assertEqual(recs['J1']['risk_score'], 100)
+        without = dict(dp.MHD_METRO_JURISDICTIONS['colorado'])
+        without.pop('closed_is_f')
+        rows = self._rows(without, ('C1', 110, 'Closed', None))
+        recs = self._fetch('colorado', rows, {}, cfg=without)
+        self.assertEqual(recs['C1']['risk_score'], 100)
+
+    def test_a_search_only_run_is_capped_too(self):
+        cfg = dp.MHD_METRO_JURISDICTIONS['pueblo']
+        rows = self._rows(cfg, ('P1', 10, 'Closed', None))     # interim mapping 100 - 2 x 10 = 80
+        fake = FakeSearch({(self.DAY, '', ''): rows})
+        recs = _run('pueblo', cfg, fake, fetch_violations=False, since_date='2026-11-10',
+                    until_date='2026-11-10')
+        self.assertEqual([r['risk_score'] for r in recs], [65])
+
+
+class GeocoderIdentityTests(unittest.TestCase):
+    def test_the_source_carries_no_contact_address(self):
+        with open(dp.__file__, encoding='utf-8') as f:
+            src = f.read()
+        self.assertNotRegex(src, r"User-Agent'\s*:\s*'[^']*@[^']*'")
+        self.assertIn("headers = {'User-Agent': NOMINATIM_USER_AGENT}", src)
+
+    def test_the_default_names_the_site(self):
+        if not os.environ.get('NOMINATIM_USER_AGENT'):
+            self.assertEqual(dp.NOMINATIM_USER_AGENT, 'DineScores/1.0 (+https://dinescores.com)')
