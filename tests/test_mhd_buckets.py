@@ -277,7 +277,7 @@ class DetailPathTests(unittest.TestCase):
         fake = FakeSearch({(day, 'Testville', 'Routine'): [_row('X1', city='Testville')]})
         seen = {}
 
-        def fake_bulk(path, records, trust_official_score=True, label=None):
+        def fake_bulk(path, records, trust_official_score=True, label=None, **kw):
             seen.update(path=path, label=label, n=len(records),
                         trust=trust_official_score)
             return len(records), []
@@ -294,7 +294,7 @@ class DetailPathTests(unittest.TestCase):
         fake = FakeSearch({(day, 'Testville', 'Routine'): [_row('X1', city='Testville'),
                                                            _row('X2', city='Testville')]})
 
-        def fake_bulk(path, records, trust_official_score=True, label=None):
+        def fake_bulk(path, records, trust_official_score=True, label=None, **kw):
             return 1, [records[1]]
         with mock.patch.object(dp, '_mhd_fetch_details_bulk', side_effect=fake_bulk):
             records = _run('tennessee:testville', cfg, fake, fetch_violations=True,
@@ -725,7 +725,7 @@ class ExcludeTests(unittest.TestCase):
         fake = FakeSearch({(day, '', ''): rows})
         seen = {}
 
-        def fake_bulk(path, records, trust_official_score=True, label=None):
+        def fake_bulk(path, records, trust_official_score=True, label=None, **kw):
             seen.update(path=path, trust=trust_official_score, label=label)
             return len(records), []
         with mock.patch.object(dp, '_mhd_fetch_details_bulk', side_effect=fake_bulk):
@@ -1067,7 +1067,7 @@ class LimitAndHoldTests(unittest.TestCase):
                 _row('F2', city='Katy', state='TX', program='Food', date='2026-10-20T00:00:00.000Z')]
         fake = FakeSearch({(day, '', ''): rows})
 
-        def fake_bulk(path, records, trust_official_score=True, label=None):
+        def fake_bulk(path, records, trust_official_score=True, label=None, **kw):
             return 1, [records[1]]
         with mock.patch.object(dp, '_mhd_fetch_details_bulk', side_effect=fake_bulk):
             records = _run('fbceh', cfg, fake, fetch_violations=True,
@@ -2111,15 +2111,61 @@ class ColoradoTierTests(unittest.TestCase):
             self.assertEqual(tier, dp.CO_TIER_NAMES[m.group(1).lower()] if m else None, text[:80])
         self.assertGreaterEqual(sum(1 for t in tiers if t), 8)
 
-    def test_only_the_four_colorado_portals_ask_for_it(self):
+    def test_the_ten_colorado_portals_ask_for_it(self):
         with_tiers = sorted(k for k, c in dp.MHD_METRO_JURISDICTIONS.items() if c.get('tiers'))
-        self.assertEqual(with_tiers, ['broomfield', 'colorado', 'mesacountyco', 'pueblo'])
+        self.assertEqual(with_tiers, sorted(['broomfield', 'colorado', 'mesacountyco', 'pueblo', 'acph', 'dchd',
+                                             'epcph', 'larimer-county-health', 'weldcounty', 'adcogoveh']))
         self.assertFalse(any(c.get('tiers') for c in dp.DFW_JURISDICTIONS.values()))
         for key in with_tiers:
-            self.assertEqual(dp.MHD_METRO_JURISDICTIONS[key]['tiers'], 'colorado')
-        # the Front Range counties stay keyword-scored until their history is regraded
+            cfg = dp.MHD_METRO_JURISDICTIONS[key]
+            self.assertEqual((cfg['tiers'], cfg['state'], cfg['score_scale']), ('colorado', 'CO', 'demerit'), key)
+
+    def test_front_range_portals_ship_retail_food_only(self):
+        # the same slugs carry child care, body art, waste tyres and pools (probed 2026-11-25)
         for key in ('acph', 'dchd', 'epcph', 'larimer-county-health', 'weldcounty', 'adcogoveh'):
-            self.assertNotIn('tiers', dp.MHD_METRO_JURISDICTIONS[key], key)
+            self.assertEqual(dp.MHD_METRO_JURISDICTIONS[key]['programs'], ['Retail Food'], key)
+        cfg = dp.MHD_METRO_JURISDICTIONS['epcph']
+        rows = []
+        for n, (program, itype) in enumerate([('Retail Food', 'Retail Food'), ('Waste Tire', 'Waste Tire Generator'),
+                                              ('Child Care', 'Child Care - Routine'), ('Body Art', 'Body Art')]):
+            row = _row(f'E{n}', name=f'Place {n}', addr=f'{n + 1} Main St', city='Colorado Springs', state='CO',
+                       program=program, date='2026-11-10T00:00:00.000Z', score=10)
+            row['inspectionType'] = itype
+            rows.append(row)
+        fake = FakeSearch({('2026-11-10 to 2026-11-10', '', ''): rows})
+        recs = _run('epcph', cfg, fake, since_date='2026-11-10', until_date='2026-11-10')
+        self.assertEqual([r['source_id'] for r in recs], ['E0'])
+
+    def test_el_paso_county_prints_the_designation_after_the_title(self):
+        cases = {
+            '15: 3-304.15(A) 3-304.15(A) Gloves, Use Limitation (P). If used, single-use gloves shall be '
+            'used for only one task.': 'priority',
+            '21: 3-501.16 (A)(1) 3-501.16(A)(1) TCS Food, Hot Holding (P). Time/Temperature Control for '
+            'Safety Food shall be maintained at 135°F or above.': 'priority',
+            '36: 4-204.112(A),(B), and (D) 4-204.112(A), (B), and (D) Temperature Measuring Devices-Design '
+            '& Placement (C).Cold or hot holding equipment shall be designed to include a thermometer.': 'core',
+            # the bracket belongs to the provision the line quotes, not the section it is filed under
+            '23: 3-501.18 3-501.17 Ready-To-Eat Time/Temperature Control for Safety Food, Date Marking (Pf). '
+            'Refrigerated, Ready-To-Eat food held for more than 24 hours shall be marked.': 'priority_foundation',
+            '16: 4-602.11(C) 4-601.11(A) Equipment, Food-Contact Surfaces, Nonfood-Contact Surfaces, and '
+            'Utensils (Pf). Equipment food-contact surfaces and utensils shall be clean.': 'priority_foundation',
+            # a section the table does not hold, read from the bracket alone
+            '51: 5-203.14 5-203.14 Backflow Prevention Device, When Required (P). A plumbing system shall '
+            'be installed to preclude backflow.': 'priority',
+        }
+        for line, tier in cases.items():
+            self.assertEqual(dp._co_line_tier(line), tier, line[:70])
+        self.assertEqual(dp.CO_SECTION_TIERS['3-501.18'], 'priority')
+        self.assertNotIn('5-203.14', dp.CO_SECTION_TIERS)
+        # no bracket: the section it opens with (the table), as on Pueblo's lines
+        self.assertEqual(dp._co_line_tier('52: 5-402.11 5-402.11 Backflow Preven'), 'priority')
+
+    def test_a_paragraph_letter_is_not_a_designation(self):
+        for line in ('37: Allergen notice missing, see 3-602.12(C). Discussed with the manager.',
+                     '24: Time control, see 3-501.19(A)(C). Logs were not kept.',
+                     '10: The sink (P). was blocked by boxes.',
+                     '7.9.1(A)(1) Observed jackets on the floor (C). Education provided.'):
+            self.assertIsNone(dp._co_line_tier(line), line)
 
     def test_the_reader_reaches_the_detail_phase(self):
         seen = {}
@@ -2150,7 +2196,8 @@ class ColoradoTierTests(unittest.TestCase):
 
     def test_jev_never_moves_a_stated_tier(self):
         import jev_reader as jr
-        for source in ('Colorado CDPHE Health Dept', 'Pueblo County Health Dept', 'Mesa County Health Dept'):
+        for source in ('Colorado CDPHE Health Dept', 'Pueblo County Health Dept', 'Mesa County Health Dept',
+                       'El Paso County CO Health Dept'):
             self.assertEqual(jr.tier_policy(source), 'fixed', source)
             self.assertEqual(jr.score_policy(source, 46), 'source_tiers', source)
         # Broomfield mostly cites no section: keyword tiers, like the Front Range counties

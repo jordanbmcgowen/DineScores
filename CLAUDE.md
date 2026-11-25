@@ -255,7 +255,10 @@ middleware.
 - `export-d1.yml` — manual, read-only. `scripts/d1_export.py` pages through
   the live database and saves every restaurant's stored row plus its latest
   inspection as a three-day artifact, so a regrade reads D1's own text, not
-  the seeds (which lag it). Changes go back as a committed seed, never from
+  the seeds (which lag it). With the `sources` input ("A|B") it exports only
+  those source labels' restaurants, each with EVERY stored inspection (a
+  regrade that moves scores needs the history; the six Front Range counties
+  are 4 MB and 30 seconds). Changes go back as a committed seed, never from
   this workflow.
 - `probe-sources.yml` — manual. Curls each portal from ubuntu/macOS/windows
   runners, directly and through the relay (with a minted OIDC token) or
@@ -388,6 +391,22 @@ read yet. The ones worth building next:
   written), which by itself exceeded the free plan's daily write cap. The
   account is on Workers Paid since 2026-09-10 (the database is 594 MB,
   over the free plan's 500 MB per-database limit).
+- **The OpenStreetMap geocoder identifies itself by the site, not a
+  person.** `NOMINATIM_USER_AGENT` (default `DineScores/1.0
+  (+https://dinescores.com)`; a repository variable overrides it in
+  `refresh-data.yml`). The source carried the owner's address until
+  2026-11-25; a test keeps any address out of it.
+- **Pins found after a backfill go back as coordinates only.**
+  `scripts/backfill/pins_seed.py` writes one `UPDATE ... AND lat IS NULL`
+  per restaurant and fills the same embedded records; re-absorbing the
+  placed records instead would rebuild each restaurant's weighted score from
+  the single inspection in the file. A pin more than 40 km from its town's
+  other restaurants is left out (the geocoder is asked free text and the
+  pipeline's own check is only the state's box). 2026-11-25: 579 of 1,085
+  placed for the 2026-11-22 sources, none left out; the Census batch call
+  hung for 20 minutes on that list of known misses, so the OpenStreetMap
+  half was run on its own. Corpus Christi was not tried (no town on its
+  records).
 - **Never lose coordinates.** Geocoding can be down while sources are up;
   both merge paths coalesce lat/lng (data.js merge in `write_data_js`, D1
   upsert via `COALESCE(excluded.lat, restaurants.lat)`). Any new merge path
@@ -656,12 +675,38 @@ read yet. The ones worth building next:
   growing remainder means the table needs the new sections (read them off
   CDPHE's own lines, never guess). Broomfield's inspectors mostly write the
   item number alone, so about two thirds of its lines stay keyword-tiered.
-  The six Front Range counties (Arapahoe, Douglas, El Paso, Larimer, Weld,
-  Adams) print the same sections and are NOT on this: their stored history
-  is keyword-scored, so switching them needs a regrade from a D1 export
-  first. The state's verdict (Pass / Re-Inspection Required / Closed) is
-  kept in `results` and does not cap the grade (an owner decision, like
-  Waco's FAILED, still open).
+  The six Front Range counties are on it since 2026-11-25, and how much it
+  reaches depends on how each county writes: El Paso County (Colorado
+  Springs) prints the designation in brackets after the cited provision's
+  title ("3-501.17 Ready-To-Eat ..., Date Marking (Pf)."; `CO_PRINTED_TIER_RE`,
+  94% of its lines; the bracket belongs to the provision quoted, which is not
+  always the library section the line is filed under, and the bracket wins),
+  Douglas cites the library section on 74% of lines, Adams 12%, Arapahoe
+  10%, Larimer 3%, Weld 2% (item number and the inspector's own sentence:
+  those lines stay keyword-tiered, and so do most of those counties'
+  grades). Their stored rows were regraded the same day with
+  `scripts/co_regrade.py` from a per-source D1 export (2,050 inspections,
+  1,710 restaurants; F's El Paso County 82 to 38, Adams 129 to 113, Arapahoe
+  115 to 102, Douglas 5 to 2, Larimer 87 to 84, Weld 39;
+  `docs/co-frontrange-regrade-2026-11-25.md`). Re-run it the same way if the
+  table ever grows: export with `sources`, dry run, then `--seed` and
+  `--write-data-js`.
+- **A Colorado inspection with the verdict Closed is an F** (owner decision
+  2026-11-25; `closed_is_f` on the ten Colorado portal configs,
+  `MHD_CLOSED_RISK_CAP` 65, like Waco's FAILED). Closed means the place may
+  not operate until re-inspected (110+ risk-index points or an imminent
+  hazard) and can cite a single line: a water-line-break closure graded A on
+  its lines. The cap only lowers a score; Re-Inspection Required caps
+  nothing. The verdict arrives in `result` (Arapahoe) or `scoreDisplay`
+  (CDPHE, Pueblo, Mesa County); Douglas, Larimer, Weld and Broomfield
+  publish none.
+- **The Front Range portals carry more than restaurants.** El Paso County,
+  Adams, Weld and Larimer publish Child Care, Body Art, Waste Tire and pool
+  inspections on the same slugs, and until 2026-11-25 those shipped as
+  restaurants (a tyre dealer and a preschool pass `_mhd_is_food_record`).
+  All six are `programs: ['Retail Food']` now. 945 such places were stored
+  when this was found (601 child care, 173 body art, 162 waste tyre, 9
+  pools); removing them is a DELETE seed that waits for the owner's word.
 - **Teton County WY follow-up reports reprint the routine inspection's
   lines** (12 lines in, 12 lines out, a dated note on the corrected ones),
   so a follow-up grades like the visit it follows. That is the county's
@@ -769,17 +814,18 @@ impact and the open policy decisions; `scripts/jev_shadow.py` reproduces it.
 - **Policy lives in code.** `F_FORCING_HAZARDS` (vermin, sewage; not flies,
   not `pests_unspecified`), `SCORE_FROM_TIERS_SOURCES` / `SOURCE_TIER_SCORE_SOURCES`
   (score computed from tiers the source states: Boston, Detroit, Louisiana,
-  Maricopa, Pima, the four Paragon portals, Colorado CDPHE, Pueblo and Mesa
-  County) / `SOURCE_TIER_SOURCES`
+  Maricopa, Pima, the four Paragon portals, Colorado CDPHE, Pueblo, Mesa
+  County and El Paso County CO) / `SOURCE_TIER_SOURCES`
   / `BOUNDED_TIER_SOURCES` (which sources may be re-scored or re-tiered), the
   chip and summary-severity maps. A source-stated tier never moves (Omaha,
   Santa Clara, San Diego, Orange County, McKinney, Georgia, Louisiana,
   Maricopa County, Harris County (P/F/C violation groups), the Hedgerow
   portals (Pima County, Lubbock, Mesquite, Wichita Falls), Garland, Corpus
   Christi and Abilene (Texas-form item points or stated groups), the Paragon
-  portals (tier fixed by `_io_shipped_rows`), Colorado CDPHE, Pueblo and Mesa
-  County (the state library's designation, `_co_line_tier`; Broomfield is
-  not listed, most of its lines cite no section) included: their agencies
+  portals (tier fixed by `_io_shipped_rows`), Colorado CDPHE, Pueblo, Mesa
+  County and El Paso County CO (the state library's designation,
+  `_co_line_tier`; Broomfield and the other five Front Range counties are
+  not listed, most of their lines cite no section) included: their agencies
   state it; McKinney's TX-form item
   points are the city's tiers and its `risk_score` is the form score 100 −
   demerits, never recomputed; Georgia's (p)/(pf)/(c) designations carry its

@@ -299,19 +299,27 @@ MHD_METRO_JURISDICTIONS = {
                              'state': 'OR', 'metro': 'Portland', 'lag_days': 21},
     'clarkcountywa':        {'display_name': 'Clark County WA', 'default_city': 'Vancouver',
                              'state': 'WA', 'score_scale': 'none', 'metro': 'Portland', 'lag_days': 21},
-    # Colorado Front Range (demerit points, lower better)
+    # Colorado Front Range (demerit points, lower better). programName
+    # 'Retail Food' only: the same slugs carry 'Child Care', 'Body Art',
+    # 'Waste Tire' and 'Recreational Pools' (probed 2026-11-25), and until
+    # that date their preschools, tattoo studios and tyre dealers shipped as
+    # restaurants (child care and tyres pass _mhd_is_food_record). 'tiers':
+    # lines that cite a section of the state library, or print the
+    # designation as El Paso County's do, are scored on the state's tier
+    # (_co_line_tier): 93% of El Paso County's lines, 3% of Larimer's and 2%
+    # of Weld's, whose inspectors write the item number alone.
     'epcph':                {'display_name': 'El Paso County CO', 'default_city': 'Colorado Springs',
                              'state': 'CO', 'score_scale': 'demerit', 'metro': '',
-                             'closed_is_f': True},
+                             'programs': ['Retail Food'], 'tiers': 'colorado', 'closed_is_f': True},
     'larimer-county-health': {'display_name': 'Larimer County', 'default_city': 'Fort Collins',
                               'state': 'CO', 'score_scale': 'demerit', 'metro': '',
-                              'closed_is_f': True},
+                              'programs': ['Retail Food'], 'tiers': 'colorado', 'closed_is_f': True},
     'weldcounty':           {'display_name': 'Weld County', 'default_city': 'Greeley',
                              'state': 'CO', 'score_scale': 'demerit', 'metro': '',
-                             'closed_is_f': True},
+                             'programs': ['Retail Food'], 'tiers': 'colorado', 'closed_is_f': True},
     'adcogoveh':            {'display_name': 'Adams County', 'default_city': 'Brighton',
                              'state': 'CO', 'score_scale': 'demerit', 'metro': '',
-                             'closed_is_f': True},
+                             'programs': ['Retail Food'], 'tiers': 'colorado', 'closed_is_f': True},
     # Utah County (Provo/Orem) — demerits
     'utah-utahcounty':      {'display_name': 'Utah County', 'default_city': 'Provo',
                              'state': 'UT', 'score_scale': 'demerit', 'metro': ''},
@@ -371,7 +379,7 @@ MHD_METRO_JURISDICTIONS = {
     # units carry addressLine1 '^Mobile Unit' with no city or zip — excluded.
     'acph':                 {'display_name': 'Arapahoe County', 'default_city': 'Aurora',
                              'state': 'CO', 'score_scale': 'demerit', 'metro': '',
-                             'programs': ['Retail Food'], 'closed_is_f': True,
+                             'programs': ['Retail Food'], 'tiers': 'colorado', 'closed_is_f': True,
                              'exclude': {'addressLine1': r'^\^?\s*Mobile Unit'},
                              'group': 'MHD metros'},
     # Douglas County Health Department, CO (Castle Rock, Parker, Highlands
@@ -384,7 +392,7 @@ MHD_METRO_JURISDICTIONS = {
     # County' here would merge the two counties' freshness and Jev policy.
     'dchd':                 {'display_name': 'Douglas County CO', 'default_city': 'Castle Rock',
                              'state': 'CO', 'score_scale': 'demerit', 'metro': '',
-                             'programs': ['Retail Food'], 'closed_is_f': True,
+                             'programs': ['Retail Food'], 'tiers': 'colorado', 'closed_is_f': True,
                              'group': 'MHD metros'},
     # Cuyahoga County Board of Health, OH: the 58 Cleveland suburbs (Parma,
     # Lakewood, Euclid, Strongsville, Shaker Heights, ...); the City of
@@ -6823,7 +6831,21 @@ def _mhd_fetch_inspection_detail(session, path, inspection_id, retry_count=0):
 # moving them needs a regrade of the stored rows first.
 CO_STATED_TIER_RE = re.compile(r'\bThis is a (Priority Foundation|Priority|Core) item\b')
 CO_STATED_TIER_WITHIN = 260     # the phrase follows the item title; never read it from the observation
-CO_TIER_NAMES = {'priority': 'priority', 'priority foundation': 'priority_foundation', 'core': 'core'}
+CO_TIER_NAMES = {'priority': 'priority', 'priority foundation': 'priority_foundation', 'core': 'core',
+                 'p': 'priority', 'pf': 'priority_foundation', 'c': 'core'}
+# El Paso County (Colorado Springs) prints the cited provision with its title
+# and the designation in brackets, after the library section the portal
+# files it under:
+#   "23: 3-501.18 3-501.17 Ready-To-Eat Time/Temperature Control for Safety
+#    Food, Date Marking (Pf). Refrigerated, Ready-To-Eat ..."
+# The bracket belongs to the provision the line quotes (3-501.17, Pf), which
+# is not always the section it is filed under (3-501.18, P): where both can
+# be read they agree on 5,956 of 6,043 stored lines (2026-11-25), and the
+# line's own statement wins on the other 87. A title is at least one real
+# word after a section number, so a bare citation ending in a paragraph
+# letter ("see 3-602.12(C).") is not a designation.
+CO_PRINTED_TIER_RE = re.compile(
+    r'\d-\d{3}\.\d+[^.]*?\s[A-Z][A-Za-z/&-]{2,}[^.]*?\s\((P|Pf|PF|C)\)\.')
 _CO_SECTIONS_BY_TIER = {
     'priority': (
         '2-201.11 (A), and (C)', '2-201.13', '2-301.11', '2-301.12', '2-301.14', '3-101.11',
@@ -6877,11 +6899,13 @@ _CO_ITEM_PREFIX_RE = re.compile(r'^\s*\d{1,3}\s*:\s*')
 
 def _co_line_tier(text):
     """The state's tier for one Colorado observation line: the designation
-    CDPHE's template prints, else the one its lines state for the section the
-    line opens with (CO_SECTION_TIERS). None when the line carries neither;
-    the caller keeps the keyword tier then."""
+    the line itself prints (CDPHE's phrase, El Paso County's bracket after
+    the provision's title), else the one CDPHE's lines state for the section
+    the line opens with (CO_SECTION_TIERS). None when the line carries none
+    of them; the caller keeps the keyword tier then."""
     text = text or ''
-    m = CO_STATED_TIER_RE.search(text[:CO_STATED_TIER_WITHIN])
+    head = text[:CO_STATED_TIER_WITHIN]
+    m = CO_STATED_TIER_RE.search(head) or CO_PRINTED_TIER_RE.search(head)
     if m:
         return CO_TIER_NAMES[m.group(1).lower()]
     body = _CO_ITEM_PREFIX_RE.sub('', text, count=1)

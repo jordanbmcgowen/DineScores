@@ -82,28 +82,39 @@ at 73% of what it held (New York 610, a new city at the 1,000 cap 730).
 
 ## Open after this build
 
+Decided and done on 2026-11-25:
+
+- **Colorado's Closed verdict is an F** (`closed_is_f`, cap 65), on the four
+  new portals and the six Front Range counties.
+- **Front Range regrade.** The six counties read the state's tier where a
+  line carries it, and their stored rows were regraded:
+  `docs/co-frontrange-regrade-2026-11-25.md`. It fixes El Paso County
+  (Colorado Springs) and Douglas; Adams, Arapahoe, Larimer and Weld mostly
+  write no section, so most of their lines stay keyword-tiered.
+- **Map pins.** A second geocoding pass (OpenStreetMap, street level or
+  better) placed 579 of the 1,085 restaurants the Census geocoder had
+  missed (El Paso 173, Kansas City 143). Every pin lies within 40 km of its
+  town's other restaurants (`scripts/backfill/pins_seed.py`); they went
+  back as coordinates only. 506 are still without a pin, and Corpus
+  Christi's 185 were not tried: its records carry no town (Port Aransas and
+  Robstown are labelled Corpus Christi), so a street match could land in
+  the wrong town.
+
 Decisions for the owner:
 
-- **Map pins for about 1,270 new restaurants.** The Census geocoder did not
-  place them ("4800 Main", "1 Pershing Rd.", PO boxes); they are in D1 and
-  searchable, not on the map. The second pass
-  (`scripts/backfill/geocode_backlog.py`) uses OpenStreetMap and sends the
-  contact address in the pipeline's User-Agent, so it was not run from the
-  build session.
-- **Colorado's Closed verdict.** A place the state closed can still grade A
-  on its violations (a water-line break is one line). Waco's FAILED is an F
-  by decision; Colorado's Closed and Re-Inspection Required do not cap
-  anything yet, on the new portals or the six Front Range counties.
-- **Front Range regrade.** Arapahoe, Douglas, El Paso CO, Larimer, Weld and
-  Adams are still scored on keywords. On the state portal that method gave
-  four times the F's the state's own tiers do (`mhd.md`). The section table
-  built here should reach their lines as it reaches Pueblo's; it needs a
-  D1 export and a regrade seed.
+- **945 places that are not restaurants** are stored under El Paso County,
+  Adams, Weld and Larimer (child care centres, tattoo studios, tyre dealers,
+  splash pads): those portals publish every program on one slug. No more
+  arrive (`programs: ['Retail Food']`); removing the stored ones is a DELETE
+  seed that waits for a yes.
 
 Known limits, no decision needed:
 
-- Broomfield: two thirds of its lines cite no section and stay
-  keyword-tiered; 9 of 32 restaurants are F's (four on real pest findings).
+- Broomfield, Adams, Arapahoe, Larimer and Weld: most lines cite no section
+  and stay keyword-tiered, which runs harsh (56 to 71% of lines counted
+  Priority against 36% on the state's own tiers). Reading each line's
+  category with the violation reader is the remaining way to fix that
+  (`docs/jev-shadow-report.md`).
 - Jackson WY: about a third of Teton County's inspections grade F. Its
   inspectors cite a median of five items a visit; the share holds under two
   other ways of tiering.

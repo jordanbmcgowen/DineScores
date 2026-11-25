@@ -178,18 +178,18 @@ group (9 of 32 restaurants an F, four of them real roach or dropping
 findings). The form's item number does not settle the tier: only 14 of the
 52 items CDPHE cited were always one tier.
 
-Not changed: the six Front Range counties (Arapahoe, Douglas, El Paso,
-Larimer, Weld, Adams). They print the same sections with no designation and
-are still keyword-scored, stored history included. Moving them is a regrade
-from a D1 export, and worth doing: the table would reach them as it reaches
-Pueblo, and the keyword method gave CDPHE four times the F's the state's own
-tiers do.
+The six Front Range counties (Arapahoe, Douglas, El Paso, Larimer, Weld,
+Adams) followed on 2026-11-25: they read the tier the same way, and their
+stored rows were regraded from a D1 export. How far it reaches depends on
+how each county's inspectors write; see
+`docs/co-frontrange-regrade-2026-11-25.md`.
 
 The state's verdict (Pass 0-49 demerits, Re-Inspection Required 50-109,
-Closed 110+ or an imminent hazard) is shipped in `results` and does not cap
-the grade. On the state's tiers a Closed inspection can still grade A (a
-water-line break: one line). Whether Closed should force an F, as FAILED
-does in Waco, is the owner's call.
+Closed 110+ or an imminent hazard) is shipped in `results`. Since
+2026-11-25 a Closed inspection is an F (owner decision, like Waco's FAILED):
+on its lines alone a water-line-break closure graded A. Re-Inspection
+Required caps nothing. Of the nine closures in this backfill, eight scored
+above 65 and were capped.
 
 ## Backfill of the other thirteen, 2026-09-21 to 2026-11-21 (run 2026-11-23)
 
