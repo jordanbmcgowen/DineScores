@@ -1737,6 +1737,10 @@ SOURCE_TIER_SCORE_SOURCES = frozenset({
     'El Paso County CO Health Dept', 'Douglas County CO Health Dept', 'Adams County Health Dept',
     'Arapahoe County Health Dept', 'Larimer County Health Dept', 'Weld County Health Dept',
     'Broomfield Health Dept',
+    # Sonoma County, CA: no score; risk computed from the county's own
+    # MAJ / MIN status on every cited item (MIN split by the form's risk
+    # factor / good retail practice sections), capped by the placard rule.
+    'Sonoma County Environmental Health',
 })
 # Sources whose per-line tier is stated by the source (a level, points, a
 # demerit band, a critical flag).
@@ -1800,6 +1804,8 @@ SOURCE_TIER_SOURCES = frozenset({
     # is 100 - the county's printed total, which those points reproduce:
     # never re-tiered or re-scored.
     'Napa County Environmental Health',
+    # Sonoma County, CA: every cited item's Status is the county's MAJ / MIN.
+    'Sonoma County Environmental Health',
 })
 # Sources whose tier was bounded by a per-item rule the stored row no longer
 # carries (Chicago's item number, NYC's critical flag): a stored core line
