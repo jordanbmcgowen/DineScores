@@ -360,6 +360,16 @@
    },
    "latest": "2026-11-19"
   },
+  "Napa County": {
+   "last_run": {
+    "at": "2026-11-26",
+    "detail": "1 inspection(s) not shipped until their report reads completely (1334708); re-read next run",
+    "latest": "2026-10-28",
+    "records": 215,
+    "status": "ok"
+   },
+   "latest": "2026-10-28"
+  },
   "Omaha": {
    "last_run": {
     "at": "2026-11-22",
@@ -532,7 +542,7 @@
   }
  },
  "jev": {
-  "cache_file": "jev_20261125T211401Z_weekly.jsonl.gz",
+  "cache_file": "jev_20261126T042844Z_weekly.jsonl.gz",
   "decide": [
    "hazard",
    "summary"
@@ -543,45 +553,45 @@
     "regex": 0
    },
    "hazard": {
-    "jev": 2595,
-    "regex": 317
+    "jev": 557,
+    "regex": 108
    },
    "summary": {
-    "jev": 2662,
-    "regex": 250
+    "jev": 629,
+    "regex": 36
    }
   },
-  "distinct_texts": 2894,
-  "elapsed_s": 31.4,
+  "distinct_texts": 591,
+  "elapsed_s": 14.1,
   "f_vs_regex": {
-   "agree": 737,
-   "jev_only": 3,
-   "regex_only": 5
+   "agree": 173,
+   "jev_only": 1,
+   "regex_only": 1
   },
-  "lines": 2912,
-  "lines_with_judgment": 2912,
+  "lines": 665,
+  "lines_with_judgment": 665,
   "mode": "decide",
   "model": "jev-1.13.0",
   "question_set": "qs3",
   "reader": {
    "fallback_reasons": {},
-   "hazard_changed_on_verify": 2,
-   "hazard_verified_alone": 115,
-   "input_tokens": 9815914,
-   "latency_max": 0.5810389518737793,
-   "latency_total": 84.48651194572449,
-   "lines_asked": 2797,
-   "lines_cached": 97,
+   "hazard_changed_on_verify": 12,
+   "hazard_verified_alone": 69,
+   "input_tokens": 2233617,
+   "latency_max": 0.3052513599395752,
+   "latency_total": 16.476948022842407,
+   "lines_asked": 591,
+   "lines_cached": 0,
    "lines_fallback": 0,
-   "lines_judged": 2797,
+   "lines_judged": 591,
    "mode": "decide",
-   "output_tokens": 1649554,
+   "output_tokens": 374212,
    "request_failures": 0,
-   "requests": 349
+   "requests": 119
   },
   "record_errors": 0,
-  "records": 1333,
-  "records_with_violations": 745,
+  "records": 215,
+  "records_with_violations": 175,
   "rescored_records": 0,
   "retiered_lines": 0,
   "status": "ok"
@@ -1339,6 +1349,10 @@
    "group": "NY State",
    "latest": "2026-11-13"
   },
+  "Napa County Environmental Health": {
+   "group": "Napa County",
+   "latest": "2026-10-28"
+  },
   "Orange County Health Care Agency": {
    "group": "Orange County",
    "latest": "2026-11-20"
@@ -1852,5 +1866,5 @@
    "latest": "2026-11-13"
   }
  },
- "updated": "2026-11-25"
+ "updated": "2026-11-26"
 }
