@@ -260,13 +260,16 @@ class TestFetchNapa(unittest.TestCase):
         self.assertEqual(len(records), 20)
 
     def test_first_weekly_run_reads_the_snapshot(self):
-        with mock.patch.object(dp, '_FRESHNESS', {'groups': {}, 'sources': {}}):
-            _, calls = run_fetch(since='2026-10-20')
+        # CI passes a record limit, and the 90-day run recorded a latest:
+        # neither may stop the one whole-snapshot read
+        fresh = {'groups': {dp.NAPA_GROUP: {'latest': '2026-10-22'}}, 'sources': {}}
+        with mock.patch.object(dp, '_FRESHNESS', fresh):
+            _, calls = run_fetch(since='2026-10-20', limit=50000)
         searched = sorted({parse_qs(urlparse(c).query)['sd'][0] for c in calls if 'search.cfm' in c})
         self.assertIn('01/01/2025', searched)
-        with mock.patch.object(dp, '_FRESHNESS', {'groups': {dp.NAPA_GROUP: {'latest': '2026-10-22'}},
-                                                  'sources': {}}):
-            _, calls = run_fetch(since='2026-10-20')
+        self.assertEqual(fresh['sources'][dp.NAPA_SOURCE]['history_from'], dp.NAPA_HISTORY_START)
+        with mock.patch.object(dp, '_FRESHNESS', fresh):
+            _, calls = run_fetch(since='2026-10-20', limit=50000)
         searched = sorted({parse_qs(urlparse(c).query)['sd'][0] for c in calls if 'search.cfm' in c})
         self.assertEqual(searched, ['10/13/2026'])
 

@@ -15280,12 +15280,16 @@ def fetch_napa(since_date=None, limit=None):
     """
     requested = str(since_date)[:10] if since_date else None
     since = requested
-    first_run = (since and not limit and _FRESHNESS is not None
-                 and not (_FRESHNESS.get('groups', {}).get(NAPA_GROUP) or {}).get('latest'))
+    # The whole snapshot (every facility last inspected since
+    # NAPA_HISTORY_START, ~1,400 reports) is read once, on the first weekly
+    # run after it has never been read, so the map starts with the county.
+    # The marker is the source's 'history_from', set only after a read that
+    # returned; it cannot depend on limit (CI passes --max-records) or on the
+    # group's latest (the 2026-11-26 run that read 90 days recorded one).
+    first_run = bool(since and _FRESHNESS is not None
+                     and (_FRESHNESS.get('sources', {}).get(NAPA_SOURCE) or {})
+                     .get('history_from') != NAPA_HISTORY_START)
     if first_run:
-        # the group's first weekly run reads the whole snapshot (every
-        # facility last inspected since NAPA_HISTORY_START, ~1,400 reports)
-        # instead of the 90-day re-read, so the map starts with the county
         since = min(since, NAPA_HISTORY_START)
     elif since and NAPA_REREAD_DAYS:
         floor = (datetime.now() - timedelta(days=NAPA_REREAD_DAYS)).strftime('%Y-%m-%d')
@@ -15402,8 +15406,11 @@ def fetch_napa(since_date=None, limit=None):
                                f'report layout changed, not shipping')
         log.warning(f"  Napa County: {len(unread)} inspection(s) dropped (re-read next run): "
                     + '; '.join(f'{i} {d}: {why}' for i, d, why in unread[:5]))
-    if not limit:
+    if requested:
         _note_source_lag(NAPA_GROUP, newest)
+    if first_run:
+        _FRESHNESS['sources'].setdefault(NAPA_SOURCE, {'group': NAPA_GROUP})['history_from'] = \
+            NAPA_HISTORY_START
     if unread:
         _GROUP_NOTES[NAPA_GROUP] = '; '.join(x for x in (
             _GROUP_NOTES.get(NAPA_GROUP),
