@@ -460,6 +460,16 @@
    },
    "latest": "2026-11-19"
   },
+  "Sonoma County": {
+   "last_run": {
+    "at": "2026-11-26",
+    "detail": "1 report(s) not read (3 Status lines, 2 items read)",
+    "latest": "2026-11-20",
+    "records": 925,
+    "status": "ok"
+   },
+   "latest": "2026-11-20"
+  },
   "South Carolina": {
    "last_run": {
     "at": "2026-11-22",
@@ -542,7 +552,7 @@
   }
  },
  "jev": {
-  "cache_file": "jev_20261126T052020Z_weekly.jsonl.gz",
+  "cache_file": "jev_20261126T053018Z_weekly.jsonl.gz",
   "decide": [
    "hazard",
    "summary"
@@ -553,45 +563,45 @@
     "regex": 0
    },
    "hazard": {
-    "jev": 5039,
-    "regex": 996
+    "jev": 2535,
+    "regex": 577
    },
    "summary": {
-    "jev": 5645,
-    "regex": 390
+    "jev": 2847,
+    "regex": 265
    }
   },
-  "distinct_texts": 5086,
-  "elapsed_s": 54.2,
+  "distinct_texts": 2952,
+  "elapsed_s": 32.2,
   "f_vs_regex": {
-   "agree": 1653,
-   "jev_only": 15,
-   "regex_only": 1
+   "agree": 742,
+   "jev_only": 1,
+   "regex_only": 10
   },
-  "lines": 6035,
-  "lines_with_judgment": 6035,
+  "lines": 3112,
+  "lines_with_judgment": 3112,
   "mode": "decide",
   "model": "jev-1.13.0",
   "question_set": "qs3",
   "reader": {
    "fallback_reasons": {},
-   "hazard_changed_on_verify": 87,
-   "hazard_verified_alone": 438,
-   "input_tokens": 16650218,
-   "latency_max": 0.558784008026123,
-   "latency_total": 135.7291533946991,
-   "lines_asked": 4495,
-   "lines_cached": 591,
+   "hazard_changed_on_verify": 9,
+   "hazard_verified_alone": 200,
+   "input_tokens": 10603267,
+   "latency_max": 0.5840740203857422,
+   "latency_total": 76.3871386051178,
+   "lines_asked": 2951,
+   "lines_cached": 1,
    "lines_fallback": 0,
-   "lines_judged": 4495,
+   "lines_judged": 2951,
    "mode": "decide",
-   "output_tokens": 2796365,
+   "output_tokens": 1786274,
    "request_failures": 0,
-   "requests": 813
+   "requests": 446
   },
   "record_errors": 0,
-  "records": 2117,
-  "records_with_violations": 1669,
+  "records": 925,
+  "records_with_violations": 753,
   "rescored_records": 0,
   "retiered_lines": 0,
   "status": "ok"
@@ -1643,6 +1653,10 @@
   },
   "Smith County TX Health Dept": {
    "group": "MHD metros (midweek)",
+   "latest": "2026-11-20"
+  },
+  "Sonoma County Environmental Health": {
+   "group": "Sonoma County",
    "latest": "2026-11-20"
   },
   "Southern Nevada Health District": {
