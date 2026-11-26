@@ -684,13 +684,23 @@ read yet. The ones worth building next:
   units by permit type and pre-opening visits by purpose.
 - **A published 0 on a 0-100 MHD scale is "not scored", never a zero.**
   Orange County TX sends 0 on every `Visit` row and on unscored follow-ups,
-  the Portland-metro counties on lodging visits; each shipped as an F at
-  risk 0 with nothing cited (about 40 embedded Oregon places when this was
-  found, 2026-11-23; their stored rows still need a cleanup seed from a D1
-  export). `_fetch_mhd_jurisdiction_api` now grades such a row from its
-  observations and leaves it out when it has none (`unscored_zero`); a
-  window that is mostly zeros raises. The `tx-demerit` and `demerit` scales
-  keep their 0 (no demerits).
+  Dallas on its 'Retail Food Establishment (No Score)' visits, the
+  Portland-metro counties on lodging visits; each shipped as an F at risk 0
+  with nothing cited. `_fetch_mhd_jurisdiction_api` now grades such a row
+  from its observations and leaves it out when it has none
+  (`unscored_zero`); a window that is mostly zeros raises. The `tx-demerit`
+  and `demerit` scales keep their 0 (no demerits). Multnomah, Washington and
+  Clackamas counties also publish hotel, RV park, organised camp and pool
+  inspections on the restaurant slugs (`MHD_OR_NON_FOOD_TYPE_RE`, an
+  `exclude` on `inspectionType`; every food type starts with 'Food'). The
+  stored rows were cleaned on 2026-11-26 (`scripts/unscored_cleanup.py`,
+  export built from the site's own `/api/restaurants/:id` and `/history`):
+  265 places deleted (257 of them F's: motels, RV parks, camps, and 8 Dallas
+  places with only unscored visits), 846 inspections removed, 194 rows
+  rebuilt or re-weighted (F's among them 89 to 7, the 7 with a pest line).
+  A 0 also left a sticky F behind: a kept data.js record never upgrades an F
+  without new text (`_apply_grades`), so the cleanup re-reads the latest
+  lines' text decision rather than keeping the stored F.
 - **Colorado's state library gives every cited provision a tier; score on
   it.** CDPHE's template prints it ("This is a Core item 6-501.111(A-B), and
   (D) ..."), and the keyword classifier ignored it: 405 of 836 Core lines

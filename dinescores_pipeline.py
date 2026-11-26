@@ -273,6 +273,13 @@ MHD_MIDWEEK_GROUP = MHD_VA_GROUP
 # reason); a pre-opening visit is of a place that is not operating yet.
 MHD_MOBILE_PERMIT_RE = r'(?i)\bmobile\b'
 MHD_PREOPENING_PURPOSE_RE = r'(?i)^\s*(?:pre-?\s?op|opening\b)'
+# The Portland-metro counties inspect hotels, RV parks, organised camps and
+# pools on the same slugs as restaurants, and publish a score of 0 on those
+# visits ("Traveler's Accommodation 2009", "Recreational Park 2009",
+# "Organizational Camp 2020", "Pool 2014"): until 2026-11-26 they shipped as
+# restaurants graded F at 0 (459 stored places with the Dallas 'No Score'
+# visits; scripts/unscored_cleanup.py). Food types all start with 'Food'.
+MHD_OR_NON_FOOD_TYPE_RE = r"(?i)^\s*(?:traveler|recreational park|organizational camp|pool)"
 
 
 def _mhd_va_district(district, default_city, metro=''):
@@ -292,11 +299,14 @@ MHD_METRO_JURISDICTIONS = {
     # OR 0-100 scores) and Clark County WA across the river (pass/fail only).
     # Note ~2-week publishing lag — recent empty windows are normal.
     'multco-eh':            {'display_name': 'Multnomah County', 'default_city': 'Portland',
-                             'state': 'OR', 'metro': 'Portland', 'lag_days': 21},
+                             'state': 'OR', 'metro': 'Portland', 'lag_days': 21,
+                             'exclude': {'inspectionType': MHD_OR_NON_FOOD_TYPE_RE}},
     'or-washington-county': {'display_name': 'Washington County OR', 'default_city': 'Hillsboro',
-                             'state': 'OR', 'metro': 'Portland', 'lag_days': 21},
+                             'state': 'OR', 'metro': 'Portland', 'lag_days': 21,
+                             'exclude': {'inspectionType': MHD_OR_NON_FOOD_TYPE_RE}},
     'or-clackamas-county':  {'display_name': 'Clackamas County', 'default_city': 'Oregon City',
-                             'state': 'OR', 'metro': 'Portland', 'lag_days': 21},
+                             'state': 'OR', 'metro': 'Portland', 'lag_days': 21,
+                             'exclude': {'inspectionType': MHD_OR_NON_FOOD_TYPE_RE}},
     'clarkcountywa':        {'display_name': 'Clark County WA', 'default_city': 'Vancouver',
                              'state': 'WA', 'score_scale': 'none', 'metro': 'Portland', 'lag_days': 21},
     # Colorado Front Range (demerit points, lower better). programName

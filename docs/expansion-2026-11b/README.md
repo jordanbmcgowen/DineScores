@@ -101,10 +101,17 @@ Decided and done on 2026-11-25:
   better) placed 579 of the 1,085 restaurants the Census geocoder had
   missed (El Paso 173, Kansas City 143). Every pin lies within 40 km of its
   town's other restaurants (`scripts/backfill/pins_seed.py`); they went
-  back as coordinates only. 506 are still without a pin, and Corpus
-  Christi's 185 were not tried: its records carry no town (Port Aransas and
-  Robstown are labelled Corpus Christi), so a street match could land in
-  the wrong town.
+  back as coordinates only. A third pass on 2026-11-26 took the 691 still
+  without one (Corpus Christi's 185 included): unit tokens stripped
+  ('Ste B-101', '#12', 'Unit C-103'), El Paso's misplaced suffixes put back
+  ('4726 Transmountain Ste E Dr' became '4726 Transmountain Dr'), then Census
+  and a structured OpenStreetMap search (street, city, state; then ZIP; then
+  Nueces County for Corpus Christi). 378 placed
+  (`data/d1_seed_2026-11-26_map_pins.sql.gz`, same guard): a street-only
+  match had to land in the record's own town (63 left out), and every pin
+  is within 40 km of its town's other restaurants (10 left out, 2 outside
+  the state). 313 remain, mostly rural routes, mobile units and addresses
+  with no house number.
 
 Known limits, no decision needed:
 
@@ -128,8 +135,10 @@ Found along the way, not fixed here:
 
 - About 40 Portland-area places (mostly hotels) are stored as F's at score
   0 with nothing cited: the portal's 0 means "not scored". New fetches are
-  fixed (`unscored_zero`); the stored rows need a cleanup seed from a D1
-  export.
+  fixed (`unscored_zero`). Cleaned 2026-11-26 with
+  `scripts/unscored_cleanup.py`: it turned out to be 459 stored places (the
+  embedded file held 40 of them), Portland-metro hotels, RV parks and camps
+  plus Dallas's unscored visits; see the invariant in CLAUDE.md.
 - The violation reader gave Cluck & Boba (Wichita Falls) an F for a door
   gap "to prevent entry of pests such as ants". A pest named only as the
   thing prevented should not count as a named vermin.
