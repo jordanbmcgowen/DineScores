@@ -3199,8 +3199,11 @@ FL_DOWNLOAD_BACKOFF = 3.0
 FL_DISTRICT_FILES = [f'{i}fdinspi.csv' for i in range(1, 8)]
 
 
-def _parse_florida_rows(reader, fname, since_date=None, limit=None, counties=None, rejected=None):
-    """Shared CSV/workbook parser; county scope never depends on postal city."""
+def _parse_florida_rows(reader, fname, since_date=None, limit=None, counties=None, rejected=None,
+                        recheck=None):
+    """Shared CSV/workbook parser; county scope never depends on postal city.
+    `recheck` holds source ids read regardless of since_date (rows rejected
+    by an earlier run, re-checked every run until the state fixes them)."""
     results = []
     header = next(reader, None)
     if not header:
@@ -3226,7 +3229,8 @@ def _parse_florida_rows(reader, fname, since_date=None, limit=None, counties=Non
                 datetime.strptime(raw_date, '%m/%d/%Y').strftime('%Y-%m-%d'))
             if not insp_date:
                 continue
-            if since_date and insp_date < str(since_date)[:10]:
+            if since_date and insp_date < str(since_date)[:10] and not (
+                    recheck and f"fl_{row[idx['Inspection Number']]}_{row[idx['Visit Number']]}" in recheck):
                 continue
             name = row[idx['Business (DBA-Does Business As) Name']].strip()
             if not name:
@@ -3329,24 +3333,49 @@ def fetch_florida(since_date=None, limit=None, district_files=None, counties=Non
     results = []
     rejected = [] if rejected is None else rejected
     rejected_start = len(rejected)
-    for fname in (FL_DISTRICT_FILES if district_files is None else district_files):
+    # Rows an earlier run rejected: re-checked every run whatever the window
+    # (the extract holds the whole fiscal year), until the state fixes them.
+    state = (_FRESHNESS['sources'].setdefault('Florida DBPR', {'group': 'Florida'})
+             if _FRESHNESS is not None else {})
+    known = dict(state.get('pending_rejected') or {})
+    files = list(FL_DISTRICT_FILES if district_files is None else district_files)
+    for fname in files:
         r = _fl_download(fname)
         reader = csv_mod.reader(io.StringIO(r.content.decode('latin-1')))
         remaining = max(0, limit - len(results)) if limit else None
-        results.extend(_parse_florida_rows(reader, fname, since_date, remaining, counties, rejected))
+        results.extend(_parse_florida_rows(reader, fname, since_date, remaining, counties, rejected,
+                                           recheck=set(known)))
         if limit and len(results) >= limit:
             break
     current_rejected = rejected[rejected_start:]
+    # Missing official counts can be corrected later. The row is never
+    # scored as clean and never sinks the statewide refresh; it waits in
+    # 'pending_rejected' instead of holding the window. Holding it (with no
+    # give-up) pinned Florida's freshness at 2026-11-09 for good over one
+    # row and turned every run red.
+    if _FRESHNESS is not None and counties is None and not limit:
+        floor = (datetime.now() - timedelta(days=FRESHNESS_LOOKBACK_API_DAYS)).strftime('%Y-%m-%d')
+        # entries from extracts this call did not read stay as they were
+        now_pending = {k: v for k, v in known.items()
+                       if isinstance(v, dict) and v.get('extract') not in files}
+        now_pending.update({item['source_id']: {'date': item['inspection_date'], 'extract': item['extract']}
+                            for item in current_rejected})
+        now_pending = {k: v for k, v in now_pending.items() if v.get('date', '') >= floor}
+        if now_pending:
+            state['pending_rejected'] = dict(sorted(now_pending.items()))
+        else:
+            state.pop('pending_rejected', None)
     if current_rejected:
-        for item in current_rejected:
-            # Missing official counts can be corrected later. Preserve the
-            # retry window indefinitely, without scoring the row as clean
-            # or discarding the rest of a statewide weekly refresh.
-            _hold_freshness('Florida DBPR', item['inspection_date'], counted=False,
-                            key=item['source_id'])
-        detail = f"{len(current_rejected)} inspections have unusable official counts; held for retry"
-        _GROUP_STATUS['Florida'] = ('error', detail)
-        log.warning(f"Florida: {detail}")
+        new = [item for item in current_rejected if item['source_id'] not in known]
+        ids = ', '.join(f"{item['source_id']} ({item['inspection_date']}, {item['reason']})"
+                        for item in current_rejected)
+        detail = (f"{len(current_rejected)} inspections have unusable official counts "
+                  f"({len(new)} new); re-checked every run")
+        if new:
+            _GROUP_STATUS['Florida'] = ('error', detail)
+        else:
+            _GROUP_NOTES['Florida'] = detail
+        log.warning(f"Florida: {detail}: {ids}")
     log.info(f"Florida: {len(results)} inspections")
     return results
 
@@ -6450,8 +6479,36 @@ def _mhd_rotate_connection(session, force=False):
     session._mhd_searches = n
 
 
+def _mhd_take_search_cooldown(label=''):
+    """Wait out a ban that has reached the SEARCH endpoint, once per search,
+    from the same budget as the detail-page cooldowns. Returns False (and
+    waits nothing) when the budget or the fetch deadline has no room for it.
+
+    Measured 2026-11-22: a burst of ~310 detail pages (Clackamas, then
+    Multnomah) was followed by a 403 on the very next search, through a
+    reconnect and the whole 3-minute retry ladder, and the breaker then
+    wrote off DFW and 15 metros for the week. Detail bans lift in ~15
+    minutes (MHD_BAN_COOLDOWN); the 2026-11-08 and 2026-11-25 runs saw
+    search 403s clear after a reconnect. A search block that outlasts one
+    cooldown is still a block: the breaker trips as before."""
+    global _MHD_COOLDOWNS_USED
+    with _MHD_BLOCK_LOCK:
+        if _MHD_COOLDOWNS_USED >= MHD_BAN_COOLDOWNS:
+            return False
+        if (_FETCH_DEADLINE is not None
+                and time.time() + MHD_BAN_COOLDOWN + 120 > _FETCH_DEADLINE):
+            return False
+        _MHD_COOLDOWNS_USED += 1
+        used = _MHD_COOLDOWNS_USED
+    log.warning(f"  MHD search 403s through every retry{f' ({label})' if label else ''} — "
+                f"waiting {MHD_BAN_COOLDOWN / 60:.0f} min for a ban to lift before calling "
+                f"the portal blocked (cooldown {used}/{MHD_BAN_COOLDOWNS})")
+    time.sleep(MHD_BAN_COOLDOWN)
+    return True
+
+
 def _mhd_search_page(session, path, date_range_str, start_offset, retry_count=0,
-                     search_str='', purpose='', sort=None):
+                     search_str='', purpose='', sort=None, cooled=False):
     """
     Fetch one page of search results from MHD portal API.
 
@@ -6504,7 +6561,7 @@ def _mhd_search_page(session, path, date_range_str, start_offset, retry_count=0,
                 session._mhd_reconnected = True
                 log.info(f"  MHD {r.status_code} on a search — reconnected and retrying")
                 result = _mhd_search_page(session, path, date_range_str, start_offset,
-                                          retry_count, search_str, purpose, sort)
+                                          retry_count, search_str, purpose, sort, cooled)
                 session._mhd_reconnected = False
                 return result
             if retry_count < MHD_MAX_RETRIES:
@@ -6520,9 +6577,14 @@ def _mhd_search_page(session, path, date_range_str, start_offset, retry_count=0,
                             f"{retry_count + 1}/{MHD_MAX_RETRIES}...")
                 time.sleep(wait)
                 return _mhd_search_page(session, path, date_range_str, start_offset,
-                                        retry_count + 1, search_str, purpose, sort)
+                                        retry_count + 1, search_str, purpose, sort, cooled)
+            if not cooled and not _past_deadline() and _mhd_take_search_cooldown(path):
+                _mhd_rotate_connection(session, force=True)
+                return _mhd_search_page(session, path, date_range_str, start_offset,
+                                        0, search_str, purpose, sort, cooled=True)
             _MHD_PORTAL_BLOCKED = True
-            log.error(f"  MHD blocked ({r.status_code}) after {retry_count} retries — "
+            log.error(f"  MHD blocked ({r.status_code}) after {retry_count} retries"
+                      f"{' and a ban cooldown' if cooled else ''} — "
                       f"skipping the portal's remaining fetches this run")
             return None
         r.raise_for_status()
@@ -8951,6 +9013,9 @@ TP_BACKOFF = 10            # seconds × attempt between retries
 TP_TIMEOUT = 90
 TP_DAY_REREADS = 2         # re-reads of a day whose pages shifted under the run
 TP_MAX_DAY_PAGES = 2000    # runaway guard for one day's list (10,000 rows)
+TP_REREAD_MAX = 1000       # facilities re-read at the end of a run (failed or held); more means the portal is down
+TP_REREAD_PAUSE = 60       # seconds before that second read
+TP_MAX_SKIPPED_PAGES = 3   # poison list pages (500 forever, next page fine) skipped per day; see _tp_day_rows
 TP_MASS_FAILURE_MIN = 20   # unreadable facility histories in one run that make the run red (more than half: raise)
 TP_REREAD_MARGIN_DAYS = 14 # a read facility also ships its inspections this many days before the window start
 TP_LISTING_MARGIN_DAYS = int(os.environ.get('TP_LISTING_MARGIN_DAYS', '0'))   # widen every window start (late publication)
@@ -9285,22 +9350,44 @@ class _TpDeadlineCut(RuntimeError):
     """The fetch deadline passed in the middle of a day's facility list."""
 
 
-def _tp_day_rows(session, cfg, day):
+def _tp_day_rows(session, cfg, day, skipped_pages=None):
     """Every facility whose last inspection is dated `day` (all pages of one
     single-day search). Raises RuntimeError when a page cannot be read or the
     day's pages kept shifting under the run, _TpDeadlineCut when the deadline
-    passed while a page was being retried."""
+    passed while a page was being retried.
+
+    One page that 500s through every retry while the page AFTER it reads is
+    a poison row, not a portal outage: Louisiana's 2026-11-05 list answered
+    500 on one page (57, 60, then 56 as the rows above it moved) and 200 on
+    every other page for three weeks, and raising on it shipped NOTHING for
+    the whole state two Sundays running. When `skipped_pages` is a list, up
+    to TP_MAX_SKIPPED_PAGES such pages a day are skipped and appended to it
+    as (day, page) (the caller holds the day); two unreadable pages in a row
+    still raise."""
     group = cfg['group']
     problem = ''
     for attempt in range(TP_DAY_REREADS + 1):
-        rows, page = [], 0
+        rows, page, skipped = [], 0, []
         while True:
             data = _tp_get_json(session, _tp_search_url(cfg['api'], cfg['day_filters'](day), page),
                                 group, cfg['portal'])
             if not isinstance(data, list):
                 if _past_deadline():
                     raise _TpDeadlineCut(f'{group}: fetch deadline reached while listing {day}')
-                raise RuntimeError(f'{group}: search page {page} for {day} could not be read')
+                if skipped_pages is not None and len(skipped) < TP_MAX_SKIPPED_PAGES:
+                    nxt = _tp_get_json(session, _tp_search_url(cfg['api'], cfg['day_filters'](day), page + 1),
+                                       group, cfg['portal'])
+                    if isinstance(nxt, list):
+                        log.warning(f"  {group}: search page {page} for {day} errors on every try while "
+                                    f"page {page + 1} reads — skipping it (up to {TP_PAGE_SIZE} "
+                                    f"facilities, held)")
+                        skipped.append((day, page))
+                        data = nxt
+                        page += 1
+                if not isinstance(data, list):
+                    if _past_deadline():
+                        raise _TpDeadlineCut(f'{group}: fetch deadline reached while listing {day}')
+                    raise RuntimeError(f'{group}: search page {page} for {day} could not be read')
             if not data:
                 break
             rows.extend(data)
@@ -9310,6 +9397,8 @@ def _tp_day_rows(session, cfg, day):
             time.sleep(TP_DELAY)
         problem = _tp_order_problem(rows, day)
         if not problem:
+            if skipped_pages is not None:
+                skipped_pages.extend(skipped)
             return rows
         log.warning(f"  {group}: the {day} list shifted under the run ({problem}) — re-reading")
     raise RuntimeError(f'{group}: the {day} facility list kept shifting ({problem})')
@@ -9391,6 +9480,7 @@ def _tp_fetch(cfg, since_date, limit):
     # 1. List the facilities with a last inspection in the window.
     facilities = {}            # base64 id -> (row, day listed under)
     complete = True            # the whole window was listed and nothing was cut
+    skipped_pages = []         # (day, page) list pages skipped as poison rows
     if since:
         first = datetime.strptime(start, '%Y-%m-%d')
         days = [(first + timedelta(days=i)).strftime('%Y-%m-%d')
@@ -9401,7 +9491,7 @@ def _tp_fetch(cfg, since_date, limit):
             day_rows = None
             if not _past_deadline():
                 try:
-                    day_rows = _tp_day_rows(session(), cfg, day)
+                    day_rows = _tp_day_rows(session(), cfg, day, skipped_pages)
                 except _TpDeadlineCut:
                     day_rows = None
             if day_rows is None:
@@ -9424,6 +9514,19 @@ def _tp_fetch(cfg, since_date, limit):
         complete = ended
     log.info(f"  {group}: {len(facilities)} facilities listed since {start}"
              f"{'' if complete else ' (bounded read)'}")
+    # A skipped poison page holds its day (counted, one key per day, so a
+    # page that never heals is given up after FRESHNESS_HOLD_GIVE_UP_RUNS
+    # runs) and makes the run red until then: up to TP_PAGE_SIZE facilities
+    # of that day were not read.
+    live_skips = []
+    for day, page in skipped_pages:
+        key = f'list-page:{day}'
+        _hold_freshness(source, day, counted=True, key=key)
+        if not _hold_given_up(source, day, key):
+            live_skips.append(f'{day} page {page}')
+    if live_skips:
+        _set_group_status(group, 'error', f"search page(s) that error on every try were skipped "
+                                          f"and held: {', '.join(live_skips)}")
 
     # 2. Facilities another source already covers (Georgia's GNR counties).
     if facilities and cfg.get('excluded_ids'):
@@ -9466,33 +9569,75 @@ def _tp_fetch(cfg, since_date, limit):
     if unreadable >= TP_MASS_FAILURE_MIN and unreadable * 2 > tried:
         raise RuntimeError(f'{group}: {unreadable} of {tried} facility histories could not be read — '
                            f'the portal is not answering; nothing shipped')
-    if unreadable >= TP_MASS_FAILURE_MIN:
-        _set_group_status(group, 'error', f'{unreadable} of {tried} facility histories could not be read '
-                                          f'(dropped and held for the next run)')
 
     # 4. Records: every inspection dated from `ship_from`, deduped by
     #    inspection id; a facility that could not be read drops and holds the
     #    day it was listed under (counted only when it was tried).
+    def build(fid):
+        """('deadline'|'failed', None) or ('built', (recs, holds)) or
+        ('parse', exception) for one facility's history."""
+        row, day = facilities[fid]
+        hist = histories.get(fid, 'failed')
+        if hist in ('deadline', 'failed'):
+            return hist, None
+        try:
+            return 'built', cfg['build'](row, hist, ship_from, day)
+        except Exception as e:  # noqa: BLE001 - one bad facility must not sink the state
+            return 'parse', e
+
+    built = {fid: build(fid) for fid in ordered}
+    # A second read, a minute later, of every facility whose history failed
+    # or held an inspection. Georgia's portal serves a fraction of a percent
+    # of histories incomplete under load (44 of 9,356 on 2026-11-22, every
+    # one of them complete when re-read days later), and each run's earliest
+    # such facility held the state's freshness at the window start: a
+    # 60-day window, re-read in full every Sunday since September.
+    retry = [fid for fid, (kind, out) in built.items()
+             if kind == 'failed' or kind == 'parse' or (kind == 'built' and out[1])]
+    if retry and len(retry) <= TP_REREAD_MAX and not _past_deadline():
+        log.info(f"  {group}: re-reading {len(retry)} facilities whose history failed or held "
+                 f"an inspection, after {TP_REREAD_PAUSE}s")
+        time.sleep(TP_REREAD_PAUSE)
+        healed = 0
+        for fid in retry:
+            if _past_deadline():
+                break
+            _, hist = work(fid)
+            if isinstance(hist, list):
+                prev = histories.get(fid)
+                histories[fid] = hist
+                again = build(fid)
+                if again[0] == 'built' and not again[1][1]:
+                    healed += 1
+                if again[0] == 'built' or built[fid][0] != 'built':
+                    built[fid] = again
+                else:
+                    histories[fid] = prev
+        log.info(f"  {group}: {healed} of {len(retry)} re-read facilities came back complete")
+    unreadable = sum(1 for kind, _ in built.values() if kind == 'failed')
+    if unreadable >= TP_MASS_FAILURE_MIN:
+        _set_group_status(group, 'error', f'{unreadable} of {tried} facility histories could not be read '
+                                          f'(dropped and held for the next run)')
+
     records, seen, failed, cut = [], set(), 0, 0
     for fid in ordered:
         row, day = facilities[fid]
-        hist = histories.get(fid, 'failed')
         key = _tp_facility_id(fid) or fid
-        if hist == 'deadline':
+        kind, out = built[fid]
+        if kind == 'deadline':
             cut += 1
             _hold_freshness(source, day, counted=False, key=key)
             continue
-        if hist == 'failed':
+        if kind == 'failed':
             failed += 1
             _hold_freshness(source, day, counted=True, key=key)
             continue
-        try:
-            recs, holds = cfg['build'](row, hist, ship_from, day)
-        except Exception as e:  # noqa: BLE001 - one bad facility must not sink the state
-            log.warning(f"  {group}: facility {key} could not be parsed ({e}); dropped and held")
+        if kind == 'parse':
+            log.warning(f"  {group}: facility {key} could not be parsed ({out}); dropped and held")
             _hold_freshness(source, day, counted=True, key=key)
             failed += 1
             continue
+        recs, holds = out
         for d in holds:
             _hold_freshness(source, d, counted=True, key=key)
         for r in recs:
@@ -10880,6 +11025,7 @@ def fetch_maricopa(since_date=None, limit=None):
         return cand, outcome
 
     dropped_ids = defaultdict(list)
+    pending_before, new_pending = set(pending), []
     with ThreadPoolExecutor(max_workers=max(1, MCESD_DETAIL_WORKERS)) as pool:
         for cand, outcome in pool.map(work, candidates):
             d, permit, row = cand
@@ -10893,10 +11039,19 @@ def fetch_maricopa(since_date=None, limit=None):
             if tried:
                 dropped_ids[outcome].append(f"{row['permit']}/{row['inspection']}")   # every id: a blind spot is diagnosed from the log
             if outcome in MCESD_PENDING_OUTCOMES:
+                # Dropped, never shipped clean, and queued: the queue retries
+                # it every run outside the date window, so it does not ALSO
+                # hold the window. Holding it did nothing the queue does not
+                # and pinned the county's freshness at the oldest pending
+                # report for good (2026-09-20, a dog-friendly-patio report
+                # with no published tier, from 2026-11-08 on).
+                if pending_key not in pending_before:
+                    new_pending.append(pending_key)
                 pending[pending_key] = {'date': d, 'permit': permit, 'row': row, 'reason': outcome}
-            # Dropped, never shipped clean. Tried-and-failed drops count
-            # toward the give-up only when not a persistently pending report.
-            _hold_freshness(MCESD_SOURCE, d, counted=tried and pending_key not in pending, key=row['inspection'])
+                continue
+            # Dropped, never shipped clean; tried-and-failed drops count
+            # toward the give-up.
+            _hold_freshness(MCESD_SOURCE, d, counted=tried, key=row['inspection'])
     if _FRESHNESS is not None:
         source_state = _FRESHNESS['sources'].setdefault(MCESD_SOURCE, {'group': MCESD_GROUP})
         if pending:
@@ -10916,16 +11071,28 @@ def fetch_maricopa(since_date=None, limit=None):
         status = 'blocked'
         problems.append(f"portal blocked ({MCESD_BREAKER_TRIP} detail pages in a row unreadable); "
                         f"{failures['blocked']} detail pages not read")
-    if not_read >= MCESD_UNREAD_ERROR_MIN or remaining_pending:
+    summary = (f"{not_read} detail pages answered but gave no inspection "
+               f"({failures.get('unread', 0)} not readable, {failures.get('unavailable', 0)} "
+               f"'Inspection Not Available', {failures.get('missing_tiers', 0)} missing published tiers, "
+               f"{failures.get('source_unavailable', 0)} 'Data Not Currently Available'); "
+               f"{remaining_pending} pending; ids in the log")
+    # Already-queued reports the county has not fixed are failures it did
+    # not newly make: counting them made every run red for the same dozen
+    # pages (dog-friendly patios and play areas print no tier, and never
+    # will). Red is for a NEW pending report or a fresh burst of unread
+    # pages; the known queue is a note on the report row.
+    known_failed = sum(1 for k in pending_before if k not in resolved_pending)
+    fresh_not_read = max(0, not_read - known_failed)
+    if fresh_not_read >= MCESD_UNREAD_ERROR_MIN or new_pending:
         # Pages the portal answered that gave no inspection are a parser
         # blind spot or a portal change, never a transient: red, with every
-        # id in the log, before the holds give them up.
+        # id in the log.
         status = status or 'error'
-        problems.append(f"{not_read} detail pages answered but gave no inspection "
-                        f"({failures.get('unread', 0)} not readable, {failures.get('unavailable', 0)} "
-                        f"'Inspection Not Available', {failures.get('missing_tiers', 0)} missing published tiers, "
-                        f"{failures.get('source_unavailable', 0)} 'Data Not Currently Available'); "
-                        f"{remaining_pending} pending; ids in the log")
+        problems.append(summary + (f"; new this run: {', '.join(new_pending)}" if new_pending else ''))
+    elif remaining_pending:
+        note = (f"{remaining_pending} reports the county published incomplete are re-read "
+                f"every run (none new); ids in the log")
+        _GROUP_NOTES[MCESD_GROUP] = '; '.join(x for x in (_GROUP_NOTES.get(MCESD_GROUP), note) if x)
     if problems:
         _set_group_status(MCESD_GROUP, status or 'error', '; '.join(problems))
     if failures:
@@ -18731,6 +18898,22 @@ def _hold_window_start(source, start, counted=True, key='', advance=False):
         return
     _hold_freshness(source, (day + timedelta(days=1 + FRESHNESS_OVERLAP_DAYS)).strftime('%Y-%m-%d'),
                     counted, key, advance)
+
+
+def _hold_given_up(source, inspection_date, key=''):
+    """True when the hold keyed (date, key) for `source` was already given up
+    by an earlier run (FRESHNESS_HOLD_GIVE_UP_RUNS tried-and-failed runs), or
+    reaches the give-up count with this run's failure. Lets a fetcher stop
+    turning the run red for a record it has failed on often enough to write
+    off, while still trying it (a record that heals ships as usual)."""
+    if _FRESHNESS is None:
+        return False
+    k = f'{str(inspection_date or "")[:10]}|{key or ""}'
+    e = _FRESHNESS['sources'].get(source) or {}
+    if k in set(e.get('given_up') or []):
+        return True
+    runs = ((e.get('hold') or {}).get('failures') or {}).get(k, 0)
+    return runs + 1 >= FRESHNESS_HOLD_GIVE_UP_RUNS
 
 
 def _set_group_status(group, status, detail=''):

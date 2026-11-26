@@ -58,3 +58,13 @@ lookback window, same-day known inspections, absent listings, transport
 failure, deadline interruption, and removal only after a complete read.
 The repository's entire offline Python suite, relay tests and Python compile
 checks are required before publication.
+
+## Update, November 26, 2026
+
+The queue stays, and every queued report is still retried every run and
+never shipped clean. Two things changed after three red Sundays in a row
+for the same pages: a queued report no longer also holds the date window
+(the hold pinned Maricopa's freshness at 2026-09-20 and the queue already
+retries it), and only a newly queued report, or a fresh burst of unread
+pages, makes the run red. Known queued reports appear as a note on the
+Maricopa row of the run summary.

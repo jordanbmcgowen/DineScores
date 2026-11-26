@@ -942,9 +942,10 @@ class FailureTests(MaricopaTestCase):
         self.assertEqual([r['source_id'] for r in records], ['mcesd_FD2602160_INSP-900002-2026'])
         self.assertEqual(portal.detail_requests('FD-00408'), dp.MCESD_ATTEMPTS)
         self.assertEqual(portal.detail_requests('FD-00570'), 1)
+        # the unread report (INSP-067508) is queued in pending_details and
+        # retried from there; it does not also hold the window
         self.assertEqual(dp._FRESHNESS_HOLDS[SOURCE], {
             '2026-10-19|INSP-026373-2026': (True, False),
-            '2026-08-18|INSP-067508-2026': (False, False),
             '2026-08-18|INSP-900001-2026': (True, False),
         })
         self.assertEqual(dp._GROUP_STATUS[GROUP][0], 'error')         # even one pending report must stay visible
@@ -1199,6 +1200,28 @@ class IncompleteReportRetryTests(MaricopaTestCase):
         self.assertEqual(detail_urls, [self.manifest[0]['url']])
         self.assertEqual(len(dp._FRESHNESS['sources'][SOURCE]['pending_details']), 12)
 
+    def test_known_pending_reports_do_not_pin_freshness_or_fail_every_run(self):
+        # Nov 2026: the same dozen untiered reports held Maricopa at
+        # 2026-09-20 and turned every Sunday red.
+        self.fetch()
+        run = dp._FRESHNESS['groups'][GROUP]['last_run']
+        self.assertEqual(run['status'], 'error')                  # the first sighting is red
+        self.assertEqual(self.portal.detail_requests(), 12)
+        self.fetch(since='2026-11-01', record=False)
+        self.assertEqual(self.portal.detail_requests(), 24)        # still retried, outside the window
+        self.assertNotIn(SOURCE, dp._FRESHNESS_HOLDS)              # ... and no longer holding it
+        state = dp._FRESHNESS['sources'][SOURCE]
+        self.assertEqual(len(state['pending_details']), 12)
+        # the week's other inspections ship and the old pending-report hold is gone
+        shipped = {'source': SOURCE, 'source_id': 'mcesd_X_INSP-1', 'inspection_date': '2026-11-19'}
+        dp._record_group(GROUP, [shipped])
+        run = dp._FRESHNESS['groups'][GROUP]['last_run']
+        self.assertEqual(run['status'], 'ok')                      # nothing new failed
+        self.assertIn('12 reports the county published incomplete', run['detail'])
+        self.assertNotIn('hold', state)
+        self.assertEqual(state['latest'], '2026-11-19')
+        self.assertEqual(len(state['pending_details']), 12)
+
     def test_deadline_or_download_failure_cannot_remove_pending_report(self):
         self.fetch()
         before = copy.deepcopy(dp._FRESHNESS['sources'][SOURCE]['pending_details'])
@@ -1206,9 +1229,13 @@ class IncompleteReportRetryTests(MaricopaTestCase):
         # a transport failure (rather than the earlier HTTP-200 incomplete page).
         for key in self.portal.details:
             self.portal.details[key] = FakeResponse('temporary outage', 503)
-        self.assertEqual(self.fetch(since='2026-11-01'), [])
+        self.assertEqual(self.fetch(since='2026-11-01', record=False), [])
+        # a transport failure is an ordinary transient drop: held and counted
+        # (the queued report itself no longer holds the window)
+        self.assertTrue(all(v == (True, False) for v in dp._FRESHNESS_HOLDS[SOURCE].values()))
+        self.assertEqual(len(dp._FRESHNESS_HOLDS[SOURCE]), 12)
+        dp._record_group(GROUP, [])
         self.assertEqual(dp._FRESHNESS['sources'][SOURCE]['pending_details'], before)
-        self.assertEqual(set(dp._FRESHNESS['sources'][SOURCE]['hold']['failures'].values()), {2})
         dp._FETCH_DEADLINE = time.time() - 1
         self.assertEqual(self.fetch(), [])
         self.assertEqual(dp._FRESHNESS['sources'][SOURCE]['pending_details'], before)

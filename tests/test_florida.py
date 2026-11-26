@@ -1,5 +1,6 @@
 """Offline tests using public District 6 rows captured 2026-11-09."""
 import csv
+from datetime import datetime, timedelta
 import io
 import importlib.util
 from pathlib import Path
@@ -93,44 +94,62 @@ class FloridaTests(unittest.TestCase):
             self.assertEqual(get.call_count, 1)
             sleep.assert_not_called()
 
-    def test_unknown_current_counts_hold_only_bad_records_without_expiring(self):
+    def _extract(self, bad=True):
         rows = [self.rows[0], self.rows[1].copy(), self.rows[2].copy()]
-        rows[1][self.header.index('Number of High Priority Violations')] = ''
+        if bad:
+            rows[1][self.header.index('Number of High Priority Violations')] = ''
         stream = io.StringIO()
         csv.writer(stream).writerows(rows)
-        response = mock.Mock(content=stream.getvalue().encode('latin-1'))
+        return mock.Mock(content=stream.getvalue().encode('latin-1'))
+
+    def test_unknown_current_counts_are_never_shipped_and_a_new_one_is_red(self):
         rejected = []
-        with mock.patch.object(dp.requests, 'get', return_value=response), \
+        freshness = {'groups': {}, 'sources': {}}
+        with mock.patch.object(dp.requests, 'get', return_value=self._extract()), \
+             mock.patch.object(dp, '_FRESHNESS', freshness), \
              mock.patch.dict(dp._FRESHNESS_HOLDS, {}, clear=True), \
+             mock.patch.dict(dp._GROUP_NOTES, {}, clear=True), \
              mock.patch.dict(dp._GROUP_STATUS, {}, clear=True):
             records = dp.fetch_florida(district_files=['6fdinspi.csv'], rejected=rejected)
             self.assertEqual(len(records), 1)
             self.assertEqual(len(rejected), 1)
-            key = rejected[0]['inspection_date'] + '|' + rejected[0]['source_id']
-            self.assertFalse(dp._FRESHNESS_HOLDS['Florida DBPR'][key][0])
+            # queued for a re-check, not a window hold
+            self.assertNotIn('Florida DBPR', dp._FRESHNESS_HOLDS)
+            self.assertEqual(freshness['sources']['Florida DBPR']['pending_rejected'],
+                             {rejected[0]['source_id']: {'date': rejected[0]['inspection_date'],
+                                                         'extract': '6fdinspi.csv'}})
             self.assertEqual(dp._GROUP_STATUS['Florida'][0], 'error')
 
-    def test_missing_severities_stay_pending_after_repeated_refreshes(self):
-        rows = [self.rows[0], self.rows[1].copy(), self.rows[2].copy()]
-        rows[1][self.header.index('Number of High Priority Violations')] = ''
-        stream = io.StringIO()
-        csv.writer(stream).writerows(rows)
-        response = mock.Mock(content=stream.getvalue().encode('latin-1'))
-        freshness = {'groups': {}, 'sources': {'Florida DBPR': {'group': 'Florida', 'latest': '2026-10-30'}}}
-        with mock.patch.object(dp.requests, 'get', return_value=response), \
-             mock.patch.object(dp, '_FRESHNESS', freshness), \
+    def test_a_known_bad_row_stays_queued_without_pinning_freshness_or_failing_every_run(self):
+        # 2026-11: one row with blank counts held Florida at 2026-11-09 with
+        # no give-up and turned every Sunday red.
+        freshness = {'groups': {}, 'sources': {'Florida DBPR': {'group': 'Florida', 'latest': '2000-01-01'}}}
+        with mock.patch.object(dp, '_FRESHNESS', freshness), \
              mock.patch.dict(dp._FRESHNESS_HOLDS, {}, clear=True), \
              mock.patch.dict(dp._GROUP_STATUS, {}, clear=True), \
              mock.patch.dict(dp._RUN_GROUPS, {}, clear=True), \
              mock.patch.dict(dp._GROUP_NOTES, {}, clear=True):
-            rejected = []
-            for _ in range(5):
-                records = dp.fetch_florida(district_files=['6fdinspi.csv'], rejected=rejected)
+            statuses = []
+            for _ in range(4):
+                rejected = []
+                with mock.patch.object(dp.requests, 'get', return_value=self._extract()):
+                    records = dp.fetch_florida(district_files=['6fdinspi.csv'], rejected=rejected)
                 dp._record_group('Florida', records)
+                statuses.append(freshness['groups']['Florida']['last_run']['status'])
             source = freshness['sources']['Florida DBPR']
-            self.assertEqual(source['hold']['date'], rejected[0]['inspection_date'])
-            self.assertFalse(source.get('given_up'))
-            self.assertEqual(freshness['groups']['Florida']['last_run']['status'], 'error')
+            self.assertEqual(statuses, ['error', 'ok', 'ok', 'ok'])
+            self.assertIn('re-checked every run', freshness['groups']['Florida']['last_run']['detail'])
+            self.assertNotIn('hold', source)
+            self.assertEqual(source['latest'], max(r['inspection_date'] for r in records))
+            bad_id = rejected[0]['source_id']
+            bad_date = rejected[0]['inspection_date']
+            self.assertIn(bad_id, source['pending_rejected'])
+            # the state fixes the row: it ships even from before the window, and leaves the queue
+            since = (datetime.strptime(bad_date, '%Y-%m-%d') + timedelta(days=1)).strftime('%Y-%m-%d')
+            with mock.patch.object(dp.requests, 'get', return_value=self._extract(bad=False)):
+                records = dp.fetch_florida(since_date=since, district_files=['6fdinspi.csv'], rejected=[])
+            self.assertIn(bad_id, {r['source_id'] for r in records})
+            self.assertNotIn('pending_rejected', source)
 
     def test_geocoding_reuses_exact_ids_and_deduplicates_addresses(self):
         original = self.parse(counties=bf.COUNTIES)[0]

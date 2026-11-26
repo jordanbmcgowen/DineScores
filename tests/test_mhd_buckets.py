@@ -398,6 +398,51 @@ class ConnectionQuotaTests(unittest.TestCase):
         self.assertEqual(session.post.call_count, 3)
         self.assertEqual(sleep.call_count, 1)   # one 30 s wait, then success
 
+    def _blocked_session(self, answers):
+        session = mock.Mock()
+        session._mhd_searches = 0
+        session._mhd_reconnected = False
+        session.post = mock.Mock(side_effect=answers)
+        return session
+
+    def _cooldown_state(self, used=0, deadline=None):
+        saved = (dp._MHD_PORTAL_BLOCKED, dp._MHD_COOLDOWNS_USED, dp._FETCH_DEADLINE)
+        self.addCleanup(lambda: setattr(dp, '_MHD_PORTAL_BLOCKED', saved[0]))
+        self.addCleanup(lambda: setattr(dp, '_MHD_COOLDOWNS_USED', saved[1]))
+        self.addCleanup(lambda: setattr(dp, '_FETCH_DEADLINE', saved[2]))
+        dp._MHD_PORTAL_BLOCKED, dp._MHD_COOLDOWNS_USED, dp._FETCH_DEADLINE = False, used, deadline
+
+    def test_a_search_403_through_the_ladder_waits_out_a_ban_once(self):
+        # 2026-11-22: a burst of detail pages, then 403 on the next search
+        # through the whole ladder; the breaker wrote off DFW and 15 metros.
+        self._cooldown_state()
+        ladder = [self._resp(403)] * (2 + dp.MHD_MAX_RETRIES)   # reconnect + first try + retries
+        session = self._blocked_session(ladder + [self._resp(200, [{'inspectionID': 'x'}])])
+        with mock.patch.object(dp.time, 'sleep') as sleep:
+            out = dp._mhd_search_page(session, 'dallas', '2026-11-20 to 2026-11-20', 0)
+        self.assertEqual(out, [{'inspectionID': 'x'}])
+        self.assertFalse(dp._MHD_PORTAL_BLOCKED)
+        self.assertEqual(dp._MHD_COOLDOWNS_USED, 1)
+        self.assertIn(mock.call(dp.MHD_BAN_COOLDOWN), sleep.call_args_list)
+
+    def test_a_search_block_that_outlasts_the_cooldown_still_trips_the_breaker(self):
+        self._cooldown_state()
+        session = self._blocked_session([self._resp(403)] * 50)
+        with mock.patch.object(dp.time, 'sleep') as sleep:
+            self.assertIsNone(dp._mhd_search_page(session, 'dallas', '2026-11-20 to 2026-11-20', 0))
+        self.assertTrue(dp._MHD_PORTAL_BLOCKED)
+        self.assertEqual(dp._MHD_COOLDOWNS_USED, 1)                 # one cooldown per search, not a loop
+        self.assertEqual(sleep.call_args_list.count(mock.call(dp.MHD_BAN_COOLDOWN)), 1)
+
+    def test_no_cooldown_without_budget_or_deadline_room(self):
+        for used, deadline in ((dp.MHD_BAN_COOLDOWNS, None), (0, dp.time.time() + 60)):
+            self._cooldown_state(used=used, deadline=deadline)
+            session = self._blocked_session([self._resp(403)] * 50)
+            with mock.patch.object(dp.time, 'sleep') as sleep:
+                self.assertIsNone(dp._mhd_search_page(session, 'dallas', '2026-11-20 to 2026-11-20', 0))
+            self.assertTrue(dp._MHD_PORTAL_BLOCKED)
+            self.assertNotIn(mock.call(dp.MHD_BAN_COOLDOWN), sleep.call_args_list)
+
     def test_connections_rotate_every_n_searches(self):
         session = mock.Mock()
         session._mhd_searches = 0
