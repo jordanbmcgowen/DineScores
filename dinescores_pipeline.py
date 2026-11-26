@@ -15420,6 +15420,491 @@ def fetch_napa(since_date=None, limit=None):
     return results
 
 
+# ─── SONOMA COUNTY, CA (OnBase Public Access, inspection report PDFs) ───────
+# Sonoma County Environmental Health posts every food inspection report as a
+# PDF in its OnBase document system (onbaseprodext.sonoma-county.org/EHSEP5;
+# probed live 2026-11-26). The county's open-data dataset (8r44-w5qd) stopped
+# in 2018. The Public Access JSON API answers a keyword search (custom query
+# 204 "EHS_FOODS PUBLIC", keyword 163 Facility Name, '*' for all) bounded by
+# the documents' STORED date, and serves each document as a PDF. A food
+# inspection document is 'Inspections - FOOD'; the generated reports
+# (DisplayType 'OleActivePage') carry text, the 'Image' ones are scans and
+# are skipped. The PDF text (read with the same stdlib reader as Orange
+# County's printables) holds a header of label rows over value rows, then
+# "Observations:" with each cited CalCode item ("23. No rodents, ...") over
+# "Status: MAJ|MIN" and "Inspector Comments: ...".
+#
+# No score is published and the green / yellow / red placard is drawn, not
+# written. The placard rule is the county's: green with at most one major
+# violation, yellow (conditional pass, a re-inspection within 72 hours) with
+# two or more, red when the facility is closed for an imminent hazard. So
+# risk is computed from the county's tiers (MAJ priority; MIN on a risk
+# factor item 1-23 priority foundation, on a good retail practice item core;
+# 100 - 5P - 2PF - C), a yellow placard caps it at SONOMA_YELLOW_RISK_CAP (a
+# C, like Santa Clara's yellow) and a closure the inspector writes down caps
+# it at SONOMA_CLOSED_RISK_CAP (an F). Program elements other than 3R (retail
+# food) are left out: 3M mobile units, 3S schools, 3C cottage food.
+#
+# A report ships only once read: an item without a Status line, or a report
+# with neither an Observations section nor "No violations observed", is
+# dropped and the window held at its stored date. The window is read by
+# stored date from SONOMA_STORED_MARGIN_DAYS before the start, since reports
+# are filed days after the visit.
+SONOMA_API = 'https://onbaseprodext.sonoma-county.org/EHSEP5/api'
+SONOMA_PUBLIC_PAGE = ('https://sonomacounty.gov/health-and-human-services/health-services/divisions/'
+                      'public-health/environmental-health/programs-and-services/food-safety-program/'
+                      'food-facility-inspections/inspection-results')
+SONOMA_GROUP = 'Sonoma County'
+SONOMA_SOURCE = 'Sonoma County Environmental Health'
+SONOMA_QUERY_ID = '204'
+SONOMA_NAME_KEYWORD_ID = '163'
+SONOMA_DOC_TYPE = 'Inspections - FOOD'
+SONOMA_STORED_MARGIN_DAYS = 21
+SONOMA_HISTORY_DAYS = 90           # the group's first run (~1,700 reports)
+SONOMA_LISTED_SLACK_DAYS = 7      # the listing's inspection date is the report's (62 of 63
+                                  # sampled); a report listed this far before the window is read
+SONOMA_WORKERS = 3                 # ~5 s a PDF; three at a time
+SONOMA_TEST_WINDOW_DAYS = 14
+SONOMA_SEARCH_DAYS = 15            # stored-date span of one search request
+SONOMA_DELAY = 0.5
+SONOMA_YELLOW_RISK_CAP = 79
+SONOMA_CLOSED_RISK_CAP = 55
+SONOMA_UNREAD_MIN = 20
+SONOMA_UNREAD_MAX_SHARE = 0.25
+SONOMA_SHIP_PE = '3R'
+# Inspection items 1-23 of the CalCode form are risk factors; 24-54 are
+# good retail practices.
+SONOMA_SKIP_PE = {'3M': 'mobile food unit', '3S': 'school', '3C': 'cottage food operation'}
+# 3R40 is the caterer element (every sampled report: "Initial Catering
+# Inspection ... using <commissary>"), a business that serves at events
+SONOMA_SKIP_ELEMENTS = {'3R40': 'caterer'}
+# An attempted visit (nobody there, the business shut) prints an empty
+# Observations section: never a clean 100, and "the facility is closed"
+# there is the owner's closure, not the county's
+SONOMA_ATTEMPTED_RE = re.compile(
+    r'\binspection (?:was )?attempted\b|\battempted (?:a |an )?(?:routine )?inspection\b|'
+    r'\bunable to (?:conduct|complete|perform|inspect)\b|\bno inspection (?:was )?(?:completed|conducted)\b|'
+    r'\b(?:full )?inspection (?:of the facility )?was not (?:completed|conducted)\b', re.I)
+# with nothing cited, a closed business means the visit did not happen
+SONOMA_SHUT_RE = re.compile(r'\bfacility (?:was|is) closed\b|\bclosed until further notice\b', re.I)
+SONOMA_HEADER_LABELS = {
+    'facility name': 'name', 'address': 'address', 'city': 'city', 'state/zip': 'statezip',
+    'city/zip': 'cityzip', 'city,state,zip': 'cityzip', 'record id': 'record',
+    'date': 'date', 'inspection date': 'date', 'program element': 'pe',
+    'service code': 'service', 'service code - description': 'service',
+}
+SONOMA_ITEM_RE = re.compile(r'^(\d{1,2})[a-z]?\.\s+(.+?)\s*(?:\[[^\]]*\])?\s*$')
+SONOMA_STATUS_RE = re.compile(r'^Status:\s*(MAJ|MIN)\b', re.I)
+SONOMA_FOOTER_RE = re.compile(r'^Cu?\s*\|\s*\d+\s*\|\s*To?t?\s*\|\s*\d+$')
+SONOMA_STOP_RE = re.compile(r'^(?:Specialist\b|Received By\b|Print Name\b)')
+SONOMA_CLOSED_RE = re.compile(
+    # not "the facility was closed": inspectors write that of a business
+    # shut when they called (Guerneville, Sea Ranch, 2026-11)
+    r'\b(?:facility (?:has been ordered|shall remain|must remain|will remain) closed|'
+    r'(?:ordered|voluntarily) closed|permit (?:(?:is|was|has been|temporarily) )*suspended|'
+    r'suspension of the (?:health )?permit|red placard|imminent health hazard)\b', re.I)
+SONOMA_REINSPECTION_RE = re.compile(r'^\W*re-?inspection (?:was )?conducted', re.I)
+
+
+def _sonoma_pdf_lines(data):
+    """The PDF's text rows, left to right; runs that do not continue a word
+    (the previous run did not end in a space) are joined with ' | '."""
+    out = []
+    for page in _oc_pdf_text_rows(data):
+        for row in page:
+            s = ''
+            for _, _, _, t in sorted(row, key=lambda r: r[1]):
+                s += t if (not s or s.endswith(' ')) else ' | ' + t
+            s = re.sub(r'\s*\|\s*:', ':', s.strip())      # "Status | : MIN" -> "Status: MIN"
+            if s:
+                out.append(s)
+    return out
+
+
+def _sonoma_header(lines):
+    """Label row -> value row pairs of the first page's header."""
+    head = {}
+    for i, row in enumerate(lines[:30]):
+        labels = [c.strip().lower() for c in row.split(' | ')]
+        if not any(l in SONOMA_HEADER_LABELS for l in labels) or i + 1 >= len(lines):
+            continue
+        values = [c.strip() for c in lines[i + 1].split(' | ')]
+        if len(values) > len(labels) or (len(values) < len(labels) and not labels[0] == 'record id'):
+            continue                            # only a Record ID row may end in blank cells
+        for l, v in zip(labels, values):
+            key = SONOMA_HEADER_LABELS.get(l)
+            if key and key not in head and v:
+                head[key] = v
+    return head
+
+
+def _sonoma_name(raw):
+    s = ' '.join((raw or '').split())
+    m = re.search(r'\bdba\b\s+(.+)$', s, re.I)
+    if m:
+        s = m.group(1)
+    s = re.sub(r'\b([A-Z]) (?=[A-Z]\b)', r'\1', s)          # "L L C" -> "LLC", "M F F"
+    m = re.match(r'^(.*?),\s*The$', s, re.I)
+    if m:
+        s = 'The ' + m.group(1)
+    return _dfw_hole_title(s.strip(' ,'))
+
+
+def _sonoma_city_zip(head):
+    city, zip_code = head.get('city', ''), ''
+    for key in ('statezip', 'cityzip'):
+        v = head.get(key, '')
+        m = re.search(r'(\d{5})(?:-\d{4})?\s*$', v)
+        if m:
+            zip_code = zip_code or m.group(1)
+            if key == 'cityzip' and not city:
+                city = re.sub(r'[\s,]*(?:CA)?[\s,/]*\d{5}(?:-\d{4})?\s*$', '', v).strip(' ,')
+    return _dfw_hole_title(city), zip_code
+
+
+def _sonoma_parse_report(data):
+    """{'head', 'items': [(n, title, status, comments)], 'clean', 'comments',
+    'unread', 'record'}: unread names why the report cannot be scored, or ''."""
+    return _sonoma_parse_lines(_sonoma_pdf_lines(data))
+
+
+def _sonoma_parse_lines(lines):
+    """_sonoma_parse_report on the PDF's text rows."""
+    out = {'head': _sonoma_header(lines), 'items': [], 'clean': False, 'comments': '', 'unread': '',
+           'record': next((m.group(0) for m in (re.search(r'\bPR\d{7}\b', x) for x in lines[:20]) if m), '')}
+    if not lines:
+        out['unread'] = 'no text in the PDF'
+        return out
+    text = '\n'.join(lines)
+    if 'Observations:' not in lines and not re.search(r'No violations observed', text, re.I):
+        out['unread'] = 'no Observations section and no "No violations observed"'
+        return out
+    # [ \t]*, not \s*: an empty section is followed by the Observations line,
+    # which \s* would swallow, so every item's text became the "comments"
+    # (and an item saying "keep doors closed" read as a closure)
+    m = re.search(r'General Comments:?[ \t]*(.*?)(?=\nObservations:|\n(?:Specialist|Received By)\b|\Z)',
+                  text, re.S)
+    out['comments'] = ' '.join(m.group(1).split()) if m else ''
+    try:
+        start = lines.index('Observations:') + 1
+    except ValueError:
+        out['clean'] = True
+        return out
+    items, cur, in_comment, skipping = [], None, False, False
+    body = lines[start:]
+    for k, row in enumerate(body):
+        if SONOMA_FOOTER_RE.match(row):
+            skipping = True                     # the next page repeats the header
+            in_comment = False
+            continue
+        if SONOMA_STOP_RE.match(row):
+            # the signature block ends every page of some templates, with
+            # more items on the next page: skip to the page's footer
+            skipping, in_comment = True, False
+            continue
+        im = SONOMA_ITEM_RE.match(row)
+        sm = SONOMA_STATUS_RE.match(row)
+        if im and ' | ' not in row and _sonoma_status_follows(body, k):
+            # an item heading is always followed by its Status line; a
+            # numbered sentence inside a comment ("2. Observed ...") is not
+            skipping = in_comment = False
+            cur = [int(im.group(1)), im.group(2).strip(), '', '']
+            items.append(cur)
+            continue
+        if cur is None:
+            continue
+        if sm:
+            skipping = False
+            cur[2] = sm.group(1).upper()
+            continue
+        if row.startswith('Inspector Comments:'):
+            skipping, in_comment = False, True
+            cur[3] = row[len('Inspector Comments:'):].strip()
+            continue
+        if row.startswith(('Violation Code', 'Type:')):
+            in_comment = False
+            continue
+        if in_comment and not skipping:
+            cur[3] += ' ' + row
+    for it in items:
+        it[3] = re.split(r'\s*Violation Code\s*[-:]', it[3])[0].strip()
+    missing = [str(n) for n, _, st, _ in items if not st]
+    statuses = sum(1 for x in lines if SONOMA_STATUS_RE.match(x))
+    if missing:
+        out['unread'] = f"item(s) {', '.join(missing)} without a Status line"
+    elif statuses != len(items):
+        # a Status the reader could not tie to an item heading: never read
+        # such a report as cleaner than it is
+        out['unread'] = f'{statuses} Status lines, {len(items)} items read'
+    else:
+        # every item carries its comments and code text; more of them than
+        # items read means headings the reader missed (a report whose Status
+        # lines changed shape would otherwise read as a clean 100)
+        cited = max(sum(1 for x in lines if x.startswith('Inspector Comments')),
+                    sum(1 for x in lines if x.startswith('Violation Code')))
+        if cited > len(items):
+            out['unread'] = f'{cited} cited items, {len(items)} read'
+    out['items'] = [tuple(i) for i in items]
+    out['clean'] = not items
+    return out
+
+
+def _sonoma_status_follows(body, k):
+    """True when the row after body[k] that is not page furniture (the
+    footer, the next page's repeated header) is a Status line."""
+    for x in body[k + 1:k + 10]:
+        if SONOMA_STATUS_RE.match(x):
+            return True
+        if SONOMA_FOOTER_RE.match(x) or ' | ' in x or x.startswith(('Multi source', 'Facility Name', 'Address')):
+            continue
+        if re.match(r'^\d{1,2}/\d{2}/\d{4}$|^PR\d{7}$', x):
+            continue
+        return False
+    return False
+
+
+def _sonoma_violations(items):
+    out = []
+    for n, title, status, comments in items:
+        if status == 'MAJ':
+            tier = 'priority'
+        elif n <= 23:
+            tier = 'priority_foundation'
+        else:
+            tier = 'core'
+        text = f'{title}: {comments}' if comments else title
+        cat, _, _ = classify_violation(text)
+        out.append([cat, tier, text[:500]])
+    return out
+
+
+def _sonoma_post(path, payload):
+    for attempt in range(TYLER_RETRIES):
+        try:
+            r = requests.post(SONOMA_API + path, json=payload, timeout=180,
+                              headers={'User-Agent': CHROME_UA, 'Content-Type': 'application/json'})
+            if r.status_code in (429, 500, 502, 503, 504):
+                raise requests.RequestException(f'HTTP {r.status_code}')
+            r.raise_for_status()
+            return r.json()
+        except (requests.RequestException, ValueError) as e:
+            if _past_deadline() or attempt + 1 == TYLER_RETRIES:
+                raise RuntimeError(f'Sonoma County search failed: {str(e)[:120]}')
+            time.sleep(15 * (attempt + 1))
+
+
+def _sonoma_documents(stored_from, stored_to):
+    """Every food inspection document stored in [from, to], as (doc id,
+    display type, listed name, listed address, stored date ISO, listed
+    inspection date ISO)."""
+    docs, cur = [], stored_from
+    while cur <= stored_to:
+        end = min(cur + timedelta(days=SONOMA_SEARCH_DAYS - 1), stored_to)
+        data = _sonoma_post('/CustomQuery/KeywordSearch', {
+            'QueryID': SONOMA_QUERY_ID,
+            'Keywords': [{'ID': SONOMA_NAME_KEYWORD_ID, 'Value': '*', 'Operator': '='}],
+            'FromDate': cur.strftime('%m/%d/%Y'), 'ToDate': end.strftime('%m/%d/%Y'), 'QueryLimit': 0})
+        rows = (data or {}).get('Data')
+        if not isinstance(rows, list):
+            raise RuntimeError(f'Sonoma County search {cur:%Y-%m-%d}: unexpected answer shape')
+        n = 0
+        for d in rows:
+            cols = [c.get('Value') or '' for c in d.get('DisplayColumnValues') or []]
+            if len(cols) < 5 or cols[2] != SONOMA_DOC_TYPE:
+                continue
+            n += 1
+            docs.append((d.get('ID') or '', d.get('DisplayType') or '', html_lib.unescape(cols[0]),
+                         html_lib.unescape(cols[1]), _napa_iso(cols[4]), _napa_iso(cols[3])))
+        log.info(f"  Sonoma County: stored {cur:%Y-%m-%d}..{end:%Y-%m-%d}: {len(rows)} documents, "
+                 f"{n} food inspections")
+        cur = end + timedelta(days=1)
+        time.sleep(SONOMA_DELAY)
+    return docs
+
+
+def fetch_sonoma(since_date=None, limit=None):
+    """
+    Fetch Sonoma County, CA food inspections (Santa Rosa, Petaluma,
+    Healdsburg, Sonoma, Sebastopol, Windsor, Rohnert Park, Cloverdale, Glen
+    Ellen, Bodega Bay, ...) from the county's OnBase inspection report PDFs
+    (see the section notes). Searches the documents stored from
+    SONOMA_STORED_MARGIN_DAYS before the window start (first run: the last
+    SONOMA_HISTORY_DAYS; test mode: SONOMA_TEST_WINDOW_DAYS) and ships every
+    retail food report it can read whose inspection date is in that span.
+    """
+    # never gated on limit: CI always passes --max-records (Napa's first run
+    # read 90 days instead of its history because of that)
+    first_run = bool(since_date and _FRESHNESS is not None
+                     and not (_FRESHNESS.get('groups', {}).get(SONOMA_GROUP) or {}).get('latest'))
+    now = datetime.now()
+    if since_date and not first_run:
+        start = datetime.strptime(str(since_date)[:10], '%Y-%m-%d')
+    elif limit and not since_date:
+        start = now - timedelta(days=SONOMA_TEST_WINDOW_DAYS)
+    else:
+        start = now - timedelta(days=SONOMA_HISTORY_DAYS)
+    stored_from = start - timedelta(days=SONOMA_STORED_MARGIN_DAYS)
+    floor = (start - timedelta(days=SONOMA_LISTED_SLACK_DAYS)).strftime('%Y-%m-%d')
+    log.info(f"Fetching Sonoma County data (since={start:%Y-%m-%d}, stored from {stored_from:%Y-%m-%d}"
+             + (', first run' if first_run else '') + f", limit={limit})")
+    if _past_deadline():
+        _set_group_status(SONOMA_GROUP, 'skipped', 'fetch deadline reached before the search')
+        return []
+    docs = _sonoma_documents(stored_from, now)
+    docs.sort(key=lambda d: (d[5] or d[4], d[4]))       # oldest inspection first
+
+    results, skipped, unread, seen = [], defaultdict(int), [], set()
+    cands = []
+    for doc in docs:
+        doc_id, dtype, listed_date = doc[0], doc[1], doc[5]
+        if not doc_id or doc_id in seen:
+            continue
+        seen.add(doc_id)
+        if dtype != 'OleActivePage':
+            skipped['scanned report (no text)'] += 1
+            continue
+        if listed_date and listed_date < floor:
+            # stored in the margin but inspected before the window: the
+            # listing's date is the report's, so the PDF is not read
+            skipped['listed before the window'] += 1
+            continue
+        cands.append(doc)
+
+    def _get_pdf(doc_id):
+        time.sleep(SONOMA_DELAY)
+        for attempt in range(2):                    # one retry: OnBase 503s under load
+            try:
+                r = requests.get(f'{SONOMA_API}/Document/{quote(doc_id, safe="")}/', timeout=90,
+                                 headers={'User-Agent': CHROME_UA})
+                r.raise_for_status()
+                return r.content, None
+            except requests.RequestException as e:
+                if attempt:
+                    return None, e
+                time.sleep(10)
+
+    def _fetched():
+        step = SONOMA_WORKERS * 10
+        with ThreadPoolExecutor(max_workers=SONOMA_WORKERS) as pool:
+            for i in range(0, len(cands), step):
+                chunk = cands[i:i + step]
+                if _past_deadline():
+                    _set_group_status(SONOMA_GROUP, 'skipped',
+                                      f'fetch deadline reached with {len(cands) - i} reports unread')
+                    _hold_freshness(SONOMA_GROUP, chunk[0][5] or chunk[0][4], counted=False,
+                                    key='deadline')
+                    return
+                for doc, got in zip(chunk, pool.map(_get_pdf, [d[0] for d in chunk])):
+                    yield doc, got
+
+    read = 0
+    for (doc_id, dtype, list_name, list_addr, stored, listed_date), (data, err) in _fetched():
+        held_at = min(x for x in (listed_date, stored) if x)
+        if err is not None:
+            unread.append((list_name, held_at, f'PDF failed: {str(err)[:60]}'))
+            _hold_freshness(SONOMA_GROUP, held_at, key=doc_id[:40])
+            continue
+        read += 1
+        rep = _sonoma_parse_report(data)
+        head = rep['head']
+        pe = (re.search(r'\b(3[A-Z])\d', head.get('pe', '')) or [None, ''])[1]
+        if pe in SONOMA_SKIP_PE:
+            skipped[SONOMA_SKIP_PE[pe]] += 1
+            continue
+        if not pe or not head.get('date'):
+            # a scan with no text layer, a lab report filed under the same
+            # type, a form without the program element: nothing that will
+            # ever read, so not held
+            skipped['not a text inspection report'] += 1
+            continue
+        if rep['unread']:
+            unread.append((list_name, held_at, rep['unread']))
+            _hold_freshness(SONOMA_GROUP, held_at, key=doc_id[:40])
+            continue
+        if pe != SONOMA_SHIP_PE:
+            skipped[f'program element {pe or "(none)"}'] += 1
+            continue
+        element = (re.search(r'\b(3[A-Z]\d\d)\b', head.get('pe', '')) or [None, ''])[1]
+        if element in SONOMA_SKIP_ELEMENTS:
+            skipped[SONOMA_SKIP_ELEMENTS[element]] += 1
+            continue
+        if SONOMA_ATTEMPTED_RE.search(rep['comments']) or (
+                not rep['items'] and SONOMA_SHUT_RE.search(rep['comments'])):
+            skipped['attempted inspection'] += 1
+            continue
+        insp_date = sane_inspection_date(_napa_iso(head.get('date', '')))
+        record = head.get('record', '') or rep['record']
+        if not insp_date or not re.match(r'PR\d+$', record):
+            unread.append((list_name, held_at, 'no inspection date or record id in the header'))
+            _hold_freshness(SONOMA_GROUP, held_at, key=doc_id[:40])
+            continue
+        if insp_date < floor:
+            skipped['inspected before the window'] += 1
+            continue
+        if (record, insp_date) in seen:
+            skipped['duplicate report'] += 1
+            continue
+        seen.add((record, insp_date))
+        name = _sonoma_name(head.get('name') or list_name)
+        street = head.get('address') or list_addr.split(',')[0]
+        city, zip_code = _sonoma_city_zip(head)
+        if not name or not street or not city:
+            skipped['no name, address or city'] += 1
+            continue
+        violations = _sonoma_violations(rep['items'])
+        computed, pv, pfv, cv = calc_risk_score(violations)
+        majors = sum(1 for _, _, st, _ in rep['items'] if st == 'MAJ')
+        closed = bool(SONOMA_CLOSED_RE.search(rep['comments']))
+        risk, result = computed, 'Pass'
+        if closed:
+            risk, result = min(risk, SONOMA_CLOSED_RISK_CAP), 'Closed'
+        elif majors >= 2:
+            risk, result = min(risk, SONOMA_YELLOW_RISK_CAP), 'Conditional pass'
+        results.append({
+            'name': name,
+            'address': re.sub(r'\b(\d+)(St|Nd|Rd|Th)\b', lambda m: m.group(1) + m.group(2).lower(),
+                              re.sub(r"'S\b", "'s", ' '.join(street.split()).title())),
+            'city': city,
+            'state': 'CA',
+            'zip': zip_code,
+            'latitude': None,
+            'longitude': None,
+            'inspection_date': insp_date,
+            'original_score': None,                 # the county publishes no score
+            'risk_score': max(0, risk),
+            'priority_violations': pv,
+            'priority_foundation_violations': pfv,
+            'core_violations': cv,
+            'total_violations': len(violations),
+            'violations': violations,
+            'inspection_type': ('Re-inspection' if (re.search(r're-?inspection', head.get('service', ''), re.I)
+                                                     or SONOMA_REINSPECTION_RE.search(rep['comments']))
+                                else 'Routine'),
+            'results': result,
+            'source': SONOMA_SOURCE,
+            'source_url': SONOMA_PUBLIC_PAGE,
+            'source_id': f'sonoma_{record}_{insp_date.replace("-", "")}',
+            'metro': '',
+        })
+        if limit and len(results) >= limit:
+            break
+    if skipped:
+        log.info(f"  Sonoma County: skipped {dict(skipped)}")
+    if unread:
+        first = unread[0]
+        if len(unread) >= SONOMA_UNREAD_MIN and len(unread) > SONOMA_UNREAD_MAX_SHARE * max(read, 1):
+            raise RuntimeError(f'Sonoma County: {len(unread)} of {read} reports could not be read '
+                               f'(first {first[0]} stored {first[1]}: {first[2]}); the PDF layout '
+                               f'changed, not shipping')
+        log.warning(f"  Sonoma County: {len(unread)} report(s) dropped and held: "
+                    + '; '.join(f'{n} {d}: {why}' for n, d, why in unread[:5]))
+        _GROUP_NOTES[SONOMA_GROUP] = (f"{len(unread)} report(s) not read "
+                                      f"({'; '.join(why for _, _, why in unread[:3])})")
+    newest = max((r['inspection_date'] for r in results), default='')
+    log.info(f"Sonoma County: {len(results)} inspections (newest {newest or 'n/a'})")
+    return results
+
+
 # ─── EL PASO AND WACO, TX (score-only city sources) ─────────────────────────
 # Two Texas health departments that publish one number per inspection and
 # nothing else: no violation text, no inspection id (surveyed and probed live
@@ -19748,7 +20233,8 @@ def main():
             (('waco',), WAC_GROUP, fetch_waco),
             (('corpuschristi',), CC_GROUP, fetch_corpus_christi),
             (('abilene',), ABL_GROUP, fetch_abilene),
-            (('napa',), NAPA_GROUP, fetch_napa)):
+            (('napa',), NAPA_GROUP, fetch_napa),
+            (('sonoma',), SONOMA_GROUP, fetch_sonoma)):
         if any(s in args.cities for s in slugs):
             socrata_jobs[group] = _expansion_job(group, fetcher)
 

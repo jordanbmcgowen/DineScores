@@ -21,7 +21,9 @@ portals), Cheyenne, Casper and Jackson WY, Minot ND, St. Louis, Kansas City
 and Jackson County MO (Lee's Summit, Blue Springs), the Colorado counties CDPHE
 inspects (Vail, Aspen, Breckenridge, Durango, Steamboat), Pueblo, Grand
 Junction and Broomfield CO; and, since 2026-11-26, Napa County CA: Napa,
-Yountville, St. Helena, Calistoga, American Canyon) plus all of Florida, New York State, Delaware, South Carolina, Georgia
+Yountville, St. Helena, Calistoga, American Canyon; and Sonoma County CA:
+Santa Rosa, Petaluma, Healdsburg, Sonoma, Sebastopol, Windsor, Rohnert
+Park, Glen Ellen) plus all of Florida, New York State, Delaware, South Carolina, Georgia
 (Atlanta: Fulton/DeKalb/Cobb and the other 153 counties; Gwinnett/Newton/
 Rockdale on the MHD `gwinnett` slug), Louisiana (New Orleans, Baton Rouge,
 Shreveport, Lafayette) and Virginia (33 VDH districts; Fairfax County is
@@ -804,14 +806,41 @@ read yet. The ones worth building next:
   0-10, B 11-20, C 21-30, F over 30, which is DineScores' bands on 100 -
   points) and the points of every OUT item (6 major / 2 minor risk factor,
   1 good retail practice). Every run re-reads `NAPA_REREAD_DAYS` (90) and
-  never holds; the group's first weekly run (no recorded latest) reads the
-  whole snapshot from `NAPA_HISTORY_START`. An inspection ships only when its
+  never holds; the first weekly run after the source's `history_from` is
+  missing from the freshness file reads the whole snapshot from
+  `NAPA_HISTORY_START` and sets it (the first version keyed this on "no
+  limit", which CI never is: the 2026-11-26 run read 90 days). An inspection ships only when its
   item points add up to the printed total (a 2024 form printed item 23
   twice and does not); a report with no total (re-opening after a closure)
   is skipped; a checked Facility Closed box caps the score at 65. Mobile
   units, schools (NVUSD names, one spelled 'ELEMENTERY') and caterers listed
   outside the county are left out. The county posts weeks late (newest row
   2026-10-28 on 2026-11-26).
+- **Sonoma County CA publishes report PDFs and no score.** The county's
+  Socrata dataset (`8r44-w5qd`) stopped in 2018; `fetch_sonoma` reads its
+  OnBase Public Access API (`onbaseprodext.sonoma-county.org/EHSEP5/api`):
+  custom query 204, a wildcard Facility Name keyword search filtered on the
+  date a document was STORED, 15-day chunks (~1,000 documents each, not
+  capped), `Inspections - FOOD` rows only, then one PDF per report
+  (`GET /Document/{id}/`, ~5 s each, `SONOMA_WORKERS`=3). The listing's
+  inspection date is the report's, so the search reaches back
+  `SONOMA_STORED_MARGIN_DAYS` (21) for late filing and a report listed more
+  than 7 days before the window is never downloaded. Items print
+  `Status: MAJ|MIN`; MAJ is Priority, MIN on CalCode items 1-23 Priority
+  Foundation, 24+ Core, scored 5/2/1 by the fetcher (no score published;
+  the green/yellow/red placard is not in the text). Two or more majors cap
+  the score at 79 ('Conditional pass', the county's yellow-placard rule),
+  a closure written in General Comments at 55. A report is unread, dropped
+  and held when an item heading has no Status, the Status lines and items
+  disagree, or more items are cited ("Inspector Comments"/"Violation Code")
+  than read: a shape change must never read as a clean 100. Kept out
+  without a hold: scans (DisplayType not `OleActivePage`), text with no
+  program element (lab reports), mobile (3M), school (3S), cottage food
+  (3C) and caterer (3R40) elements, and attempted visits ("inspection was
+  attempted": the "facility is closed" there is the owner's, not the
+  county's). The empty General Comments section once swallowed every item
+  (`\s*` ate the newline before Observations), so "keep doors closed" read
+  as a closure; the regex uses `[ \t]*`. First run: the last 90 days.
 - **Corpus Christi (InspectHub) has two page shapes that are read and
   skipped, never held:** a food visit with no Score line, and a score
   printed with "violation information is not available" (holding a shape
@@ -888,7 +917,8 @@ impact and the open policy decisions; `scripts/jev_shadow.py` reproduces it.
   Maricopa County, Harris County (P/F/C violation groups), the Hedgerow
   portals (Pima County, Lubbock, Mesquite, Wichita Falls), Garland, Corpus
   Christi and Abilene (Texas-form item points or stated groups), Napa
-  County (the county's points per CalCode item), the Paragon
+  County (the county's points per CalCode item), Sonoma County (MAJ/MIN
+  by CalCode item, scored by the fetcher), the Paragon
   portals (tier fixed by `_io_shipped_rows`) and the ten Colorado portals
   (the state library's designation, or the form item's usual tier where a
   line states none: `_co_tier`) included: their agencies state it;

@@ -90,7 +90,7 @@ jobs:
           REQUESTED: ${{ inputs.cities }}
           SCHEDULE: ${{ github.event.schedule }}
         run: |
-          SUNDAY="chicago nyc sf austin boston seattle florida nys wake vegas la louisville minneapolis cincinnati delaware montgomery detroit sacramento southcarolina fairfax portland coloradosprings larimer weld adams utahcounty yolo santaclara sandiego omaha orangecounty gwinnett nashville memphis knoxville chattanooga houston sanantonio dc dallas plano frisco fort-worth-texas tarrant arlington richardson georgia louisiana maricopa harris pima lubbock mesquite williamson mckinney lewisville denton fortbend arapahoe douglas garland elpaso waco corpuschristi wichitafalls abilene missoula bozeman kalispell kansascity napa"
+          SUNDAY="chicago nyc sf austin boston seattle florida nys wake vegas la louisville minneapolis cincinnati delaware montgomery detroit sacramento southcarolina fairfax portland coloradosprings larimer weld adams utahcounty yolo santaclara sandiego omaha orangecounty gwinnett nashville memphis knoxville chattanooga houston sanantonio dc dallas plano frisco fort-worth-texas tarrant arlington richardson georgia louisiana maricopa harris pima lubbock mesquite williamson mckinney lewisville denton fortbend arapahoe douglas garland elpaso waco corpuschristi wichitafalls abilene missoula bozeman kalispell kansascity napa sonoma"
           MIDWEEK="cuyahoga virginia montana amarillo tyler orangecountytx wyoming minot stlouis jacksoncountymo coloradostate pueblo grandjunction broomfield"
           if [ -n "$REQUESTED" ] && [ "$REQUESTED" != "midweek" ]; then
             CITIES="$REQUESTED"; RUN_LABEL="manual"
