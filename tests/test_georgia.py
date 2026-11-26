@@ -96,6 +96,8 @@ class FakePortal:
         self.searches = []                     # (filters, page)
         self.list_fail = None                  # status to answer every search page with
         self.county_fail = None                # status to answer the GNR county checks with
+        self.fail_pages = set()                # single-day list pages that always answer 500
+        self.flaky = {}                        # facility id -> failed calls left before it answers
 
     def get(self, url, headers=None, timeout=None):
         self.calls.append(url)
@@ -110,10 +112,16 @@ class FakePortal:
             self.searches.append((filters, page))
             if self.list_fail or (self.county_fail and filters.get('county')):
                 return _Resp(None, status=self.list_fail or self.county_fail, text='<html>down</html>')
+            if page in self.fail_pages and filters.get('to'):
+                return _Resp(None, status=500, text='<html>error</html>')
             rows = self._rows_for(filters)
             return _Resp(rows[page * dp.TP_PAGE_SIZE:(page + 1) * dp.TP_PAGE_SIZE])
         if path.startswith('inspectionsData/'):
-            answer = self.histories.get(path[len('inspectionsData/'):], 404)
+            fid = path[len('inspectionsData/'):]
+            if self.flaky.get(fid):
+                self.flaky[fid] -= 1
+                return _Resp(None, status=500, text='<html>error</html>')
+            answer = self.histories.get(fid, 404)
             if isinstance(answer, Exception):
                 raise answer
             if isinstance(answer, int):
@@ -458,8 +466,27 @@ class FailureTests(GeorgiaTestCase):
         portal.list_fail = 503
         with self.assertRaises(RuntimeError):
             _fetch(portal, since=YESTERDAY)
-        self.assertEqual(len([u for u in portal.calls if 'search/' in u]), dp.TP_RETRIES)
+        # page 0 through every retry, then page 1 (is it a poison row?) the same
+        self.assertEqual(len([u for u in portal.calls if 'search/' in u]), 2 * dp.TP_RETRIES)
         self.assertFalse(any('inspectionsData/' in u for u in portal.calls))
+
+    def test_one_poison_list_page_is_skipped_held_and_reported(self):
+        # Louisiana 2026-11-05: one page 500s on every try, every other page
+        # reads; the rest of the day (and the state) still ships.
+        portal = _portal(day=YESTERDAY)
+        portal.fail_pages = {0}
+        records = _fetch(portal, since=YESTERDAY)
+        self.assertEqual(len(records), 3)                   # page 1's facilities' inspections only
+        self.assertEqual(dp._FRESHNESS_HOLDS['Georgia DPH'][f'{YESTERDAY}|list-page:{YESTERDAY}'],
+                         (True, False))
+        self.assertEqual(dp._GROUP_STATUS['Georgia'][0], 'error')
+        self.assertIn(f'{YESTERDAY} page 0', dp._GROUP_STATUS['Georgia'][1])
+
+    def test_two_unreadable_pages_in_a_row_still_raise(self):
+        portal = _portal(day=YESTERDAY)
+        portal.fail_pages = {0, 1}
+        with self.assertRaises(RuntimeError):
+            _fetch(portal, since=YESTERDAY)
 
     def test_a_day_whose_pages_shifted_is_re_read_and_then_raises(self):
         portal = _portal(day=YESTERDAY, shift_once=[YESTERDAY])
@@ -483,10 +510,20 @@ class FailureTests(GeorgiaTestCase):
         portal.histories[DUNKIN] = dp.requests.ConnectionError('reset')
         records = _fetch(portal, since=YESTERDAY)
         self.assertEqual(sorted(_by_id(records)), ['ga_57558159', 'ga_57560247', 'ga_57560333', 'ga_57560379'])
-        self.assertEqual(portal.calls.count(f'{dp.GA_API}inspectionsData/{MARGARITAS}'), dp.TP_RETRIES)
+        # every retry, then every retry again on the end-of-run second read
+        self.assertEqual(portal.calls.count(f'{dp.GA_API}inspectionsData/{MARGARITAS}'), 2 * dp.TP_RETRIES)
         self.assertEqual(dp._FRESHNESS_HOLDS, {'Georgia DPH': {f'{YESTERDAY}|883992': (True, False),
                                                                 f'{YESTERDAY}|3164155': (True, False)}})
         self.assertNotIn('Georgia', dp._GROUP_STATUS)
+
+    def test_a_history_that_fails_through_its_retries_is_read_again_and_ships(self):
+        # 2026-11-22: 44 of 9,356 histories failed mid-run and were complete
+        # days later; the earliest one held the state's window open.
+        portal = _portal(day=YESTERDAY)
+        portal.flaky[MARGARITAS] = dp.TP_RETRIES
+        records = _fetch(portal, since=YESTERDAY)
+        self.assertEqual(len(records), 6)
+        self.assertEqual(dp._FRESHNESS_HOLDS, {})
 
     def test_unreadable_violations_and_a_missing_listed_inspection_hold_not_ship(self):
         hist = copy.deepcopy(_load('histories.json')[KADHAI])

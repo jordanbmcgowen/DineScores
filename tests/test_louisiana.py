@@ -624,7 +624,8 @@ class FailureTests(LouisianaTestCase):
         records = _fetch(portal, since=YESTERDAY)
         self.assertEqual(sorted(_by_id(records)), [f'lald_{DELI_RT}', f'lald_{MEAT_RT}', f'lald_{GROCERY_FU}',
                                                    f'lald_{MEAT_FU}', 'lald_151712897'])
-        self.assertEqual(portal.calls.count(f'{dp.LA_API}inspectionsData/{FAUSTOS}'), dp.TP_RETRIES)
+        # every retry, then every retry again on the end-of-run second read
+        self.assertEqual(portal.calls.count(f'{dp.LA_API}inspectionsData/{FAUSTOS}'), 2 * dp.TP_RETRIES)
         self.assertEqual(dp._FRESHNESS_HOLDS, {'Louisiana LDH': {f'{YESTERDAY}|2597': (True, False)}})
 
     def test_a_malformed_entry_a_missing_field_an_empty_dict_or_an_unknown_label_is_never_clean(self):

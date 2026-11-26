@@ -100,6 +100,10 @@ middleware.
   Wednesday run took 54 of its 300 minutes before them. The "Pick the sources for this run"
   step sets `--cities` from the weekday (a manual run takes a `cities`
   input); both runs share the same merge/commit flow and freshness file.
+  The Wednesday run also re-fetches a Sunday MHD group (DFW, 'MHD metros')
+  whose last run, within five days, was blocked, skipped or errored
+  (`scripts/midweek_catchup.py`), so a lost Sunday heals in three days
+  instead of seven; a good Sunday adds nothing.
   Pulls the recent window from the chosen sources, merges data.js, applies
   incremental SQL to D1, commits, and then FAILS the run if any fetch group
   was blocked, errored or skipped (the last step, after the commit, so a red
@@ -183,6 +187,13 @@ middleware.
       the first 403 of a search; only a second 403 goes to the retry ladder
       and the breaker. Tennessee's bucket mode (30 searches a day per metro)
       tripped the breaker in five minutes before this.
+    - **A search 403 that survives the reconnect and the retry ladder gets
+      one ban cooldown before the breaker trips** (`_mhd_take_search_cooldown`,
+      same budget and deadline rule as the detail cooldowns). 2026-11-22: a
+      ~310-page detail burst (Clackamas, Multnomah) was followed by a 403 on
+      the next search; three minutes of retries later the breaker wrote off
+      DFW and 15 metros for the week. A block that outlasts the cooldown
+      still trips it.
     - The cooldown budget `MHD_BAN_COOLDOWNS` defaults to 16 (was 3): a
       normal week of every MHD jurisdiction is well over 1,000 detail pages,
       five or more 15-minute ban windows, which the old budget could never
@@ -543,6 +554,13 @@ read yet. The ones worth building next:
   them outside the normal date window, even if their listing disappears or
   a different same-day inspection is already embedded. Only a complete read
   removes one; do not clear the queue or move freshness forward by hand.
+  Since 2026-11-26 a queued report does NOT also hold the window (the queue
+  already retries it; the hold pinned the county at 2026-09-20 for good) and
+  only a NEW pending report, or `MCESD_UNREAD_ERROR_MIN` fresh unread pages,
+  turns the run red; the known queue is a note on the report row.
+  Florida's rows with blank or unreconciled official counts work the same
+  way: `pending_rejected` in its freshness entry, re-checked every run
+  whatever the window, red only when new, never a hold.
   See `docs/maricopa-incomplete-reports-2026-11-08.md` for the 12 live cases.
 - **Tyler publicportals (Georgia, Louisiana) filter on the FACILITY's last
   inspection.** Every listed facility costs one `inspectionsData` call, a
@@ -555,7 +573,16 @@ read yet. The ones worth building next:
   ships the item titles, never a hold). A Georgia row has no county: the
   county EH phone (`GA_ATLANTA_EH_PHONES`) is the only 'Atlanta' signal, and
   Gwinnett/Newton/Rockdale are re-checked by county filter every run so they
-  stay on the MHD `gwinnett` slug.
+  stay on the MHD `gwinnett` slug. **A list page that 500s on every try while
+  the next page reads is a poison row**: skipped, held per day
+  (`list-page:<day>`, counted) and red until given up (Louisiana's
+  2026-11-05 list did this for three weeks, and raising on it shipped
+  nothing for the state twice); two bad pages in a row still raise.
+  **Every facility whose history failed or held an inspection is read a
+  second time** at the end of the run (`TP_REREAD_PAUSE`, at most
+  `TP_REREAD_MAX`): Georgia serves ~0.5% of histories incomplete under load,
+  all complete on a re-read, and each run's earliest one had held the
+  state's freshness at the window start since September.
 - **A pest item TITLE must never reach the text-F regex on its own.** The
   Texas TFER criterion 'No evidence of Insect Contamination, Rodent, Other
   Animals' trips the regex (an evidence word before a pest word) by itself

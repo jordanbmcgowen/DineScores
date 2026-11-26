@@ -96,6 +96,14 @@ jobs:
             CITIES="$REQUESTED"; RUN_LABEL="manual"
           elif [ "$REQUESTED" = "midweek" ] || [ "$SCHEDULE" = "17 9 * * 3" ]; then
             CITIES="$MIDWEEK"; RUN_LABEL="midweek"
+            # A Sunday MHD group (DFW, MHD metros) that came back blocked,
+            # skipped or errored is fetched again today instead of waiting a
+            # week; a good Sunday adds nothing.
+            CATCHUP=$(python3 scripts/midweek_catchup.py data/source_freshness.json $SUNDAY)
+            if [ -n "$CATCHUP" ]; then
+              echo "Sunday's MHD fetch did not finish; catching up: $CATCHUP"
+              CITIES="$CITIES $CATCHUP"
+            fi
           else
             CITIES="$SUNDAY"; RUN_LABEL="weekly"
           fi
