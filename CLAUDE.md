@@ -20,7 +20,8 @@ Butte; Missoula, Bozeman and Kalispell from their counties' own Paragon
 portals), Cheyenne, Casper and Jackson WY, Minot ND, St. Louis, Kansas City
 and Jackson County MO (Lee's Summit, Blue Springs), the Colorado counties CDPHE
 inspects (Vail, Aspen, Breckenridge, Durango, Steamboat), Pueblo, Grand
-Junction and Broomfield CO) plus all of Florida, New York State, Delaware, South Carolina, Georgia
+Junction and Broomfield CO; and, since 2026-11-26, Napa County CA: Napa,
+Yountville, St. Helena, Calistoga, American Canyon) plus all of Florida, New York State, Delaware, South Carolina, Georgia
 (Atlanta: Fulton/DeKalb/Cobb and the other 153 counties; Gwinnett/Newton/
 Rockdale on the MHD `gwinnett` slug), Louisiana (New Orleans, Baton Rouge,
 Shreveport, Lafayette) and Virginia (33 VDH districts; Fairfax County is
@@ -795,6 +796,22 @@ read yet. The ones worth building next:
   the earlier visit of any permit inspected twice. An inspection ships only
   when its item points add up to 100 − the city's score (item weights are
   Garland's own: items 1-20 are 3 points, 21-33 are 2, 34-47 are 1).
+- **Napa County CA is a snapshot of each facility's latest inspection.**
+  `fetch_napa` reads the county's Tyler healthinspections.us portal
+  (`ca.healthinspections.us/napa`, the older Garrison template): the search
+  filters on the facility's LAST inspection date and pages ten facilities at
+  a time; each row's report prints the county's Total Points Deducted (A
+  0-10, B 11-20, C 21-30, F over 30, which is DineScores' bands on 100 -
+  points) and the points of every OUT item (6 major / 2 minor risk factor,
+  1 good retail practice). Every run re-reads `NAPA_REREAD_DAYS` (90) and
+  never holds; the group's first weekly run (no recorded latest) reads the
+  whole snapshot from `NAPA_HISTORY_START`. An inspection ships only when its
+  item points add up to the printed total (a 2024 form printed item 23
+  twice and does not); a report with no total (re-opening after a closure)
+  is skipped; a checked Facility Closed box caps the score at 65. Mobile
+  units, schools (NVUSD names, one spelled 'ELEMENTERY') and caterers listed
+  outside the county are left out. The county posts weeks late (newest row
+  2026-10-28 on 2026-11-26).
 - **Corpus Christi (InspectHub) has two page shapes that are read and
   skipped, never held:** a food visit with no Score line, and a score
   printed with "violation information is not available" (holding a shape
@@ -870,7 +887,8 @@ impact and the open policy decisions; `scripts/jev_shadow.py` reproduces it.
   Santa Clara, San Diego, Orange County, McKinney, Georgia, Louisiana,
   Maricopa County, Harris County (P/F/C violation groups), the Hedgerow
   portals (Pima County, Lubbock, Mesquite, Wichita Falls), Garland, Corpus
-  Christi and Abilene (Texas-form item points or stated groups), the Paragon
+  Christi and Abilene (Texas-form item points or stated groups), Napa
+  County (the county's points per CalCode item), the Paragon
   portals (tier fixed by `_io_shipped_rows`) and the ten Colorado portals
   (the state library's designation, or the form item's usual tier where a
   line states none: `_co_tier`) included: their agencies state it;

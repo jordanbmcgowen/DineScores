@@ -1800,8 +1800,8 @@ def fetch_austin(since_date=None, limit=100000):
                 break
 
         results.append({
-            'name': name.title() if name.isupper() else name,
-            'address': street.title() if street.isupper() else street,
+            'name': _dfw_hole_title(name),
+            'address': re.sub(r"'S\b", "'s", street.title()),
             'city': city,
             'state': 'TX',
             'zip': (rec.get('zip_code') or '').split('-')[0],
@@ -2299,8 +2299,8 @@ def fetch_houston(since_date=None, until_date=None, limit=None, fetch_violations
         if not insp_date or not name:
             continue
         results.append({
-            'name': name.title() if name.isupper() else name,
-            'address': street.title() if street.isupper() else street,
+            'name': _dfw_hole_title(name),
+            'address': re.sub(r"'S\b", "'s", street.title()),
             'city': city or 'Houston',
             'state': 'TX',
             'zip': zip_code,
@@ -2654,8 +2654,8 @@ def _sa_build_records(fac, blocks, since_iso, until_iso):
             url = f"{SA_BASE}estab.cfm?licenseID={fac['license_id']}"
         name, street = fac['name'], fac['street']
         out.append({
-            'name': name.title() if name.isupper() else name,
-            'address': street.title() if street.isupper() else street,
+            'name': _dfw_hole_title(name),
+            'address': re.sub(r"'S\b", "'s", street.title()),
             'city': 'San Antonio',
             'state': 'TX',
             'zip': fac['zip'],
@@ -4862,8 +4862,8 @@ def fetch_sacramento(since_date=None, limit=None):
 
         street, city, zip_code = _sac_parse_address(fac.get('Facility_Address'))
         results.append({
-            'name': name.title() if name.isupper() else name,
-            'address': street.title() if street.isupper() else street,
+            'name': _dfw_hole_title(name),
+            'address': re.sub(r"'S\b", "'s", street.title()),
             'city': city.title() if city.isupper() else city,
             'state': 'CA',
             'zip': zip_code,
@@ -15041,6 +15041,378 @@ def fetch_garland(since_date=None, limit=None):
     return results
 
 
+# ─── NAPA COUNTY, CA (Tyler healthinspections.us, Garrison template) ────────
+# Napa County Planning, Building & Environmental Services posts every food
+# facility's LATEST inspection on ca.healthinspections.us/napa (probed live
+# 2026-11-26; the same vendor family as Houston, San Antonio and DC, but the
+# older ColdFusion template). The search's date range filters on the
+# facility's last inspection and pages ten facilities at a time in name
+# order; each row links that one inspection's full report, which prints the
+# county's official "Total Points Deducted" (A 0-10, B 11-20, C 21-30,
+# F over 30: exactly DineScores' bands on 100 - points), the CalCode form's
+# 54 items with In/Out boxes and the points each OUT item cost (6 a major
+# risk-factor violation, 2 a minor one, 1 a good-retail-practice item; a
+# repeat on one item doubles), and the inspector's numbered observations.
+#
+# A snapshot like Garland: an earlier visit is gone once a later one is
+# posted, so every run re-reads NAPA_REREAD_DAYS and never holds; a missed
+# week loses the earlier visit of a facility inspected twice. The county
+# posts weeks late (the newest row was 2026-10-22 on 2026-11-26), which
+# _note_source_lag reports. An inspection ships only when its OUT items'
+# points add up to the printed total; a report with no total (a re-opening
+# visit after a closure) is not scored and is skipped. A checked "Facility
+# Closed" box caps the score at NAPA_CLOSED_RISK_CAP (an F), like Waco's
+# FAILED and Colorado's Closed. Mobile food permits and schools are left out.
+NAPA_BASE = 'https://ca.healthinspections.us/napa/'
+NAPA_REPORT_URL = ('https://ca.healthinspections.us/_templates/135/Food%20Inspection/'
+                   '_report_full.cfm?domainID=135&inspectionID={}&dsn=dhd_135')
+NAPA_GROUP = 'Napa County'
+NAPA_SOURCE = 'Napa County Environmental Health'
+NAPA_REREAD_DAYS = 90
+NAPA_TEST_WINDOW_DAYS = 45
+NAPA_HISTORY_START = '2025-01-01'     # a full run: facilities last inspected since then
+NAPA_DELAY = 0.7
+NAPA_PAGE_SIZE = 10
+NAPA_MAX_PAGES = 400                  # per monthly window; a month is ~10-20 pages
+NAPA_CLOSED_RISK_CAP = 65
+NAPA_MISMATCH_MIN = 10
+NAPA_MISMATCH_MAX_SHARE = 0.05
+NAPA_SHIP_TYPES = {'Fixed Food'}
+NAPA_SKIP_TYPES = {'Mobile Food': 'mobile food unit'}
+# Napa County's ZIP codes. The county also permits a few caterers and
+# commissaries whose listed address is outside it (Santa Rosa, Vallejo,
+# Sacramento, Modesto); those rows are left out rather than shipped as
+# another county's restaurants.
+NAPA_COUNTY_ZIPS = {'94503', '94508', '94515', '94558', '94559', '94562', '94567',
+                    '94573', '94574', '94576', '94581', '94599'}
+# The town a ZIP stands for, for the rows whose city line is blank.
+NAPA_ZIP_CITIES = {'94503': 'American Canyon', '94508': 'Angwin', '94515': 'Calistoga', '94558': 'Napa',
+                   '94559': 'Napa', '94562': 'Oakville', '94567': 'Pope Valley', '94573': 'Rutherford',
+                   '94574': 'St. Helena', '94576': 'Deer Park', '94599': 'Yountville'}
+NAPA_COUNTY_CITIES = {'Napa', 'American Canyon', 'Yountville', 'St. Helena', 'Calistoga', 'Angwin',
+                      'Rutherford', 'Oakville', 'Pope Valley', 'Deer Park', 'Lake Berryessa'}
+# Public school kitchens (the Napa Valley Unified district's names, one
+# misspelled) are left out like other sources' schools.
+NAPA_SCHOOL_RE = re.compile(r'\b(?:school|nvusd|nvuds|elementery|elementary)\b', re.I)
+NAPA_CITY_FIXES = {'SAINT HELENA': 'St. Helena', 'ST HELENA': 'St. Helena',
+                   'ST. HELENA': 'St. Helena'}
+
+NAPA_ROW_START_RE = re.compile(r'<a href="estab\.cfm\?permitID=(\d+)&(?:amp;)?inspectionID=(\d+)"><b>([^<]*)</b></a>')
+NAPA_ROW_TYPE_RE = re.compile(r'<b>Permit Type:</b>\s*([^<]*?)\s*</div>')
+NAPA_ROW_ADDRESS_RE = re.compile(r'<div style="margin-bottom:10px;">\s*(.*?)<br\s*/?>\s*([^<]*?)\s*<div', re.S)
+NAPA_ROW_DATE_RE = re.compile(r'Last Inspection Date:\s*<a[^>]*inspectionID=(\d+)[^>]*>(\d{2}/\d{2}/\d{4})</a>')
+NAPA_ROW_GRADE_RE = re.compile(r'Last Inspection Grade:\s*([^<]*?)\s*</div>', re.S)
+NAPA_PAGE_LINK_RE = re.compile(r'search\.cfm\?start=(\d+)&')
+NAPA_ITEM_RE = re.compile(r'^(\d{1,2})\.\s+(.+)$')
+NAPA_OBS_RE = re.compile(
+    r'<td class="right"[^>]*>\s*(\d{1,2})\s*-\s*</td>\s*<td>(.*?)</td>', re.S)
+NAPA_OBS_TAIL_RE = re.compile(r'\s*(?:Code Section|Correct By|Corrective Action)\s*:.*$', re.S | re.I)
+NAPA_CLOSED_RE = re.compile(r'alt="checked"\s*/>\s*(?:</span>\s*)?<strong>\s*Facility Closed', re.I)
+
+
+def _napa_text(fragment):
+    s = re.sub(r'<br\s*/?>', ' ', fragment or '')
+    s = html_lib.unescape(re.sub(r'<[^>]+>', ' ', s)).replace('\xa0', ' ')
+    return re.sub(r'\s+', ' ', s).strip()
+
+
+def _napa_iso(mdy):
+    try:
+        return datetime.strptime(mdy.strip(), '%m/%d/%Y').strftime('%Y-%m-%d')
+    except (ValueError, AttributeError):
+        return ''
+
+
+def _napa_city(raw):
+    c = re.sub(r'[\s,]+', ' ', raw or '').strip().upper()
+    return NAPA_CITY_FIXES.get(c, c.title())
+
+
+def _napa_rows(page):
+    """(permit, inspection id, name, permit type, street, city, zip, date,
+    grade) per listed facility. Each facility is read from its own block, so
+    a block missing a part (no map link, no grade) cannot borrow the next
+    facility's; a block with no inspection date or a date for a different
+    inspection than its link is returned with date ''."""
+    rows = []
+    starts = list(NAPA_ROW_START_RE.finditer(page))
+    for k, m in enumerate(starts):
+        block = page[m.end():starts[k + 1].start() if k + 1 < len(starts) else len(page)]
+        permit, insp, name = m.groups()
+        t = NAPA_ROW_TYPE_RE.search(block)
+        a = NAPA_ROW_ADDRESS_RE.search(block)
+        street = _napa_text(re.sub(r'<a href="http://maps\.google\.com.*?</a>', '', a.group(1), flags=re.S)) if a else ''
+        cityline = _napa_text(a.group(2)) if a else ''
+        cm = re.match(r'^(.*?),\s*CA\b\s*(\d{5})?', cityline)
+        city, zip_code = (cm.group(1), cm.group(2) or '') if cm else (cityline, '')
+        d = NAPA_ROW_DATE_RE.search(block)
+        date = _napa_iso(d.group(2)) if d and d.group(1) == insp else ''
+        g = NAPA_ROW_GRADE_RE.search(block)
+        city = _napa_city(city) or NAPA_ZIP_CITIES.get(zip_code, '')
+        rows.append((permit, insp, _napa_text(name), _napa_text(t.group(1)) if t else '',
+                     street, city, zip_code, date, _napa_text(g.group(1)) if g else ''))
+    return rows
+
+
+def _napa_search(session, start, end):
+    """Every facility whose LAST inspection is in [start, end] (one month at
+    most). Raises when a page cannot be read or the pages do not add up."""
+    q = urlencode([('1', '1'), ('sd', start.strftime('%m/%d/%Y')), ('ed', end.strftime('%m/%d/%Y')),
+                   ('kw1', ''), ('kw2', ''), ('kw3', ''), ('rel1', 'N.permitName'),
+                   ('rel2', 'N.permitName'), ('rel3', 'N.permitName'), ('zc', ''),
+                   ('dtRng', 'YES'), ('pre', 'similar')])
+    rows, seen, last_link, offset = [], set(), 1, 1
+    for _ in range(NAPA_MAX_PAGES):
+        r = _tyler_request(session, 'GET', f'{NAPA_BASE}search.cfm?start={offset}&{q}',
+                           headers={'Referer': NAPA_BASE + 'search.cfm'})
+        if r is None:
+            raise RuntimeError(f'Napa County search {start:%Y-%m-%d}..{end:%Y-%m-%d} '
+                               f'page {offset} failed after retries')
+        page = r.text
+        links = [int(x) for x in NAPA_PAGE_LINK_RE.findall(page)]
+        last_link = max([last_link] + links)
+        got = _napa_rows(page)
+        if page.count('<a href="estab.cfm?permitID=') != len(got):
+            raise RuntimeError(f'Napa County search page {offset} ({start:%Y-%m-%d}): '
+                               f'{page.count("estab.cfm?permitID=")} facilities listed, '
+                               f'{len(got)} parsed; the result layout changed')
+        for row in got:
+            if row[1] in seen:
+                raise RuntimeError(f'Napa County search {start:%Y-%m-%d}: inspection {row[1]} '
+                                   f'repeated across pages; paging unstable')
+            seen.add(row[1])
+            rows.append(row)
+        if len(got) < NAPA_PAGE_SIZE:
+            break
+        offset += NAPA_PAGE_SIZE
+        time.sleep(NAPA_DELAY)
+    else:
+        raise RuntimeError(f'Napa County search {start:%Y-%m-%d}: more than {NAPA_MAX_PAGES} pages')
+    if offset < last_link:
+        raise RuntimeError(f'Napa County search {start:%Y-%m-%d}: stopped at row {offset} '
+                           f'but the pager links row {last_link}')
+    return rows
+
+
+def _napa_parse_report(page):
+    """The report's facts: {'date', 'type', 'total', 'closed', 'items': [(n,
+    title, points)], 'observations': {n: [text]}}. total is None when the
+    report prints none (an unscored visit)."""
+    out = {}
+    m = re.search(r'\bDate:\s*(?:<[^>]+>\s*)*(\d{2}/\d{2}/\d{4})', page)
+    out['date'] = _napa_iso(m.group(1)) if m else ''
+    m = re.search(r'Inspection Type:(.*?)(?:Permit ID:|</td>|</p>)', page, re.S)
+    out['type'] = _napa_text(m.group(1)) if m else ''
+    m = re.search(r'Total Points Deducted:.*?<td[^>]*>(.*?)</td>', page, re.S)
+    total = _napa_text(m.group(1)) if m else ''
+    out['total'] = int(total) if total.isdigit() else None
+    out['closed'] = bool(NAPA_CLOSED_RE.search(page))
+    items = []
+    for row in re.findall(r'<tr[^>]*>(.*?)</tr>', page, re.S):
+        cells = re.findall(r'<td[^>]*>(.*?)</td>', row, re.S)
+        if len(cells) not in (5, 7):
+            continue
+        im = NAPA_ITEM_RE.match(_napa_text(cells[0]))
+        if not im:
+            continue
+        boxes = ['alt="checked"' in c for c in cells[1:len(cells) - 2]]
+        if len(boxes) < 2 or not boxes[1]:          # the second box is "Out"
+            continue
+        pts = _napa_text(cells[-1])
+        items.append((int(im.group(1)), im.group(2).strip(), int(pts) if pts.isdigit() else None))
+    out['items'] = items
+    obs = defaultdict(list)
+    i = page.find('OBSERVATIONS AND CORRECTIVE ACTIONS')
+    for n, body in NAPA_OBS_RE.findall(page[i:] if i >= 0 else ''):
+        text = _napa_text(body)
+        text = NAPA_OBS_TAIL_RE.sub('', text)
+        text = re.sub(r'^Observation:\s*', '', text, flags=re.I).strip()
+        if text:
+            obs[int(n)].append(text)
+    out['observations'] = dict(obs)
+    return out
+
+
+def _napa_violations(report):
+    """[category, tier, text] per OUT item, or (None, problem) when the
+    points do not reproduce the printed total. Tier from the county's points:
+    a risk-factor item (1-23) that cost 6 or more is a major violation
+    (priority), one that cost less a minor one (priority_foundation); a good
+    retail practice item (24-54) is core."""
+    total = report['total']
+    pts = [p for _, _, p in report['items']]
+    if any(p is None for p in pts):
+        return None, 'an OUT item without points'
+    if sum(pts) != total:
+        return None, f'item points add up to {sum(pts)}, the report says {total}'
+    merged = {}                                  # one line per form item, its points summed
+    for n, title, p in report['items']:
+        merged[n] = (title, merged.get(n, (title, 0))[1] + p)
+    out = []
+    for n, (title, p) in merged.items():
+        if n <= 23:
+            tier = 'priority' if p >= 6 else 'priority_foundation'
+        else:
+            tier = 'core'
+        notes = ' '.join(report['observations'].get(n, []))
+        text = f'{title}: {notes}' if notes else title
+        cat, _, _ = classify_violation(text)
+        out.append([cat, tier, text[:500]])
+    return out, None
+
+
+def fetch_napa(since_date=None, limit=None):
+    """
+    Fetch Napa County, CA food inspections (Napa, Yountville, St. Helena,
+    Calistoga, American Canyon, Angwin, Rutherford, Oakville) from the
+    county's healthinspections.us portal (see the section notes): one record
+    per fixed food facility whose latest inspection is on or after the
+    window start. The start is since_date, never later than NAPA_REREAD_DAYS
+    ago (the snapshot re-read); test mode (limit, no since): the last
+    NAPA_TEST_WINDOW_DAYS; no since and no limit: NAPA_HISTORY_START.
+
+    Scoring: risk_score = 100 - the county's Total Points Deducted (also
+    original_score), never recomputed; the violations' tiers follow the
+    points each item cost. A search page that fails or does not add up
+    raises (nothing ships, the next run re-reads). A report that cannot be
+    read or whose points do not add up drops that inspection (re-read next
+    run, no hold); more than NAPA_MISMATCH_MAX_SHARE of them raises.
+    """
+    requested = str(since_date)[:10] if since_date else None
+    since = requested
+    first_run = (since and not limit and _FRESHNESS is not None
+                 and not (_FRESHNESS.get('groups', {}).get(NAPA_GROUP) or {}).get('latest'))
+    if first_run:
+        # the group's first weekly run reads the whole snapshot (every
+        # facility last inspected since NAPA_HISTORY_START, ~1,400 reports)
+        # instead of the 90-day re-read, so the map starts with the county
+        since = min(since, NAPA_HISTORY_START)
+    elif since and NAPA_REREAD_DAYS:
+        floor = (datetime.now() - timedelta(days=NAPA_REREAD_DAYS)).strftime('%Y-%m-%d')
+        if since > floor:
+            since = floor
+    if not since:
+        since = ((datetime.now() - timedelta(days=NAPA_TEST_WINDOW_DAYS)).strftime('%Y-%m-%d')
+                 if limit else NAPA_HISTORY_START)
+    log.info(f"Fetching Napa County data (since={since}"
+             + (', first run: the whole snapshot' if first_run else
+                f", widened from {requested} by the {NAPA_REREAD_DAYS}-day snapshot re-read"
+                if requested and since != requested else '') + f", limit={limit})")
+    if _past_deadline():
+        _set_group_status(NAPA_GROUP, 'skipped', 'fetch deadline reached before the search')
+        return []
+
+    session = requests.Session()
+    session.headers.update({'User-Agent': CHROME_UA})
+    _tyler_request(session, 'GET', NAPA_BASE)            # the first request often 503s; warms the session
+
+    start = datetime.strptime(since, '%Y-%m-%d')
+    end = datetime.now()
+    rows = []
+    cur = start
+    while cur <= end:
+        nxt = datetime(cur.year + (cur.month == 12), cur.month % 12 + 1, 1)
+        wend = min(nxt - timedelta(days=1), end)
+        got = _napa_search(session, cur, wend)
+        log.info(f"  Napa County {cur:%Y-%m-%d}..{wend:%Y-%m-%d}: {len(got)} facilities")
+        rows.extend(got)
+        cur = nxt
+        time.sleep(NAPA_DELAY)
+
+    newest = max((r[7] for r in rows), default='')
+    skipped, unread, results, seen = defaultdict(int), [], [], set()
+    scored = 0
+    for permit, insp, name, ptype, street, city, zip_code, date, grade in sorted(rows, key=lambda r: r[7]):
+        if insp in seen:
+            continue
+        seen.add(insp)
+        if not date or date < since:
+            skipped['outside the window'] += 1
+            continue
+        if ptype in NAPA_SKIP_TYPES:
+            skipped[NAPA_SKIP_TYPES[ptype]] += 1
+            continue
+        if ptype not in NAPA_SHIP_TYPES:
+            skipped[f'permit type {ptype or "(none)"}'] += 1
+            continue
+        if not name or not street:
+            skipped['no name or address'] += 1
+            continue
+        if zip_code not in NAPA_COUNTY_ZIPS and city not in NAPA_COUNTY_CITIES:
+            skipped['address outside Napa County'] += 1
+            continue
+        if DFW_HOLE_NON_RESTAURANT_RE.search(name) or NAPA_SCHOOL_RE.search(name):
+            skipped['school / child care name'] += 1
+            continue
+        if _past_deadline():
+            _set_group_status(NAPA_GROUP, 'skipped', 'fetch deadline reached during the report phase')
+            break
+        time.sleep(NAPA_DELAY)
+        r = _tyler_request(session, 'GET', NAPA_REPORT_URL.format(insp))
+        if r is None:
+            unread.append((insp, date, 'report failed after retries'))
+            continue
+        report = _napa_parse_report(r.text)
+        if report['date'] and report['date'] != date:
+            unread.append((insp, date, f"report dated {report['date']}"))
+            continue
+        if report['total'] is None:
+            skipped[f"unscored {report['type'] or 'visit'}"] += 1
+            continue
+        scored += 1
+        violations, problem = _napa_violations(report)
+        if problem:
+            unread.append((insp, date, problem))
+            continue
+        _, pv, pfv, cv = calc_risk_score(violations)
+        score = max(0, 100 - report['total'])
+        risk = min(score, NAPA_CLOSED_RISK_CAP) if report['closed'] else score
+        results.append({
+            'name': _dfw_hole_title(name),
+            'address': re.sub(r"'S\b", "'s", street.title()),
+            'city': city,
+            'state': 'CA',
+            'zip': zip_code,
+            'latitude': None,
+            'longitude': None,
+            'inspection_date': date,
+            'original_score': score,                # 100 - the county's points deducted
+            'risk_score': risk,
+            'priority_violations': pv,
+            'priority_foundation_violations': pfv,
+            'core_violations': cv,
+            'total_violations': len(violations),
+            'violations': violations,
+            'inspection_type': report['type'],
+            'results': 'Closed' if report['closed'] else grade,
+            'source': NAPA_SOURCE,
+            'source_url': NAPA_REPORT_URL.format(insp),
+            'source_id': f'napa_{insp}',
+            'metro': '',
+        })
+        if limit and len(results) >= limit:
+            break
+    if skipped:
+        log.info(f"  Napa County: skipped {dict(skipped)}")
+    if unread:
+        first = unread[0]
+        if len(unread) >= NAPA_MISMATCH_MIN and len(unread) > NAPA_MISMATCH_MAX_SHARE * max(scored, 1):
+            raise RuntimeError(f'Napa County: {len(unread)} of {scored + len(unread)} reports could not '
+                               f'be read completely (first {first[0]} of {first[1]}: {first[2]}); the '
+                               f'report layout changed, not shipping')
+        log.warning(f"  Napa County: {len(unread)} inspection(s) dropped (re-read next run): "
+                    + '; '.join(f'{i} {d}: {why}' for i, d, why in unread[:5]))
+    if not limit:
+        _note_source_lag(NAPA_GROUP, newest)
+    if unread:
+        _GROUP_NOTES[NAPA_GROUP] = '; '.join(x for x in (
+            _GROUP_NOTES.get(NAPA_GROUP),
+            f"{len(unread)} inspection(s) not shipped until their report reads completely "
+            f"({', '.join(i for i, _, _ in unread[:5])}); re-read next run") if x)
+    log.info(f"Napa County: {len(results)} inspections (source newest {newest or 'n/a'})")
+    return results
+
+
 # ─── EL PASO AND WACO, TX (score-only city sources) ─────────────────────────
 # Two Texas health departments that publish one number per inspection and
 # nothing else: no violation text, no inspection id (surveyed and probed live
@@ -19368,7 +19740,8 @@ def main():
             (('elpaso',), EP_GROUP, fetch_elpaso),
             (('waco',), WAC_GROUP, fetch_waco),
             (('corpuschristi',), CC_GROUP, fetch_corpus_christi),
-            (('abilene',), ABL_GROUP, fetch_abilene)):
+            (('abilene',), ABL_GROUP, fetch_abilene),
+            (('napa',), NAPA_GROUP, fetch_napa)):
         if any(s in args.cities for s in slugs):
             socrata_jobs[group] = _expansion_job(group, fetcher)
 

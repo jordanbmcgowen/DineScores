@@ -1795,6 +1795,11 @@ SOURCE_TIER_SOURCES = frozenset({
     # the official score is 100 minus those points: never re-tiered or
     # re-scored.
     'Abilene Environmental Health',
+    # Napa County, CA: each OUT item carries the points the county assessed
+    # (6 major / 2 minor risk factor, 1 good retail practice) and risk_score
+    # is 100 - the county's printed total, which those points reproduce:
+    # never re-tiered or re-scored.
+    'Napa County Environmental Health',
 })
 # Sources whose tier was bounded by a per-item rule the stored row no longer
 # carries (Chicago's item number, NYC's critical flag): a stored core line
