@@ -363,9 +363,9 @@
   "Napa County": {
    "last_run": {
     "at": "2026-11-26",
-    "detail": "1 inspection(s) not shipped until their report reads completely (1334708); re-read next run",
+    "detail": "source's own newest row is 2026-10-28 (29d old); nothing newer published; 22 inspection(s) not shipped until their report reads completely (1248388, 1248446, 1248593, 1248619, 1250818); re-read next run",
     "latest": "2026-10-28",
-    "records": 215,
+    "records": 2117,
     "status": "ok"
    },
    "latest": "2026-10-28"
@@ -542,7 +542,7 @@
   }
  },
  "jev": {
-  "cache_file": "jev_20261126T042844Z_weekly.jsonl.gz",
+  "cache_file": "jev_20261126T052020Z_weekly.jsonl.gz",
   "decide": [
    "hazard",
    "summary"
@@ -553,45 +553,45 @@
     "regex": 0
    },
    "hazard": {
-    "jev": 557,
-    "regex": 108
+    "jev": 5039,
+    "regex": 996
    },
    "summary": {
-    "jev": 629,
-    "regex": 36
+    "jev": 5645,
+    "regex": 390
    }
   },
-  "distinct_texts": 591,
-  "elapsed_s": 14.1,
+  "distinct_texts": 5086,
+  "elapsed_s": 54.2,
   "f_vs_regex": {
-   "agree": 173,
-   "jev_only": 1,
+   "agree": 1653,
+   "jev_only": 15,
    "regex_only": 1
   },
-  "lines": 665,
-  "lines_with_judgment": 665,
+  "lines": 6035,
+  "lines_with_judgment": 6035,
   "mode": "decide",
   "model": "jev-1.13.0",
   "question_set": "qs3",
   "reader": {
    "fallback_reasons": {},
-   "hazard_changed_on_verify": 12,
-   "hazard_verified_alone": 69,
-   "input_tokens": 2233617,
-   "latency_max": 0.3052513599395752,
-   "latency_total": 16.476948022842407,
-   "lines_asked": 591,
-   "lines_cached": 0,
+   "hazard_changed_on_verify": 87,
+   "hazard_verified_alone": 438,
+   "input_tokens": 16650218,
+   "latency_max": 0.558784008026123,
+   "latency_total": 135.7291533946991,
+   "lines_asked": 4495,
+   "lines_cached": 591,
    "lines_fallback": 0,
-   "lines_judged": 591,
+   "lines_judged": 4495,
    "mode": "decide",
-   "output_tokens": 374212,
+   "output_tokens": 2796365,
    "request_failures": 0,
-   "requests": 119
+   "requests": 813
   },
   "record_errors": 0,
-  "records": 215,
-  "records_with_violations": 175,
+  "records": 2117,
+  "records_with_violations": 1669,
   "rescored_records": 0,
   "retiered_lines": 0,
   "status": "ok"
@@ -1351,6 +1351,7 @@
   },
   "Napa County Environmental Health": {
    "group": "Napa County",
+   "history_from": "2025-01-01",
    "latest": "2026-10-28"
   },
   "Orange County Health Care Agency": {
