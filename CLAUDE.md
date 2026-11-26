@@ -45,7 +45,13 @@ Cloudflare Pages builds on deploy, serves public/
   dismissed prompt, iOS Location Services off), which read as "the GPS
   button can't be clicked". Ours never disables, re-asks on every tap,
   zooms to street level and follows live until the user pans; a tap that
-  finds no location shows a notice saying why. Data sources, in order: embedded
+  finds no location shows a notice saying why. "Low scores near me" (a
+  filter-rail chip) and the at-restaurant alert live in `src/nearMe.js`
+  (pure, `node tests/test_near_me.mjs`): recent C/F grades only (18
+  months), an "at" radius of 30-60 m from the fix's accuracy, no alert on a
+  fix worse than 100 m, "Next door" when a better-graded place is closer.
+  Location is read only while the page is open; nothing is stored or sent.
+  Data sources, in order: embedded
   `public/data.js` (top 1,000/city, bounded by EMBED_BUDGET and the 24 MB cap), then viewport lazy-loading via
   `src/api.js` → `/api/restaurants?bbox=`, history via
   `/api/restaurants/:id/history`. All API helpers fail soft so the map
@@ -918,7 +924,9 @@ impact and the open policy decisions; `scripts/jev_shadow.py` reproduces it.
 
 `python3 -m unittest discover -s tests` (no network: every fetcher test
 uses captured fixtures under `tests/fixtures/`) and `node
-tests/test_relay.mjs` for the relay function. Run both before pushing.
+tests/test_relay.mjs` for the relay function (plus `node tests/test_places.mjs`
+and `node tests/test_near_me.mjs` for the frontend logic). Run them before
+pushing.
 
 ## Local commands
 
