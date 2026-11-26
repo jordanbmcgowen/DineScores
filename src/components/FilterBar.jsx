@@ -38,6 +38,7 @@ export default function FilterBar({
   placeFilter, setPlaceFilter,
   gradeFilter, toggleGrade,
   infractionFilter, toggleInfraction,
+  nearMe = false, toggleNearMe,
 }) {
   // Encode the three-way selection (place XOR metro XOR city) as one select
   // value: 'p:<place id>', 'm:<metro>', 'c:<city>' or 'all'.
@@ -67,6 +68,18 @@ export default function FilterBar({
 
   return (
     <div className="flex items-center gap-2 overflow-x-auto no-scrollbar px-3 md:px-4 pb-1 pointer-events-auto">
+      {/* Near me: recent C/F grades within half a mile of the user */}
+      {toggleNearMe && (
+        <Chip active={nearMe} onClick={toggleNearMe} activeClass="bg-red-500 text-white shadow-md">
+          <span className="inline-flex items-center gap-1.5">
+            <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <path d="M12 21s-7-6.2-7-11.5A7 7 0 0 1 19 9.5C19 14.8 12 21 12 21z" />
+              <circle cx="12" cy="9.5" r="2.5" />
+            </svg>
+            Low scores near me
+          </span>
+        </Chip>
+      )}
       {/* Location dropdown */}
       <div className="relative shrink-0">
         <select

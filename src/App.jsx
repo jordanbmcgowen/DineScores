@@ -9,6 +9,8 @@ import FilterBar from './components/FilterBar.jsx';
 import BottomSheet from './components/BottomSheet.jsx';
 import PreviewCard from './components/PreviewCard.jsx';
 import SearchBar from './components/SearchBar.jsx';
+import NearMeAlert from './components/NearMeAlert.jsx';
+import { lowScoresNear, lowScoreAt, NEAR_RADIUS_M } from './nearMe.js';
 
 // Below this zoom the embedded overview is enough; above it, lazy-load the
 // uncapped records for whatever is in view from the D1 API.
@@ -126,7 +128,10 @@ export default function App() {
     if (last) {
       const dLat = pos.lat - last.lat;
       const dLng = (pos.lng - last.lng) * Math.cos((pos.lat * Math.PI) / 180);
-      if (Math.hypot(dLat, dLng) * 111320 < 25) return; // degrees → meters
+      // A much sharper fix in the same spot still counts: the low-score
+      // alert waits for an accurate one before it says "you're at".
+      const sharper = pos.accuracy > 0 && (!(last.accuracy > 0) || pos.accuracy < last.accuracy - 20);
+      if (Math.hypot(dLat, dLng) * 111320 < 25 && !sharper) return; // degrees → meters
     }
     lastPosRef.current = pos;
     setUserPos(pos);
@@ -135,9 +140,13 @@ export default function App() {
   useEffect(() => {
     if (!navigator.geolocation) return;
     const watchId = navigator.geolocation.watchPosition(
-      pos => applyUserPos({ lat: pos.coords.latitude, lng: pos.coords.longitude }),
+      pos => applyUserPos({
+        lat: pos.coords.latitude, lng: pos.coords.longitude, accuracy: pos.coords.accuracy,
+      }),
       () => {}, // denied/unavailable — keep the default framing
-      { timeout: 8000, maximumAge: 300000 },
+      // High accuracy so the low-score alert can tell neighbours apart. The
+      // watch only runs while the page is open.
+      { enableHighAccuracy: true, timeout: 15000, maximumAge: 60000 },
     );
     return () => navigator.geolocation.clearWatch(watchId);
   }, [applyUserPos]);
@@ -167,6 +176,70 @@ export default function App() {
     const timer = setTimeout(() => setLocateNotice(null), 8000);
     return () => clearTimeout(timer);
   }, [locateNotice]);
+
+  // "Near me": the list and map show only recent C/F grades within half a
+  // mile of the user, nearest first. Location is read only while the page
+  // is open (the watch above); nothing is stored or sent anywhere.
+  const [nearMe, setNearMe] = useState(false);
+  const toggleNearMe = useCallback(() => {
+    if (nearMe) { setNearMe(false); return; }
+    if (!navigator.geolocation) { handleGeolocateError('unsupported'); return; }
+    setNearMe(true);
+    if (!lastPosRef.current) {
+      navigator.geolocation.getCurrentPosition(
+        pos => applyUserPos({
+          lat: pos.coords.latitude, lng: pos.coords.longitude, accuracy: pos.coords.accuracy,
+        }),
+        err => {
+          handleGeolocateError(err && err.code === 1 ? 'denied' : 'unavailable');
+          setNearMe(false);
+        },
+        { enableHighAccuracy: true, timeout: 15000, maximumAge: 60000 },
+      );
+    }
+  }, [nearMe, applyUserPos, handleGeolocateError]);
+  // Any other filter or a search is a different question: Near me steps aside
+  const otherFilters = `${cityFilter}|${metroFilter}|${placeFilter}|${gradeFilter.join('')}|${infractionFilter.join('')}|${debouncedSearch}`;
+  const otherFiltersRef = useRef(otherFilters);
+  useEffect(() => {
+    if (otherFiltersRef.current === otherFilters) return;
+    otherFiltersRef.current = otherFilters;
+    setNearMe(false);
+  }, [otherFilters]);
+
+  // Turning Near me on frames the user's surroundings
+  useEffect(() => {
+    if (nearMe && userPos) {
+      setFlyTo({ lng: userPos.lng, lat: userPos.lat, zoom: 15, key: Date.now() });
+    }
+    // Only when the mode turns on or the first fix lands, not on every move
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [nearMe, !!userPos]);
+
+  // The at-restaurant alert. A dismissed restaurant stays quiet for the rest
+  // of the browser session.
+  const [dismissedAlerts, setDismissedAlerts] = useState(() => {
+    try { return new Set(JSON.parse(sessionStorage.getItem('ds-alert-dismissed') || '[]')); }
+    catch { return new Set(); }
+  });
+  const dismissAlert = useCallback(id => {
+    setDismissedAlerts(prev => {
+      const next = new Set(prev).add(id);
+      try { sessionStorage.setItem('ds-alert-dismissed', JSON.stringify([...next])); } catch { /* storage blocked */ }
+      return next;
+    });
+  }, []);
+  const atAlert = useMemo(
+    () => lowScoreAt(allData, userPos, { dismissed: dismissedAlerts }),
+    [allData, userPos, dismissedAlerts]);
+  // A short buzz the first time each alert appears (Android; iOS ignores it)
+  const buzzedRef = useRef(new Set());
+  useEffect(() => {
+    const id = atAlert?.r?.i;
+    if (!id || buzzedRef.current.has(id)) return;
+    buzzedRef.current.add(id);
+    try { navigator.vibrate?.(200); } catch { /* not supported */ }
+  }, [atAlert]);
 
   // Center on the user only when we actually cover their area (~within
   // 100km of any loaded restaurant) — recentring onto an empty map would
@@ -364,6 +437,26 @@ export default function App() {
     }).catch(() => { inFlightRef.current.delete(key); });
   }, [mergeRecords]);
 
+  // Make sure every restaurant around the user is loaded (the embedded file
+  // keeps only each city's newest), so neither the alert nor the Near me
+  // list misses a low scorer. One ~1 km box per ~300 m of movement.
+  const nearFetchRef = useRef(null);
+  useEffect(() => {
+    if (!userPos || !apiReady || fullyLoadedRef.current) return;
+    const last = nearFetchRef.current;
+    if (last) {
+      const dLat = userPos.lat - last.lat;
+      const dLng = (userPos.lng - last.lng) * Math.cos((userPos.lat * Math.PI) / 180);
+      if (Math.hypot(dLat, dLng) * 111320 < 300) return;
+    }
+    nearFetchRef.current = userPos;
+    const dLat = (NEAR_RADIUS_M + 300) / 111320;
+    const dLng = dLat / Math.max(0.2, Math.cos((userPos.lat * Math.PI) / 180));
+    fetchBboxFromApi({
+      w: userPos.lng - dLng, s: userPos.lat - dLat, e: userPos.lng + dLng, n: userPos.lat + dLat,
+    }).then(({ records }) => mergeRecords(records)).catch(() => { nearFetchRef.current = null; });
+  }, [userPos, apiReady, mergeRecords]);
+
   // City/metro chips derived from the live dataset, largest first
   const cityOptions = useMemo(() => {
     const cityCounts = new Map();
@@ -414,7 +507,13 @@ export default function App() {
   }, []);
 
   // Filtered + sorted data
+  const nearList = useMemo(
+    () => (nearMe ? lowScoresNear(allData, userPos).map(x => x.r) : null),
+    [nearMe, allData, userPos]);
+
   const filtered = useMemo(() => {
+    // Near me replaces the other filters: it is its own question
+    if (nearList) return nearList;
     let data = allData;
 
     // City filter
@@ -483,7 +582,7 @@ export default function App() {
     }
 
     return sorted;
-  }, [allData, cityFilter, metroFilter, activePlace, gradeFilter, infractionFilter, debouncedSearch, sortBy, userPos]);
+  }, [nearList, allData, cityFilter, metroFilter, activePlace, gradeFilter, infractionFilter, debouncedSearch, sortBy, userPos]);
 
   // The list and header count mirror the VISIBLE map exactly, at every zoom
   // (the map reports bounds that exclude the sidebar/header/sheet overlays).
@@ -491,12 +590,12 @@ export default function App() {
   // way to reach them. The MAP always gets the full filtered set — it
   // clusters, so density isn't a problem.
   const visible = useMemo(() => {
-    if (!mapView) return filtered;
+    if (!mapView || nearList) return filtered;
     const { w, s, e, n } = mapView.bounds;
     return filtered.filter(r => (r.lt && r.ln)
       ? (r.ln >= w && r.ln <= e && r.lt >= s && r.lt <= n)
       : !!debouncedSearch);
-  }, [filtered, mapView, debouncedSearch]);
+  }, [filtered, mapView, debouncedSearch, nearList]);
 
   // Camera signals: a city/metro/place change re-frames the map to that area
   // (fitSignal — a place fits to its own bounding box, so it frames correctly
@@ -589,6 +688,12 @@ export default function App() {
 
   // Banner + scoped items while a co-located stack is open
   const listItems = stack ? stack.records : visible;
+  const countLabel = nearList
+    ? `${listItems.length.toLocaleString()} low ${listItems.length === 1 ? 'score' : 'scores'} within ½ mi`
+    : `${listItems.length.toLocaleString()} restaurants`;
+  const emptyState = nearList
+    ? <NearMeEmpty locating={!userPos} />
+    : <EmptyState areaLabel={areaLabel} />;
   const stackBanner = stack && (
     <div className="shrink-0 px-4 py-2.5 bg-brand-50/70 dark:bg-brand-900/20 border-b border-brand-100 dark:border-brand-900/40 flex items-center justify-between gap-2">
       <span className="text-xs font-bold text-brand-800 dark:text-brand-100 min-w-0 truncate">
@@ -702,6 +807,8 @@ export default function App() {
           toggleGrade={toggleGrade}
           infractionFilter={infractionFilter}
           toggleInfraction={toggleInfraction}
+          nearMe={nearMe}
+          toggleNearMe={toggleNearMe}
         />
       </div>
 
@@ -720,7 +827,7 @@ export default function App() {
         {stackBanner}
         <div className="px-4 h-11 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between shrink-0">
           <span className="text-xs font-bold text-slate-500 dark:text-slate-400 tabular-nums flex items-center gap-2">
-            {listItems.length.toLocaleString()} restaurants
+            {countLabel}
             {loadingArea && (
               <span className="inline-flex items-center gap-1 text-brand-600 dark:text-brand-500 normal-case">
                 <span className="w-3 h-3 border-2 border-brand-200 border-t-brand-600 rounded-full animate-spin" />
@@ -751,7 +858,7 @@ export default function App() {
               Showing 100 of {listItems.length.toLocaleString()} — zoom in or search to narrow.
             </p>
           )}
-          {listItems.length === 0 && <EmptyState areaLabel={areaLabel} />}
+          {listItems.length === 0 && emptyState}
         </div>
       </aside>
 
@@ -763,7 +870,7 @@ export default function App() {
         header={
           <div className="w-full px-4 pb-2 flex items-center justify-between">
             <span className="text-sm font-bold tabular-nums">
-              {listItems.length.toLocaleString()} restaurants
+              {countLabel}
             </span>
             <span onClick={e => e.stopPropagation()} onTouchStart={e => e.stopPropagation()}>
               {sortSelect}
@@ -781,7 +888,7 @@ export default function App() {
             selected={preview?.i === r.i}
           />
         ))}
-        {listItems.length === 0 && <EmptyState areaLabel={areaLabel} />}
+        {listItems.length === 0 && emptyState}
       </BottomSheet>
 
       {/* Mobile-only floating preview (desktop docks it in the sidebar).
@@ -793,6 +900,16 @@ export default function App() {
           formatDate={formatDate}
           onClose={() => setPreview(null)}
           onFullReport={() => setSelectedRestaurant(preview)}
+        />
+      )}
+
+      {/* You appear to be in (or beside) a recent low scorer */}
+      {atAlert && !selectedRestaurant && !searchOpen && (
+        <NearMeAlert
+          alert={atAlert}
+          formatDate={formatDate}
+          onOpen={() => { focusRestaurant(atAlert.r); setSelectedRestaurant(atAlert.r); }}
+          onDismiss={() => dismissAlert(atAlert.r.i)}
         />
       )}
 
@@ -838,6 +955,21 @@ function EmptyState({ areaLabel }) {
         {areaLabel ? `No restaurants found in ${areaLabel}` : 'No restaurants found'}
       </p>
       <p className="text-xs mt-1">Try adjusting your search or filters</p>
+    </div>
+  );
+}
+
+function NearMeEmpty({ locating }) {
+  return (
+    <div className="p-10 text-center text-slate-400">
+      <p className="font-semibold text-slate-500 dark:text-slate-400">
+        {locating ? 'Finding your location…' : 'No recent C or F grades within half a mile'}
+      </p>
+      <p className="text-xs mt-1">
+        {locating
+          ? 'Allow location access to see low scores near you.'
+          : 'Only inspections from the last 18 months count.'}
+      </p>
     </div>
   );
 }
