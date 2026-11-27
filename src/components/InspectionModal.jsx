@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { fetchHistoryFromApi, fetchRestaurantDetail } from '../api.js';
 import GradeBadge, { gradeMeta } from './GradeBadge.jsx';
+import { sourceLag } from '../sourceLag.js';
 
 const INFRACTION_META = {
   pests: { label: 'Pests detected', chip: 'bg-red-50 text-red-700 ring-red-600/20 dark:bg-red-500/10 dark:text-red-400 dark:ring-red-400/20' },
@@ -90,7 +91,8 @@ function TrendStrip({ history }) {
   );
 }
 
-export default function InspectionModal({ restaurant: r, onClose, formatDate, onUpgrade }) {
+export default function InspectionModal({ restaurant: r, onClose, formatDate, onUpgrade, sourceAreas }) {
+  const lag = sourceLag(r, sourceAreas);
   const [history, setHistory] = useState([]);
   const [loadingHistory, setLoadingHistory] = useState(false);
   const [expandedSummary, setExpandedSummary] = useState(null);
@@ -235,6 +237,14 @@ export default function InspectionModal({ restaurant: r, onClose, formatDate, on
             <StatTile label="Last inspected" value={formatDate(r.d)} />
             <StatTile label="Inspections on file" value={r.ic || history.length || 1} />
           </div>
+
+          {/* The health department posts late: say so, or an old date reads
+              as "not inspected in months" */}
+          {lag && (
+            <p className="text-[12px] leading-snug text-amber-800 dark:text-amber-300 bg-amber-50 dark:bg-amber-500/10 ring-1 ring-amber-200 dark:ring-amber-500/20 rounded-lg px-3 py-2">
+              This area's health department has published nothing newer than {formatDate(lag.newest)}, so a more recent visit may not show here yet.
+            </p>
+          )}
 
           {/* Grade trend at a glance */}
           {history.length >= 2 && <TrendStrip history={history} />}

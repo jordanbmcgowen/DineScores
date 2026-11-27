@@ -23,7 +23,10 @@ inspects (Vail, Aspen, Breckenridge, Durango, Steamboat), Pueblo, Grand
 Junction and Broomfield CO; and, since 2026-11-26, Napa County CA: Napa,
 Yountville, St. Helena, Calistoga, American Canyon; and Sonoma County CA:
 Santa Rosa, Petaluma, Healdsburg, Sonoma, Sebastopol, Windsor, Rohnert
-Park, Glen Ellen) plus all of Florida, New York State, Delaware, South Carolina, Georgia
+Park, Glen Ellen; and, since 2026-11-27, Hawaii statewide (Honolulu,
+Kailua-Kona, Hilo, Maui, Kauai), Akron/Summit County OH, Placer County CA
+(Roseville, Rocklin, Auburn, Truckee) and Platte County MO (Parkville,
+Platte City, Riverside)) plus all of Florida, New York State, Delaware, South Carolina, Georgia
 (Atlanta: Fulton/DeKalb/Cobb and the other 153 counties; Gwinnett/Newton/
 Rockdale on the MHD `gwinnett` slug), Louisiana (New Orleans, Baton Rouge,
 Shreveport, Lafayette) and Virginia (33 VDH districts; Fairfax County is
@@ -54,6 +57,12 @@ Cloudflare Pages builds on deploy, serves public/
   months), an "at" radius of 30-60 m from the fix's accuracy, no alert on a
   fix worse than 100 m, "Next door" when a better-graded place is closer.
   Location is read only while the page is open; nothing is stored or sent.
+  The report says when an area's health department is publishing late
+  (`src/sourceLag.js`, `node tests/test_source_lag.mjs`): an area (metro,
+  else city, plus state) with 100+ embedded records whose newest is over 21
+  days old gets an amber note, so LA County's quarterly posting or Austin's
+  six-week lag does not read as "not inspected in months". It is computed
+  from the embedded set only, which keeps every city's newest records.
   Data sources, in order: embedded
   `public/data.js` (top 1,000/city, bounded by EMBED_BUDGET and the 24 MB cap), then viewport lazy-loading via
   `src/api.js` → `/api/restaurants?bbox=`, history via
@@ -105,7 +114,9 @@ middleware.
   would not fit next to DFW on Sunday) and the fourteen jurisdictions added
   2026-11-22 (`montana amarillo tyler orangecountytx wyoming minot stlouis
   jacksoncountymo coloradostate pueblo grandjunction broomfield`, ~650 more
-  detail pages a week plus ~35 Montana printables at ~20 s each). The
+  detail pages a week plus ~35 Montana printables at ~20 s each) and the
+  three added 2026-11-27 (`hawaii akron placer`, ~750 more detail pages a
+  week; each new jurisdiction's first run reads only the last 8 days). The
   Wednesday run took 54 of its 300 minutes before them. The "Pick the sources for this run"
   step sets `--cities` from the weekday (a manual run takes a `cities`
   input); both runs share the same merge/commit flow and freshness file.
@@ -306,11 +317,8 @@ people covered per unit of work:
   `foodscores.state.al.us`, a WebForms county sweep (66 requests), OFFICIAL
   0-100 score only, latest inspection per establishment, no violations, no
   coordinates, no history; Tallapoosa County 500s.
-- **Akron/Summit County OH ('scph') and Placer County CA ('pchd',
-  Roseville)** on MHD: config-only entries now that every plain
-  jurisdiction searches sorted one-day windows (see the MHD invariant on
-  pagination) and `purpose_allow` exists for their Pre-licensing and
-  Consultation rows (no observations). Amarillo ('aaphd') shipped
+- Akron/Summit County OH ('scph') and Placer County CA ('pchd') shipped
+  2026-11-27 (see the placard invariant), as did Amarillo ('aaphd')
   2026-11-22. The statewide
   'virginia' slug is NOT usable (capped, unstable paging, bucket mode lossy);
   the 33 `va-*` district sub-sites are ordinary uncapped jurisdictions and
@@ -357,9 +365,6 @@ read yet. The ones worth building next:
   scores only. NOT a config entry: the portal's names and addresses hash to
   different restaurant ids than the stored ones (1 match in 74), so it needs
   an id map from a D1 export first, as King County did.
-- **Hawaii statewide ('soh' on MHD, 1.4M)**: 56-76 rows a day, no score;
-  needs a Hawaii box in `coords_plausible` and a look at its Other and
-  Complaint purposes (Montana's `Other` rows were placeholders).
 - **Galveston County** (Salesforce guest endpoint, scores only, posting
   looked stalled), **Bell County** (Killeen/Temple: weekly PDFs, weeks
   late), **Brazos County** (Inspect2Go PDFs, no date filter), **Beaumont**
@@ -367,9 +372,8 @@ read yet. The ones worth building next:
   Braunfels / Seguin / Nacogdoches / Rowlett** (small score-only sources),
   **Little Elm / Sachse / Pilot Point / Justin** (InstantInspector HTML; its
   robots.txt asks AI crawlers to stay out, an owner decision).
-- **Platte County MO** (north of Kansas City) is on Paragon Inspections
-  Online like Kansas City (`mo/platteplattecity/inspect.nsf`, ~10 food
-  inspections a week): an `IO_PORTALS` entry after a look at its tiers.
+- Hawaii statewide ('soh') and Platte County MO (Paragon,
+  `mo/platteplattecity/inspect.nsf`) shipped 2026-11-27.
 - More MHD tenants with live rows: Hamilton County OH and ~35 other Ohio
   counties (no score, every row a detail page), Benton-Franklin WA, Yavapai
   AZ, Marin and San Luis Obispo CA, Union County NC, St. Clair County IL,
@@ -670,6 +674,23 @@ read yet. The ones worth building next:
   and groups). Seeds in one push load in path
   order, so a chunk that must win (Louisiana's narratives over the
   titles-only history) needs a tag that sorts last.
+- **Hawaii is outside CONUS; its box is the only place its pins may sit.**
+  `coords_plausible` rejects everything outside the continental box except a
+  state in `OUTSIDE_CONUS_BOUNDS` (HI), which is judged on its own box
+  alone, both ways: a Honolulu point is wrong for a Texas record and a
+  Dallas point for a Hawaii one. `src/grading.js` mirrors it (the frontend
+  zeroes implausible coordinates too). Anchorage would need an AK entry.
+- **Green / yellow / red placards cap the score** (Hawaii DOH, Placer
+  County; `placard_caps` in an MHD config, `_mhd_apply_placards`). Yellow
+  is a conditional pass (two or more major violations), capped at 79; red
+  is a closure, capped at 65 (an F, like Colorado's Closed and Waco's
+  FAILED); a cap only lowers. Placer sends the placard in the row's
+  `InspectionOutcome` (`placard_field`, blank on ~15% of rows), Hawaii only
+  on the detail page (`MHD_PAGE_PLACARD_RE`, `_MHD_PAGE_PLACARDS`). The
+  placard goes to `results`. When most of a jurisdiction's records show no
+  placard the template changed and the fetch raises: a closure must never
+  read as an A. Hawaii's clean reports print the whole IN/OUT grid, so an
+  empty observation block there is a real clean read.
 - **States are two-letter codes on output.** Portals sometimes spell the
   state out (38 VDH rows said 'VIRGINIA'), which split a town into two
   (city, state) buckets and skipped the state's coordinate box;
@@ -1009,8 +1030,9 @@ impact and the open policy decisions; `scripts/jev_shadow.py` reproduces it.
 
 `python3 -m unittest discover -s tests` (no network: every fetcher test
 uses captured fixtures under `tests/fixtures/`) and `node
-tests/test_relay.mjs` for the relay function (plus `node tests/test_places.mjs`
-and `node tests/test_near_me.mjs` for the frontend logic). Run them before
+tests/test_relay.mjs` for the relay function (plus `node tests/test_places.mjs`,
+`node tests/test_near_me.mjs` and `node tests/test_source_lag.mjs` for the
+frontend logic). Run them before
 pushing.
 
 ## Local commands

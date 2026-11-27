@@ -85,12 +85,23 @@ const STATE_BOUNDS = {
   MO: [35.99, 40.62, -95.78, -89.10],
 };
 const COORD_MARGIN = 0.6;
+// Hawaii is outside CONUS: a point inside this box is plausible for an HI
+// record and for nothing else (mirrors OUTSIDE_CONUS_BOUNDS in the pipeline).
+const OUTSIDE_CONUS_BOUNDS = {
+  HI: [18.80, 22.35, -160.40, -154.70],
+};
 
 function coordsPlausible(lat, lng, state) {
-  const [s, n, w, e] = CONUS_BOUNDS;
-  if (!(lat >= s && lat <= n && lng >= w && lng <= e)) return false;
   let st = (state || '').trim().toUpperCase();
   if (st === 'TEXAS') st = 'TX';
+  if (st === 'HAWAII') st = 'HI';
+  const outside = OUTSIDE_CONUS_BOUNDS[st];
+  if (outside) {
+    const [os, on, ow, oe] = outside;
+    return lat >= os && lat <= on && lng >= ow && lng <= oe;
+  }
+  const [s, n, w, e] = CONUS_BOUNDS;
+  if (!(lat >= s && lat <= n && lng >= w && lng <= e)) return false;
   const box = STATE_BOUNDS[st];
   if (!box) return true;
   const [bs, bn, bw, be] = box;

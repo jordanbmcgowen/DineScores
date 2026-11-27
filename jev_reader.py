@@ -1720,6 +1720,7 @@ SOURCE_TIER_SCORE_SOURCES = frozenset({
     # Flathead's is then capped by the county's letter band.
     'Missoula Public Health', 'Gallatin City-County Health Department',
     'Flathead City-County Health Department', 'Kansas City MO Health Department',
+    'Platte County Health Department',
     # Colorado: CDPHE prints the state's Priority / Priority Foundation /
     # Core designation on every line, and Pueblo's and Mesa County's lines
     # cite the same library's section, which carries it (the pipeline's
@@ -1771,6 +1772,7 @@ SOURCE_TIER_SOURCES = frozenset({
     # Intervention or Critical versus the rest).
     'Missoula Public Health', 'Gallatin City-County Health Department',
     'Flathead City-County Health Department', 'Kansas City MO Health Department',
+    'Platte County Health Department',
     # Colorado's state designation, printed by CDPHE and carried by the
     # cited section on Pueblo's and Mesa County's lines, printed in brackets
     # on El Paso County's, and read off the form's item number on the lines
