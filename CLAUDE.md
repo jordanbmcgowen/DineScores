@@ -106,6 +106,20 @@ Cloudflare Pages builds on deploy, serves public/
   read. Responses carry `X-Edge-Cache: HIT|MISS`; only 2xx responses with a
   positive max-age are stored (a 503 while D1 is down must never be pinned
   for an hour), and a fresh deploy or an hour clears them.
+- **Public API and MCP server (for AI assistants)**: `/api/v1/*`
+  (`functions/api/v1/[[path]].js`, queries and the public record shape in
+  `functions/_lib/public_api.js`, OpenAPI at `/api/v1/openapi.json`) and a
+  stateless Streamable HTTP MCP server at `/mcp` (`functions/mcp.js`; no
+  auth, every tool read-only and titled, as the connector directories
+  require). Each MCP tool is a GET through `handleApi`, so both share the
+  edge cache. Answers carry an `attribution` block; `/developers/` (docs and
+  terms) and `/privacy/` are built by `build_seo.mjs`. Per-IP rate limits
+  (`functions/_lib/rate_limit.js`: 60/min API, 300/min MCP, Pages variables
+  override; an `API_RATE_LIMITER` binding is used if bound). Keep every query
+  on an index or capped: a name search without city/state is the one table
+  scan, capped at 25 rows. Directory listings (MCP Registry, Claude, ChatGPT)
+  are drafted in `docs/public-api-and-mcp.md` and are the owner's to submit.
+  Tests: `node tests/test_public_api.mjs`.
 - **Crawlable pages (SEO / AI search)**: the map is an SPA that crawlers
   cannot read, and Pages answers every unknown path with index.html, so
   without these the site was one empty page to Google. `npm run build` runs
@@ -1090,7 +1104,8 @@ uses captured fixtures under `tests/fixtures/`) and `node
 tests/test_relay.mjs` for the relay function (plus `node tests/test_places.mjs`,
 `node tests/test_near_me.mjs`, `node tests/test_source_lag.mjs`,
 `node tests/test_search_rank.mjs`, `node tests/test_finding_text.mjs`,
-`node tests/test_analytics.mjs` and `node tests/test_seo.mjs` for the
+`node tests/test_analytics.mjs`, `node tests/test_public_api.mjs` and
+`node tests/test_seo.mjs` for the
 frontend logic and crawlable pages). Run them before
 pushing.
 

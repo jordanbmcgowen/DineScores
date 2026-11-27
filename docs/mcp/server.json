@@ -1,0 +1,18 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "com.dinescores/dinescores",
+  "title": "DineScores",
+  "description": "US restaurant health inspection grades (A/B/C/F) from official health department records.",
+  "websiteUrl": "https://dinescores.com/developers/",
+  "repository": {
+    "url": "https://github.com/jordanbmcgowen/DineScores",
+    "source": "github"
+  },
+  "version": "1.0.0",
+  "remotes": [
+    {
+      "type": "streamable-http",
+      "url": "https://dinescores.com/mcp"
+    }
+  ]
+}
