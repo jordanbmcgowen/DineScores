@@ -11,7 +11,7 @@
 import { edgeCached, parseJson } from '../api/_utils.js';
 import {
   SITE, esc, displayName, restaurantPath, statePath, cityPath, stateName,
-  slugify, gradeBadge, formatDate, renderPage, GRADE_WORDS,
+  slugify, gradeBadge, formatDate, renderPage, withAnalytics, GRADE_WORDS,
 } from '../_lib/seo.js';
 
 const MAX_AGE = 21600; // six hours; data changes weekly
@@ -82,7 +82,7 @@ export async function handleGet({ request, params, env }) {
     cityIndex(env, request, row.state),
   ]);
 
-  return html(renderRestaurant(row, history || [], cities));
+  return html(withAnalytics(renderRestaurant(row, history || [], cities), env.VITE_GA_MEASUREMENT_ID));
 }
 
 export function renderRestaurant(row, history, cities) {

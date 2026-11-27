@@ -282,10 +282,10 @@
   },
   "MHD metros (midweek)": {
    "last_run": {
-    "at": "2026-11-25",
+    "at": "2026-11-27",
     "detail": "",
     "latest": "2026-11-25",
-    "records": 1333,
+    "records": 187,
     "status": "ok"
    },
    "latest": "2026-11-25"
@@ -562,7 +562,7 @@
   }
  },
  "jev": {
-  "cache_file": "jev_20261126T053018Z_weekly.jsonl.gz",
+  "cache_file": "jev_20261127T175850Z_weekly.jsonl.gz",
   "decide": [
    "hazard",
    "summary"
@@ -573,45 +573,45 @@
     "regex": 0
    },
    "hazard": {
-    "jev": 2535,
-    "regex": 577
+    "jev": 176,
+    "regex": 10
    },
    "summary": {
-    "jev": 2847,
-    "regex": 265
+    "jev": 166,
+    "regex": 20
    }
   },
-  "distinct_texts": 2952,
-  "elapsed_s": 32.2,
+  "distinct_texts": 166,
+  "elapsed_s": 6.8,
   "f_vs_regex": {
-   "agree": 742,
+   "agree": 84,
    "jev_only": 1,
-   "regex_only": 10
+   "regex_only": 0
   },
-  "lines": 3112,
-  "lines_with_judgment": 3112,
+  "lines": 186,
+  "lines_with_judgment": 186,
   "mode": "decide",
   "model": "jev-1.13.0",
   "question_set": "qs3",
   "reader": {
    "fallback_reasons": {},
-   "hazard_changed_on_verify": 9,
-   "hazard_verified_alone": 200,
-   "input_tokens": 10603267,
-   "latency_max": 0.5840740203857422,
-   "latency_total": 76.3871386051178,
-   "lines_asked": 2951,
-   "lines_cached": 1,
+   "hazard_changed_on_verify": 0,
+   "hazard_verified_alone": 10,
+   "input_tokens": 592591,
+   "latency_max": 0.22765779495239258,
+   "latency_total": 3.705444812774658,
+   "lines_asked": 166,
+   "lines_cached": 0,
    "lines_fallback": 0,
-   "lines_judged": 2951,
+   "lines_judged": 166,
    "mode": "decide",
-   "output_tokens": 1786274,
+   "output_tokens": 99781,
    "request_failures": 0,
-   "requests": 446
+   "requests": 24
   },
   "record_errors": 0,
-  "records": 925,
-  "records_with_violations": 753,
+  "records": 187,
+  "records_with_violations": 85,
   "rescored_records": 0,
   "retiered_lines": 0,
   "status": "ok"
@@ -813,6 +813,10 @@
     }
    },
    "latest": "2026-11-18"
+  },
+  "Hawaii Health Dept": {
+   "group": "MHD metros (midweek)",
+   "latest": "2026-11-25"
   },
   "Houston Health Dept": {
    "group": "houston",

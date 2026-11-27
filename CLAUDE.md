@@ -65,6 +65,11 @@ Cloudflare Pages builds on deploy, serves public/
   months), an "at" radius of 30-60 m from the fix's accuracy, no alert on a
   fix worse than 100 m, "Next door" when a better-graded place is closer.
   Location is read only while the page is open; nothing is stored or sent.
+  Every area request (`fetchBboxFromApi`, the search box's nearby `bbox`)
+  is snapped outward to a grid of at least 0.05 degrees (`src/areaGrid.js`,
+  `node tests/test_area_grid.mjs`), so the box around a GPS fix never
+  reaches the server; /privacy/ says so. Keep any new area request on
+  `bboxParam`.
   The report says when an area's health department is publishing late
   (`src/sourceLag.js`, `node tests/test_source_lag.mjs`): an area (metro,
   else city, plus state) with 100+ embedded records whose newest is over 21
@@ -108,6 +113,20 @@ Cloudflare Pages builds on deploy, serves public/
   read. Responses carry `X-Edge-Cache: HIT|MISS`; only 2xx responses with a
   positive max-age are stored (a 503 while D1 is down must never be pinned
   for an hour), and a fresh deploy or an hour clears them.
+- **Public API and MCP server (for AI assistants)**: `/api/v1/*`
+  (`functions/api/v1/[[path]].js`, queries and the public record shape in
+  `functions/_lib/public_api.js`, OpenAPI at `/api/v1/openapi.json`) and a
+  stateless Streamable HTTP MCP server at `/mcp` (`functions/mcp.js`; no
+  auth, every tool read-only and titled, as the connector directories
+  require). Each MCP tool is a GET through `handleApi`, so both share the
+  edge cache. Answers carry an `attribution` block; `/developers/` (docs and
+  terms) and `/privacy/` are built by `build_seo.mjs`. Per-IP rate limits
+  (`functions/_lib/rate_limit.js`: 60/min API, 300/min MCP, Pages variables
+  override; an `API_RATE_LIMITER` binding is used if bound). Keep every query
+  on an index or capped: a name search without city/state is the one table
+  scan, capped at 25 rows. Directory listings (MCP Registry, Claude, ChatGPT)
+  are drafted in `docs/public-api-and-mcp.md` and are the owner's to submit.
+  Tests: `node tests/test_public_api.mjs`.
 - **Crawlable pages (SEO / AI search)**: the map is an SPA that crawlers
   cannot read, and Pages answers every unknown path with index.html, so
   without these the site was one empty page to Google. `npm run build` runs
@@ -123,6 +142,28 @@ Cloudflare Pages builds on deploy, serves public/
   hex digit. Shared template: `functions/_lib/seo.js`. `index.html` carries
   the meta/OG/JSON-LD and a crawlable summary inside `#root` that React
   replaces on mount. Tests: `node tests/test_seo.mjs`.
+- **Usage analytics**: Google Analytics 4, account "DineScores", property
+  "healthinspections", web stream `G-1VB8672S14` (`DEFAULT_GA_ID` in
+  `functions/_lib/analytics_id.js`; Search Console for https://dinescores.com/
+  is linked to it). The tag loads only on dinescores.com (`LIVE_HOSTS`), so
+  local dev and Pages previews report nothing. The Pages variable
+  `VITE_GA_MEASUREMENT_ID` overrides the id: read at build time by the map
+  (`src/analytics.js`) and the static SEO pages, and at run time by
+  `functions/restaurant/[slug].js` (`withAnalytics` in
+  `functions/_lib/seo.js`). Events: `search`
+  (once typing pauses 1.5 s; `cleanSearchTerm` drops emails, phone numbers
+  and street addresses), `select_area`, `filter_grade`, `filter_issue`,
+  `near_me`, `near_me_alert_shown/_dismiss`, `locate`, `select_restaurant`
+  and `view_report` (with `via`), `open_stack`, `sort_change`,
+  `theme_toggle` (plus a `theme` user property), `share`, `directions`,
+  `official_record`, `finding_expand`. Restaurant events carry only the
+  public name, grade, city and state. Never send the user's coordinates or
+  distances. Google signals and ad personalisation are off, and a browser sending
+  Global Privacy Control or Do Not Track loads nothing (`optedOut`, and the
+  same check in the static tag). `/privacy/` (`privacyPage` in
+  `build_seo.mjs`) describes all of this: change it with the events. The
+  map links to it from the end of the results list (`siteLinks`). Tests:
+  `node tests/test_analytics.mjs`.
 - **Pipeline**: one file, `dinescores_pipeline.py`. One `fetch_<city>()`
   per source (Socrata, ArcGIS, state portals, SNHD, MyHealthDepartment
   scraper for DFW). Seattle/King County is Socrata dataset `r878-4sxa`
@@ -734,6 +775,29 @@ read yet. The ones worth building next:
   `state_code()` maps names to codes in `write_data_js` (kept records heal on
   the next write) and `write_d1_sql`.
 
+- **The grading rules of 2026-11-27** (owner decision; review and numbers in
+  `docs/grading-review-2026-11-27.md`, public explanation in the README's
+  "How grading works"). (1) A pest finding that shows only dead or trapped
+  pests, or names no pest but ants, caps the grade at C instead of forcing
+  the F (`pest_finding_is_minor`, `text_cap_of_lines`, `cap_grade`; Jev's
+  result carries `pest_minor`; a kept data.js record remembers the cap in
+  the compact field `tc`: 1). It errs toward the F: a live word, droppings,
+  un-negated "activity", sewage, or a flagged line naming no pest at all (a
+  failing septic system read as minor before the last check) stay F.
+  `src/grading.js` mirrors it. (2) Fort Worth and Frisco are `tx-demerit`
+  with `tiers: 'tx-form'`: the city's demerit total is the score and the
+  form item number gives each line its tier; keyword scoring made 15% of
+  Fort Worth F's. (3) An agency verdict caps the inspection:
+  `VERDICT_FAIL_RISK_CAP` 65 for Chicago Fail, San Francisco Closure, NYC
+  "Establishment Closed by DOHMH" and Florida emergency orders;
+  `VERDICT_CONDITIONAL_RISK_CAP` 79 for San Francisco Conditional Pass.
+  (4) Rows that are not inspections are skipped, never a clean 100:
+  `CHICAGO_NOT_INSPECTED`, `SACRAMENTO_NOT_INSPECTED`,
+  `BOSTON_NOT_INSPECTED`. Stored rows were regraded the same day with
+  `scripts/grading_regrade.py` (history export of the eight sources plus the
+  full export; guarded seed and data.js patch). Still keyword-scored:
+  Cincinnati, Virginia, Cuyahoga, Houston, Chicago, NYC, San Francisco,
+  Delaware, Utah County.
 - **MHD jurisdictions carry their own row filters; do not loosen them.**
   Besides `programs` and `exclude`: `inspection_types` (Amarillo's vended
   water and farmers-market forms share the food program on other scales and
@@ -1082,8 +1146,9 @@ impact and the open policy decisions; `scripts/jev_shadow.py` reproduces it.
 `python3 -m unittest discover -s tests` (no network: every fetcher test
 uses captured fixtures under `tests/fixtures/`) and `node
 tests/test_relay.mjs` for the relay function (plus `node tests/test_places.mjs`,
-`node tests/test_near_me.mjs`, `node tests/test_source_lag.mjs`,
-`node tests/test_search_rank.mjs`, `node tests/test_finding_text.mjs` and
+`node tests/test_near_me.mjs`, `node tests/test_area_grid.mjs`, `node tests/test_source_lag.mjs`,
+`node tests/test_search_rank.mjs`, `node tests/test_finding_text.mjs`,
+`node tests/test_analytics.mjs`, `node tests/test_public_api.mjs` and
 `node tests/test_seo.mjs` for the
 frontend logic and crawlable pages). Run them before
 pushing.

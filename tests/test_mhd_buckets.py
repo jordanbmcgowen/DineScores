@@ -1387,7 +1387,10 @@ class DeadPestTitleTests(unittest.TestCase):
                      'Evidence of rodents or insects observed',                     # Montgomery County
                      'Rodents and other pests observed in the kitchen. Fresh droppings found near the mice bait'):
             self.assertTrue(dp.has_active_pest_or_sewage(line), line)
-        self.assertEqual(dp.calculate_vetted_grade(97, 'Dead mice found in the dry storage area'), 'F')
+        # dead pests cap the grade at C since 2026-11-27; live ones and droppings still force the F
+        self.assertEqual(dp.calculate_vetted_grade(97, 'Dead mice found in the dry storage area'), 'C')
+        self.assertEqual(dp.calculate_vetted_grade(97, 'Found live cockroaches in rear storage room'), 'F')
+        self.assertEqual(dp.calculate_vetted_grade(97, 'Fresh droppings found near the mice bait'), 'F')
 
     def test_the_regex_is_in_the_grading_path(self):
         import inspect
@@ -2060,7 +2063,7 @@ class ColoradoTierTests(unittest.TestCase):
         self.assertEqual(set(dp.CO_SECTION_TIERS.values()), {'priority', 'priority_foundation', 'core'})
         for sec in dp.CO_SECTION_TIERS:
             self.assertEqual(sec, ' '.join(sec.split()), 'keys are matched against whitespace-collapsed lines')
-        self.assertEqual(dp.MHD_TIER_READERS, {'colorado': dp._co_tier})
+        self.assertEqual(dp.MHD_TIER_READERS, {'colorado': dp._co_tier, 'tx-form': dp._tx_form_tier})
 
     def test_cdphe_states_the_tier(self):
         self.assertEqual([dp._co_line_tier(t) for t in self.CDPHE],
@@ -2196,7 +2199,8 @@ class ColoradoTierTests(unittest.TestCase):
         with_tiers = sorted(k for k, c in dp.MHD_METRO_JURISDICTIONS.items() if c.get('tiers'))
         self.assertEqual(with_tiers, sorted(['broomfield', 'colorado', 'mesacountyco', 'pueblo', 'acph', 'dchd',
                                              'epcph', 'larimer-county-health', 'weldcounty', 'adcogoveh']))
-        self.assertFalse(any(c.get('tiers') for c in dp.DFW_JURISDICTIONS.values()))
+        self.assertEqual(sorted(k for k, c in dp.DFW_JURISDICTIONS.items() if c.get('tiers')),
+                         ['fort-worth-texas', 'frisco'])       # the Texas form's item tiers, not Colorado's
         for key in with_tiers:
             cfg = dp.MHD_METRO_JURISDICTIONS[key]
             self.assertEqual((cfg['tiers'], cfg['state'], cfg['score_scale']), ('colorado', 'CO', 'demerit'), key)

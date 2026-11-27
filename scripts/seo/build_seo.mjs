@@ -7,6 +7,8 @@
  * no data. This writes plain HTML that needs no JavaScript:
  *
  *   /about/                        how grades work, sources, update schedule
+ *   /developers/                   the public API (/api/v1) and MCP server (/mcp)
+ *   /privacy/                      privacy policy (the connector directories require one)
  *   /inspections/                  every state
  *   /inspections/<st>/             every city in a state
  *   /inspections/<st>/<city>/      a city's recent inspections, lowest and
@@ -28,7 +30,7 @@ import path from 'node:path';
 import vm from 'node:vm';
 import {
   SITE, STATE_NAMES, stateName, esc, slugify, displayName, restaurantPath,
-  statePath, cityPath, gradeBadge, formatDate, renderPage,
+  statePath, cityPath, gradeBadge, formatDate, renderPage, withAnalytics,
 } from '../../functions/_lib/seo.js';
 
 // Pages with fewer restaurants than this are kept (links resolve) but marked
@@ -107,7 +109,7 @@ function rowsTable(records, { showCity = false } = {}) {
 
 const FAQ_HTML = `
 <h2>About these grades</h2>
-<p><strong>How is the grade worked out?</strong> Each inspection is scored 0 to 100 from the violations the inspector recorded, or from the health department's own score where it publishes one. The grade blends the last three inspections (60%, 30%, 10%): A is 90 or above, B 80 to 89, C 70 to 79 and F below 70. Signs of active pests or sewage make it an F whatever the score. <a href="/about/">More on the method</a>.</p>
+<p><strong>How is the grade worked out?</strong> Each inspection is scored 0 to 100 from the violations the inspector recorded, or from the health department's own score where it publishes one. The grade blends the last three inspections (60%, 30%, 10%): A is 90 or above, B 80 to 89, C 70 to 79 and F below 70. Live pests, droppings or sewage make it an F whatever the score, and dead or trapped pests cap it at C. <a href="/about/">More on the method</a>.</p>
 <p><strong>Where does the data come from?</strong> Official inspection records published by the local health department, linked from every restaurant's page.</p>
 <p><strong>How current is it?</strong> DineScores refreshes every week. Some departments post their reports days or weeks after the visit.</p>`;
 
@@ -233,10 +235,10 @@ function aboutPage(generated, states) {
 <table><thead><tr><th>Grade</th><th>Blended score</th><th>Meaning</th></tr></thead><tbody>
 <tr><td>${gradeBadge('A')}</td><td>90 to 100</td><td>Few or minor violations</td></tr>
 <tr><td>${gradeBadge('B')}</td><td>80 to 89</td><td>Some violations worth a look</td></tr>
-<tr><td>${gradeBadge('C')}</td><td>70 to 79</td><td>Several or serious violations</td></tr>
-<tr><td>${gradeBadge('F')}</td><td>Below 70</td><td>Many serious violations, active pests or sewage, or a closure</td></tr>
+<tr><td>${gradeBadge('C')}</td><td>70 to 79</td><td>Several or serious violations, or dead or trapped pests noted</td></tr>
+<tr><td>${gradeBadge('F')}</td><td>Below 70</td><td>Many serious violations, live pests, droppings or sewage, or a closure</td></tr>
 </tbody></table>
-<p>An inspector's note of live roaches, rodents or their droppings, or sewage, makes the grade an F whatever the score. Where a department closes a restaurant or fails an inspection, that also counts as an F.</p>
+<p>An inspector's note of live roaches, rodents or their droppings, or sewage, makes the grade an F whatever the score. A note of only dead or trapped pests, or of ants, caps the grade at C. Where a department closes a restaurant or fails an inspection, that also counts as an F.</p>
 <h2>Where the data comes from</h2>
 <p>Only official public inspection records, from the health departments that publish them. Each restaurant page links to the department's own report. Coverage today includes ${esc(stateList)}. See <a href="/inspections/">every state and city</a>.</p>
 <h2>How often it updates</h2>
@@ -250,11 +252,94 @@ function aboutPage(generated, states) {
       '@context': 'https://schema.org',
       '@type': 'FAQPage',
       mainEntity: [
-        ['How does DineScores grade restaurants?', 'Each inspection is scored 0 to 100 from the health department score or the recorded violations. The grade blends the last three inspections (60/30/10): A is 90+, B 80-89, C 70-79, F below 70. Active pests or sewage make it an F.'],
+        ['How does DineScores grade restaurants?', 'Each inspection is scored 0 to 100 from the health department score or the recorded violations. The grade blends the last three inspections (60/30/10): A is 90+, B 80-89, C 70-79, F below 70. Live pests, droppings or sewage make it an F; dead or trapped pests cap it at C.'],
         ['Where does DineScores get its data?', 'From official public restaurant inspection records published by city, county and state health departments.'],
         ['How often is DineScores updated?', 'Weekly.'],
       ].map(([q, a]) => ({ '@type': 'Question', name: q, acceptedAnswer: { '@type': 'Answer', text: a } })),
     }],
+  });
+}
+
+function developersPage(generated) {
+  const title = 'DineScores API and MCP Server: Restaurant Health Grades for Apps and AI Assistants';
+  const description = 'Free, read-only access to DineScores restaurant health inspection grades: a JSON API and an MCP server for Claude, ChatGPT and other AI assistants. No key needed.';
+  const body = `
+<h1>DineScores for developers and AI assistants</h1>
+<p class="mut">Updated ${esc(formatDate(generated))}</p>
+<p>DineScores restaurant health inspection grades are free to use in apps and AI assistants. Two ways in, both read-only, no key, no sign-in:</p>
+<h2>MCP server (Claude, ChatGPT and other AI assistants)</h2>
+<p>Server URL: <code>${SITE}/mcp</code> (Streamable HTTP, no authentication).</p>
+<p><strong>Claude:</strong> Settings, Connectors, Add custom connector, paste the URL. <strong>ChatGPT:</strong> Settings, Apps and Connectors, Create (developer mode), paste the URL, authentication None. <strong>Other clients</strong> (Claude Code, Cursor, VS Code, Gemini CLI): add a remote HTTP MCP server with that URL.</p>
+<table><thead><tr><th>Tool</th><th>What it answers</th></tr></thead><tbody>
+<tr><td><code>search_restaurants</code></td><td>A restaurant's grade by name, city and state</td></tr>
+<tr><td><code>get_restaurant</code></td><td>Its latest violations, inspection history and official report</td></tr>
+<tr><td><code>find_restaurants_near</code></td><td>Grades near a point or a US street address, for example low scores near me</td></tr>
+<tr><td><code>lowest_scores_in_city</code></td><td>A city's lowest recent grades</td></tr>
+<tr><td><code>get_coverage</code></td><td>Which states and cities are covered</td></tr>
+<tr><td><code>search</code>, <code>fetch</code></td><td>Free-text search and full records, in the shape ChatGPT deep research uses</td></tr>
+</tbody></table>
+<h2>JSON API</h2>
+<p>Base URL <code>${SITE}/api/v1</code>. OpenAPI description: <a href="/api/v1/openapi.json">/api/v1/openapi.json</a> (works as a ChatGPT GPT Action).</p>
+<table><thead><tr><th>Endpoint</th><th>Example</th></tr></thead><tbody>
+<tr><td>Search by name</td><td><code>/api/v1/restaurants/search?name=taco+bell&amp;city=Austin&amp;state=TX</code></td></tr>
+<tr><td>Near a location</td><td><code>/api/v1/restaurants/near?lat=32.78&amp;lng=-96.80&amp;radius_miles=1&amp;grade=C,F</code> or <code>?address=...</code></td></tr>
+<tr><td>Lowest in a city</td><td><code>/api/v1/restaurants/lowest?city=Dallas&amp;state=TX</code></td></tr>
+<tr><td>One restaurant</td><td><code>/api/v1/restaurants/&lt;id&gt;</code></td></tr>
+<tr><td>Coverage</td><td><code>/api/v1/coverage?state=TX</code></td></tr>
+</tbody></table>
+<p>Each restaurant record has its grade and what it means, the score, the latest inspection date, the inspecting department, a link to the department's own report and a DineScores page to cite. A street address sent to <code>near</code> is placed with the US Census Bureau's geocoder; nothing else about the caller is stored or sent anywhere.</p>
+<h2 id="terms">Terms of use</h2>
+<ul>
+<li>Free for personal and commercial use. Show "Source: DineScores (dinescores.com)" and link the restaurant's DineScores page or official report next to any grade you display or quote.</li>
+<li>Keep the meaning intact: a grade summarises what inspectors recorded on the days they visited. It is not a health department's own rating, a review of the food or a guarantee. Scoring scales differ between departments.</li>
+<li>Rate limits apply per client (about 60 API requests or 300 MCP calls a minute). For bulk or commercial volumes, get in touch rather than crawling.</li>
+<li>Provided as is, with no warranty. Data refreshes weekly and some departments publish late. DineScores is not affiliated with any health department.</li>
+</ul>
+<p><a href="/about/">How grades work</a> &middot; <a href="/privacy/">Privacy policy</a></p>`;
+  return renderPage({
+    title, description, path: '/developers/', body,
+    breadcrumbs: [{ name: 'Home', path: '/' }, { name: 'Developers', path: '/developers/' }],
+    structured: [{
+      '@context': 'https://schema.org',
+      '@type': 'WebAPI',
+      name: 'DineScores public API',
+      description,
+      url: `${SITE}/developers/`,
+      documentation: `${SITE}/api/v1/openapi.json`,
+      termsOfService: `${SITE}/developers/#terms`,
+      provider: { '@type': 'Organization', name: 'DineScores', url: SITE },
+      isAccessibleForFree: true,
+    }],
+  });
+}
+
+function privacyPage(generated) {
+  const title = 'DineScores Privacy Policy';
+  const description = 'What DineScores, its map, its API and its MCP server for AI assistants collect, use, share and keep, including Google Analytics and how to opt out.';
+  const body = `
+<h1>Privacy policy</h1>
+<p class="mut">Updated ${esc(formatDate(generated))}</p>
+<p>DineScores publishes restaurant health inspection results from official public records. It has no accounts, no sign-in and no advertising.</p>
+<h2>What we collect</h2>
+<ul>
+<li><strong>Your location on the map.</strong> If you allow location, or tap the location button or "Low scores near me", your device's position stays in your browser: centring the map, sorting by distance and finding nearby low grades all happen there. To load the restaurants around you or around the part of the map you are looking at, the map asks our server for an area rounded out to a fixed grid at least about 3 miles (5 km) across, so a request shows roughly which part of town is on the map, never your position. Your position is never stored, and it is never sent to us or to Google Analytics.</li>
+<li><strong>How the site is used (Google Analytics).</strong> On dinescores.com we use Google Analytics 4 to count visits and see which features people use. It sets first-party cookies (named <code>_ga</code>) to tell return visits from new ones and records pages viewed, your approximate city or region (worked out by Google from your IP address, which Google Analytics does not store), device and browser type, and how you arrived. We also record actions on the map: searches, the area you pick, grade and issue filters, turning "Low scores near me" on or off, opening a restaurant or its full report, sorting, switching light or dark mode, and taps on share, directions or the official record. A restaurant action records only the restaurant's public name, grade, city and state. A search is recorded only when it looks like a restaurant, food or place name: anything containing an email address, a phone number or a street address is dropped before it leaves your browser. Google signals and ad personalisation are turned off, and the data is not used for advertising.</li>
+<li><strong>Requests to the site, the API and the MCP server.</strong> Like any website, our host (Cloudflare) receives your IP address and the page or API request. We use the IP address only for a short time, in memory, to apply rate limits. We do not build profiles.</li>
+<li><strong>What an AI assistant sends.</strong> When an assistant uses the DineScores MCP server, it sends the search you asked for (a restaurant name, a city, coordinates or an address). We do not receive your conversation, your name or your account.</li>
+</ul>
+<h2>Opting out of analytics</h2>
+<p>If your browser sends <a href="https://globalprivacycontrol.org/">Global Privacy Control</a> or Do Not Track, DineScores does not load Google Analytics at all. You can also block it with a content blocker, clear or block cookies for dinescores.com, or install Google's <a href="https://tools.google.com/dlpage/gaoptout">opt-out browser add-on</a>. The map works the same either way.</p>
+<h2>Sharing</h2>
+<p>We do not sell personal information or share it for advertising. Google processes the analytics described above on our behalf under its own <a href="https://policies.google.com/privacy">privacy policy</a>. The map's background images come from CARTO, which, like any online map provider, receives requests for the map tiles on your screen. A street address sent to the nearby search is passed to the US Census Bureau's public geocoder to find its coordinates, and nothing else is sent with it.</p>
+<h2>Retention</h2>
+<p>Rate-limit counters last about a minute. Cloudflare keeps standard request logs under its own policy. Google Analytics keeps event data for its default retention period (two months for detailed reports) and its <code>_ga</code> cookie lasts up to two years unless you clear it. Inspection records are public data and are kept as part of each restaurant's history.</p>
+<h2>Restaurants</h2>
+<p>Inspection records come from health departments. If a record is wrong, the health department's report is the source of truth; contact us through the project page below and we will correct anything DineScores displayed in error.</p>
+<h2>Contact</h2>
+<p><a href="https://github.com/jordanbmcgowen/DineScores/issues">github.com/jordanbmcgowen/DineScores/issues</a></p>`;
+  return renderPage({
+    title, description, path: '/privacy/', body,
+    breadcrumbs: [{ name: 'Home', path: '/' }, { name: 'Privacy', path: '/privacy/' }],
   });
 }
 
@@ -279,7 +364,7 @@ ${maps.map(p => `<sitemap><loc>${SITE}${p}</loc><lastmod>${generated}</lastmod><
 }
 
 function pagesSitemap(states, generated) {
-  const urls = [['/', generated], ['/about/', generated], ['/inspections/', generated]];
+  const urls = [['/', generated], ['/about/', generated], ['/developers/', generated], ['/privacy/', generated], ['/inspections/', generated]];
   for (const [st, cities] of states) {
     urls.push([statePath(st), generated]);
     for (const c of cities.values()) if (c.indexed) urls.push([cityPath(st, c.slug), c.latest || generated]);
@@ -302,13 +387,23 @@ function llmsTxt(states, generated, total) {
 
 Each restaurant has a page at ${SITE}/restaurant/<name>-<id> with its grade, latest inspection date, the violations recorded and its inspection history, plus a link to the health department's own report. City pages list a city's lowest and highest recent scores.
 
-Grading: each inspection is scored 0 to 100 (the department's own score where published, otherwise computed from violations: 5 points per priority, 2 per priority foundation, 1 per core violation). The grade blends the last three inspections 60/30/10. A = 90-100, B = 80-89, C = 70-79, F = below 70. Active pests or sewage, a closure, or a failed inspection make it an F. DineScores is not affiliated with any health department.
+Grading: each inspection is scored 0 to 100 (the department's own score where published, otherwise computed from violations: 5 points per priority, 2 per priority foundation, 1 per core violation). The grade blends the last three inspections 60/30/10. A = 90-100, B = 80-89, C = 70-79, F = below 70. Live pests, droppings or sewage, a closure, or a failed inspection make it an F; dead or trapped pests or ants cap it at C. DineScores is not affiliated with any health department.
 
 ## Key pages
 
 - [How grades work](${SITE}/about/): method, sources, update schedule
 - [Browse by state and city](${SITE}/inspections/)
 - [Interactive map](${SITE}/): every restaurant, filterable by grade
+- [API and MCP server](${SITE}/developers/): free, read-only, no key
+
+## For AI assistants and agents
+
+Live data is available without scraping:
+
+- MCP server (Streamable HTTP, no auth): ${SITE}/mcp. Tools: search_restaurants, get_restaurant, find_restaurants_near, lowest_scores_in_city, get_coverage, search, fetch.
+- JSON API: ${SITE}/api/v1 (OpenAPI: ${SITE}/api/v1/openapi.json). Example: ${SITE}/api/v1/restaurants/search?name=taco+bell&city=Austin&state=TX
+
+When citing a grade, give the latest inspection date and inspecting department, and link the restaurant's DineScores page or the official report.
 
 ## States
 
@@ -323,7 +418,9 @@ ${top.slice(0, 80).map(c => `- [${c.name}, ${c.state}](${SITE}${cityPath(c.state
 function write(out, rel, content) {
   const file = path.join(out, rel);
   fs.mkdirSync(path.dirname(file), { recursive: true });
-  fs.writeFileSync(file, content);
+  // The GA tag (if the build has an id) goes on every HTML page
+  const body = rel.endsWith('.html') ? withAnalytics(content, process.env.VITE_GA_MEASUREMENT_ID) : content;
+  fs.writeFileSync(file, body);
 }
 
 export function buildSeo({ dataFile, out }) {
@@ -345,6 +442,8 @@ export function buildSeo({ dataFile, out }) {
   }
   write(out, 'inspections/index.html', indexPage(states, generated, total));
   write(out, 'about/index.html', aboutPage(generated, states));
+  write(out, 'developers/index.html', developersPage(generated));
+  write(out, 'privacy/index.html', privacyPage(generated));
   write(out, 'robots.txt', robotsTxt());
   write(out, 'sitemap.xml', sitemapIndex(generated));
   write(out, 'sitemap-pages.xml', pagesSitemap(states, generated));

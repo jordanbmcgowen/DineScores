@@ -11,6 +11,8 @@
  * Exports no onRequest handler, so Pages routes nothing here.
  */
 
+import { DEFAULT_GA_ID, LIVE_HOSTS } from './analytics_id.js';
+
 export const SITE = 'https://dinescores.com';
 export const SITE_NAME = 'DineScores';
 
@@ -114,6 +116,22 @@ footer{border-top:1px solid var(--line);font-size:14px;color:var(--mut);margin-t
 `;
 
 /**
+ * Google Analytics 4 tag for a server-rendered or static page, inserted
+ * before </head>. `id` overrides the default stream (VITE_GA_MEASUREMENT_ID,
+ * as for the map in src/analytics.js); anything that is not a G- id adds
+ * nothing. The tag loads only on the live hosts, so a Pages preview reports
+ * nothing. Same settings as the map: no Google signals, no ad
+ * personalisation.
+ */
+export function withAnalytics(html, id = DEFAULT_GA_ID) {
+  const ga = String(id || DEFAULT_GA_ID).trim();
+  if (!/^G-[A-Z0-9]{4,}$/.test(ga)) return html;
+  const tag = `<script>(function(){if(${JSON.stringify(LIVE_HOSTS)}.indexOf(location.hostname)<0)return;var n=navigator;if(n.globalPrivacyControl===true||n.doNotTrack==='1'||n.doNotTrack==='yes')return;window.dataLayer=window.dataLayer||[];window.gtag=function(){dataLayer.push(arguments);};gtag('js',new Date());gtag('config','${ga}',{allow_google_signals:false,allow_ad_personalization_signals:false});var s=document.createElement('script');s.async=true;s.src='https://www.googletagmanager.com/gtag/js?id=${ga}';document.head.appendChild(s);})();</script>
+`;
+  return html.replace('</head>', `${tag}</head>`);
+}
+
+/**
  * A complete HTML document. `breadcrumbs` is [{name, path}] from the root;
  * it renders visibly and as BreadcrumbList structured data.
  */
@@ -166,7 +184,7 @@ ${body}
 </main>
 <footer>
 <p>DineScores shows restaurant health inspection results from official city, county and state health department records, with a simple A, B, C or F grade. Not affiliated with any health department; always check the official report for the full record.</p>
-<p><a href="/">Map</a> &middot; <a href="/inspections/">Browse by state and city</a> &middot; <a href="/about/">How grades work</a></p>
+<p><a href="/">Map</a> &middot; <a href="/inspections/">Browse by state and city</a> &middot; <a href="/about/">How grades work</a> &middot; <a href="/developers/">API and AI assistants</a> &middot; <a href="/privacy/">Privacy</a></p>
 </footer>
 </body>
 </html>
