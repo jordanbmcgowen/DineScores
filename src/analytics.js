@@ -1,8 +1,10 @@
-// Usage analytics (Google Analytics 4), off unless a measurement id is set.
+// Usage analytics (Google Analytics 4), on the live site only.
 //
-// The id comes from VITE_GA_MEASUREMENT_ID, a Cloudflare Pages build-time
-// variable like VITE_CARTO_API_KEY ("G-XXXXXXXXXX"); unset, nothing loads and
-// every call below is a no-op, so dev builds and forks send nothing.
+// The id is the DineScores GA4 web stream's (DEFAULT_GA_ID, a public value
+// that every tagged page prints anyway); VITE_GA_MEASUREMENT_ID, a Cloudflare
+// Pages build-time variable, overrides it. Nothing loads unless the page is
+// served from dinescores.com (LIVE_HOSTS), so local dev, Pages previews and
+// forks send nothing and every call below is a no-op there.
 //
 // What is sent, and what never is:
 // - Page views, and named events for what people do on the map (searches,
@@ -17,13 +19,19 @@
 //   shape is dropped, so a typed address or phone number never leaves.
 // - Google signals and ad personalisation are off; GA4 does not store IPs.
 
-const RAW_ID = ((import.meta.env && import.meta.env.VITE_GA_MEASUREMENT_ID) || '').trim();
+import { DEFAULT_GA_ID, LIVE_HOSTS } from '../functions/_lib/analytics_id.js';
+
+const RAW_ID = ((import.meta.env && import.meta.env.VITE_GA_MEASUREMENT_ID) || DEFAULT_GA_ID).trim();
 export const GA_ID = /^G-[A-Z0-9]{4,}$/.test(RAW_ID) ? RAW_ID : '';
 
 let started = false;
 
+export function isLiveHost(hostname) {
+  return LIVE_HOSTS.includes(String(hostname || '').toLowerCase());
+}
+
 export function analyticsEnabled() {
-  return !!GA_ID && typeof window !== 'undefined';
+  return !!GA_ID && typeof window !== 'undefined' && isLiveHost(window.location.hostname);
 }
 
 export function initAnalytics() {
