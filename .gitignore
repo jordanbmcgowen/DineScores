@@ -2,7 +2,18 @@ node_modules/
 *.log
 __pycache__/
 .env
-.env.local
+.env.*
+!.env.example
+# Local secrets: wrangler's dev vars, cloud credentials, private keys.
+# Committing any of these to this PUBLIC repo publishes them.
+.dev.vars
+.dev.vars.*
+serviceAccount*.json
+*-key.json
+*credentials*.json
+*.p12
+*.key
+id_rsa*
 dist/
 dinescores_data.json
 # Build output — Cloudflare Pages runs `npm run build` on every deploy,
