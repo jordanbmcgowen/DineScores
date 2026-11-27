@@ -57,8 +57,10 @@ const NAME_COLORS = {
 };
 
 // Cluster ring segments use the same status vocabulary as everything else:
-// Safe (A) / Caution (B, C) / Avoid (F) / Unrated.
-const DONUT_COLORS = { safe: '#10b981', caution: '#f59e0b', avoid: '#ef4444', unrated: '#94a3b8' };
+// Safe (A) / Good (B) / Caution (C) / Avoid (F) / Unrated, in the colors of
+// GRADE_META.
+const DONUT_COLORS = { safe: '#10b981', good: '#facc15', caution: '#f97316', avoid: '#ef4444', unrated: '#94a3b8' };
+const DONUT_KEYS = ['safe', 'good', 'caution', 'avoid'];
 
 // Clustering runs all the way to max zoom: restaurants stacked at one
 // street address (casinos, food halls) stay a counted donut forever instead
@@ -88,7 +90,8 @@ function makeLetterIcon(letter) {
   canvas.width = s;
   canvas.height = s;
   const ctx = canvas.getContext('2d');
-  ctx.fillStyle = '#ffffff';
+  // White on every disc but B's yellow, which needs dark ink to be read.
+  ctx.fillStyle = gradeMeta(letter).ink || '#ffffff';
   ctx.font = `900 ${26 * pr}px system-ui, -apple-system, sans-serif`;
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
@@ -192,11 +195,12 @@ function donutRadius(total, minR) {
 function createDonutChart(props, dark, minR) {
   const counts = {
     safe: props.safe || 0,
+    good: props.good || 0,
     caution: props.caution || 0,
     avoid: props.avoid || 0,
   };
   const total = props.point_count;
-  counts.unrated = Math.max(0, total - counts.safe - counts.caution - counts.avoid);
+  counts.unrated = Math.max(0, total - counts.safe - counts.good - counts.caution - counts.avoid);
 
   const r = donutRadius(total, minR);
   const r0 = Math.round(r * 0.62);
@@ -205,7 +209,7 @@ function createDonutChart(props, dark, minR) {
   let html = `<svg width="${w}" height="${w}" viewBox="0 0 ${w} ${w}" ` +
     `style="display:block; filter: drop-shadow(0 1px 3px rgb(0 0 0 / 0.35));">`;
   let offset = 0;
-  for (const key of ['safe', 'caution', 'avoid', 'unrated']) {
+  for (const key of [...DONUT_KEYS, 'unrated']) {
     if (!counts[key]) continue;
     html += donutSegment(offset / total, (offset + counts[key]) / total, r, r0, DONUT_COLORS[key]);
     offset += counts[key];
@@ -224,7 +228,7 @@ function createDonutChart(props, dark, minR) {
   el.style.cursor = 'pointer';
   el.setAttribute('role', 'button');
   el.setAttribute('aria-label',
-    `${total} restaurants: ${counts.safe} safe, ${counts.caution} caution, ` +
+    `${total} restaurants: ${counts.safe} safe, ${counts.good} good, ${counts.caution} caution, ` +
     `${counts.avoid} avoid${counts.unrated ? `, ${counts.unrated} unrated` : ''}. ` +
     'Tap to zoom in or list them.');
   el.title = el.getAttribute('aria-label');
@@ -430,7 +434,8 @@ export default function RestaurantMap({
       // Aggregate the grade mix per cluster so donuts can render it.
       clusterProperties: {
         safe: ['+', ['case', ['==', ['get', 'grade'], 'A'], 1, 0]],
-        caution: ['+', ['case', ['any', ['==', ['get', 'grade'], 'B'], ['==', ['get', 'grade'], 'C']], 1, 0]],
+        good: ['+', ['case', ['==', ['get', 'grade'], 'B'], 1, 0]],
+        caution: ['+', ['case', ['==', ['get', 'grade'], 'C'], 1, 0]],
         avoid: ['+', ['case', ['==', ['get', 'grade'], 'F'], 1, 0]],
       },
     });
@@ -551,7 +556,7 @@ export default function RestaurantMap({
         seenClusters[props.cluster_id] = true;
         const coords = f.geometry.coordinates;
         const key = donutPosKey(coords, zb, seen);
-        const sig = `${props.point_count}|${props.safe || 0}|${props.caution || 0}|` +
+        const sig = `${props.point_count}|${props.safe || 0}|${props.good || 0}|${props.caution || 0}|` +
           `${props.avoid || 0}|${donutRadius(props.point_count, minR)}`;
         let entry = cache[key];
         if (entry) {

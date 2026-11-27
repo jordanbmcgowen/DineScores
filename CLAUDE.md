@@ -63,6 +63,15 @@ Cloudflare Pages builds on deploy, serves public/
   days old gets an amber note, so LA County's quarterly posting or Austin's
   six-week lag does not read as "not inspected in months". It is computed
   from the embedded set only, which keeps every city's newest records.
+  Each grade has its own color and word (`GRADE_META` in
+  `GradeBadge.jsx`: A Safe green, B Good yellow with dark ink, C Caution
+  orange, F Avoid red); B and C shared one amber until 2026-11-27, so an 89
+  looked like a 70. Cluster donuts carry a segment per grade and the filter
+  rail one chip per letter (letter only on phones, so all four fit beside
+  "Low scores near me"). Search suggestions rank nearest to the map's centre
+  first (`src/searchRank.js`, `node tests/test_search_rank.mjs`): the API's
+  `q=` orders by inspection date, so the box also asks it for a `bbox` of 30
+  miles around that centre.
   Data sources, in order: embedded
   `public/data.js` (top 1,000/city, bounded by EMBED_BUDGET and the 24 MB cap), then viewport lazy-loading via
   `src/api.js` → `/api/restaurants?bbox=`, history via
@@ -1046,8 +1055,9 @@ impact and the open policy decisions; `scripts/jev_shadow.py` reproduces it.
 `python3 -m unittest discover -s tests` (no network: every fetcher test
 uses captured fixtures under `tests/fixtures/`) and `node
 tests/test_relay.mjs` for the relay function (plus `node tests/test_places.mjs`,
-`node tests/test_near_me.mjs`, `node tests/test_source_lag.mjs` and
-`node tests/test_seo.mjs` for the frontend logic and crawlable pages). Run them before
+`node tests/test_near_me.mjs`, `node tests/test_source_lag.mjs`,
+`node tests/test_search_rank.mjs` and `node tests/test_seo.mjs` for the
+frontend logic and crawlable pages). Run them before
 pushing.
 
 ## Local commands

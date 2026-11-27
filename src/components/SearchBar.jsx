@@ -1,20 +1,22 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
 import { gradeMeta } from './GradeBadge.jsx';
 import { fetchSearchFromApi } from '../api.js';
 import { placeMatchRank } from '../places.js';
+import { rankMatches, nearbyBbox, formatMiles } from '../searchRank.js';
 
-const MAX_LOCAL = 6;
-const MAX_API_EXTRA = 4;
+const MAX_RESTAURANTS = 8;
+const API_LIMIT = 25;
 const MAX_AREAS = 3;
 
 /**
  * Search box with instant suggestions: area matches (city/metro/place
- * filters), loaded restaurants (instant), then full-database matches from
- * the D1 API (covers restaurants that aren't lazy-loaded yet). Arrow keys +
+ * filters), then restaurants from the loaded records (instant) and the D1
+ * API (covers restaurants that aren't lazy-loaded yet), ranked together
+ * nearest to `origin` first (see searchRank.js). Arrow keys +
  * Enter work; plain typing still live-filters the list/map exactly as before.
  */
 export default function SearchBar({
-  value, onChange, count, allData, cityOptions,
+  value, onChange, count, allData, cityOptions, origin = null,
   onPickRestaurant, onPickArea, onSearchingChange,
 }) {
   const [open, setOpen] = useState(false);
@@ -26,19 +28,19 @@ export default function SearchBar({
   const dragRef = useRef({ x: 0, y: 0, moved: false });
   const q = value.trim().toLowerCase();
 
-  // Instant local matches, prefix matches first
-  const localItems = useMemo(() => {
-    if (q.length < 2) return [];
-    const starts = [];
-    const contains = [];
-    for (const r of allData) {
-      const name = (r.n || '').toLowerCase();
-      if (name.startsWith(q)) starts.push(r);
-      else if (name.includes(q) || (r.a || '').toLowerCase().includes(q)) contains.push(r);
-      if (starts.length >= MAX_LOCAL) break;
-    }
-    return [...starts, ...contains].slice(0, MAX_LOCAL);
-  }, [q, allData]);
+  // The scan below can cover the whole database (400k records once the
+  // background sync lands), so it follows the typing instead of blocking it.
+  const scanQ = useDeferredValue(q);
+  // Rank from a rounded origin: a pan of a few metres must not re-scan.
+  const oLat = origin ? Math.round(origin.lat * 100) / 100 : null;
+  const oLng = origin ? Math.round(origin.lng * 100) / 100 : null;
+  const rankOrigin = useMemo(
+    () => (oLat == null ? null : { lat: oLat, lng: oLng }), [oLat, oLng]);
+
+  // Instant local matches, nearest first
+  const localItems = useMemo(
+    () => rankMatches(allData, scanQ, rankOrigin, MAX_RESTAURANTS).map(x => x.r),
+    [scanQ, allData, rankOrigin]);
 
   // Cities and metros match on a label prefix, as before. Places also match
   // on their aliases and on any word ("water" → WaterColor, WaterSound;
@@ -62,31 +64,37 @@ export default function SearchBar({
     return ranked.slice(0, MAX_AREAS).map(x => x.o);
   }, [q, cityOptions]);
 
-  // Full-database matches (debounced); drop ones already shown locally
+  // Full-database matches (debounced): the area around the origin first,
+  // and the whole country as well so a name with no nearby match is found.
   useEffect(() => {
     if (q.length < 2) { setApiItems([]); return; }
     let cancelled = false;
     const timer = setTimeout(() => {
-      fetchSearchFromApi(q, 10).then(rows => {
-        if (!cancelled) setApiItems(rows);
+      const box = nearbyBbox(rankOrigin);
+      Promise.all([
+        box ? fetchSearchFromApi(q, API_LIMIT, box) : Promise.resolve([]),
+        fetchSearchFromApi(q, 10),
+      ]).then(([near, anywhere]) => {
+        if (!cancelled) setApiItems([...near, ...anywhere]);
       });
     }, 300);
     return () => { cancelled = true; clearTimeout(timer); };
-  }, [q]);
+  }, [q, rankOrigin]);
 
-  const items = useMemo(() => {
-    const localIds = new Set(localItems.map(r => r.i));
-    const extra = apiItems.filter(r => r.i && !localIds.has(r.i)).slice(0, MAX_API_EXTRA);
-    return [
-      ...areaItems.map(o => ({
-        kind: 'area',
-        key: o.place ? `a:p:${o.place}` : o.metro ? `a:m:${o.metro}` : `a:c:${o.city}`,
-        area: o,
-      })),
-      ...localItems.map(r => ({ kind: 'restaurant', key: r.i, r })),
-      ...extra.map(r => ({ kind: 'restaurant', key: r.i, r })),
-    ];
-  }, [areaItems, localItems, apiItems]);
+  // One ranking over both sources (rankMatches keeps each id once, and
+  // drops API rows that answered an earlier query).
+  const restaurantItems = useMemo(
+    () => rankMatches([...localItems, ...apiItems.filter(r => r.i)], q, rankOrigin, MAX_RESTAURANTS),
+    [localItems, apiItems, q, rankOrigin]);
+
+  const items = useMemo(() => [
+    ...areaItems.map(o => ({
+      kind: 'area',
+      key: o.place ? `a:p:${o.place}` : o.metro ? `a:m:${o.metro}` : `a:c:${o.city}`,
+      area: o,
+    })),
+    ...restaurantItems.map(({ r, dist }) => ({ kind: 'restaurant', key: r.i, r, dist })),
+  ], [areaItems, restaurantItems]);
 
   const showDropdown = open && q.length >= 2 && items.length > 0;
 
@@ -152,7 +160,7 @@ export default function SearchBar({
         role="combobox"
         aria-expanded={showDropdown}
         aria-autocomplete="list"
-        className="w-full h-11 bg-white/90 dark:bg-slate-800/90 backdrop-blur text-slate-900 dark:text-white pl-10 pr-20 rounded-2xl shadow-lg ring-1 ring-slate-900/5 dark:ring-white/10 focus:ring-2 focus:ring-brand-500 outline-none text-[15px] placeholder:text-slate-400"
+        className="w-full h-11 bg-white/90 dark:bg-slate-800/90 backdrop-blur text-slate-900 dark:text-white pl-10 pr-10 sm:pr-20 rounded-2xl shadow-lg ring-1 ring-slate-900/5 dark:ring-white/10 focus:ring-2 focus:ring-brand-500 outline-none text-[15px] placeholder:text-slate-400"
         value={value}
         onChange={e => { onChange(e.target.value); setOpen(true); setActive(-1); }}
         onFocus={() => setOpen(true)}
@@ -169,7 +177,7 @@ export default function SearchBar({
           </svg>
         </button>
       ) : (
-        <span className="absolute right-3.5 top-[22px] -translate-y-1/2 text-[11px] font-bold text-slate-400 tabular-nums whitespace-nowrap">
+        <span className="hidden sm:inline absolute right-3.5 top-[22px] -translate-y-1/2 text-[11px] font-bold text-slate-400 tabular-nums whitespace-nowrap">
           {count.toLocaleString()}
         </span>
       )}
@@ -230,6 +238,11 @@ export default function SearchBar({
                       {item.r.a}{item.r.c ? ` · ${item.r.c}` : ''}
                     </span>
                   </span>
+                  {formatMiles(item.dist) && (
+                    <span className="shrink-0 text-[12px] font-semibold text-slate-500 dark:text-slate-400 tabular-nums">
+                      {formatMiles(item.dist)}
+                    </span>
+                  )}
                 </>
               )}
             </button>
