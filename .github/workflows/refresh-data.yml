@@ -21,6 +21,13 @@ on:
           "midweek" = the Wednesday list.
         required: false
         default: ''
+      since_date:
+        description: >-
+          Optional YYYY-MM-DD: read every chosen source from this day instead
+          of its usual weekly window (a backfill of a new source, e.g. Hawaii).
+          Manual runs only; leave empty for a normal run.
+        required: false
+        default: ''
 
 # Shared with poll-orange-county.yml so the two jobs never push at once.
 concurrency:
@@ -90,7 +97,7 @@ jobs:
           REQUESTED: ${{ inputs.cities }}
           SCHEDULE: ${{ github.event.schedule }}
         run: |
-          SUNDAY="chicago nyc sf austin boston seattle florida nys wake vegas la louisville minneapolis cincinnati delaware montgomery detroit sacramento southcarolina fairfax portland coloradosprings larimer weld adams utahcounty yolo santaclara sandiego omaha orangecounty gwinnett nashville memphis knoxville chattanooga houston sanantonio dc dallas plano frisco fort-worth-texas tarrant arlington richardson georgia louisiana maricopa harris pima lubbock mesquite williamson mckinney lewisville denton fortbend arapahoe douglas garland elpaso waco corpuschristi wichitafalls abilene missoula bozeman kalispell kansascity platte napa sonoma"
+          SUNDAY="chicago nyc sf austin boston seattle florida nys wake vegas la louisville minneapolis cincinnati delaware montgomery detroit sacramento southcarolina fairfax portland coloradosprings larimer weld adams utahcounty yolo santaclara sandiego omaha orangecounty gwinnett nashville memphis knoxville chattanooga houston sanantonio dc dallas plano frisco fort-worth-texas tarrant arlington richardson georgia louisiana maricopa harris pima lubbock mesquite williamson mckinney lewisville denton fortbend arapahoe douglas garland elpaso waco corpuschristi wichitafalls abilene missoula bozeman kalispell kansascity platte napa sonoma alabama"
           MIDWEEK="cuyahoga virginia montana amarillo tyler orangecountytx wyoming minot stlouis jacksoncountymo coloradostate pueblo grandjunction broomfield hawaii akron placer"
           if [ -n "$REQUESTED" ] && [ "$REQUESTED" != "midweek" ]; then
             CITIES="$REQUESTED"; RUN_LABEL="manual"
@@ -146,9 +153,16 @@ jobs:
           TYPESAFE_API_KEY: ${{ secrets.TYPESAFE_API_KEY }}
           JEV_MODE: decide
           JEV_DECIDE: hazard,summary
+          SINCE_DATE: ${{ inputs.since_date }}
         run: |
+          SINCE_ARGS=()
+          if [ -n "$SINCE_DATE" ]; then
+            [[ "$SINCE_DATE" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}$ ]] || { echo "since_date must be YYYY-MM-DD"; exit 1; }
+            SINCE_ARGS=(--since-date "$SINCE_DATE")
+          fi
           python3 dinescores_pipeline.py \
             --mode weekly \
+            "${SINCE_ARGS[@]}" \
             --cities $CITIES \
             --output /tmp/dinescores_data.json \
             --output-data-js public/data.js \
