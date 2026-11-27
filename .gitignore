@@ -18,6 +18,7 @@ public/sitemap.xml
 public/sitemap-pages.xml
 public/llms.txt
 public/og-image.png
+public/google*.html
 
 # Temporary agent worktrees created by Claude Code workflow runs
 .claude/worktrees/
