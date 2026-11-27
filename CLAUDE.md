@@ -63,6 +63,11 @@ Cloudflare Pages builds on deploy, serves public/
   months), an "at" radius of 30-60 m from the fix's accuracy, no alert on a
   fix worse than 100 m, "Next door" when a better-graded place is closer.
   Location is read only while the page is open; nothing is stored or sent.
+  Every area request (`fetchBboxFromApi`, the search box's nearby `bbox`)
+  is snapped outward to a grid of at least 0.05 degrees (`src/areaGrid.js`,
+  `node tests/test_area_grid.mjs`), so the box around a GPS fix never
+  reaches the server; /privacy/ says so. Keep any new area request on
+  `bboxParam`.
   The report says when an area's health department is publishing late
   (`src/sourceLag.js`, `node tests/test_source_lag.mjs`): an area (metro,
   else city, plus state) with 100+ embedded records whose newest is over 21
@@ -1129,7 +1134,7 @@ impact and the open policy decisions; `scripts/jev_shadow.py` reproduces it.
 `python3 -m unittest discover -s tests` (no network: every fetcher test
 uses captured fixtures under `tests/fixtures/`) and `node
 tests/test_relay.mjs` for the relay function (plus `node tests/test_places.mjs`,
-`node tests/test_near_me.mjs`, `node tests/test_source_lag.mjs`,
+`node tests/test_near_me.mjs`, `node tests/test_area_grid.mjs`, `node tests/test_source_lag.mjs`,
 `node tests/test_search_rank.mjs`, `node tests/test_finding_text.mjs`,
 `node tests/test_analytics.mjs`, `node tests/test_public_api.mjs` and
 `node tests/test_seo.mjs` for the
