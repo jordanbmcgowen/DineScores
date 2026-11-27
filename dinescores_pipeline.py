@@ -9139,6 +9139,7 @@ TP_WORKERS = 2             # inspectionsData and printable workers
 TP_RETRIES = 4             # attempts per request (429/5xx/timeouts/resets)
 TP_BACKOFF = 10            # seconds × attempt between retries
 TP_TIMEOUT = 90
+TP_UNTIL_DATE = os.environ.get('TP_UNTIL_DATE', '')[:10]   # backfill chunks only
 TP_DAY_REREADS = 2         # re-reads of a day whose pages shifted under the run
 TP_MAX_DAY_PAGES = 2000    # runaway guard for one day's list (10,000 rows)
 TP_REREAD_MAX = 1000       # facilities re-read at the end of a run (failed or held); more means the portal is down
@@ -9597,7 +9598,12 @@ def _tp_fetch(cfg, since_date, limit):
     ship_from = ((datetime.strptime(since, '%Y-%m-%d') - timedelta(days=TP_REREAD_MARGIN_DAYS)).strftime('%Y-%m-%d')
                  if since else None)
     today = datetime.now().strftime('%Y-%m-%d')
-    log.info(f"Fetching {group} data (since={since_date}, limit={limit})")
+    # Backfills only: TP_UNTIL_DATE ends the listing at that day, so a history
+    # chunk lists only facilities whose LAST inspection is older than what
+    # the weekly runs already shipped (never set in the workflows).
+    if TP_UNTIL_DATE and since and TP_UNTIL_DATE < today:
+        today = TP_UNTIL_DATE
+    log.info(f"Fetching {group} data (since={since_date}, until={today}, limit={limit})")
     local = threading.local()
 
     def session():
