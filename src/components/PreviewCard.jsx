@@ -29,16 +29,16 @@ export default function PreviewCard({ restaurant: r, userPos, formatDate, onClos
 
   return (
     <div className={docked
-      ? 'shrink-0 bg-brand-50/60 dark:bg-brand-900/15 border-b-2 border-brand-200 dark:border-brand-900/40 animate-fade-in'
+      ? 'shrink-0 bg-slate-50 dark:bg-slate-800/50 border-b border-slate-200 dark:border-slate-800 animate-fade-in'
       : 'md:hidden absolute z-30 bottom-[110px] left-3 right-3 animate-slide-up pb-safe'}>
       <div className={docked
         ? ''
-        : 'rounded-2xl bg-white/95 dark:bg-slate-900/95 backdrop-blur shadow-2xl ring-1 ring-slate-900/10 dark:ring-white/10 overflow-hidden'}>
+        : 'rounded-3xl bg-white dark:bg-slate-900 shadow-2xl shadow-slate-900/25 ring-1 ring-slate-900/5 dark:ring-white/10 overflow-hidden'}>
         <div className="p-3.5 flex items-start gap-3">
           <GradeBadge grade={r.vg} size="sm" />
           <div className="flex-1 min-w-0">
             <div className="flex items-start justify-between gap-2">
-              <h3 className="font-extrabold text-[15px] leading-snug truncate">{r.n}</h3>
+              <h3 className="font-display font-bold text-[18px] leading-snug tracking-tight truncate">{r.n}</h3>
               <button
                 onClick={onClose}
                 aria-label="Close preview"
@@ -75,7 +75,7 @@ export default function PreviewCard({ restaurant: r, userPos, formatDate, onClos
         <div className="px-3.5 pb-3.5 flex items-center gap-2">
           <button
             onClick={onFullReport}
-            className="flex-1 h-9 rounded-xl bg-brand-600 hover:bg-brand-700 text-white text-[13px] font-bold transition-colors"
+            className="flex-1 h-11 rounded-2xl bg-slate-900 hover:bg-slate-800 text-white dark:bg-white dark:text-slate-900 dark:hover:bg-slate-100 text-[14px] font-bold transition-colors"
           >
             Full report
           </button>
@@ -84,7 +84,7 @@ export default function PreviewCard({ restaurant: r, userPos, formatDate, onClos
             target="_blank"
             rel="noopener noreferrer"
             aria-label={`Directions to ${r.n}`}
-            className="h-9 px-3.5 rounded-xl ring-1 ring-slate-200 dark:ring-slate-700 text-[13px] font-bold text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 flex items-center gap-1.5 transition-colors"
+            className="h-11 px-4 rounded-2xl ring-1 ring-slate-200 dark:ring-slate-700 text-[13px] font-bold text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 flex items-center gap-1.5 transition-colors"
           >
             <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
               <path d="M9 18l6-6-6-6"/>

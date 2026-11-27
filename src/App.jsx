@@ -760,12 +760,12 @@ export default function App() {
       <div className="absolute top-0 inset-x-0 z-20 pt-safe pointer-events-none">
         <div className="px-3 md:px-4 pt-3 pb-2 flex items-center gap-2 pointer-events-auto">
           {/* Brand */}
-          <div className="hidden sm:flex items-center gap-2 h-11 px-3.5 rounded-2xl bg-white/90 dark:bg-slate-800/90 backdrop-blur shadow-lg ring-1 ring-slate-900/5 dark:ring-white/10 shrink-0">
+          <div className="hidden sm:flex items-center gap-2 h-11 pl-2.5 pr-4 rounded-full bg-slate-900 text-white dark:bg-white dark:text-slate-900 shadow-xl shadow-slate-900/20 shrink-0">
             <svg className="w-6 h-6" viewBox="0 0 32 32" fill="none" aria-hidden="true">
               <path d="M16 2L4 8v8c0 7.18 5.12 13.88 12 16 6.88-2.12 12-8.82 12-16V8L16 2z" fill="#0d9488"/>
               <text x="16" y="21" textAnchor="middle" fill="white" fontSize="12" fontWeight="700" fontFamily="system-ui">A</text>
             </svg>
-            <span className="text-[17px] font-extrabold tracking-tight">DineScores</span>
+            <span className="font-display text-[18px] font-extrabold tracking-tight">DineScores</span>
           </div>
 
           {/* Search with suggestions. The idle pill shows total database
@@ -787,7 +787,7 @@ export default function App() {
             onClick={toggleTheme}
             aria-label={dark ? 'Switch to light mode' : 'Switch to dark mode'}
             title={dark ? 'Switch to light mode' : 'Switch to dark mode'}
-            className="h-11 w-11 shrink-0 rounded-2xl bg-white/90 dark:bg-slate-800/90 backdrop-blur shadow-lg ring-1 ring-slate-900/5 dark:ring-white/10 flex items-center justify-center text-slate-500 hover:text-slate-800 dark:text-slate-300 dark:hover:text-white transition-colors"
+            className="h-11 w-11 shrink-0 rounded-full bg-white dark:bg-slate-800 shadow-xl shadow-slate-900/10 ring-1 ring-slate-900/5 dark:ring-white/10 flex items-center justify-center text-slate-500 hover:text-slate-800 dark:text-slate-300 dark:hover:text-white transition-colors"
           >
             {dark ? (
               <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true">
@@ -821,7 +821,7 @@ export default function App() {
       </div>
 
       {/* Desktop results panel (also hosts the docked selection preview) */}
-      <aside className="hidden md:flex flex-col absolute left-4 top-[118px] bottom-4 w-[400px] z-10 rounded-3xl bg-white/95 dark:bg-slate-900/95 backdrop-blur shadow-2xl ring-1 ring-slate-900/5 dark:ring-white/10 overflow-hidden">
+      <aside className="hidden md:flex flex-col absolute left-4 top-[118px] bottom-4 w-[400px] z-10 rounded-[28px] bg-white/95 dark:bg-slate-900/95 backdrop-blur shadow-2xl ring-1 ring-slate-900/5 dark:ring-white/10 overflow-hidden">
         {preview && !selectedRestaurant && (
           <PreviewCard
             docked
@@ -877,7 +877,7 @@ export default function App() {
         hidden={searchOpen}
         header={
           <div className="w-full px-4 pb-2 flex items-center justify-between">
-            <span className="text-sm font-bold tabular-nums">
+            <span className="font-display text-[17px] font-bold tracking-tight tabular-nums">
               {countLabel}
             </span>
             <span onClick={e => e.stopPropagation()} onTouchStart={e => e.stopPropagation()}>
@@ -1000,12 +1000,12 @@ function RestaurantCard({ restaurant: r, formatDate, onClick, selected }) {
     <button
       onClick={onClick}
       className={`w-full text-left px-4 py-3 border-b border-slate-100 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-800/60 transition-colors flex items-start gap-3 ${
-        selected ? 'bg-brand-50 dark:bg-brand-900/20' : ''
+        selected ? 'bg-slate-100 dark:bg-slate-800' : ''
       }`}
     >
       <GradeBadge grade={r.vg} size="sm" />
       <div className="flex-1 min-w-0">
-        <h3 className="font-bold text-[15px] leading-snug truncate">{r.n}</h3>
+        <h3 className="font-display font-bold text-[16px] leading-snug tracking-tight truncate">{r.n}</h3>
         <p className="text-[13px] text-slate-500 dark:text-slate-400 truncate mt-0.5">
           {r.a}{r.c ? ` · ${r.c}` : ''}
         </p>

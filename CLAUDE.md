@@ -63,6 +63,15 @@ Cloudflare Pages builds on deploy, serves public/
   days old gets an amber note, so LA County's quarterly posting or Austin's
   six-week lag does not read as "not inspected in months". It is computed
   from the embedded set only, which keeps every city's newest records.
+  The restaurant card (`InspectionModal.jsx`) is design "B" from
+  2026-11-27: a header in the grade's color, issue-type tiles from `inf`,
+  a track-record bar chart, then findings tagged Serious / Moderate / Minor
+  (CRITICAL / WARNING / INFO) with plain wording from `src/findingText.js`
+  (code citations and item numbers stripped from the verbatim; pure, `node
+  tests/test_finding_text.mjs`); the inspector's full text opens on tap.
+  Headings, names and grade letters use Bricolage Grotesque (`font-display`,
+  self-hosted via @fontsource), body text Inter. Every surface has a dark
+  variant (the moon/sun toggle, `html.dark`).
   Each grade has its own color and word (`GRADE_META` in
   `GradeBadge.jsx`: A Safe green, B Good yellow with dark ink, C Caution
   orange, F Avoid red); B and C shared one amber until 2026-11-27, so an 89
@@ -1056,7 +1065,8 @@ impact and the open policy decisions; `scripts/jev_shadow.py` reproduces it.
 uses captured fixtures under `tests/fixtures/`) and `node
 tests/test_relay.mjs` for the relay function (plus `node tests/test_places.mjs`,
 `node tests/test_near_me.mjs`, `node tests/test_source_lag.mjs`,
-`node tests/test_search_rank.mjs` and `node tests/test_seo.mjs` for the
+`node tests/test_search_rank.mjs`, `node tests/test_finding_text.mjs` and
+`node tests/test_seo.mjs` for the
 frontend logic and crawlable pages). Run them before
 pushing.
 
