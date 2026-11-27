@@ -9,6 +9,8 @@ export default {
     extend: {
       fontFamily: {
         sans: ['InterVariable', 'Inter', 'system-ui', '-apple-system', 'sans-serif'],
+        // Headings, names and grade letters (design refresh, 2026-11-27)
+        display: ['"Bricolage Grotesque Variable"', 'InterVariable', 'system-ui', 'sans-serif'],
       },
       colors: {
         brand: {

@@ -8,6 +8,8 @@ import React from 'react';
 export const GRADE_META = {
   A: {
     label: 'Safe',
+    // Full-bleed header of the restaurant card; a shade deeper at night.
+    hero: 'bg-emerald-500 text-white dark:bg-emerald-700',
     tile: 'bg-emerald-500 text-white',
     soft: 'bg-emerald-50 text-emerald-700 ring-emerald-600/20 dark:bg-emerald-500/10 dark:text-emerald-400 dark:ring-emerald-400/20',
     dot: '#10b981',
@@ -17,6 +19,7 @@ export const GRADE_META = {
   // carries dark text (white on yellow is unreadable).
   B: {
     label: 'Good',
+    hero: 'bg-yellow-400 text-slate-900 dark:bg-yellow-500',
     tile: 'bg-yellow-400 text-slate-900',
     soft: 'bg-yellow-50 text-yellow-800 ring-yellow-600/30 dark:bg-yellow-400/10 dark:text-yellow-300 dark:ring-yellow-300/20',
     dot: '#facc15',
@@ -24,12 +27,14 @@ export const GRADE_META = {
   },
   C: {
     label: 'Caution',
+    hero: 'bg-orange-500 text-white dark:bg-orange-600',
     tile: 'bg-orange-500 text-white',
     soft: 'bg-orange-50 text-orange-700 ring-orange-600/20 dark:bg-orange-500/10 dark:text-orange-400 dark:ring-orange-400/20',
     dot: '#f97316',
   },
   F: {
     label: 'Avoid',
+    hero: 'bg-red-500 text-white dark:bg-red-700',
     tile: 'bg-red-500 text-white',
     soft: 'bg-red-50 text-red-700 ring-red-600/20 dark:bg-red-500/10 dark:text-red-400 dark:ring-red-400/20',
     dot: '#ef4444',
@@ -38,6 +43,7 @@ export const GRADE_META = {
 
 const FALLBACK = {
   label: 'Unrated',
+  hero: 'bg-slate-500 text-white dark:bg-slate-700',
   tile: 'bg-slate-400 text-white',
   soft: 'bg-slate-100 text-slate-600 ring-slate-500/20 dark:bg-slate-500/10 dark:text-slate-400 dark:ring-slate-400/20',
   dot: '#94a3b8',
@@ -56,12 +62,12 @@ export function gradeMeta(grade) {
 export default function GradeBadge({ grade, size = 'md' }) {
   const meta = gradeMeta(grade);
   const dims = size === 'sm'
-    ? { box: 'w-11 h-11 rounded-xl', letter: 'text-xl' }
+    ? { box: 'w-12 h-12 rounded-2xl', letter: 'text-2xl' }
     : { box: 'w-16 h-16 rounded-2xl', letter: 'text-4xl' };
 
   return (
     <div className={`flex items-center justify-center shrink-0 ${dims.box} ${meta.tile} shadow-sm`}>
-      <span className={`font-black leading-none ${dims.letter}`}>{grade || '–'}</span>
+      <span className={`font-display font-extrabold leading-none ${dims.letter}`}>{grade || '–'}</span>
     </div>
   );
 }

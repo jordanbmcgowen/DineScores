@@ -160,7 +160,7 @@ export default function SearchBar({
         role="combobox"
         aria-expanded={showDropdown}
         aria-autocomplete="list"
-        className="w-full h-11 bg-white/90 dark:bg-slate-800/90 backdrop-blur text-slate-900 dark:text-white pl-10 pr-10 sm:pr-20 rounded-2xl shadow-lg ring-1 ring-slate-900/5 dark:ring-white/10 focus:ring-2 focus:ring-brand-500 outline-none text-[15px] placeholder:text-slate-400"
+        className="w-full h-11 bg-white dark:bg-slate-800 text-slate-900 dark:text-white pl-10 pr-10 sm:pr-20 rounded-full shadow-xl shadow-slate-900/10 ring-1 ring-slate-900/5 dark:ring-white/10 focus:ring-2 focus:ring-slate-900 dark:focus:ring-white outline-none text-[15px] placeholder:text-slate-400"
         value={value}
         onChange={e => { onChange(e.target.value); setOpen(true); setActive(-1); }}
         onFocus={() => setOpen(true)}
@@ -184,7 +184,7 @@ export default function SearchBar({
 
       {showDropdown && (
         <div
-          className="absolute z-50 top-[50px] inset-x-0 rounded-2xl bg-white dark:bg-slate-900 shadow-2xl ring-1 ring-slate-900/10 dark:ring-white/10 overflow-y-auto overscroll-contain max-h-[60vh] animate-fade-in"
+          className="absolute z-50 top-[50px] inset-x-0 rounded-3xl bg-white dark:bg-slate-900 shadow-2xl ring-1 ring-slate-900/10 dark:ring-white/10 overflow-y-auto overscroll-contain max-h-[60vh] animate-fade-in"
           role="listbox"
           // Scrolling the results on mobile drops the keyboard so the list
           // has room; the input keeps its value and reopens on the next focus.

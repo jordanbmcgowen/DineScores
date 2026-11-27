@@ -18,10 +18,10 @@ function Chip({ active, onClick, children, activeClass, label }) {
       aria-pressed={active}
       aria-label={label}
       title={label}
-      className={`shrink-0 px-3.5 h-10 md:h-9 rounded-full text-[13px] font-semibold transition-colors whitespace-nowrap ${
+      className={`shrink-0 px-3.5 h-10 md:h-9 rounded-full text-[13px] font-bold transition-colors whitespace-nowrap ${
         active
           ? activeClass || 'bg-slate-900 text-white dark:bg-white dark:text-slate-900'
-          : 'bg-white/90 dark:bg-slate-800/90 text-slate-700 dark:text-slate-200 ring-1 ring-slate-200 dark:ring-slate-700 hover:bg-white dark:hover:bg-slate-800 shadow-sm backdrop-blur'
+          : 'bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-100 ring-1 ring-slate-900/5 dark:ring-white/10 hover:bg-slate-50 dark:hover:bg-slate-700 shadow-md shadow-slate-900/10'
       }`}
     >
       {children}
@@ -101,7 +101,7 @@ export default function FilterBar({
           >
             <span className="inline-flex items-center gap-1.5">
               <span
-                className={`w-5 h-5 -ml-1.5 rounded-md flex items-center justify-center text-[11px] font-black ${meta.tile} ${
+                className={`w-5 h-5 -ml-1.5 rounded-md flex items-center justify-center font-display font-extrabold text-[12px] ${meta.tile} ${
                   active ? 'ring-1 ring-black/10' : ''
                 }`}
                 aria-hidden="true"
@@ -122,10 +122,10 @@ export default function FilterBar({
           value={selectValue}
           onChange={e => handleSelect(e.target.value)}
           aria-label="Filter by city, metro area or place"
-          className={`appearance-none h-10 md:h-9 pl-3.5 pr-8 rounded-full text-[13px] font-semibold outline-none cursor-pointer transition-colors max-w-[46vw] md:max-w-none truncate ${
+          className={`appearance-none h-10 md:h-9 pl-3.5 pr-8 rounded-full text-[13px] font-bold outline-none cursor-pointer transition-colors max-w-[46vw] md:max-w-none truncate ${
             locationActive
-              ? 'bg-brand-600 text-white shadow-md'
-              : 'bg-white/90 dark:bg-slate-800/90 text-slate-700 dark:text-slate-200 ring-1 ring-slate-200 dark:ring-slate-700 shadow-sm backdrop-blur'
+              ? 'bg-slate-900 text-white dark:bg-white dark:text-slate-900 shadow-md'
+              : 'bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-100 ring-1 ring-slate-900/5 dark:ring-white/10 shadow-md shadow-slate-900/10'
           }`}
         >
           <option value="all">All cities</option>
@@ -154,7 +154,7 @@ export default function FilterBar({
         </select>
         <svg
           className={`absolute right-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 pointer-events-none ${
-            locationActive ? 'text-white' : 'text-slate-400'
+            locationActive ? 'text-white dark:text-slate-900' : 'text-slate-400'
           }`}
           viewBox="0 0 20 20" fill="none" aria-hidden="true"
         >
