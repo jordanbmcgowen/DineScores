@@ -54,6 +54,12 @@ Cloudflare Pages builds on deploy, serves public/
   months), an "at" radius of 30-60 m from the fix's accuracy, no alert on a
   fix worse than 100 m, "Next door" when a better-graded place is closer.
   Location is read only while the page is open; nothing is stored or sent.
+  The report says when an area's health department is publishing late
+  (`src/sourceLag.js`, `node tests/test_source_lag.mjs`): an area (metro,
+  else city, plus state) with 100+ embedded records whose newest is over 21
+  days old gets an amber note, so LA County's quarterly posting or Austin's
+  six-week lag does not read as "not inspected in months". It is computed
+  from the embedded set only, which keeps every city's newest records.
   Data sources, in order: embedded
   `public/data.js` (top 1,000/city, bounded by EMBED_BUDGET and the 24 MB cap), then viewport lazy-loading via
   `src/api.js` → `/api/restaurants?bbox=`, history via
@@ -1009,8 +1015,9 @@ impact and the open policy decisions; `scripts/jev_shadow.py` reproduces it.
 
 `python3 -m unittest discover -s tests` (no network: every fetcher test
 uses captured fixtures under `tests/fixtures/`) and `node
-tests/test_relay.mjs` for the relay function (plus `node tests/test_places.mjs`
-and `node tests/test_near_me.mjs` for the frontend logic). Run them before
+tests/test_relay.mjs` for the relay function (plus `node tests/test_places.mjs`,
+`node tests/test_near_me.mjs` and `node tests/test_source_lag.mjs` for the
+frontend logic). Run them before
 pushing.
 
 ## Local commands

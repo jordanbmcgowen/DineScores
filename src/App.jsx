@@ -11,6 +11,7 @@ import PreviewCard from './components/PreviewCard.jsx';
 import SearchBar from './components/SearchBar.jsx';
 import NearMeAlert from './components/NearMeAlert.jsx';
 import { lowScoresNear, lowScoreAt, NEAR_RADIUS_M } from './nearMe.js';
+import { newestByArea } from './sourceLag.js';
 
 // Below this zoom the embedded overview is enough; above it, lazy-load the
 // uncapped records for whatever is in view from the D1 API.
@@ -25,6 +26,9 @@ const LOCATE_MESSAGES = {
 
 export default function App() {
   const [allData, setAllData] = useState([]);
+  // Each area's newest published inspection, from the embedded set only (it
+  // keeps every city's newest records); see sourceLag.js.
+  const [sourceAreas, setSourceAreas] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [searchTerm, setSearchTerm] = useState('');
@@ -266,6 +270,7 @@ export default function App() {
           const seeded = window.DATA.map(ensureVettedFields);
           for (const r of seeded) if (r.i) knownIdsRef.current.add(r.i);
           setAllData(seeded);
+          setSourceAreas(newestByArea(seeded));
           openDeepLink(seeded);
         } else {
           setError('Failed to load restaurant data. Please refresh.');
@@ -920,6 +925,7 @@ export default function App() {
           onClose={() => setSelectedRestaurant(null)}
           formatDate={formatDate}
           onUpgrade={upgradeRecord}
+          sourceAreas={sourceAreas}
         />
       )}
 
