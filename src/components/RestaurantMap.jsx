@@ -30,13 +30,16 @@ function basemapStyle(dark) {
     type: 'raster',
     tiles: tiles(flavor),
     tileSize: 256,
+    // CARTO's raster pyramid ends at z20; past it the map scales those tiles
+    // up rather than asking for tiles that do not exist.
+    maxzoom: 20,
     attribution: '&copy; OpenStreetMap &copy; CARTO',
   });
   return {
     version: 8,
     // Needed for the restaurant-name labels (SDF text). The grade LETTERS
     // deliberately don't use this — see makeLetterIcon.
-    glyphs: 'https://tiles.basemaps.cartocdn.com/fonts/{fontstack}/{range}.pbf',
+    glyphs: GLYPHS_URL,
     sources: {
       'basemap-light': source('light_all'),
       'basemap-dark': source('dark_all'),
@@ -64,11 +67,14 @@ const DONUT_KEYS = ['safe', 'good', 'caution', 'avoid'];
 
 // Clustering runs all the way to max zoom: restaurants stacked at one
 // street address (casinos, food halls) stay a counted donut forever instead
-// of collapsing into what looks like a single restaurant. The map's maxZoom
+// of collapsing into what looks like a single restaurant. Neighbours a few
+// doors apart (10-20 m) need z18-19 before a 40 px cluster radius lets them
+// go, so both limits sit at street-and-building level. The map's maxZoom
 // stays fractionally below CLUSTER_MAX_ZOOM + 1 so no zoom level ever
-// renders the raw splat.
-const CLUSTER_MAX_ZOOM = 17;
-const MAP_MAX_ZOOM = 17.9;
+// renders the raw splat, and the GeoJSON source's own maxzoom must be above
+// CLUSTER_MAX_ZOOM or clustering stops at the source's last tile.
+const CLUSTER_MAX_ZOOM = 19;
+const MAP_MAX_ZOOM = 19.9;
 
 /**
  * Grade markers are a hybrid: the colored disc + white ring is a MapLibre
@@ -124,6 +130,29 @@ function letterSizeExpr(density) {
 }
 
 const NAME_TEXT_SIZE = 11.5;
+
+// Restaurant-name font, in order of preference. A glyph request that fails
+// fails the WHOLE restaurants tile it belongs to, and MapLibre then overzooms
+// the last tile that did load: CARTO stopped serving 'Montserrat Bold'
+// (404, found 2026-11-27), so every tile from z13 up (where names start)
+// errored and the map kept showing z12's clusters at street level (a "34"
+// donut over a block of 10 restaurants, never splitting into pins).
+// pickNameFont probes the candidates once and falls back to no names at all,
+// so a missing font can only ever cost the labels, never the markers.
+const GLYPHS_URL = 'https://tiles.basemaps.cartocdn.com/fonts/{fontstack}/{range}.pbf';
+const NAME_FONT_CANDIDATES = ['Montserrat SemiBold', 'Open Sans Bold', 'Montserrat Regular'];
+const NAME_TEXT_FIELD = ['step', ['zoom'], '', 13, ['get', 'name']];
+
+async function pickNameFont() {
+  for (const font of NAME_FONT_CANDIDATES) {
+    try {
+      const url = GLYPHS_URL.replace('{fontstack}', encodeURIComponent(font)).replace('{range}', '0-255');
+      const res = await fetch(url);
+      if (res.ok) return font;
+    } catch { /* offline or blocked: try the next one */ }
+  }
+  return null;
+}
 
 // Soft brand-colored halo behind the selected restaurant's marker
 function haloRadiusExpr(density) {
@@ -430,6 +459,7 @@ export default function RestaurantMap({
       // remains a counted donut at max zoom, and clicking it lists the
       // individual restaurants in the sidebar.
       clusterMaxZoom: CLUSTER_MAX_ZOOM,
+      maxzoom: CLUSTER_MAX_ZOOM + 1, // the default (18) would cap clustering at 17
       clusterRadius: 40,
       // Aggregate the grade mix per cluster so donuts can render it.
       clusterProperties: {
@@ -505,8 +535,8 @@ export default function RestaurantMap({
         // priority so F letters beat the A's they overlap.
         'symbol-sort-key': ['-', 4, ['get', 'priority']],
         'icon-padding': 0,
-        'text-field': ['step', ['zoom'], '', 13, ['get', 'name']],
-        'text-font': ['Montserrat Bold'],
+        'text-field': NAME_TEXT_FIELD,
+        'text-font': [NAME_FONT_CANDIDATES[0]],
         'text-size': NAME_TEXT_SIZE,
         'text-variable-anchor': ['left', 'right', 'top', 'bottom'],
         'text-radial-offset': nameOffsetExpr(densityRef.current),
@@ -519,6 +549,14 @@ export default function RestaurantMap({
         'text-halo-color': names.halo,
         'text-halo-width': 1.6,
       },
+    });
+    // Confirm the name font is served; switch to the next one, or drop the
+    // names, if not (see pickNameFont). The first candidate is the normal case
+    // and costs one cached request.
+    pickNameFont().then(font => {
+      if (!map.getLayer('unclustered-letter') || font === NAME_FONT_CANDIDATES[0]) return;
+      if (font) map.setLayoutProperty('unclustered-letter', 'text-font', [font]);
+      else map.setLayoutProperty('unclustered-letter', 'text-field', '');
     });
 
     // Clusters render as HTML donut markers (grade distribution + count),
