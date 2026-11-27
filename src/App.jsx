@@ -1,5 +1,6 @@
 import React, { useEffect, useState, useMemo, useCallback, useRef } from 'react';
 import { ensureVettedFields } from './grading.js';
+import { bboxParam } from './areaGrid.js';
 import { probeApi, fetchBboxFromApi, fetchAreaFromApi, fetchAllFromApi, fetchRestaurantDetail } from './api.js';
 import { PLACES, PLACE_BY_ID, PLACES_ENVELOPE, inBox, placeContains } from './places.js';
 import GradeBadge from './components/GradeBadge.jsx';
@@ -450,13 +451,14 @@ export default function App() {
     if (inFlightRef.current.has(key)) return;
     inFlightRef.current.add(key);
 
-    fetchBboxFromApi(box).then(({ records, truncated }) => {
+    fetchBboxFromApi(box).then(({ records, truncated, box: asked }) => {
       inFlightRef.current.delete(key);
       mergeRecords(records);
-      // Only mark fully covered when the API returned everything in the box;
-      // a capped result means denser-than-one-page, so allow a tighter refetch.
+      // Only mark fully covered when the API returned everything in the box
+      // (the grid-snapped one it was asked for, which contains `box`); a
+      // capped result means denser-than-one-page, so allow a tighter refetch.
       if (!truncated) {
-        coveredBoxesRef.current.push(box);
+        coveredBoxesRef.current.push(asked || box);
         if (coveredBoxesRef.current.length > 60) coveredBoxesRef.current.shift();
       }
     }).catch(() => { inFlightRef.current.delete(key); });
@@ -466,6 +468,7 @@ export default function App() {
   // keeps only each city's newest), so neither the alert nor the Near me
   // list misses a low scorer. One ~1 km box per ~300 m of movement.
   const nearFetchRef = useRef(null);
+  const nearCellsRef = useRef(null);
   useEffect(() => {
     if (!userPos || !apiReady || fullyLoadedRef.current) return;
     const last = nearFetchRef.current;
@@ -477,9 +480,20 @@ export default function App() {
     nearFetchRef.current = userPos;
     const dLat = (NEAR_RADIUS_M + 300) / 111320;
     const dLng = dLat / Math.max(0.2, Math.cos((userPos.lat * Math.PI) / 180));
+    // The request is the grid cell(s) around this box (areaGrid.js), never
+    // the box itself: the server must not learn where the user stands. A
+    // move that stays inside the same cells asks for nothing new.
+    const want = bboxParam({
+      w: userPos.lng - dLng, s: userPos.lat - dLat, e: userPos.lng + dLng, n: userPos.lat + dLat,
+    });
+    if (nearCellsRef.current === want) return;
+    nearCellsRef.current = want;
     fetchBboxFromApi({
       w: userPos.lng - dLng, s: userPos.lat - dLat, e: userPos.lng + dLng, n: userPos.lat + dLat,
-    }).then(({ records }) => mergeRecords(records)).catch(() => { nearFetchRef.current = null; });
+    }).then(({ records }) => {
+      mergeRecords(records);
+      if (records.length === 0) nearCellsRef.current = null; // API down: retry on the next move
+    }).catch(() => { nearFetchRef.current = null; nearCellsRef.current = null; });
   }, [userPos, apiReady, mergeRecords]);
 
   // City/metro chips derived from the live dataset, largest first
