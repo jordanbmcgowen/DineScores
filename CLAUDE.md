@@ -45,7 +45,13 @@ Cloudflare Pages builds on deploy, serves public/
 
 - **Frontend**: React 19 + Vite + Tailwind + MapLibre GL. Entry `src/main.jsx`
   → `App.jsx`. Map is `src/components/RestaurantMap.jsx` (donut-chart
-  cluster markers, GPS-centered start). The GPS button is our own
+  cluster markers, GPS-centered start). Clusters split down to z19 (map
+  max 19.9) so neighbours a few doors apart become pins; only places at one
+  point stay a donut, and tapping that lists them. The name labels' font is
+  probed at load (`pickNameFont`): a glyph 404 fails the whole restaurants
+  tile, so when CARTO dropped 'Montserrat Bold' every tile from z13 up broke
+  and the map froze on z12's clusters (a '34' donut at street level,
+  2026-11-27). The GPS button is our own
   `src/locateControl.js`, not `maplibregl.GeolocateControl`: the stock one
   disables itself until a reload after a single PERMISSION_DENIED (a
   dismissed prompt, iOS Location Services off), which read as "the GPS
