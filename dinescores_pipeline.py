@@ -24,6 +24,7 @@ import threading
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timedelta, timezone
 from collections import defaultdict
+from collections import Counter as collections_Counter
 from urllib.parse import urlencode, quote
 
 import requests
@@ -9337,6 +9338,7 @@ TP_WORKERS = 2             # inspectionsData and printable workers
 TP_RETRIES = 4             # attempts per request (429/5xx/timeouts/resets)
 TP_BACKOFF = 10            # seconds × attempt between retries
 TP_TIMEOUT = 90
+TP_UNTIL_DATE = os.environ.get('TP_UNTIL_DATE', '')[:10]   # backfill chunks only
 TP_DAY_REREADS = 2         # re-reads of a day whose pages shifted under the run
 TP_MAX_DAY_PAGES = 2000    # runaway guard for one day's list (10,000 rows)
 TP_REREAD_MAX = 1000       # facilities re-read at the end of a run (failed or held); more means the portal is down
@@ -9795,7 +9797,12 @@ def _tp_fetch(cfg, since_date, limit):
     ship_from = ((datetime.strptime(since, '%Y-%m-%d') - timedelta(days=TP_REREAD_MARGIN_DAYS)).strftime('%Y-%m-%d')
                  if since else None)
     today = datetime.now().strftime('%Y-%m-%d')
-    log.info(f"Fetching {group} data (since={since_date}, limit={limit})")
+    # Backfills only: TP_UNTIL_DATE ends the listing at that day, so a history
+    # chunk lists only facilities whose LAST inspection is older than what
+    # the weekly runs already shipped (never set in the workflows).
+    if TP_UNTIL_DATE and since and TP_UNTIL_DATE < today:
+        today = TP_UNTIL_DATE
+    log.info(f"Fetching {group} data (since={since_date}, until={today}, limit={limit})")
     local = threading.local()
 
     def session():
@@ -16603,6 +16610,316 @@ def fetch_elpaso(since_date=None, limit=None):
     return records
 
 
+# ── Alabama (statewide, ADPH) ───────────────────────────────────────────────
+# Alabama Department of Public Health, Food Establishment Scores
+# (foodscores.state.al.us): 65 of the state's 67 counties (~4.1M people;
+# Jefferson/Birmingham and Mobile run their own programs and the state site
+# hands them off with a 302). An ASP.NET WebForms page with a cookieless
+# session in the URL path: one GET of the landing page for the session path
+# and the hidden fields, then POSTs per county, each answering EVERY
+# establishment of that county (and type) in one HTML list (no paging;
+# 'Total Number: N' must equal the rows parsed and lblPageNumber must be
+# empty, else the county is unread). Each row is an
+# establishment's LATEST inspection only: name, street, city, ZIP, the
+# official 0-100 score and the date. No violations, no ids, no coordinates,
+# no history (surveyed 2026-11-02, docs/expansion-2026-11/source-survey.md).
+#
+# The rows carry no establishment type, so each county is read with type
+# 'All' and once per type that is not a restaurant (AL_EXCLUDED_TYPES: camps,
+# daycares, nursing homes, institutions, school lunchrooms and mobile units),
+# and those rows are taken out of the All list (~455 POSTs a run). The site answers HTTP 500 to a search with
+# no results (measured 2026-11-27: Barbour County's Catering, Camp and
+# Seasonal), so a 500 on an excluded type reads as none; a row of an
+# excluded type missing from the All list makes the county unread. The
+# score is the state's official score
+# (85+ satisfactory, 70-84 follow-up, 60-69 re-inspection in 48 h; the site
+# never lists below 60), shipped as original_score and risk_score.
+#
+# A snapshot: every run reads the whole state (~50 MB) and ships
+# the inspections dated from AL_REREAD_DAYS before the window (the state posts
+# in batches weeks late, county by county), or from AL_HISTORY_DAYS ago in
+# full mode (a latest inspection older than two years is a closed place).
+# Nothing is held: a county that fails is dropped and the group goes red, and
+# the next run reads it again. Tallapoosa County's page has crashed on every
+# request since the survey (a bad row); its 500 is a note, not a failure.
+AL_URL = 'https://foodscores.state.al.us/'
+AL_SOURCE = 'Alabama Department of Public Health'
+AL_GROUP = 'Alabama'
+# Read 'All' and take away the establishment types that are not restaurants
+# (the form's own option values, typo included). The site matches the type on
+# its FIRST WORD (measured 2026-11-27, Autauga County: 'Limited Retail' and
+# 'Limited Food' answer the same 56 rows, 'School Lunchroom - Private' and
+# '- Public' the same 14), so 'Limited Retail' cannot be left out without the
+# coffee shops, delis and hotel breakfasts filed as 'Limited Food', and one
+# School query covers both.
+AL_EXCLUDED_TYPES = ('Camp', 'Daycare Food Service', 'Insitutional Food Service', 'Mobile Food Service',
+                     'Nursing Home Food Service', 'School Lunchroom - Public')
+AL_SKIP_COUNTIES = {'37': 'Jefferson', '49': 'Mobile'}      # their own health departments
+AL_KNOWN_BROKEN = {'62': 'Tallapoosa'}                         # 500 on every request since 2026-11
+AL_COUNTY_COUNT = 67
+AL_REREAD_DAYS = 60
+AL_HISTORY_DAYS = 730
+AL_TIMEOUT = 180
+AL_RETRIES = 3
+AL_BACKOFF = 10.0
+AL_DELAY = 1.0
+AL_MIN_ROWS = 8000          # a statewide read below this is not a real snapshot (18.8k in 2026-11)
+_AL_FIELD_RE = re.compile(r'_DtList_ctl(\d+)_(LblEst|LnkAdd|Label1|Label2|LblScore|LblInDt)"[^>]*>(.*?)</(?:span|a)>',
+                          re.S)
+_AL_TOTAL_RE = re.compile(r'id="ctl00_ContentPlaceHolder1_LblRecordNumber"[^>]*>\s*Total Number:\s*(\d+)\s*<')
+_AL_PAGE_RE = re.compile(r'id="ctl00_ContentPlaceHolder1_lblPageNumber"[^>]*>([^<]*)<')
+_AL_HIDDEN_RE = re.compile(r'<input[^>]*name="(__[A-Z]+)"[^>]*value="([^"]*)"')
+_AL_DBA_RE = re.compile(r'^\s*\(\s*d\.?\s?b\.?\s?a\.?\s*:?\s*\)\s*|^\s*d\.?/?b\.?/?a\b\.?\s*:?\s*', re.I)
+_AL_DBA_SPLIT_RE = re.compile(r'\s*[(\-,/]?\s*\bd\.?/?b\.?/?a\b\.?\s*:?\s*', re.I)
+_AL_CORP_RE = re.compile(r'\b(?:l\.?\s?l\.?\s?c|inc|corp(?:oration)?|co|company|enterprises?|group|holdings?|'
+                         r'management|hospitality|ltd|l\.?p|partners|ventures?|investments?|properties)\b', re.I)
+
+
+class _AlUnread(RuntimeError):
+    """One county/type answer that cannot be shipped."""
+
+
+def _al_landing(session):
+    """GET the landing page: (session URL, hidden fields, {county id: name})."""
+    r = session.get(AL_URL, timeout=AL_TIMEOUT, headers={'User-Agent': CHROME_UA})
+    if r.status_code != 200:
+        raise RuntimeError(f'Alabama: landing page HTTP {r.status_code}')
+    hidden = dict(_AL_HIDDEN_RE.findall(r.text))
+    m = re.search(r'name="ctl00\$ContentPlaceHolder1\$DrpCnty"[^>]*>(.*?)</select>', r.text, re.S)
+    counties = dict(re.findall(r'<option[^>]*value="(\d+)"[^>]*>([^<]+)<', m.group(1))) if m else {}
+    if (not {'__VIEWSTATE', '__EVENTVALIDATION'} <= set(hidden) or len(counties) != AL_COUNTY_COUNT
+            or 'ctl00$ContentPlaceHolder1$DrpEstdType' not in r.text):
+        raise RuntimeError(f'Alabama: the search form changed ({len(counties)} counties, '
+                           f'hidden {sorted(hidden)}); not shipping')
+    return r.url, hidden, {k: v.strip().title() for k, v in counties.items()}
+
+
+def _al_post(session, url, hidden, county, etype, retries=AL_RETRIES):
+    """POST one county + type search; the HTML. 429/5xx/timeouts retried."""
+    data = dict(hidden)
+    data.update({'__LASTFOCUS': '', '__EVENTTARGET': '', '__EVENTARGUMENT': '',
+                 'ctl00$ContentPlaceHolder1$TxtEstdNm': '', 'ctl00$ContentPlaceHolder1$txtCity': '',
+                 'ctl00$ContentPlaceHolder1$DrpEstdType': etype, 'ctl00$ContentPlaceHolder1$DrpCnty': county,
+                 'ctl00$ContentPlaceHolder1$BtnSearch.x': '12', 'ctl00$ContentPlaceHolder1$BtnSearch.y': '9'})
+    last = ''
+    for attempt in range(1, retries + 1):
+        try:
+            r = session.post(url, data=data, timeout=AL_TIMEOUT, allow_redirects=False,
+                             headers={'User-Agent': CHROME_UA, 'Referer': url})
+        except requests.exceptions.SSLError as e:
+            raise RuntimeError(f'Alabama: TLS verification failed: {e}')
+        except requests.RequestException as e:
+            last, r = f'{type(e).__name__}: {e}', None
+        if r is not None:
+            if r.status_code == 200:
+                return r.text
+            last = f'HTTP {r.status_code}'
+            if r.status_code not in DFW_HOLE_RETRY_STATUSES:
+                break
+        if attempt >= retries or _past_deadline():
+            break
+        log.warning(f"  Alabama: county {county} {etype}: {last}; retrying")
+        time.sleep(AL_BACKOFF * attempt)
+    raise _AlUnread(last)
+
+
+def _al_parse(body):
+    """One answer -> [dict(name, street, city, zip, score, date)]. RAISES
+    _AlUnread unless the rows parsed equal the page's Total Number and no
+    paging is engaged."""
+    total = _AL_TOTAL_RE.search(body)
+    page = _AL_PAGE_RE.search(body)
+    if not total or page is None:
+        raise _AlUnread('no record count on the page (the layout changed)')
+    if page.group(1).strip():
+        raise _AlUnread(f'paging engaged ({page.group(1).strip()!r})')
+    rows = defaultdict(dict)
+    for idx, field, raw in _AL_FIELD_RE.findall(body):
+        rows[int(idx)][field] = ' '.join(html_lib.unescape(re.sub(r'<[^>]+>', ' ', raw)).split())
+    if len(rows) != int(total.group(1)):
+        raise _AlUnread(f'{len(rows)} rows parsed, page says {total.group(1)}')
+    out = []
+    for idx in sorted(rows):
+        r = rows[idx]
+        if len(r) != 6:
+            raise _AlUnread(f'row {idx} has fields {sorted(r)}')
+        out.append({'name': r['LblEst'], 'street': r['LnkAdd'], 'city': r['Label1'],
+                    'zip': r['Label2'], 'score': r['LblScore'], 'date': r['LblInDt']})
+    return out
+
+
+def _al_name(raw):
+    """The public name from the permit holder's line. The state prints both
+    the company and the trade name around a 'dba', in either order ('Banana
+    Leaf LLC dba Phuket Thai Restaurant', 'Dairy Queen dba Yogiraj Inc',
+    'Steak-Out Restaurants (Right Way Restaurants Inc dba)'): the side that
+    reads as a company (LLC, Inc, Enterprises ...) is the owner and the other
+    side is kept; when both or neither do, the trade name after the 'dba'.
+    Names are cut at 60 characters by the source, so an unclosed bracket is
+    dropped."""
+    s = ' '.join(_AL_DBA_RE.sub('', ' '.join((raw or '').split())).split())
+    parts = _AL_DBA_SPLIT_RE.split(s, maxsplit=1)
+    if len(parts) == 2:
+        left, right = (p.strip(' ()-,/:') for p in parts)
+        if not right:
+            s = left
+        elif not left:
+            s = right
+        elif _AL_CORP_RE.search(right) and not _AL_CORP_RE.search(left):
+            s = left
+        else:
+            s = right
+    s = re.sub(r'\s*\([^)]*$', '', s).strip(' -,/:')
+    while s.endswith(')') and s.count(')') > s.count('('):
+        s = s[:-1].rstrip(' -,/:')
+    return _wm_title(' '.join(s.split()))
+
+
+def fetch_alabama(since_date=None, limit=None):
+    """
+    Fetch Alabama ADPH food establishment scores statewide (see the section
+    notes): every county and restaurant type, each establishment's latest
+    inspection. With a since_date, ships inspections dated from
+    AL_REREAD_DAYS before it; without one, the last AL_HISTORY_DAYS. Returns
+    oldest-first records; `limit` keeps the newest. A county that cannot be
+    read is dropped (group 'error'); a statewide read below AL_MIN_ROWS
+    raises.
+    """
+    if since_date:
+        ship_from = (datetime.strptime(str(since_date)[:10], '%Y-%m-%d')
+                     - timedelta(days=AL_REREAD_DAYS)).strftime('%Y-%m-%d')
+    else:
+        ship_from = ''
+    # A latest inspection older than AL_HISTORY_DAYS is a place that closed.
+    ship_from = max(ship_from, (datetime.now() - timedelta(days=AL_HISTORY_DAYS)).strftime('%Y-%m-%d'))
+    log.info(f"Fetching Alabama data (ships from {ship_from}, limit={limit})")
+    if _past_deadline():
+        _set_group_status(AL_GROUP, 'skipped', 'fetch deadline reached before the state was read')
+        return []
+    session = requests.Session()
+    url, hidden, counties = _al_landing(session)
+    rows_read, failed, notes = 0, [], []
+    built = []
+    skipped = defaultdict(int)
+    newest = ''
+    for county in sorted(counties, key=int):
+        if county in AL_SKIP_COUNTIES:
+            continue
+        if _past_deadline():
+            _set_group_status(AL_GROUP, 'skipped', f'fetch deadline reached at {counties[county]} County')
+            break
+        try:
+            everything = _al_parse(_al_post(session, url, hidden, county, 'All'))
+        except _AlUnread as e:
+            if county in AL_KNOWN_BROKEN:
+                notes.append(f'{counties[county]} County unreadable at the source ({e})')
+            else:
+                failed.append(f'{counties[county]} County: {e}')
+            continue
+        time.sleep(AL_DELAY)
+        # The site answers HTTP 500 to a search with no results, so an excluded
+        # type that 500s is read as empty; one that answers must parse.
+        excluded, county_ok = collections_Counter(), True
+        for etype in AL_EXCLUDED_TYPES:
+            try:
+                answer = _al_parse(_al_post(session, url, hidden, county, etype, retries=1))
+            except _AlUnread as e:
+                if str(e) == 'HTTP 500':
+                    continue
+                failed.append(f'{counties[county]} {etype}: {e}')
+                county_ok = False
+                break
+            finally:
+                time.sleep(AL_DELAY)
+            excluded.update(tuple(sorted(row.items())) for row in answer)
+        if not county_ok:
+            continue
+        county_rows = []
+        for row in everything:
+            key = tuple(sorted(row.items()))
+            if excluded[key]:
+                excluded[key] -= 1
+                skipped['not a restaurant type'] += 1
+                continue
+            county_rows.append(('', row))
+        if +excluded:
+            failed.append(f'{counties[county]} County: {sum((+excluded).values())} rows of an excluded '
+                          f'type are missing from its All list')
+            continue
+        rows_read += len(everything)
+        if int(county) % 10 == 0:
+            log.info(f"  Alabama: {rows_read} establishments read through {counties[county]} County")
+        for etype, row in county_rows:
+            m = re.fullmatch(r'(\d{1,2})/(\d{1,2})/(\d{4})', row['date'])
+            insp_date = (sane_inspection_date(f'{m.group(3)}-{int(m.group(1)):02d}-{int(m.group(2)):02d}')
+                         if m else None)
+            try:
+                score = int(row['score'])
+            except ValueError:
+                score = None
+            if not insp_date or score is None or not 0 < score <= 100:
+                skipped['unreadable date or score'] += 1
+                continue
+            newest = max(newest, insp_date)
+            if insp_date < ship_from:
+                skipped['before the window'] += 1
+                continue
+            name = _al_name(row['name'])
+            if not name:
+                skipped['no name'] += 1
+                continue
+            if _tx_score_only_institutional(name):
+                skipped['institutional kitchen'] += 1
+                continue
+            street = _wm_title(' '.join(row['street'].split()), road_codes=True)
+            if not re.search(r'\d', street.split(' ')[0] if street else '') or re.match(r'p\.?\s*o\.?\s*box', street, re.I):
+                skipped['no street address'] += 1
+                continue
+            city = _wm_title(' '.join(row['city'].split()))
+            zip_m = re.match(r'(\d{5})', row['zip'])
+            rid = make_restaurant_id(name, street, city)
+            built.append((rid, insp_date, (score, etype), {
+                'name': name,
+                'address': street,
+                'city': city,
+                'state': 'AL',
+                'zip': zip_m.group(1) if zip_m else '',
+                'latitude': None,
+                'longitude': None,
+                'inspection_date': insp_date,
+                'original_score': score,
+                'risk_score': score,                 # ADPH's official 0-100 score
+                'priority_violations': 0,
+                'priority_foundation_violations': 0,
+                'core_violations': 0,
+                'total_violations': 0,
+                'violations': [],
+                'inspection_type': '',
+                'results': '',
+                'source': AL_SOURCE,
+                'source_url': AL_URL,
+                'source_id': f"al_{county}_{rid}_{insp_date.replace('-', '')}",
+                'metro': '',
+            }))
+    if rows_read < AL_MIN_ROWS and not _past_deadline():
+        raise RuntimeError(f'Alabama: only {rows_read} establishments read statewide (expect ~18k); '
+                           f'the site changed or is failing ({failed[:3]}); not shipping')
+    if failed:
+        _set_group_status(AL_GROUP, 'error', f"{len(failed)} county searches unread: {'; '.join(failed[:4])}")
+    for n in notes:
+        log.warning(f"  Alabama: {n}")
+    if skipped:
+        log.info(f"  Alabama: skipped {dict(skipped)}")
+    records = _tx_same_day_suffixes(built)
+    if limit and len(records) > limit:
+        records = records[-limit:]
+    else:
+        _note_source_lag(AL_GROUP, newest)
+    log.info(f"Alabama: {len(records)} inspections from {rows_read} establishments "
+             f"(source newest {newest or 'n/a'})")
+    return records
+
+
 # ── Waco / McLennan County ──────────────────────────────────────────────────
 # Waco-McLennan County Public Health District (~270k people): one public
 # ArcGIS Online hosted view, 'foodScoresView' (org WacoGIS), read by the
@@ -20595,7 +20912,8 @@ def main():
             (('corpuschristi',), CC_GROUP, fetch_corpus_christi),
             (('abilene',), ABL_GROUP, fetch_abilene),
             (('napa',), NAPA_GROUP, fetch_napa),
-            (('sonoma',), SONOMA_GROUP, fetch_sonoma)):
+            (('sonoma',), SONOMA_GROUP, fetch_sonoma),
+            (('alabama',), AL_GROUP, fetch_alabama)):
         if any(s in args.cities for s in slugs):
             socrata_jobs[group] = _expansion_job(group, fetcher)
 

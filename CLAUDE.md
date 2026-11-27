@@ -26,7 +26,9 @@ Santa Rosa, Petaluma, Healdsburg, Sonoma, Sebastopol, Windsor, Rohnert
 Park, Glen Ellen; and, since 2026-11-27, Hawaii statewide (Honolulu,
 Kailua-Kona, Hilo, Maui, Kauai), Akron/Summit County OH, Placer County CA
 (Roseville, Rocklin, Auburn, Truckee) and Platte County MO (Parkville,
-Platte City, Riverside)) plus all of Florida, New York State, Delaware, South Carolina, Georgia
+Platte City, Riverside)) plus all of Florida, New York State, Delaware, South Carolina, Alabama
+(since 2026-11-27: ADPH's statewide scores, 64 of 67 counties; not Birmingham
+or Mobile), Georgia
 (Atlanta: Fulton/DeKalb/Cobb and the other 153 counties; Gwinnett/Newton/
 Rockdale on the MHD `gwinnett` slug), Louisiana (New Orleans, Baton Rouge,
 Shreveport, Lafayette) and Virginia (33 VDH districts; Fairfax County is
@@ -393,10 +395,6 @@ people covered per unit of work:
   prefix splitting enumerates facilities); Washington violation points like
   King County; Anchorage needs an Alaska box in `coords_plausible`, which
   rejects everything outside CONUS today.
-- **Alabama statewide (4.1M; not Birmingham or Mobile)**: ADPH
-  `foodscores.state.al.us`, a WebForms county sweep (66 requests), OFFICIAL
-  0-100 score only, latest inspection per establishment, no violations, no
-  coordinates, no history; Tallapoosa County 500s.
 - Akron/Summit County OH ('scph') and Placer County CA ('pchd') shipped
   2026-11-27 (see the placard invariant), as did Amarillo ('aaphd')
   2026-11-22. The statewide
@@ -1002,6 +1000,31 @@ read yet. The ones worth building next:
   measured corrections in the config; a citation with no readable tier drops
   and holds its inspection, it never becomes core. The differences are
   config keys that Pima, Lubbock and Mesquite do not carry.
+- **Alabama is a snapshot of each establishment's latest score, and its
+  site answers HTTP 500 to an empty search.** `fetch_alabama` reads every
+  county as type 'All' plus once per type that is not a restaurant
+  (`AL_EXCLUDED_TYPES`) and removes those rows; a 500 on an excluded type is
+  read as "none of that type" (Barbour County's Catering, Camp and Seasonal
+  all 500, measured 2026-11-27). The type filter matches on the FIRST WORD
+  ('Limited Retail' answers the 'Limited Food' rows too, the two School
+  types the same rows), so Limited stays in. A row of an excluded type missing from the
+  All list makes the county unread (dropped, group red; nothing is held: the
+  next run reads the whole state again). Tallapoosa County 500s on every
+  search (`AL_KNOWN_BROKEN`, a note, not a failure); Jefferson and Mobile
+  are never asked. Names are 'Owner LLC dba Trade Name' in either order:
+  `_al_name` keeps the side that does not read as a company. Score only,
+  so 99% of Alabama is an A (the site never lists below 60).
+- **History backfills of 2026-11-27 (toward 500k places).** Florida's
+  FY2025-26 statewide DBPR workbook (`scripts/backfill/florida_archive.py`;
+  DBPR republished it with database column names, mapped in
+  `WORKBOOK_COLUMNS`; rows before 2026-07-01 only, the weekly feed covers
+  the rest), Georgia and Louisiana from 2025-05-01 (Tyler publicportals,
+  one-day windows; `TP_UNTIL_DATE` stops a backfill window early) and
+  Alabama's first read. Each went through `absorb.sh`; the seeds were then
+  regenerated under PR #70's rules (1,771 Florida emergency-order
+  inspections capped at 65) and data.js rebuilt once from `main`'s file
+  plus all four record files. Louisiana's history is item titles only (no
+  printable notices), scored by the fetcher as usual.
 - **Paragon Inspections Online (Missoula, Gallatin, Flathead MT; Kansas City
   MO) prints rows that are not findings and a tier that is not a severity.**
   Flathead records its bonus credit for temperature logs as Risk Factor rows
