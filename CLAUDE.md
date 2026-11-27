@@ -135,6 +135,24 @@ Cloudflare Pages builds on deploy, serves public/
   hex digit. Shared template: `functions/_lib/seo.js`. `index.html` carries
   the meta/OG/JSON-LD and a crawlable summary inside `#root` that React
   replaces on mount. Tests: `node tests/test_seo.mjs`.
+- **Usage analytics**: Google Analytics 4, account "DineScores", property
+  "healthinspections", web stream `G-1VB8672S14` (`DEFAULT_GA_ID` in
+  `functions/_lib/analytics_id.js`; Search Console for https://dinescores.com/
+  is linked to it). The tag loads only on dinescores.com (`LIVE_HOSTS`), so
+  local dev and Pages previews report nothing. The Pages variable
+  `VITE_GA_MEASUREMENT_ID` overrides the id: read at build time by the map
+  (`src/analytics.js`) and the static SEO pages, and at run time by
+  `functions/restaurant/[slug].js` (`withAnalytics` in
+  `functions/_lib/seo.js`). Events: `search`
+  (once typing pauses 1.5 s; `cleanSearchTerm` drops emails, phone numbers
+  and street addresses), `select_area`, `filter_grade`, `filter_issue`,
+  `near_me`, `near_me_alert_shown/_dismiss`, `locate`, `select_restaurant`
+  and `view_report` (with `via`), `open_stack`, `sort_change`,
+  `theme_toggle` (plus a `theme` user property), `share`, `directions`,
+  `official_record`, `finding_expand`. Restaurant events carry only the
+  public name, grade, city and state. Never send the user's coordinates or
+  distances. Google signals and ad personalisation are off. Tests: `node
+  tests/test_analytics.mjs`.
 - **Pipeline**: one file, `dinescores_pipeline.py`. One `fetch_<city>()`
   per source (Socrata, ArcGIS, state portals, SNHD, MyHealthDepartment
   scraper for DFW). Seattle/King County is Socrata dataset `r878-4sxa`
@@ -1086,7 +1104,8 @@ uses captured fixtures under `tests/fixtures/`) and `node
 tests/test_relay.mjs` for the relay function (plus `node tests/test_places.mjs`,
 `node tests/test_near_me.mjs`, `node tests/test_source_lag.mjs`,
 `node tests/test_search_rank.mjs`, `node tests/test_finding_text.mjs`,
-`node tests/test_public_api.mjs` and `node tests/test_seo.mjs` for the
+`node tests/test_analytics.mjs`, `node tests/test_public_api.mjs` and
+`node tests/test_seo.mjs` for the
 frontend logic and crawlable pages). Run them before
 pushing.
 

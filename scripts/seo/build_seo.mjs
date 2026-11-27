@@ -30,7 +30,7 @@ import path from 'node:path';
 import vm from 'node:vm';
 import {
   SITE, STATE_NAMES, stateName, esc, slugify, displayName, restaurantPath,
-  statePath, cityPath, gradeBadge, formatDate, renderPage,
+  statePath, cityPath, gradeBadge, formatDate, renderPage, withAnalytics,
 } from '../../functions/_lib/seo.js';
 
 // Pages with fewer restaurants than this are kept (links resolve) but marked
@@ -415,7 +415,9 @@ ${top.slice(0, 80).map(c => `- [${c.name}, ${c.state}](${SITE}${cityPath(c.state
 function write(out, rel, content) {
   const file = path.join(out, rel);
   fs.mkdirSync(path.dirname(file), { recursive: true });
-  fs.writeFileSync(file, content);
+  // The GA tag (if the build has an id) goes on every HTML page
+  const body = rel.endsWith('.html') ? withAnalytics(content, process.env.VITE_GA_MEASUREMENT_ID) : content;
+  fs.writeFileSync(file, body);
 }
 
 export function buildSeo({ dataFile, out }) {

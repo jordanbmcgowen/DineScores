@@ -3,6 +3,7 @@ import { fetchHistoryFromApi, fetchRestaurantDetail } from '../api.js';
 import { gradeMeta } from './GradeBadge.jsx';
 import { findingTitle, severityLabel } from '../findingText.js';
 import { sourceLag } from '../sourceLag.js';
+import { track, restaurantParams } from '../analytics.js';
 
 // Issue-type tiles on the card, keyed by the record's `inf` categories.
 const ISSUE_TILES = {
@@ -148,6 +149,7 @@ export default function InspectionModal({ restaurant: r, onClose, formatDate, on
 
   const share = () => {
     const url = `${window.location.origin}/#r/${r.i}`;
+    track('share', { ...restaurantParams(r), method: navigator.share ? 'share_sheet' : 'copy_link' });
     if (navigator.share) {
       navigator.share({ title: `${r.n} — DineScores`, url }).catch(() => {});
     } else if (navigator.clipboard) {
@@ -231,6 +233,7 @@ export default function InspectionModal({ restaurant: r, onClose, formatDate, on
               href={mapsUrl}
               target="_blank"
               rel="noopener noreferrer"
+              onClick={() => track('directions', { ...restaurantParams(r), via: 'address' })}
               className="relative block mt-2 text-[14px] font-medium opacity-90 hover:opacity-100 hover:underline truncate"
             >
               {r.a}, {r.c}{r.z ? ` ${r.z}` : ''}
@@ -293,7 +296,10 @@ export default function InspectionModal({ restaurant: r, onClose, formatDate, on
                     return (
                       <button
                         key={idx}
-                        onClick={() => setExpandedSummary(prev => (prev === idx ? null : idx))}
+                        onClick={() => {
+                          if (expandedSummary !== idx) track('finding_expand', restaurantParams(r));
+                          setExpandedSummary(prev => (prev === idx ? null : idx));
+                        }}
                         aria-expanded={isExpanded}
                         className="w-full text-left px-1 py-2.5 border-t first:border-t-0 border-slate-100 dark:border-slate-800"
                       >
@@ -386,6 +392,7 @@ export default function InspectionModal({ restaurant: r, onClose, formatDate, on
                           href={recordUrl}
                           target="_blank"
                           rel="noopener noreferrer"
+                          onClick={() => track('official_record', { ...restaurantParams(r), via: 'history' })}
                           aria-label={`Official record for the ${formatDate(insp.date)} inspection`}
                           className="w-9 h-9 shrink-0 flex items-center justify-center rounded-xl text-slate-400 hover:text-slate-700 hover:bg-slate-100 dark:hover:text-white dark:hover:bg-slate-800 transition-colors"
                         >
@@ -417,6 +424,7 @@ export default function InspectionModal({ restaurant: r, onClose, formatDate, on
               href={officialUrl}
               target="_blank"
               rel="noopener noreferrer"
+              onClick={() => track('official_record', { ...restaurantParams(r), via: 'button' })}
               className="flex-1 h-12 rounded-2xl bg-white dark:bg-slate-900 ring-1 ring-slate-200 dark:ring-slate-800 flex items-center justify-center text-[14px] font-bold text-slate-800 dark:text-slate-100 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors"
             >
               Official record ↗
@@ -426,6 +434,7 @@ export default function InspectionModal({ restaurant: r, onClose, formatDate, on
             href={mapsUrl}
             target="_blank"
             rel="noopener noreferrer"
+            onClick={() => track('directions', { ...restaurantParams(r), via: 'button' })}
             className="flex-1 h-12 rounded-2xl bg-slate-900 dark:bg-white text-white dark:text-slate-900 flex items-center justify-center text-[14px] font-bold hover:bg-slate-800 dark:hover:bg-slate-100 transition-colors"
           >
             Directions
