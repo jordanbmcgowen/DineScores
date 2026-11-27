@@ -13,6 +13,8 @@ public/index.html
 # SEO pages and files written by scripts/seo/build_seo.mjs and copied from static/
 public/inspections/
 public/about/
+public/developers/
+public/privacy/
 public/robots.txt
 public/sitemap.xml
 public/sitemap-pages.xml
