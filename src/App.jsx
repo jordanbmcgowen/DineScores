@@ -12,6 +12,7 @@ import SearchBar from './components/SearchBar.jsx';
 import NearMeAlert from './components/NearMeAlert.jsx';
 import { lowScoresNear, lowScoreAt, NEAR_RADIUS_M } from './nearMe.js';
 import { newestByArea } from './sourceLag.js';
+import { track, setUserProperties, restaurantParams, cleanSearchTerm } from './analytics.js';
 
 // Below this zoom the embedded overview is enough; above it, lazy-load the
 // uncapped records for whatever is in view from the D1 API.
@@ -105,6 +106,7 @@ export default function App() {
     // Keep the browser/OS chrome (status bar, tab strip) matching the app
     document.querySelectorAll('meta[name="theme-color"]')
       .forEach(m => m.setAttribute('content', dark ? '#0f172a' : '#ffffff'));
+    setUserProperties({ theme: dark ? 'dark' : 'light' });
   }, [dark]);
   const toggleTheme = useCallback(() => {
     setThemePref(prev => {
@@ -113,6 +115,7 @@ export default function App() {
         : prev === 'dark';
       const next = wasDark ? 'light' : 'dark';
       try { localStorage.setItem('ds-theme', next); } catch { /* storage blocked */ }
+      track('theme_toggle', { theme: next });
       return next;
     });
   }, []);
@@ -120,6 +123,18 @@ export default function App() {
   // Debounce search
   useEffect(() => {
     const timer = setTimeout(() => setDebouncedSearch(searchTerm), 300);
+    return () => clearTimeout(timer);
+  }, [searchTerm]);
+  // Analytics: one 'search' per settled term (typing paused 1.5 s), so a
+  // word typed letter by letter is one search, not seven.
+  const lastTrackedSearchRef = useRef('');
+  useEffect(() => {
+    const term = cleanSearchTerm(searchTerm);
+    if (!term || term === lastTrackedSearchRef.current) return;
+    const timer = setTimeout(() => {
+      lastTrackedSearchRef.current = term;
+      track('search', { search_term: term });
+    }, 1500);
     return () => clearTimeout(timer);
   }, [searchTerm]);
 
@@ -165,6 +180,7 @@ export default function App() {
   // there itself, so just record the position (it powers the you-are-here
   // dot, "Nearest first" sorting, and the distance on preview cards).
   const handleGeolocate = useCallback(pos => {
+    if (!gpsFromControlRef.current) track('locate', { result: 'found' });
     gpsFromControlRef.current = true;
     applyUserPos(pos);
   }, [applyUserPos]);
@@ -173,6 +189,7 @@ export default function App() {
   // stays live, so the fix is a settings change and one more tap away.
   const [locateNotice, setLocateNotice] = useState(null); // { text, key }
   const handleGeolocateError = useCallback(kind => {
+    track('locate', { result: kind || 'unavailable' });
     setLocateNotice({ text: LOCATE_MESSAGES[kind] || LOCATE_MESSAGES.unavailable, key: Date.now() });
   }, []);
   useEffect(() => {
@@ -186,9 +203,10 @@ export default function App() {
   // is open (the watch above); nothing is stored or sent anywhere.
   const [nearMe, setNearMe] = useState(false);
   const toggleNearMe = useCallback(() => {
-    if (nearMe) { setNearMe(false); return; }
+    if (nearMe) { setNearMe(false); track('near_me', { action: 'off' }); return; }
     if (!navigator.geolocation) { handleGeolocateError('unsupported'); return; }
     setNearMe(true);
+    track('near_me', { action: 'on' });
     if (!lastPosRef.current) {
       navigator.geolocation.getCurrentPosition(
         pos => applyUserPos({
@@ -242,6 +260,7 @@ export default function App() {
     const id = atAlert?.r?.i;
     if (!id || buzzedRef.current.has(id)) return;
     buzzedRef.current.add(id);
+    track('near_me_alert_shown', restaurantParams(atAlert.r));
     try { navigator.vibrate?.(200); } catch { /* not supported */ }
   }, [atAlert]);
 
@@ -384,6 +403,7 @@ export default function App() {
     const openRec = (rec) => {
       setPreview(rec);
       setSelectedRestaurant(rec);
+      track('view_report', { ...restaurantParams(rec), via: 'shared_link' });
       if (rec.lt && rec.ln) setFlyTo({ lng: rec.ln, lat: rec.lt, zoom: 16, key: Date.now() });
     };
     const rec = seeded.find(x => x.i === m[1]);
@@ -506,6 +526,10 @@ export default function App() {
   // One call sets the whole area selection consistently: a city, a metro or
   // a place, never two at once. Used by search suggestions.
   const selectArea = useCallback((opt) => {
+    track('select_area', {
+      area: opt.label || opt.metro || opt.city || '',
+      area_type: opt.place ? 'place' : opt.metro ? 'metro' : 'city',
+    });
     setCityFilter(opt.place ? 'all' : (opt.city || 'all'));
     setMetroFilter(opt.place ? null : (opt.metro || null));
     setPlaceFilter(opt.place || null);
@@ -615,6 +639,7 @@ export default function App() {
 
   // Marker tap → light preview over the live map (report is one more tap)
   const handleMarkerClick = useCallback((restaurant) => {
+    track('select_restaurant', { ...restaurantParams(restaurant), via: 'map' });
     setPreview(restaurant);
     setSheetCollapseKey(k => k + 1); // free up the map on mobile
   }, []);
@@ -630,12 +655,14 @@ export default function App() {
     const sorted = [...records].sort((a, b) => (a.n || '').localeCompare(b.n || ''));
     setPreview(null);
     setStack({ records: sorted });
+    track('open_stack', { count: sorted.length });
     setSheetExpandKey(k => k + 1);
   }, []);
 
   // List card / search suggestion → preview + glide the camera there
-  const focusRestaurant = useCallback((restaurant, { fly = true } = {}) => {
+  const focusRestaurant = useCallback((restaurant, { fly = true, via = 'list' } = {}) => {
     const rec = ensureVettedFields(restaurant);
+    track('select_restaurant', { ...restaurantParams(rec), via });
     mergeRecords([rec]); // no-op if already loaded
     setPreview(rec);
     setSheetCollapseKey(k => k + 1);
@@ -672,14 +699,26 @@ export default function App() {
   }, [mapView, userPos]);
 
   const toggleGrade = useCallback((grade) => {
-    setGradeFilter(prev =>
-      prev.includes(grade) ? prev.filter(g => g !== grade) : [...prev, grade]);
+    setGradeFilter(prev => {
+      const on = !prev.includes(grade);
+      track('filter_grade', { grade, action: on ? 'on' : 'off' });
+      return on ? [...prev, grade] : prev.filter(g => g !== grade);
+    });
   }, []);
 
   const toggleInfraction = useCallback((cat) => {
-    setInfractionFilter(prev =>
-      prev.includes(cat) ? prev.filter(c => c !== cat) : [...prev, cat]
-    );
+    setInfractionFilter(prev => {
+      const on = !prev.includes(cat);
+      track('filter_issue', { issue: cat, action: on ? 'on' : 'off' });
+      return on ? [...prev, cat] : prev.filter(c => c !== cat);
+    });
+  }, []);
+
+  // Full report, with where it was opened from
+  const openReport = useCallback((rec, via) => {
+    if (!rec) return;
+    track('view_report', { ...restaurantParams(rec), via });
+    setSelectedRestaurant(rec);
   }, []);
 
   function formatDate(d) {
@@ -722,7 +761,7 @@ export default function App() {
   const sortSelect = (
     <select
       value={sortBy}
-      onChange={e => { sortTouchedRef.current = true; setSortBy(e.target.value); }}
+      onChange={e => { sortTouchedRef.current = true; setSortBy(e.target.value); track('sort_change', { sort: e.target.value }); }}
       className="text-xs font-semibold bg-transparent text-slate-500 dark:text-slate-400 border-0 outline-none cursor-pointer pr-1"
       aria-label="Sort results"
     >
@@ -777,7 +816,7 @@ export default function App() {
             allData={allData}
             cityOptions={cityOptions}
             origin={searchOrigin}
-            onPickRestaurant={r => focusRestaurant(r)}
+            onPickRestaurant={r => focusRestaurant(r, { via: 'search' })}
             onPickArea={selectArea}
             onSearchingChange={setSearchOpen}
           />
@@ -829,7 +868,7 @@ export default function App() {
             userPos={userPos}
             formatDate={formatDate}
             onClose={() => setPreview(null)}
-            onFullReport={() => setSelectedRestaurant(preview)}
+            onFullReport={() => openReport(preview, 'preview')}
           />
         )}
         {stackBanner}
@@ -907,7 +946,7 @@ export default function App() {
           userPos={userPos}
           formatDate={formatDate}
           onClose={() => setPreview(null)}
-          onFullReport={() => setSelectedRestaurant(preview)}
+          onFullReport={() => openReport(preview, 'preview')}
         />
       )}
 
@@ -916,8 +955,8 @@ export default function App() {
         <NearMeAlert
           alert={atAlert}
           formatDate={formatDate}
-          onOpen={() => { focusRestaurant(atAlert.r); setSelectedRestaurant(atAlert.r); }}
-          onDismiss={() => dismissAlert(atAlert.r.i)}
+          onOpen={() => { focusRestaurant(atAlert.r, { via: 'alert' }); openReport(atAlert.r, 'alert'); }}
+          onDismiss={() => { track('near_me_alert_dismiss', restaurantParams(atAlert.r)); dismissAlert(atAlert.r.i); }}
         />
       )}
 

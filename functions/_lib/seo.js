@@ -114,6 +114,22 @@ footer{border-top:1px solid var(--line);font-size:14px;color:var(--mut);margin-t
 `;
 
 /**
+ * Google Analytics 4 tag for a server-rendered or static page, inserted
+ * before </head>. `id` is the same VITE_GA_MEASUREMENT_ID the map uses
+ * (src/analytics.js); anything that is not a G- id adds nothing, so these
+ * pages carry no tag until the owner sets the variable. Same settings as the
+ * map: no Google signals, no ad personalisation.
+ */
+export function withAnalytics(html, id) {
+  const ga = String(id || '').trim();
+  if (!/^G-[A-Z0-9]{4,}$/.test(ga)) return html;
+  const tag = `<script async src="https://www.googletagmanager.com/gtag/js?id=${ga}"></script>
+<script>window.dataLayer=window.dataLayer||[];function gtag(){dataLayer.push(arguments);}gtag('js',new Date());gtag('config','${ga}',{allow_google_signals:false,allow_ad_personalization_signals:false});</script>
+`;
+  return html.replace('</head>', `${tag}</head>`);
+}
+
+/**
  * A complete HTML document. `breadcrumbs` is [{name, path}] from the root;
  * it renders visibly and as BreadcrumbList structured data.
  */

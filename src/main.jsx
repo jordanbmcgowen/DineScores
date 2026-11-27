@@ -5,5 +5,8 @@ import '@fontsource-variable/bricolage-grotesque';
 import 'maplibre-gl/dist/maplibre-gl.css';
 import './index.css';
 import App from './App.jsx';
+import { initAnalytics } from './analytics.js';
+
+initAnalytics();
 
 createRoot(document.getElementById('root')).render(<App />);
