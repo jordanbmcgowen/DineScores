@@ -1014,6 +1014,17 @@ read yet. The ones worth building next:
   are never asked. Names are 'Owner LLC dba Trade Name' in either order:
   `_al_name` keeps the side that does not read as a company. Score only,
   so 99% of Alabama is an A (the site never lists below 60).
+- **History backfills of 2026-11-27 (toward 500k places).** Florida's
+  FY2025-26 statewide DBPR workbook (`scripts/backfill/florida_archive.py`;
+  DBPR republished it with database column names, mapped in
+  `WORKBOOK_COLUMNS`; rows before 2026-07-01 only, the weekly feed covers
+  the rest), Georgia and Louisiana from 2025-05-01 (Tyler publicportals,
+  one-day windows; `TP_UNTIL_DATE` stops a backfill window early) and
+  Alabama's first read. Each went through `absorb.sh`; the seeds were then
+  regenerated under PR #70's rules (1,771 Florida emergency-order
+  inspections capped at 65) and data.js rebuilt once from `main`'s file
+  plus all four record files. Louisiana's history is item titles only (no
+  printable notices), scored by the fetcher as usual.
 - **Paragon Inspections Online (Missoula, Gallatin, Flathead MT; Kansas City
   MO) prints rows that are not findings and a tier that is not a severity.**
   Flathead records its bonus credit for temperature logs as Risk Factor rows
