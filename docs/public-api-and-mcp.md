@@ -67,7 +67,7 @@ grades (A/B/C/F) from official health department records.
 
 **Long description**: Check a restaurant before you go. DineScores collects
 health inspection results from official city, county and state health
-departments across the US (about 376,000 restaurants, refreshed weekly) and
+departments across the US (over 400,000 restaurants, refreshed weekly) and
 gives each an A, B, C or F grade. Ask for a restaurant's grade, what the
 inspector found, its inspection history, the lowest scores in a city, or low
 scores near an address. Every answer links the health department's own

@@ -29,7 +29,7 @@ const CORS = {
   'Access-Control-Max-Age': '86400',
 };
 
-const INSTRUCTIONS = `DineScores has restaurant health inspection grades from official US city, county and state health department records (about 376,000 restaurants, refreshed weekly).
+const INSTRUCTIONS = `DineScores has restaurant health inspection grades from official US city, county and state health department records (over 400,000 restaurants, refreshed weekly).
 
 Grades: A 90-100 (few or minor violations), B 80-89, C 70-79, F below 70. Active pests, sewage, a closure or a failed inspection make it an F whatever the score. The score blends the last three inspections 60/30/10.
 
