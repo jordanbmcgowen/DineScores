@@ -12,17 +12,21 @@ export const GRADE_META = {
     soft: 'bg-emerald-50 text-emerald-700 ring-emerald-600/20 dark:bg-emerald-500/10 dark:text-emerald-400 dark:ring-emerald-400/20',
     dot: '#10b981',
   },
+  // B and C used to share one amber and one label, so an 89 looked exactly
+  // like a 70. Each letter now has its own color and word. The yellow tile
+  // carries dark text (white on yellow is unreadable).
   B: {
-    label: 'Caution',
-    tile: 'bg-amber-500 text-white',
-    soft: 'bg-amber-50 text-amber-700 ring-amber-600/20 dark:bg-amber-500/10 dark:text-amber-400 dark:ring-amber-400/20',
-    dot: '#f59e0b',
+    label: 'Good',
+    tile: 'bg-yellow-400 text-slate-900',
+    soft: 'bg-yellow-50 text-yellow-800 ring-yellow-600/30 dark:bg-yellow-400/10 dark:text-yellow-300 dark:ring-yellow-300/20',
+    dot: '#facc15',
+    ink: '#1e293b',
   },
   C: {
     label: 'Caution',
-    tile: 'bg-amber-500 text-white',
-    soft: 'bg-amber-50 text-amber-700 ring-amber-600/20 dark:bg-amber-500/10 dark:text-amber-400 dark:ring-amber-400/20',
-    dot: '#f59e0b',
+    tile: 'bg-orange-500 text-white',
+    soft: 'bg-orange-50 text-orange-700 ring-orange-600/20 dark:bg-orange-500/10 dark:text-orange-400 dark:ring-orange-400/20',
+    dot: '#f97316',
   },
   F: {
     label: 'Avoid',

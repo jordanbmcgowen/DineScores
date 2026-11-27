@@ -65,13 +65,19 @@ export async function fetchAllFromApi(onBatch, { pageSize = 30000, maxPages = 20
 
 /**
  * Name search across the ENTIRE database (not just loaded records), lite
- * records. Used by the search box's suggestion dropdown.
+ * records. Used by the search box's suggestion dropdown. With a `bbox`
+ * ({ w, s, e, n }) only matches inside it come back: the server orders by
+ * inspection date, not distance, so a nationwide "pizza" never includes the
+ * one down the street unless the search is scoped.
  */
-export async function fetchSearchFromApi(q, limit = 10) {
+export async function fetchSearchFromApi(q, limit = 10, bbox = null) {
   if (!q || q.length < 2) return [];
+  const box = bbox
+    ? `&bbox=${[bbox.w, bbox.s, bbox.e, bbox.n].map(v => v.toFixed(3)).join(',')}`
+    : '';
   try {
     const rows = await getJson(
-      `/api/restaurants?q=${encodeURIComponent(q)}&fields=lite&limit=${limit}`
+      `/api/restaurants?q=${encodeURIComponent(q)}${box}&fields=lite&limit=${limit}`
     );
     return Array.isArray(rows) ? rows : [];
   } catch {
