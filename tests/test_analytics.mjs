@@ -1,6 +1,6 @@
 // node tests/test_analytics.mjs
 import assert from 'node:assert/strict';
-import { cleanSearchTerm, cleanParams, restaurantParams, GA_ID, track, initAnalytics, isLiveHost, analyticsEnabled } from '../src/analytics.js';
+import { cleanSearchTerm, cleanParams, restaurantParams, GA_ID, track, initAnalytics, isLiveHost, analyticsEnabled, optedOut } from '../src/analytics.js';
 import { DEFAULT_GA_ID } from '../functions/_lib/analytics_id.js';
 import { withAnalytics } from '../functions/_lib/seo.js';
 
@@ -64,6 +64,16 @@ test('static and server pages get a host-gated tag; a bad override adds none', (
   assert.match(tagged, /"dinescores\.com","www\.dinescores\.com"\]\.indexOf\(location\.hostname\)<0\)return/);
   assert.match(tagged, /allow_google_signals:false/);
   assert.ok(tagged.indexOf('gtag/js') < tagged.indexOf('</head>'));
+});
+
+test('Global Privacy Control and Do Not Track opt out', () => {
+  assert.equal(optedOut({ globalPrivacyControl: true }), true);
+  assert.equal(optedOut({ doNotTrack: '1' }), true);
+  assert.equal(optedOut({ doNotTrack: 'yes' }), true);
+  assert.equal(optedOut({ doNotTrack: '0', globalPrivacyControl: false }), false);
+  assert.equal(optedOut({}), false);
+  assert.equal(optedOut(undefined), false);
+  assert.match(withAnalytics('<head></head>'), /globalPrivacyControl===true\|\|n\.doNotTrack==='1'/);
 });
 
 console.log(`test_analytics: ${tests} tests passed`);

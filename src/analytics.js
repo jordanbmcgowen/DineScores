@@ -18,6 +18,9 @@
 //   cleanSearchTerm): anything with an @, a long number or a street-address
 //   shape is dropped, so a typed address or phone number never leaves.
 // - Google signals and ad personalisation are off; GA4 does not store IPs.
+// - A browser sending Global Privacy Control or Do Not Track loads nothing.
+//   /privacy/ (scripts/seo/build_seo.mjs) describes all of this; keep the two
+//   in step.
 
 import { DEFAULT_GA_ID, LIVE_HOSTS } from '../functions/_lib/analytics_id.js';
 
@@ -30,8 +33,15 @@ export function isLiveHost(hostname) {
   return LIVE_HOSTS.includes(String(hostname || '').toLowerCase());
 }
 
+// A browser that sends Global Privacy Control or Do Not Track is not tracked
+export function optedOut(nav) {
+  if (!nav) return false;
+  return nav.globalPrivacyControl === true || nav.doNotTrack === '1' || nav.doNotTrack === 'yes';
+}
+
 export function analyticsEnabled() {
-  return !!GA_ID && typeof window !== 'undefined' && isLiveHost(window.location.hostname);
+  return !!GA_ID && typeof window !== 'undefined' && isLiveHost(window.location.hostname)
+    && !optedOut(window.navigator);
 }
 
 export function initAnalytics() {

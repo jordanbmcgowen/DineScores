@@ -171,6 +171,11 @@ await test('build: pages, robots, sitemaps and llms.txt from a data.js', () => {
   assert.ok(dev.includes('https://dinescores.com/mcp'));
   assert.ok(dev.includes('id="terms"'));
   assert.ok(fs.existsSync(path.join(out, 'privacy/index.html')));
+  const privacy = fs.readFileSync(path.join(out, 'privacy/index.html'), 'utf8');
+  assert.match(privacy, /Google Analytics/);
+  assert.match(privacy, /never sent to us or to Google Analytics/);
+  assert.match(privacy, /Global Privacy Control/);
+  assert.match(privacy, /tools\.google\.com\/dlpage\/gaoptout/);
   assert.match(fs.readFileSync(path.join(out, 'llms.txt'), 'utf8'), /\/api\/v1\/openapi\.json/);
   assert.ok(pages.includes('https://dinescores.com/developers/'));
   fs.rmSync(dir, { recursive: true, force: true });
