@@ -166,7 +166,7 @@ ${body}
 </main>
 <footer>
 <p>DineScores shows restaurant health inspection results from official city, county and state health department records, with a simple A, B, C or F grade. Not affiliated with any health department; always check the official report for the full record.</p>
-<p><a href="/">Map</a> &middot; <a href="/inspections/">Browse by state and city</a> &middot; <a href="/about/">How grades work</a></p>
+<p><a href="/">Map</a> &middot; <a href="/inspections/">Browse by state and city</a> &middot; <a href="/about/">How grades work</a> &middot; <a href="/developers/">API and AI assistants</a> &middot; <a href="/privacy/">Privacy</a></p>
 </footer>
 </body>
 </html>

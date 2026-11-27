@@ -167,6 +167,12 @@ await test('build: pages, robots, sitemaps and llms.txt from a data.js', () => {
   assert.match(robots, /Sitemap: https:\/\/dinescores.com\/sitemap.xml/);
   assert.match(fs.readFileSync(path.join(out, 'llms.txt'), 'utf8'), /^# DineScores/);
   assert.ok(fs.existsSync(path.join(out, 'about/index.html')));
+  const dev = fs.readFileSync(path.join(out, 'developers/index.html'), 'utf8');
+  assert.ok(dev.includes('https://dinescores.com/mcp'));
+  assert.ok(dev.includes('id="terms"'));
+  assert.ok(fs.existsSync(path.join(out, 'privacy/index.html')));
+  assert.match(fs.readFileSync(path.join(out, 'llms.txt'), 'utf8'), /\/api\/v1\/openapi\.json/);
+  assert.ok(pages.includes('https://dinescores.com/developers/'));
   fs.rmSync(dir, { recursive: true, force: true });
 });
 
