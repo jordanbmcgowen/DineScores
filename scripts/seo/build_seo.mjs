@@ -109,7 +109,7 @@ function rowsTable(records, { showCity = false } = {}) {
 
 const FAQ_HTML = `
 <h2>About these grades</h2>
-<p><strong>How is the grade worked out?</strong> Each inspection is scored 0 to 100 from the violations the inspector recorded, or from the health department's own score where it publishes one. The grade blends the last three inspections (60%, 30%, 10%): A is 90 or above, B 80 to 89, C 70 to 79 and F below 70. Signs of active pests or sewage make it an F whatever the score. <a href="/about/">More on the method</a>.</p>
+<p><strong>How is the grade worked out?</strong> Each inspection is scored 0 to 100 from the violations the inspector recorded, or from the health department's own score where it publishes one. The grade blends the last three inspections (60%, 30%, 10%): A is 90 or above, B 80 to 89, C 70 to 79 and F below 70. Live pests, droppings or sewage make it an F whatever the score, and dead or trapped pests cap it at C. <a href="/about/">More on the method</a>.</p>
 <p><strong>Where does the data come from?</strong> Official inspection records published by the local health department, linked from every restaurant's page.</p>
 <p><strong>How current is it?</strong> DineScores refreshes every week. Some departments post their reports days or weeks after the visit.</p>`;
 
@@ -235,10 +235,10 @@ function aboutPage(generated, states) {
 <table><thead><tr><th>Grade</th><th>Blended score</th><th>Meaning</th></tr></thead><tbody>
 <tr><td>${gradeBadge('A')}</td><td>90 to 100</td><td>Few or minor violations</td></tr>
 <tr><td>${gradeBadge('B')}</td><td>80 to 89</td><td>Some violations worth a look</td></tr>
-<tr><td>${gradeBadge('C')}</td><td>70 to 79</td><td>Several or serious violations</td></tr>
-<tr><td>${gradeBadge('F')}</td><td>Below 70</td><td>Many serious violations, active pests or sewage, or a closure</td></tr>
+<tr><td>${gradeBadge('C')}</td><td>70 to 79</td><td>Several or serious violations, or dead or trapped pests noted</td></tr>
+<tr><td>${gradeBadge('F')}</td><td>Below 70</td><td>Many serious violations, live pests, droppings or sewage, or a closure</td></tr>
 </tbody></table>
-<p>An inspector's note of live roaches, rodents or their droppings, or sewage, makes the grade an F whatever the score. Where a department closes a restaurant or fails an inspection, that also counts as an F.</p>
+<p>An inspector's note of live roaches, rodents or their droppings, or sewage, makes the grade an F whatever the score. A note of only dead or trapped pests, or of ants, caps the grade at C. Where a department closes a restaurant or fails an inspection, that also counts as an F.</p>
 <h2>Where the data comes from</h2>
 <p>Only official public inspection records, from the health departments that publish them. Each restaurant page links to the department's own report. Coverage today includes ${esc(stateList)}. See <a href="/inspections/">every state and city</a>.</p>
 <h2>How often it updates</h2>
@@ -252,7 +252,7 @@ function aboutPage(generated, states) {
       '@context': 'https://schema.org',
       '@type': 'FAQPage',
       mainEntity: [
-        ['How does DineScores grade restaurants?', 'Each inspection is scored 0 to 100 from the health department score or the recorded violations. The grade blends the last three inspections (60/30/10): A is 90+, B 80-89, C 70-79, F below 70. Active pests or sewage make it an F.'],
+        ['How does DineScores grade restaurants?', 'Each inspection is scored 0 to 100 from the health department score or the recorded violations. The grade blends the last three inspections (60/30/10): A is 90+, B 80-89, C 70-79, F below 70. Live pests, droppings or sewage make it an F; dead or trapped pests cap it at C.'],
         ['Where does DineScores get its data?', 'From official public restaurant inspection records published by city, county and state health departments.'],
         ['How often is DineScores updated?', 'Weekly.'],
       ].map(([q, a]) => ({ '@type': 'Question', name: q, acceptedAnswer: { '@type': 'Answer', text: a } })),
@@ -387,7 +387,7 @@ function llmsTxt(states, generated, total) {
 
 Each restaurant has a page at ${SITE}/restaurant/<name>-<id> with its grade, latest inspection date, the violations recorded and its inspection history, plus a link to the health department's own report. City pages list a city's lowest and highest recent scores.
 
-Grading: each inspection is scored 0 to 100 (the department's own score where published, otherwise computed from violations: 5 points per priority, 2 per priority foundation, 1 per core violation). The grade blends the last three inspections 60/30/10. A = 90-100, B = 80-89, C = 70-79, F = below 70. Active pests or sewage, a closure, or a failed inspection make it an F. DineScores is not affiliated with any health department.
+Grading: each inspection is scored 0 to 100 (the department's own score where published, otherwise computed from violations: 5 points per priority, 2 per priority foundation, 1 per core violation). The grade blends the last three inspections 60/30/10. A = 90-100, B = 80-89, C = 70-79, F = below 70. Live pests, droppings or sewage, a closure, or a failed inspection make it an F; dead or trapped pests or ants cap it at C. DineScores is not affiliated with any health department.
 
 ## Key pages
 

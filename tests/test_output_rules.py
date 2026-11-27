@@ -100,7 +100,8 @@ class SameDayTests(unittest.TestCase):
             out = f'{d}/out{n}.js'
             dp.write_data_js([dict(i) for i in order], out)
             r = read_js(out)[0]
-            self.assertEqual(r['vg'], 'F')
+            self.assertEqual(r['vg'], 'C')      # a dead roach on a sticky trap: capped at C, not an F
+            self.assertEqual(r['tc'], 1)
             self.assertEqual(r['url'], 'https://example.test/F9464360')
             self.assertEqual(r['h'], [['2026-10-07', 90]])
             self.assertEqual(r['ic'], 1)
@@ -132,7 +133,7 @@ class SameDayTests(unittest.TestCase):
             sql = open(path).read()
             self.assertIn('F9464360', sql)
             self.assertNotIn('059E8AF0', sql)
-            self.assertIn("'F'", sql)
+            self.assertIn(",90,90,'C',", sql)    # risk 90, weighted 90, capped at C
 
     def test_records_kept_from_earlier_runs_keep_their_history(self):
         # The rule needs the inspections themselves; an older record's history

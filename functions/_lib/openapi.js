@@ -22,7 +22,7 @@ const restaurant = {
     zip: str('ZIP code'),
     latitude: { type: ['number', 'null'] },
     longitude: { type: ['number', 'null'] },
-    grade: { type: ['string', 'null'], enum: ['A', 'B', 'C', 'F', null], description: 'DineScores grade: A 90-100, B 80-89, C 70-79, F below 70 or pests/sewage/closure' },
+    grade: { type: ['string', 'null'], enum: ['A', 'B', 'C', 'F', null], description: 'DineScores grade: A 90-100, B 80-89, C 70-79, F below 70 or live pests/sewage/closure; dead or trapped pests cap it at C' },
     grade_meaning: str('Plain-English meaning of the grade'),
     score: { type: ['integer', 'null'], description: '0-100, blend of the last three inspections (60/30/10)' },
     latest_inspection_date: str('Date of the latest inspection (YYYY-MM-DD)'),
@@ -34,7 +34,7 @@ const restaurant = {
     official_report_url: { type: ['string', 'null'], description: "The health department's own report" },
     dinescores_url: str('Page on dinescores.com to cite'),
     map_url: str('The restaurant on the DineScores map'),
-    grade_note: str('Why an F was given despite a score of 70 or more'),
+    grade_note: str('Why an F or a C was given despite a higher score'),
     distance_miles: { type: 'number' },
     violations: {
       type: 'array',

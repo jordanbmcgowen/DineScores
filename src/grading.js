@@ -27,13 +27,34 @@ export function hasActivePestOrSewage(text) {
   return false;
 }
 
+// How far a pest or sewage finding pulls the grade (mirrors the pipeline's
+// pest_finding_is_minor / regex_text_cap): a line showing only dead or
+// trapped pests, or naming no pest but ants, caps the grade at C; live
+// pests, droppings and sewage force the F.
+const PEST_DEAD_OR_TRAPPED_RE = /\bdead\b|\bdeceased\b|\bcarcass(?:es)?\b|\btrap(?:s|ped)?\b|\bglue\s*(?:boards?|traps?)\b|\bsticky\b|\bmonitor(?:ing)?\s+(?:devices?|stations?|boards?)\b/i;
+const PEST_LIVE_EVIDENCE_RE = /\blive\b|\balive\b|\bliving\b|\bcrawl\w*|\brunning\b|\bran\b|\bscurr\w*|\bdroppings?\b|\bfeces\b|\bfecal\b|\bexcreta\b|\bexcrement\b|\burine\b|\bgnaw\w*|\bnest(?:s|ing)?\b|\bburrows?\b|\binfest\w*|\beggs?\s+(?:cases?|sacs?)\b|\bootheca\w*/i;
+const PEST_OTHER_THAN_ANTS_RE = /\b(?:rats?|mice|mouse|rodents?|roach(?:es)?|cockroach(?:es)?|vermin|maggots?|larvae?)\b/i;
+const GRADE_ORDER = 'ABCF';
+
+export function pestFindingIsMinor(line) {
+  const t = (line || '').replace(DEAD_PEST_TITLE_RE, ' ').replace(LISTED_PEST_TITLE_RE, ' ');
+  if (SEWAGE_ISSUE_RE.test(t)) return false;
+  if (!PEST_OTHER_THAN_ANTS_RE.test(t)) return true; // ants only
+  if (PEST_LIVE_EVIDENCE_RE.test(t)) return false;
+  return PEST_DEAD_OR_TRAPPED_RE.test(t);
+}
+
+// 'F', 'C' or null for '|||'-joined violation text.
+export function textCap(text) {
+  const found = (text || '').split('|||').filter(l => l.trim() && hasActivePestOrSewage(l));
+  if (!found.length) return hasActivePestOrSewage(text) ? 'F' : null;
+  return found.every(pestFindingIsMinor) ? 'C' : 'F';
+}
+
 export function calculateGrade(score, violationDesc = '') {
-  const hasBad = hasActivePestOrSewage(violationDesc || '');
-  if (score < 70 || hasBad) return 'F';
-  if (score >= 90) return 'A';
-  if (score >= 80) return 'B';
-  if (score >= 70) return 'C';
-  return 'F';
+  const grade = score >= 90 ? 'A' : score >= 80 ? 'B' : score >= 70 ? 'C' : 'F';
+  const cap = violationDesc ? textCap(violationDesc) : null;
+  return cap && GRADE_ORDER.indexOf(grade) < GRADE_ORDER.indexOf(cap) ? cap : grade;
 }
 
 export function detectInfractions(text) {

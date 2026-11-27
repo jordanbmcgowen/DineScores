@@ -148,15 +148,24 @@ DFW_JURISDICTIONS = {
     # Actions: the portal 403s every GitHub-hosted runner range, so the weekly
     # CI refresh skips these unless PORTAL_PROXY_URL is set (see below).
     # score_scale: '100' = 0-100 where higher is better (Dallas, Plano);
-    #              'demerit' = demerit points where LOWER is better (Frisco).
+    #              'tx-demerit' = the Texas form's demerit total, shipped as
+    #              100 - demerits (Frisco, Fort Worth).
     'dallas':       {'display_name': 'Dallas',        'default_city': 'Dallas',        'state': 'TX'},
     'plano':        {'display_name': 'Plano',         'default_city': 'Plano',         'state': 'TX'},
+    # Frisco and Fort Worth publish the Texas (TFER) form's demerit total
+    # (0 = perfect, 30+ = re-inspection): three points for each distinct
+    # item 1-20 cited, two for 21-33, one for 34-47 (checked 2026-11-27 on
+    # stored inspections of both cities: the items add up to the score).
+    # Until then both were 'demerit': the total was thrown away and the risk
+    # recomputed as 100 - 5P - 2PF - C on KEYWORD tiers, which made 538 Fort
+    # Worth and 73 Frisco restaurants F's on totals their city passes (Fort
+    # Worth 15% F, Dallas 1.5% on the same form). 'tx-demerit' ships the form
+    # score, 100 - demerits, as Dallas, Plano, Richardson, McKinney and Smith
+    # County do; 'tiers': 'tx-form' gives each line its item's tier.
     'frisco':       {'display_name': 'Frisco',        'default_city': 'Frisco',        'state': 'TX',
-                     'score_scale': 'demerit'},
-    # Fort Worth runs its own program on MHD under a hyphenated slug;
-    # demerit-scored (0 = perfect, 30+ = fail).
+                     'score_scale': 'tx-demerit', 'tiers': 'tx-form'},
     'fort-worth-texas': {'display_name': 'Fort Worth', 'default_city': 'Fort Worth',   'state': 'TX',
-                     'score_scale': 'demerit'},
+                     'score_scale': 'tx-demerit', 'tiers': 'tx-form'},
     # Tarrant County Public Health covers ~20 mid-cities between Dallas and
     # Fort Worth (Bedford, Hurst, Southlake, Grapevine, Keller, Colleyville,
     # DFW Airport, ...). Record city fields carry the actual city.
@@ -1071,23 +1080,86 @@ def has_active_pest_or_sewage(text):
                for m in PEST_AFTER_RE.finditer(t))
 
 
+# ── How far a pest or sewage finding pulls the grade (owner decision
+# 2026-11-27) ──────────────────────────────────────────────────────────────
+# Until then every such line forced an F: one dead roach on a glue trap at a
+# 99 graded like a closure for infestation (about 7,000 F's, 4,259 of them
+# New York City's). Now a finding is MINOR when the line shows only dead or
+# trapped pests, or names no pest but ants; a record whose every pest line is
+# minor is capped at C ("Caution") instead. Live pests, droppings, nests and
+# gnawing, an infestation, and every sewage line still force the F. The test
+# errs toward the F: any live-evidence word in the line, negated or not ("no
+# live roaches seen", "no droppings"), keeps it, and so does a line this code
+# cannot place. Jev still only answers "is a vermin named here"; the split is
+# code, so no cached answer changes.
+PEST_DEAD_OR_TRAPPED_RE = re.compile(
+    r'\bdead\b|\bdeceased\b|\bcarcass(?:es)?\b|\btrap(?:s|ped)?\b|\bglue\s*(?:boards?|traps?)\b|'
+    r'\bsticky\b|\bmonitor(?:ing)?\s+(?:devices?|stations?|boards?)\b', re.I)
+PEST_LIVE_EVIDENCE_RE = re.compile(
+    r'\blive\b|\balive\b|\bliving\b|\bcrawl\w*|\brunning\b|\bran\b|\bscurr\w*|\bdroppings?\b|'
+    r'\bfeces\b|\bfecal\b|\bexcreta\b|\bexcrement\b|\burine\b|\bgnaw\w*|\bnest(?:s|ing)?\b|'
+    r'\bburrows?\b|\binfest\w*|\beggs?\s+(?:cases?|sacs?)\b|\bootheca\w*', re.I)
+PEST_OTHER_THAN_ANTS_RE = re.compile(
+    r'\b(?:rats?|mice|mouse|rodents?|roach(?:es)?|cockroach(?:es)?|vermin|maggots?|larvae?)\b', re.I)
+TEXT_CAP_GRADE = 'C'          # the best letter a minor pest finding allows
+_GRADE_ORDER = 'ABCF'
+
+
+def pest_finding_is_minor(line):
+    """True when a line that names a pest shows only dead or trapped ones, or
+    names no pest but ants. Never true for a sewage line."""
+    t = LISTED_PEST_TITLE_RE.sub(' ', DEAD_PEST_TITLE_RE.sub(' ', line or ''))
+    if SEWAGE_ISSUE_RE.search(t):
+        return False
+    if not PEST_OTHER_THAN_ANTS_RE.search(t):
+        return True                      # ants only
+    if PEST_LIVE_EVIDENCE_RE.search(t):
+        return False
+    return bool(PEST_DEAD_OR_TRAPPED_RE.search(t))
+
+
+def text_cap_of_lines(flagged_lines):
+    """'F', 'C' or None from [(line text, does this line carry a pest or
+    sewage finding)]: 'C' when every finding is minor, 'F' when any is not."""
+    found = [t for t, forces in flagged_lines if forces]
+    if not found:
+        return None
+    return TEXT_CAP_GRADE if all(pest_finding_is_minor(t) for t in found) else 'F'
+
+
+def regex_text_cap(violation_text):
+    """text_cap_of_lines with the regex deciding each line ('|||'-joined)."""
+    lines = [t for t in (violation_text or '').split('|||') if t.strip()]
+    cap = text_cap_of_lines([(t, has_active_pest_or_sewage(t)) for t in lines])
+    if cap is None and has_active_pest_or_sewage(violation_text):
+        return 'F'                       # a match across two lines: not placed, so the F stays
+    return cap
+
+
+def cap_grade(grade, cap):
+    """`grade` no better than `cap` ('F', 'C' or None)."""
+    if cap and _GRADE_ORDER.index(grade) < _GRADE_ORDER.index(cap):
+        return cap
+    return grade
+
+
 def calculate_vetted_grade(score, violation_text=''):
     """
-    Proprietary grade assignment matching Gemini edition logic:
-      A: score 90-100 AND no active pest/sewage evidence
-      B: score 80-89
-      C: score 70-79
-      F: score < 70 OR active pest/sewage evidence
+    The letter for a 0-100 score and (optionally) the inspection's text:
+      A 90-100, B 80-89, C 70-79, F below 70;
+      F when the text shows live pests, droppings or sewage;
+      no better than C when it shows only dead or trapped pests, or ants.
+    src/grading.js mirrors this: change both together.
     """
-    if score < 70 or has_active_pest_or_sewage(violation_text):
-        return 'F'
     if score >= 90:
-        return 'A'
-    if score >= 80:
-        return 'B'
-    if score >= 70:
-        return 'C'
-    return 'F'
+        grade = 'A'
+    elif score >= 80:
+        grade = 'B'
+    elif score >= 70:
+        grade = 'C'
+    else:
+        grade = 'F'
+    return cap_grade(grade, regex_text_cap(violation_text) if violation_text else None)
 
 
 def detect_infractions(text):
@@ -1507,6 +1579,39 @@ def _parse_chicago_violation(part):
     return (cat, sev, desc[:500])
 
 
+# ── The agency's own verdict, on the sources that publish one ───────────────
+# Owner rule (Waco's FAILED 2026-11-23, Colorado's Closed 2026-11-25, the
+# green / yellow / red placards 2026-11-27): a closure or a failed inspection
+# is an F and a conditional pass is no better than a C, whatever the lines
+# add up to; a cap only ever lowers a score. The older fetchers stored the
+# verdict in `results` and never used it (found 2026-11-27 in the live
+# database: 108 of the 163 restaurants whose latest Chicago inspection was a
+# 'Fail' showed A or B, 45 of 70 San Francisco closures, 44 of 142 places
+# New York City had closed, about 90 of 100 under a Florida emergency order).
+VERDICT_FAIL_RISK_CAP = 65          # an F, as MHD_CLOSED_RISK_CAP and WAC_FAILED_RISK_CAP
+VERDICT_CONDITIONAL_RISK_CAP = 79   # a C, as the yellow placards
+# Chicago rows that are not inspections: the inspector found the business
+# gone, could not get in, or the place was not ready to be inspected. Each
+# shipped as a clean 100 (2,341 restaurants showed an A on one, 2,049 of them
+# out of business).
+CHICAGO_NOT_INSPECTED = frozenset({'out of business', 'no entry', 'not ready', 'business not located'})
+# New York City: the action line of an inspection that ended in a closure.
+NYC_CLOSED_RE = re.compile(r'^Establishment Closed by DOHMH', re.I)
+# San Francisco's placard programme.
+SF_VERDICT_CAPS = {'closure': VERDICT_FAIL_RISK_CAP, 'conditional pass': VERDICT_CONDITIONAL_RISK_CAP}
+# Florida DBPR dispositions under which the place is closed by emergency
+# order: recommended at this visit, or still in force at a callback.
+# 'Emergency Order Callback Complied' is the re-opening and caps nothing.
+FL_EMERGENCY_ORDER_RE = re.compile(
+    r'^Emergency order recommended|^Emergency Order Callback (?:Not Complied|Time Extension)'
+    r'|^Facility Temporarily Closed', re.I)
+# Sacramento County rows with this result are not graded visits (they
+# shipped at the unknown-result placeholder of 70, a C, for 81 restaurants).
+SACRAMENTO_NOT_INSPECTED = frozenset({'NOT APPLICABLE'})
+# Boston: the inspector found the business gone.
+BOSTON_NOT_INSPECTED = frozenset({'HE_OutBus'})
+
+
 def fetch_chicago(since_date=None, limit=50000):
     """Fetch Chicago food inspections. Restaurants only, ordered by date desc."""
     log.info(f"Fetching Chicago data (since={since_date}, limit={limit})")
@@ -1537,6 +1642,9 @@ def fetch_chicago(since_date=None, limit=50000):
         insp_date = sane_inspection_date(rec.get('inspection_date'))
         if not insp_date:
             continue
+        verdict = (rec.get('results') or '').strip().lower()
+        if verdict in CHICAGO_NOT_INSPECTED:
+            continue
 
         # Parse violations
         violations_text = rec.get('violations', '')
@@ -1548,6 +1656,8 @@ def fetch_chicago(since_date=None, limit=50000):
                     violations.append(parsed)
 
         risk_score, pv, pfv, cv = calc_risk_score(violations)
+        if verdict == 'fail':
+            risk_score = min(risk_score, VERDICT_FAIL_RISK_CAP)
 
         lat = rec.get('latitude')
         lon = rec.get('longitude')
@@ -1667,6 +1777,8 @@ def fetch_nyc(since_date=None, limit=200000):
         
         violations = insp['violations']
         risk_score, pv, pfv, cv = calc_risk_score(violations)
+        if NYC_CLOSED_RE.match(insp.get('action') or ''):
+            risk_score = min(risk_score, VERDICT_FAIL_RISK_CAP)
         
         # NYC scores: lower is better (like golf). Convert to 100-scale.
         # NYC score of 0-13 = A, 14-27 = B, 28+ = C
@@ -1763,8 +1875,11 @@ def fetch_sf(since_date=None, limit=30000):
 
         risk_score, pv, pfv, cv = calc_risk_score(violations)
 
-        # Check facility_rating_status for pass/fail
+        # The placard: a closure is an F, a conditional pass no better than C
         rating = rec.get('facility_rating_status', '')
+        cap = SF_VERDICT_CAPS.get((rating or '').strip().lower())
+        if cap is not None:
+            risk_score = min(risk_score, cap)
 
         lat = rec.get('latitude')
         lon = rec.get('longitude')
@@ -1987,7 +2102,7 @@ def fetch_boston(since_date=None, limit=None):
     results = []
     for insp in inspections.values():
         name = insp['name'].strip()
-        if not name:
+        if not name or insp['result'].strip() in BOSTON_NOT_INSPECTED:
             continue
         risk_score, pv, pfv, cv = calc_risk_score(
             [tuple(v) for v in insp['violations']])
@@ -3330,6 +3445,10 @@ def _parse_florida_rows(reader, fname, since_date=None, limit=None, counties=Non
                                  'extract': fname, 'reason': reason})
                 continue
             city = row[idx['Location City']].strip().title()
+            disposition = row[idx['Inspection Disposition']].strip()
+            fl_risk = max(0, 100 - hp * 5 - inter * 2 - basic * 1)
+            if FL_EMERGENCY_ORDER_RE.match(disposition):
+                fl_risk = min(fl_risk, VERDICT_FAIL_RISK_CAP)   # closed by emergency order: an F
             results.append({
                 'name': name.title() if name.isupper() else name,
                 'address': row[idx['Location Address']].strip().title(),
@@ -3340,7 +3459,7 @@ def _parse_florida_rows(reader, fname, since_date=None, limit=None, counties=Non
                 'longitude': None,
                 'inspection_date': insp_date,
                 'original_score': None,
-                'risk_score': max(0, 100 - hp * 5 - inter * 2 - basic * 1),
+                'risk_score': fl_risk,
                 'priority_violations': hp,
                 'priority_foundation_violations': inter,
                 'core_violations': basic,
@@ -4927,6 +5046,8 @@ def fetch_sacramento(since_date=None, limit=None):
             continue
         result = next(((a.get('Inspection_Result') or '').strip().upper()
                        for a in group if a.get('Inspection_Result')), '')
+        if result in SACRAMENTO_NOT_INSPECTED:
+            continue
         risk_score = SACRAMENTO_RESULT_RISK.get(result, 70)
 
         violations = []
@@ -7129,13 +7250,61 @@ def _co_tier(text):
     return None, None
 
 
+# ── Texas (TFER) form: an item's number is its weight ───────────────────────
+# Items 1-20 cost three demerits (priority), 21-33 two (priority foundation),
+# 34-47 one (core), and an item counts once however many lines cite it.
+# Fort Worth and Frisco print the item number before each observation
+# ("9: 1. Food is not protected ...", "31: Hand sinks must be accessible").
+_TX_FORM_ITEM_RE = re.compile(r'^\s*(\d{1,2})\s*:')
+TX_FORM_WEIGHT_TIER = {3: 'priority', 2: 'priority_foundation', 1: 'core'}
+
+
+def _tx_form_item_weight(text):
+    """3, 2 or 1 for a line that opens with a Texas form item number, else None."""
+    m = _TX_FORM_ITEM_RE.match(text or '')
+    if not m:
+        return None
+    n = int(m.group(1))
+    if 1 <= n <= 20:
+        return 3
+    if 21 <= n <= 33:
+        return 2
+    if 34 <= n <= 47:
+        return 1
+    return None
+
+
+def _tx_form_tier(text):
+    """(tier, 'item') from the line's form item number, else (None, None)."""
+    w = _tx_form_item_weight(text)
+    return (TX_FORM_WEIGHT_TIER[w], 'item') if w else (None, None)
+
+
+def _tx_form_score(texts):
+    """The form score, 100 - demerits, worked out from the lines of an
+    inspection the portal published without a total: each distinct item
+    once. None when any line has no item number (the caller then keeps the
+    5/2/1 score over the lines' tiers)."""
+    items = {}
+    for t in texts:
+        m = _TX_FORM_ITEM_RE.match(t or '')
+        w = _tx_form_item_weight(t)
+        if not w:
+            return None
+        items[int(m.group(1))] = w
+    return max(0, 100 - sum(items.values()))
+
+
 # 'tiers' in a jurisdiction's config → the function that reads a line's tier:
 # text -> (tier, basis) or (None, None).
-MHD_TIER_READERS = {'colorado': _co_tier}
+MHD_TIER_READERS = {'colorado': _co_tier, 'tx-form': _tx_form_tier}
+# ... and, for an inspection published without a score, the function that
+# works the score out from its lines (texts -> score or None).
+MHD_FORM_SCORERS = {'tx-form': _tx_form_score}
 
 
 def _mhd_fetch_details_bulk(path, records, trust_official_score=True, label=None,
-                            drop_lines=None, tier_of=None):
+                            drop_lines=None, tier_of=None, form_score_of=None):
     """
     Fetch violation details for many inspections with a small worker pool.
     Each record with details gets its violations/risk fields updated in place.
@@ -7197,7 +7366,11 @@ def _mhd_fetch_details_bulk(path, records, trust_official_score=True, label=None
         # Keep the health department's official score when present
         # and trustworthy; otherwise use our computed score.
         if not trust_official_score or rec.get('original_score') is None:
-            rec['risk_score'] = computed_score
+            # form_score_of (a config's 'tiers' in MHD_FORM_SCORERS): the
+            # form's own score from the lines, for an inspection published
+            # without a total.
+            form_score = form_score_of([t for _, _, t in violations]) if form_score_of else None
+            rec['risk_score'] = computed_score if form_score is None else form_score
 
     def can_wait_out_ban():
         if _MHD_COOLDOWNS_USED >= MHD_BAN_COOLDOWNS:
@@ -7752,6 +7925,8 @@ def _fetch_mhd_jurisdiction_api(session, slug, config, since_date=None, limit=No
         if config.get('tiers'):
             # an unknown name raises: never fall back to keywords silently
             line_filter['tier_of'] = MHD_TIER_READERS[config['tiers']]
+            if config['tiers'] in MHD_FORM_SCORERS:
+                line_filter['form_score_of'] = MHD_FORM_SCORERS[config['tiers']]
         fetched_violations, unreadable = _mhd_fetch_details_bulk(
             path, inspections_with_id,
             trust_official_score=score_scale in MHD_TRUSTED_SCORE_SCALES, label=display_name,
@@ -19165,8 +19340,9 @@ def _same_day_rank(insp):
     rs = insp.get('risk_score')
     rs = rs if isinstance(rs, (int, float)) else 100
     text = build_violation_text(insp.get('violations') or [])
-    is_f = calculate_vetted_grade(rs) == 'F' or _text_forces_f(text, insp.get('_jev') or {})
-    return (bool(is_f), -rs, insp.get('priority_violations') or 0,
+    cap = _text_cap(text, insp.get('_jev') or {})
+    is_f = calculate_vetted_grade(rs) == 'F' or cap == 'F'
+    return (bool(is_f), bool(cap), -rs, insp.get('priority_violations') or 0,
             insp.get('total_violations') or 0, str(insp.get('source_id') or ''))
 
 
@@ -19192,12 +19368,21 @@ def _coords_from(chosen, siblings):
     return chosen.get('latitude'), chosen.get('longitude')
 
 
-def _text_forces_f(violation_text, jev=None):
-    """The text-forced F: Jev's hazard decision when the reader made one for
-    this record (`_jev['forces_f']`), else today's regex over the joined text."""
+def _text_cap(violation_text, jev=None):
+    """'F', 'C' or None: what the inspection's text does to the grade. Jev's
+    hazard decision when the reader made one for this record
+    (`_jev['forces_f']`, with `_jev['pest_minor']` when every finding it read
+    is a minor one), else today's regex over the joined text."""
     if jev and jev.get('forces_f') is not None:
-        return bool(jev['forces_f'])
-    return has_active_pest_or_sewage(violation_text)
+        if not jev['forces_f']:
+            return None
+        return TEXT_CAP_GRADE if jev.get('pest_minor') else 'F'
+    return regex_text_cap(violation_text)
+
+
+def _text_forces_f(violation_text, jev=None):
+    """True when the text forces an F (see _text_cap)."""
+    return _text_cap(violation_text, jev) == 'F'
 
 
 def _apply_grades(rec):
@@ -19219,7 +19404,7 @@ def _apply_grades(rec):
     jev = rec.get('_jev') or {}
     vg = calculate_vetted_grade(rec['ws'])
     if has_violations:
-        text_f = _text_forces_f(violation_text, jev)
+        cap = _text_cap(violation_text, jev)
     else:
         # A record kept from an earlier run keeps the text decision of the run
         # that last read its full violation text (Jev's, in decide mode). Its
@@ -19228,10 +19413,17 @@ def _apply_grades(rec):
         # week later. A stored F may be evidence-based (pest auto-F): never
         # upgrade it without new inspection data; a fresh fetch of the
         # restaurant re-grades it from full text. Score rules still re-apply.
-        text_f = rec.get('vg') == 'F'
-    if calculate_vetted_grade(rec.get('rs', 0)) == 'F' or text_f:
-        vg = 'F'
-    rec['vg'] = vg
+        # 'tc' keeps a C cap the same way (a minor pest finding, see
+        # pest_finding_is_minor): without it a capped record with a good
+        # history would climb back to A a week later.
+        cap = 'F' if rec.get('vg') == 'F' else (TEXT_CAP_GRADE if rec.get('tc') else None)
+    if calculate_vetted_grade(rec.get('rs', 0)) == 'F':
+        cap = 'F'
+    rec['vg'] = cap_grade(vg, cap)
+    if cap == TEXT_CAP_GRADE:
+        rec['tc'] = 1
+    else:
+        rec.pop('tc', None)
     if has_violations:
         rec['inf'] = jev['chips'] if jev.get('chips') is not None else detect_infractions(violation_text)
         if jev.get('summaries') is not None:
@@ -19643,8 +19835,8 @@ def write_d1_sql(all_inspections, output_path, include_schema=True):
         violation_text = build_violation_text(latest.get('violations', []))
         jev = latest.get('_jev') or {}
         ws = compute_weighted_score(ordered)
-        vg = calculate_vetted_grade(ws)
-        if calculate_vetted_grade(latest.get('risk_score', 0)) == 'F' or _text_forces_f(violation_text, jev):
+        vg = cap_grade(calculate_vetted_grade(ws), _text_cap(violation_text, jev))
+        if calculate_vetted_grade(latest.get('risk_score', 0)) == 'F':
             vg = 'F'
         if jev.get('summaries') is not None:
             summaries = [dict(s) for s in jev['summaries']]
