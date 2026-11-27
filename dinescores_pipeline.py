@@ -648,6 +648,55 @@ MHD_METRO_JURISDICTIONS = {
                              'programs': ['Retail Food'], 'tiers': 'colorado', 'closed_is_f': True,
                              'exclude': {'permitType': MHD_MOBILE_PERMIT_RE},
                              'group': MHD_MIDWEEK_GROUP},
+    # 2026-11-27 expansion: three tenants from docs/expansion-2026-11b/mhd.md,
+    # sampled through the relay that day (14 days of rows and 12 detail
+    # pages each, every page read).
+    #
+    # Hawaii State Department of Health, statewide (Oahu, Maui, the Big
+    # Island, Kauai): 40-80 food inspections a weekday. No score (`score` 0
+    # or null on every row), so risk comes from the observations ('15:
+    # 11-50-32(c) Raw sausage was stored over ...'); a clean report prints
+    # the whole IN/OUT grid, so an empty observation block is a real clean
+    # read, not a logged placeholder. One programName ('Food') and one form;
+    # purpose 'Pre-Op', 'Other' and 'FBI' rows are left out. The green /
+    # yellow / red placard is on the detail page only (placard_caps).
+    # Mobile units, support kitchens for them, manufacturers and warehouses
+    # share the slug. Needs OUTSIDE_CONUS_BOUNDS['HI'].
+    'soh':                  {'display_name': 'Hawaii', 'default_city': 'Honolulu',
+                             'state': 'HI', 'score_scale': 'none', 'metro': '',
+                             'programs': ['Food'],
+                             'purpose_allow': ['Routine', 'Follow-up', 'Complaint'],
+                             'exclude': {'permitType': r'(?i)\bmobile\b|manufacturer|warehouse'},
+                             'placard_caps': True,
+                             'group': MHD_MIDWEEK_GROUP},
+    # Summit County Public Health, OH (Akron, Cuyahoga Falls, Stow, Hudson,
+    # Barberton): Ohio's form like Cuyahoga's, no score (0 on every row),
+    # ~150-250 food inspections a week. programName 'Food' only (pools,
+    # schools and body art share the slug); 'Consultation' visits and
+    # vending machines are not inspections of a place to eat. purpose is a
+    # comma list ('Standard,CCP,Complaint'), hence an exclude, not an allow.
+    'scph':                 {'display_name': 'Summit County OH', 'default_city': 'Akron',
+                             'state': 'OH', 'score_scale': 'none', 'metro': '',
+                             'programs': ['Food'],
+                             'exclude': {'permitType': r'(?i)\bmobile\b|^vending',
+                                         'purpose': r'(?i)consult|pre-?licens|pre-?op'},
+                             'group': MHD_MIDWEEK_GROUP},
+    # Placer County Environmental Health, CA (Roseville, Rocklin, Auburn,
+    # Lincoln, Truckee): CalCode observations, no score (0), ~60-120 food
+    # inspections a week. The county's green / yellow / red placard is the
+    # row's InspectionOutcome ('Yellow Placard'; blank on ~15% of rows).
+    # Mobile facilities, school cafeterias, food banks, farmers markets and
+    # the stormwater / pool / body-art permits on the same program are left
+    # out, as are pre-licensing and consultation visits.
+    'pchd':                 {'display_name': 'Placer County', 'default_city': 'Roseville',
+                             'state': 'CA', 'score_scale': 'none', 'metro': '',
+                             'programs': ['Retail Food'],
+                             'inspection_types': ['Retail Food Facility'],
+                             'exclude': {'permitType': r'(?i)\bmobile\b|school|food bank|farmers market|'
+                                                       r'stormwater|pool|body art',
+                                         'purpose': r'(?i)consult|pre-?licens|pre-?op'},
+                             'placard_caps': True, 'placard_field': 'InspectionOutcome',
+                             'group': MHD_MIDWEEK_GROUP},
 }
 
 MHD_DEFAULT_GROUP = 'MHD metros'   # fetch group of an entry without 'group'
@@ -695,6 +744,10 @@ MHD_METRO_SLUG_GROUPS = {
     'jacksoncountymo': ['mo-jackson'],
     'coloradostate': ['colorado'],
     'grandjunction': ['mesacountyco'],
+    # 2026-11-27 expansion
+    'hawaii': ['soh'],
+    'akron': ['scph'],
+    'placer': ['pchd'],
 }
 
 CHROME_UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36'
@@ -1294,17 +1347,30 @@ STATE_BOUNDS = {  # generous per-state boxes for the states we cover
     'MO': (35.99, 40.62, -95.78, -89.10),
 }
 COORD_MARGIN = 0.6  # ° of slack around state boxes (metro suburbs, borders)
+# States outside CONUS (2026-11-27: Hawaii). A point inside the box is
+# plausible for that state's records only, and a record of that state is
+# plausible only inside it. Mirrored in src/grading.js.
+OUTSIDE_CONUS_BOUNDS = {
+    'HI': (18.80, 22.35, -160.40, -154.70),
+}
 
 
 def coords_plausible(lat, lng, state=None):
     """True unless the point is outside the continental US, or the record
-    names a covered state and the point is far outside it."""
-    s, n, w, e = CONUS_BOUNDS
-    if not (s <= lat <= n and w <= lng <= e):
-        return False
+    names a covered state and the point is far outside it. A state in
+    OUTSIDE_CONUS_BOUNDS (Hawaii) is judged on its own box alone."""
     st = (state or '').strip().upper()
     if st == 'TEXAS':
         st = 'TX'
+    if st == 'HAWAII':
+        st = 'HI'
+    outside = OUTSIDE_CONUS_BOUNDS.get(st)
+    if outside:
+        os_, on, ow, oe = outside
+        return os_ <= lat <= on and ow <= lng <= oe
+    s, n, w, e = CONUS_BOUNDS
+    if not (s <= lat <= n and w <= lng <= e):
+        return False
     box = STATE_BOUNDS.get(st)
     if not box:
         return True
@@ -6450,6 +6516,22 @@ MHD_RESULT_DISPLAY_RE = re.compile(r'^(?:pass|closed|re-?inspection required)$',
 # nothing.
 MHD_CLOSED_RESULT_RE = re.compile(r'^closed$', re.I)
 MHD_CLOSED_RISK_CAP = 65
+# Green / yellow / red placard programs (Hawaii DOH; Placer County CA).
+# Yellow is a conditional pass: two or more major (risk-factor) violations
+# not all corrected on site, and a follow-up is due. Red is a closure: an
+# imminent health hazard (no hot water, sewage, vermin). Scored on its lines
+# alone a closure can read as an A, so 'placard_caps' in a config caps the
+# risk at the placard's ceiling (like Colorado's Closed and Waco's FAILED);
+# a cap only ever lowers a score. The placard comes from a row field
+# ('placard_field': Placer's InspectionOutcome 'Yellow Placard') or, without
+# one, from the detail page ('Placard Issued: <strong>Yellow</strong>',
+# Hawaii), and goes to `results` either way.
+MHD_PLACARD_CAPS = {'yellow': 79, 'red': 65}
+MHD_PLACARD_RE = re.compile(r'\b(green|yellow|red)\b', re.I)
+MHD_PAGE_PLACARD_RE = re.compile(
+    r'Placard\s+Issued:\s*(?:<[^>]*>\s*)*(Green|Yellow|Red)\b', re.I)
+_MHD_PAGE_PLACARDS = {}             # inspectionID -> 'green' | 'yellow' | 'red'
+_MHD_PAGE_PLACARD_LOCK = threading.Lock()
 # A sorted query whose pages do not fit together is read again once (a row
 # posted between two page requests shifts the sequence by one) before the
 # window is failed.
@@ -6873,6 +6955,10 @@ def _mhd_fetch_inspection_detail(session, path, inspection_id, retry_count=0):
                       f"page ({' '.join((title.group(1) if title else 'no title').split())[:80]}) "
                       f"— not read")
             return None
+        placard = MHD_PAGE_PLACARD_RE.search(r.text)
+        if placard:
+            with _MHD_PAGE_PLACARD_LOCK:
+                _MHD_PAGE_PLACARDS[str(inspection_id)] = placard.group(1).lower()
         return _mhd_parse_detail_html(r.text)
     except Exception as e:
         log.debug(f"  Detail fetch failed for {inspection_id}: {e}")
@@ -7566,6 +7652,8 @@ def _fetch_mhd_jurisdiction_api(session, slug, config, since_date=None, limit=No
                 continue
             parsed = _parse_mhd_record(rec, path, display_name, default_city,
                                        default_state, score_scale, metro)
+            if parsed and config.get('placard_field'):
+                parsed['_placard'] = str(rec.get(config['placard_field']) or '')
             if parsed and city_map:
                 # One town, one spelling: the id hashes the city and the
                 # city index is keyed on it ('Saint Louis' / 'St Louis' /
@@ -7729,11 +7817,41 @@ def _fetch_mhd_jurisdiction_api(session, slug, config, since_date=None, limit=No
             log.info(f"{display_name}: {len(closed)} inspections with the verdict Closed; "
                      f"{len(capped)} capped at {MHD_CLOSED_RISK_CAP}")
 
+    if config.get('placard_caps'):
+        _mhd_apply_placards(all_records, display_name)
+
     if stopped_early:
         log.warning(f"{display_name}: scrape stopped early — run again to get remaining data")
 
     log.info(f"{display_name}: {len(all_records)} total inspection records")
     return all_records
+
+
+def _mhd_apply_placards(records, display_name):
+    """Cap each record's risk at its placard's ceiling (MHD_PLACARD_CAPS) and
+    put the placard in `results`. The placard is the row field the config
+    names (kept on the record as '_placard' while parsing) or the one read
+    off the detail page. A record with no readable placard keeps its score
+    and is counted: when most read records have none the template changed,
+    and a closure could then read as an A, so that raises."""
+    counts, capped, missing = defaultdict(int), 0, 0
+    for r in records:
+        raw = r.pop('_placard', '') or ''
+        m = MHD_PLACARD_RE.search(raw)
+        color = m.group(1).lower() if m else _MHD_PAGE_PLACARDS.get(str(r.get('source_id') or ''), '')
+        if not color:
+            missing += 1
+            continue
+        counts[color] += 1
+        r['results'] = f"{color.title()} placard"
+        cap = MHD_PLACARD_CAPS.get(color)
+        if cap is not None and (r.get('risk_score') or 0) > cap:
+            r['risk_score'] = cap
+            capped += 1
+    if records and missing >= DFW_HOLE_UNSCORED_MIN and missing * 2 > len(records):
+        raise RuntimeError(f"{display_name}: {missing} of {len(records)} inspections carry no "
+                           f"readable placard — the portal's placard field or page has changed")
+    log.info(f"{display_name}: placards {dict(counts)}; {capped} capped, {missing} without one")
 
 
 # MHD portals mix programs (food, swimming pools, septic, ...) in one search.
@@ -18270,6 +18388,17 @@ IO_PORTALS = {
         # 4-week window), so every record is filed under the city itself.
         'fixed_city': 'Kansas City',
     },
+    # Platte County Health Department, MO (Parkville, Platte City,
+    # Riverside, Weston; north of the river from Kansas City). Same
+    # Critical / Non-critical tiers as Kansas City. Read 2026-11-27 for
+    # 2026-08-18..11-27: 123 food inspections, 256 requests, none unread;
+    # 3 pre-operational visits, 5 mobile units and 1 school left out.
+    'platte': {
+        'group': 'Platte County MO', 'source': 'Platte County Health Department', 'prefix': 'plt',
+        'db': 'mo/platteplattecity/inspect.nsf', 'state': 'MO', 'default_city': 'Platte City', 'metro': '',
+        'grade': False, 'chunk_days': 31, 'history_start': '2015-01-01',
+        'city_map': {'Parkvilleq': 'Parkville'},  # one facility's typo (2026-11)
+    },
 }
 _IO_COUNT_RE = re.compile(r'<h4>\s*(\d+)\s+documents?\s+(?:returned;\s*(\d+)\s+)?found\s*</h4>', re.I)
 _IO_ROW_SPLIT = "<DIV class='gt row'>"
@@ -18799,6 +18928,13 @@ def fetch_kansas_city(since_date=None, limit=None):
     official score, risk_score from the city's Critical / Non-critical
     tiers."""
     return _fetch_paragon('kansascity', since_date, limit)
+
+
+def fetch_platte(since_date=None, limit=None):
+    """Platte County, MO (Parkville, Platte City, Riverside, Weston) on
+    Paragon Inspections Online: no official score, risk_score from the
+    county's Critical / Non-critical tiers."""
+    return _fetch_paragon('platte', since_date, limit)
 
 
 def geocode_census_batch(records, benchmark='Public_AR_Current'):
@@ -20264,12 +20400,14 @@ def main():
             return data
         return run
     for slugs, slug in ((('missoula',), 'missoula'), (('bozeman', 'gallatin'), 'gallatin'),
-                        (('kalispell', 'flathead'), 'flathead'), (('kansascity',), 'kansascity')):
+                        (('kalispell', 'flathead'), 'flathead'), (('kansascity',), 'kansascity'),
+                        (('platte',), 'platte')):
         if any(s in args.cities for s in slugs):
             group = IO_PORTALS[slug]['group']
             socrata_jobs[group] = _paragon_job(group, {'missoula': fetch_missoula, 'gallatin': fetch_gallatin,
                                                        'flathead': fetch_flathead,
-                                                       'kansascity': fetch_kansas_city}[slug])
+                                                       'kansascity': fetch_kansas_city,
+                                                       'platte': fetch_platte}[slug])
 
     # The API-class groups run in a pool WHILE the scraped portals (Tyler,
     # Richardson, Arlington, Orange County, the MHD groups) run on this

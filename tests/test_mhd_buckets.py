@@ -804,7 +804,8 @@ class GroupTests(unittest.TestCase):
         midweek = {k for k, c in dp.MHD_METRO_JURISDICTIONS.items()
                    if c.get('group') == 'MHD metros (midweek)'}
         self.assertEqual(midweek, {'ccbh'} | {k for k in dp.MHD_METRO_JURISDICTIONS
-                                             if k.startswith('va-')} | set(NOV22_KEYS))
+                                             if k.startswith('va-')} | set(NOV22_KEYS)
+                         | {'soh', 'scph', 'pchd'})
         for key in ('fbceh', 'acph', 'dchd'):
             self.assertEqual(dp.MHD_METRO_JURISDICTIONS[key]['group'], 'MHD metros')
 

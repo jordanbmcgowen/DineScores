@@ -671,8 +671,8 @@ class RegistrationTests(unittest.TestCase):
 
     def test_labels(self):
         groups = [c['group'] for c in dp.IO_PORTALS.values()]
-        self.assertEqual(len(set(groups)), 4)
-        self.assertEqual(len(set(SOURCES.values())), 4)
+        self.assertEqual(len(set(groups)), len(dp.IO_PORTALS))
+        self.assertEqual(len(set(SOURCES.values())), len(dp.IO_PORTALS))
         for src in SOURCES.values():
             self.assertFalse(src.endswith(jr.MHD_SOURCE_SUFFIX), src)
         mhd_names = {c['display_name'] for c in list(dp.DFW_JURISDICTIONS.values())
