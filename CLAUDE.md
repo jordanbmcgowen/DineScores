@@ -82,6 +82,21 @@ Cloudflare Pages builds on deploy, serves public/
   read. Responses carry `X-Edge-Cache: HIT|MISS`; only 2xx responses with a
   positive max-age are stored (a 503 while D1 is down must never be pinned
   for an hour), and a fresh deploy or an hour clears them.
+- **Crawlable pages (SEO / AI search)**: the map is an SPA that crawlers
+  cannot read, and Pages answers every unknown path with index.html, so
+  without these the site was one empty page to Google. `npm run build` runs
+  `scripts/seo/build_seo.mjs` after Vite: from `public/data.js` it writes
+  static `/about/`, `/inspections/`, `/inspections/<st>/` and
+  `/inspections/<st>/<city>/` pages (city pages under 3 restaurants are
+  `noindex`), `robots.txt` (disallows `/api/`), `sitemap.xml`,
+  `sitemap-pages.xml` and `llms.txt` (all gitignored build output).
+  `functions/restaurant/[slug].js` renders `/restaurant/<name>-<id>` from D1
+  (a stale name or bare id 301s to the canonical URL; Restaurant JSON-LD,
+  no aggregateRating: a grade is not a review), and
+  `functions/sitemaps/[file].js` lists them in 16 shards by the id's first
+  hex digit. Shared template: `functions/_lib/seo.js`. `index.html` carries
+  the meta/OG/JSON-LD and a crawlable summary inside `#root` that React
+  replaces on mount. Tests: `node tests/test_seo.mjs`.
 - **Pipeline**: one file, `dinescores_pipeline.py`. One `fetch_<city>()`
   per source (Socrata, ArcGIS, state portals, SNHD, MyHealthDepartment
   scraper for DFW). Seattle/King County is Socrata dataset `r878-4sxa`
@@ -1031,8 +1046,8 @@ impact and the open policy decisions; `scripts/jev_shadow.py` reproduces it.
 `python3 -m unittest discover -s tests` (no network: every fetcher test
 uses captured fixtures under `tests/fixtures/`) and `node
 tests/test_relay.mjs` for the relay function (plus `node tests/test_places.mjs`,
-`node tests/test_near_me.mjs` and `node tests/test_source_lag.mjs` for the
-frontend logic). Run them before
+`node tests/test_near_me.mjs`, `node tests/test_source_lag.mjs` and
+`node tests/test_seo.mjs` for the frontend logic and crawlable pages). Run them before
 pushing.
 
 ## Local commands
