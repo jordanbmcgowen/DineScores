@@ -151,8 +151,12 @@ Cloudflare Pages builds on deploy, serves public/
   `theme_toggle` (plus a `theme` user property), `share`, `directions`,
   `official_record`, `finding_expand`. Restaurant events carry only the
   public name, grade, city and state. Never send the user's coordinates or
-  distances. Google signals and ad personalisation are off. Tests: `node
-  tests/test_analytics.mjs`.
+  distances. Google signals and ad personalisation are off, and a browser sending
+  Global Privacy Control or Do Not Track loads nothing (`optedOut`, and the
+  same check in the static tag). `/privacy/` (`privacyPage` in
+  `build_seo.mjs`) describes all of this: change it with the events. The
+  map links to it from the end of the results list (`siteLinks`). Tests:
+  `node tests/test_analytics.mjs`.
 - **Pipeline**: one file, `dinescores_pipeline.py`. One `fetch_<city>()`
   per source (Socrata, ArcGIS, state portals, SNHD, MyHealthDepartment
   scraper for DFW). Seattle/King County is Socrata dataset `r878-4sxa`

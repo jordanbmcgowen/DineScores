@@ -721,6 +721,18 @@ export default function App() {
     setSelectedRestaurant(rec);
   }, []);
 
+  // Small footer at the end of the results list: the static pages the map
+  // itself never links to, the privacy policy above all.
+  const siteLinks = (
+    <nav aria-label="About DineScores" className="px-4 py-4 text-center text-[12px] font-semibold text-slate-400 dark:text-slate-500">
+      <a href="/about/" className="hover:text-slate-700 dark:hover:text-slate-200">How grades work</a>
+      <span aria-hidden="true"> · </span>
+      <a href="/inspections/" className="hover:text-slate-700 dark:hover:text-slate-200">Browse by city</a>
+      <span aria-hidden="true"> · </span>
+      <a href="/privacy/" className="hover:text-slate-700 dark:hover:text-slate-200">Privacy</a>
+    </nav>
+  );
+
   function formatDate(d) {
     if (!d) return 'N/A';
     const parts = d.split('-');
@@ -906,6 +918,7 @@ export default function App() {
             </p>
           )}
           {listItems.length === 0 && emptyState}
+          {siteLinks}
         </div>
       </aside>
 
@@ -936,6 +949,7 @@ export default function App() {
           />
         ))}
         {listItems.length === 0 && emptyState}
+        {siteLinks}
       </BottomSheet>
 
       {/* Mobile-only floating preview (desktop docks it in the sidebar).

@@ -315,21 +315,24 @@ function developersPage(generated) {
 
 function privacyPage(generated) {
   const title = 'DineScores Privacy Policy';
-  const description = 'What DineScores, its API and its MCP server for AI assistants collect, use, share and keep.';
+  const description = 'What DineScores, its map, its API and its MCP server for AI assistants collect, use, share and keep, including Google Analytics and how to opt out.';
   const body = `
 <h1>Privacy policy</h1>
 <p class="mut">Updated ${esc(formatDate(generated))}</p>
 <p>DineScores publishes restaurant health inspection results from official public records. It has no accounts, no sign-in and no advertising.</p>
 <h2>What we collect</h2>
 <ul>
-<li><strong>Your location on the map.</strong> If you tap the location button, your device's position is used in your browser to centre the map and find nearby grades. It is never stored or sent to us.</li>
-<li><strong>Requests to the site, the API and the MCP server.</strong> Like any website, our host (Cloudflare) receives your IP address and the page or API request. We use the IP address only for a short time, in memory, to apply rate limits. We do not build profiles. Usage may be counted in aggregate to improve the site.</li>
+<li><strong>Your location on the map.</strong> If you allow location, or tap the location button or "Low scores near me", your device's position is used only in your browser to centre the map, sort by distance and find nearby low grades. It is never stored, and it is never sent to us or to Google Analytics.</li>
+<li><strong>How the site is used (Google Analytics).</strong> On dinescores.com we use Google Analytics 4 to count visits and see which features people use. It sets first-party cookies (named <code>_ga</code>) to tell return visits from new ones and records pages viewed, your approximate city or region (worked out by Google from your IP address, which Google Analytics does not store), device and browser type, and how you arrived. We also record actions on the map: searches, the area you pick, grade and issue filters, turning "Low scores near me" on or off, opening a restaurant or its full report, sorting, switching light or dark mode, and taps on share, directions or the official record. A restaurant action records only the restaurant's public name, grade, city and state. A search is recorded only when it looks like a restaurant, food or place name: anything containing an email address, a phone number or a street address is dropped before it leaves your browser. Google signals and ad personalisation are turned off, and the data is not used for advertising.</li>
+<li><strong>Requests to the site, the API and the MCP server.</strong> Like any website, our host (Cloudflare) receives your IP address and the page or API request. We use the IP address only for a short time, in memory, to apply rate limits. We do not build profiles.</li>
 <li><strong>What an AI assistant sends.</strong> When an assistant uses the DineScores MCP server, it sends the search you asked for (a restaurant name, a city, coordinates or an address). We do not receive your conversation, your name or your account.</li>
 </ul>
+<h2>Opting out of analytics</h2>
+<p>If your browser sends <a href="https://globalprivacycontrol.org/">Global Privacy Control</a> or Do Not Track, DineScores does not load Google Analytics at all. You can also block it with a content blocker, clear or block cookies for dinescores.com, or install Google's <a href="https://tools.google.com/dlpage/gaoptout">opt-out browser add-on</a>. The map works the same either way.</p>
 <h2>Sharing</h2>
-<p>We do not sell or share personal information. A street address sent to the nearby search is passed to the US Census Bureau's public geocoder to find its coordinates, and nothing else is sent with it.</p>
+<p>We do not sell personal information or share it for advertising. Google processes the analytics described above on our behalf under its own <a href="https://policies.google.com/privacy">privacy policy</a>. A street address sent to the nearby search is passed to the US Census Bureau's public geocoder to find its coordinates, and nothing else is sent with it.</p>
 <h2>Retention</h2>
-<p>Rate-limit counters last about a minute. Cloudflare keeps standard request logs under its own policy. Inspection records are public data and are kept as part of each restaurant's history.</p>
+<p>Rate-limit counters last about a minute. Cloudflare keeps standard request logs under its own policy. Google Analytics keeps event data for its default retention period (two months for detailed reports) and its <code>_ga</code> cookie lasts up to two years unless you clear it. Inspection records are public data and are kept as part of each restaurant's history.</p>
 <h2>Restaurants</h2>
 <p>Inspection records come from health departments. If a record is wrong, the health department's report is the source of truth; contact us through the project page below and we will correct anything DineScores displayed in error.</p>
 <h2>Contact</h2>
