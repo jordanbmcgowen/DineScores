@@ -30,8 +30,8 @@ export const ATTRIBUTION = {
 export const GRADE_MEANINGS = {
   A: 'A (90-100): few or minor violations',
   B: 'B (80-89): some violations worth a look',
-  C: 'C (70-79): several or serious violations',
-  F: 'F (below 70): many serious violations, active pests or sewage, or a closure',
+  C: 'C (70-79): several or serious violations, or dead or trapped pests noted',
+  F: 'F (below 70): many serious violations, live pests, droppings or sewage, or a closure',
 };
 
 const GRADES = ['A', 'B', 'C', 'F'];
@@ -168,6 +168,8 @@ export function publicRestaurant(row, { history = null, distance = null } = {}) 
   };
   if (grade === 'F' && Number.isFinite(score) && score >= 70) {
     out.grade_note = 'Graded F despite the score because the report notes pests, sewage, a closure or a failed inspection.';
+  } else if (grade === 'C' && Number.isFinite(score) && score >= 80) {
+    out.grade_note = 'Graded C despite the score because the report notes dead or trapped pests or ants, or the latest inspection was a conditional pass.';
   }
   if (distance !== null) out.distance_miles = Math.round(distance * 100) / 100;
   if (history) {

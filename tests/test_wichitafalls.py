@@ -332,12 +332,12 @@ class ViolationTests(unittest.TestCase):
         self.assertEqual(pest[0][2], 'Pests and animals: Observed 3 dead cockroaches in back storage area')
         self.assertEqual(pest[0][1], 'core')
         self.assertFalse(any('Insect Contamination' in v[2] for v in cafe))
-        # the title alone, or flies, never force an F; named roaches and rodent droppings do
+        # the title alone, or flies, never move the grade; dead roaches cap it at C, live ones and droppings force an F
         self.assertFalse(dp.has_active_pest_or_sewage(dp.HH_PEST_TITLE))
         self.assertTrue(dp._HH_PEST_TITLE_RE.match('No evidence of Insect Contamination, Rodent, Other Animals'))
         braums = dp._hh_violations(_load('results_INSP-022027.json'), WF)
         self.assertEqual(dp.calculate_vetted_grade(98, dp.build_violation_text(braums)), 'A')
-        self.assertEqual(dp.calculate_vetted_grade(95, dp.build_violation_text(cafe)), 'F')
+        self.assertEqual(dp.calculate_vetted_grade(95, dp.build_violation_text(cafe)), 'C')   # dead roaches: capped at C
         pump = dp._hh_violations(_load('results_INSP-022258.json'), WF)
         self.assertEqual(dp.calculate_vetted_grade(84, dp.build_violation_text(pump)), 'F')
         # a line ending in an evidence word before the heading does not reach the pest word

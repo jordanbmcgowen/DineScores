@@ -910,7 +910,9 @@ class PipelinePassTests(unittest.TestCase):
         self.assertEqual(jr.score_policy('LA County Open Data', 94), 'official')
         self.assertEqual(jr.score_policy('Dallas Health Dept', 90), 'official')
         self.assertEqual(jr.score_policy('Dallas Health Dept', None), 'computed')
-        self.assertEqual(jr.score_policy('Frisco Health Dept', 12), 'computed')
+        self.assertEqual(jr.score_policy('Frisco Health Dept', 12), 'official')      # the Texas form total
+        self.assertEqual(jr.tier_policy('Fort Worth Health Dept'), 'fixed')
+        self.assertEqual(jr.score_policy('Utah County Health Dept', 12), 'computed')
         self.assertEqual(jr.score_policy('Yolo County Health Dept', None), 'computed')
         self.assertEqual(jr.score_policy('Richardson Health Dept', 95), 'official')
         self.assertEqual(jr.score_policy('Some New Source', None), 'official')

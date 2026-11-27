@@ -1786,6 +1786,12 @@ SOURCE_TIER_SOURCES = frozenset({
     # score (100 - the city's demerit total, kept in original_score), an
     # official number like Richardson's: never re-scored.
     'McKinney Health Inspections',
+    # Fort Worth and Frisco (MyHealthDepartment): the same Texas form. The
+    # portal's score is the form's demerit total and each line's tier is its
+    # form item's weight (items 1-20 three points, 21-33 two, 34-47 one;
+    # the pipeline's _tx_form_tier). Until 2026-11-27 both were scored
+    # 100 - 5P - 2PF - C on keyword tiers: 611 F's on totals the cities pass.
+    'Fort Worth Health Dept', 'Frisco Health Dept',
     # Garland's violations table carries each cited item's TX form points
     # (3 / 2 / 1, the city's tiers) and its risk_score is the city's
     # official 0-100 score, which those points reproduce: never re-scored.
@@ -2015,6 +2021,12 @@ def _apply_to_record(rec, vio, judgments, use, stats, dp):
     if any_judged:
         if 'hazard' in use:
             result['forces_f'] = any(d['forces_f'] for d in readings)
+            if result['forces_f']:
+                # Every finding a minor one (dead or trapped pests, ants):
+                # the grade is capped at C instead of forced to F. The split
+                # is the pipeline's code, not a Jev answer.
+                result['pest_minor'] = dp.text_cap_of_lines(
+                    [(t, d['forces_f']) for d, (_, _, t) in zip(readings, parts)]) == dp.TEXT_CAP_GRADE
         if use:
             result['chips'] = detect_infractions(line_texts, judgments, use=use)
             summaries = summarize_violations(line_texts, judgments, use=use)

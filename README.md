@@ -1,7 +1,7 @@
 # DineScores — Restaurant Health Inspection Transparency
 
 Multi-city restaurant health inspection scores with proprietary safety grading.
-Shows weighted scores, grade badges (Safe/Evaluate/Avoid), infraction detection,
+Shows weighted scores, grade badges (A Safe, B Good, C Caution, F Avoid), infraction detection,
 and violation summaries for ~100 metros and seven whole states: NYC and New York
 State, Chicago, San Francisco, San Jose, Los Angeles and San Diego counties,
 Sacramento, Orange County, Seattle, Portland, Las Vegas, Phoenix, Houston,
@@ -47,6 +47,100 @@ Louisiana, all of Virginia, Florida, Delaware and South Carolina, and more
               │
      Cloudflare Pages (auto-deploys from main)
 ```
+
+## How grading works
+
+Every inspection becomes a 0-100 score and a letter. The letter always means
+the same thing, whatever the city: **A 90+ (Safe), B 80-89 (Good), C 70-79
+(Caution), F below 70 (Avoid)**. The rules live in `calculate_vetted_grade`
+in `dinescores_pipeline.py` (the source of truth) and `src/grading.js` (the
+frontend mirror); change both together.
+
+### 1. Where the score comes from
+
+| The agency publishes | What we do | Examples |
+|---|---|---|
+| A 0-100 score | Use it as is | Dallas, Plano, Austin, Georgia, El Paso |
+| Demerit points | 100 minus the demerits | Fort Worth, Frisco, McKinney, Smith County, Waco, Napa |
+| Violations with a stated severity | 100 − 5 per Priority − 2 per Priority Foundation − 1 per Core | Maricopa, Louisiana, Boston, Detroit, Colorado, Sonoma |
+| Violations with no severity | The same formula, with the severity read from the wording by a keyword classifier | Chicago, NYC, San Francisco, Houston, Cincinnati, Virginia, Cuyahoga |
+| A result only (Pass / Reinspection / Closed) | A fixed score per result | Orange County CA (90 / 75 / 50) |
+
+The last two rows are estimates. A keyword-read severity is the weakest
+link in the chain: where an agency states its own tier or score, that always
+wins and is never re-read.
+
+### 2. The agency's verdict caps the score
+
+A score can look fine while the inspector failed or closed the place. So a
+verdict only ever lowers a score, never raises it:
+
+| Verdict | Cap | Letter |
+|---|---|---|
+| Closed, failed, emergency order, red placard (Chicago Fail, San Francisco Closure, NYC closed by DOHMH, Florida emergency orders, Colorado Closed, Waco FAILED, Hawaii and Placer red) | 65 | F |
+| Conditional pass, yellow placard (San Francisco, Sonoma, Hawaii, Placer) | 79 | C at best |
+
+Rows that are not inspections at all are left out instead of counting as a
+clean 100: Chicago "Out of Business", "No Entry", "Not Ready" and "Business
+Not Located", Sacramento "Not Applicable", Boston out-of-business rows,
+unscored visits on the MyHealthDepartment portals.
+
+### 3. The displayed score blends the last three inspections
+
+`weighted score = 60% latest + 30% previous + 10% the one before`. The
+letter comes from the weighted score, with one override: if the latest
+inspection alone is below 70, the grade is F. One same-day rule: when
+several permits share a name and address, the worst inspection of the day
+is the one shown.
+
+### 4. Pests and sewage
+
+Some findings matter more than their points:
+
+| Finding in the latest inspection | Effect |
+|---|---|
+| Live roaches or rodents, droppings, gnawing, nests, a sewage backup | **F**, whatever the score |
+| Only dead or trapped pests, or ants | **C at best** |
+| Flies, gnats, a pest-control item cited with no observation | No cap (a "Pests" chip only) |
+
+When in doubt the rule keeps the F: a line that mentions both dead and live
+pests, or pest "activity" that is not negated, is an F.
+
+### 5. Jev, the violation reader
+
+Deciding whether a line describes a real pest or sewage finding is a
+reading problem ("no evidence of rodents" versus "evidence of rodents"), so
+the weekly refresh hands each violation line to **Jev**, a classification
+model from TypeSafe (`jev_reader.py`). Jev answers two fixed-choice
+questions per line: which hazard, if any, the line describes, and which
+plain-language summary phrase fits it ("Roaches found", "Food held at
+unsafe temperature").
+
+What Jev does not do: it never sets a score, a tier or a cutoff. Those stay
+in code. Guard rails:
+
+- An F from Jev needs a named pest in the line and a confidence of 0.7; any
+  error, timeout or low-confidence answer falls back to the regex rule, so a
+  refresh never fails or ships less because of Jev.
+- Only the violation text is sent. No restaurant name, address or date.
+- Answers are cached in `data/jev_judgments/` (append-only), so each
+  distinct line is read once. A typical week is ~3,000 new lines.
+- The run summary of every refresh reports how many lines Jev read, how
+  many fell back, and how often it disagreed with the regex.
+
+### Known limits
+
+- Keyword-read severities (row four above) can run harsh or lenient by a
+  few points per inspection. Sources move off it as their own tiers are
+  found (Colorado in 2026-11, Fort Worth and Frisco on 2026-11-27).
+- NYC's own inspection points are not used; its letters are computed like
+  everyone else's and can differ from the card in the window.
+- A grade is the latest inspection on record. About 9% of places were last
+  inspected more than 18 months ago; the card shows the date.
+
+The full review behind these rules: `docs/grading-review-2026-11-27.md`.
+
+---
 
 ## Tech Stack
 
