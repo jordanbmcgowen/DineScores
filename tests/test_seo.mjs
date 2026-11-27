@@ -174,6 +174,7 @@ await test('build: pages, robots, sitemaps and llms.txt from a data.js', () => {
   const privacy = fs.readFileSync(path.join(out, 'privacy/index.html'), 'utf8');
   assert.match(privacy, /Google Analytics/);
   assert.match(privacy, /never sent to us or to Google Analytics/);
+  assert.match(privacy, /rounded out to a fixed grid/);
   assert.match(privacy, /Global Privacy Control/);
   assert.match(privacy, /tools\.google\.com\/dlpage\/gaoptout/);
   assert.match(fs.readFileSync(path.join(out, 'llms.txt'), 'utf8'), /\/api\/v1\/openapi\.json/);

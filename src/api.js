@@ -4,6 +4,8 @@
  * to other data sources.
  */
 
+import { bboxParam, snapBbox } from './areaGrid.js';
+
 async function getJson(path) {
   const res = await fetch(path, { headers: { Accept: 'application/json' } });
   if (!res.ok) throw new Error(`API ${path} -> ${res.status}`);
@@ -73,7 +75,7 @@ export async function fetchAllFromApi(onBatch, { pageSize = 30000, maxPages = 20
 export async function fetchSearchFromApi(q, limit = 10, bbox = null) {
   if (!q || q.length < 2) return [];
   const box = bbox
-    ? `&bbox=${[bbox.w, bbox.s, bbox.e, bbox.n].map(v => v.toFixed(3)).join(',')}`
+    ? `&bbox=${bboxParam(bbox)}`
     : '';
   try {
     const rows = await getJson(
@@ -99,18 +101,19 @@ export async function fetchRestaurantDetail(id) {
  * Restaurants within a map bounding box (compact data.js-shaped records).
  * bbox = { w, s, e, n }. Returns { records, truncated } — truncated is true
  * when the result hit the row limit (the viewport is denser than one page,
- * so it should be re-queried at a tighter zoom rather than cached as complete).
+ * so it should be re-queried at a tighter zoom rather than cached as complete),
+ * and box is the grid-snapped area actually requested.
  */
 export async function fetchBboxFromApi(bbox, limit = 5000) {
-  const { w, s, e, n } = bbox;
   try {
+    // Snapped to a coarse grid (areaGrid.js): never a box around the user
     const rows = await getJson(
-      `/api/restaurants?bbox=${w},${s},${e},${n}&fields=lite&limit=${limit}`
+      `/api/restaurants?bbox=${bboxParam(bbox)}&fields=lite&limit=${limit}`
     );
     const records = Array.isArray(rows) ? rows : [];
-    return { records, truncated: records.length >= limit };
+    return { records, truncated: records.length >= limit, box: snapBbox(bbox) };
   } catch {
-    return { records: [], truncated: false };
+    return { records: [], truncated: false, box: snapBbox(bbox) };
   }
 }
 
