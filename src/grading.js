@@ -16,6 +16,7 @@ const SEWAGE_ISSUE_RE = /sewage[^.]{0,40}(?:back|overflow|leak|expos|floor|disch
 const DEAD_PEST_TITLE_RE = /\b(?:remov(?:e|ing)\s+)?dead(?:\s*(?:or|\/)\s*trapped)?\s+(?:(?:flies|insects?|rodents?|birds?|animals?)\s*(?:,|;|\/|&|\band\b|\bor\b)\s*(?:(?:and|or)\s+)?){2,}(?:other\s+(?:pests?|animals?|vermin)|pests?\b)/gi;
 const LISTED_PEST_TITLE_RE = /\b(?:no\s+)?(?:evidence\s+of|presence\s+of)(?:\s+live)?\s+(?:(?:insects?(?:\s+contamination)?|rodents?|birds?|animals?|flies)\s*(?:,|;|\/|&|\band\b|\bor\b)\s*(?:(?:and|or)\s+)?){2,}other\s+(?:pests?|animals?|vermin)\b/gi;
 const PEST_AFTER_RE = /\b(?:rats?|mice|mouse|rodents?|roach(?:es)?|cockroach(?:es)?)\s+(?:droppings?|feces|fecal\s+matter|excreta)\b/gi;
+const PEST_ACTIVITY_INSTRUCTION_RE = /\b(?:eliminat\w*|prevent\w*|control\w*|ensure)\b/i;
 const PEST_NEGATION_RE = /(?:\bno\b|\bnot\b|\bnor\b|\bnever\b|\bfree\s+of\b|\bwithout\b|\babsence\s+of\b|\bprevent\w*|\bcheck\w*\s+for\b)[^.;|:]{0,40}$/i;
 
 export function hasActivePestOrSewage(text) {
@@ -32,15 +33,31 @@ export function hasActivePestOrSewage(text) {
 // trapped pests, or naming no pest but ants, caps the grade at C; live
 // pests, droppings and sewage force the F.
 const PEST_DEAD_OR_TRAPPED_RE = /\bdead\b|\bdeceased\b|\bcarcass(?:es)?\b|\btrap(?:s|ped)?\b|\bglue\s*(?:boards?|traps?)\b|\bsticky\b|\bmonitor(?:ing)?\s+(?:devices?|stations?|boards?)\b/i;
-const PEST_LIVE_EVIDENCE_RE = /\blive\b|\balive\b|\bliving\b|\bcrawl\w*|\brunning\b|\bran\b|\bscurr\w*|\bdroppings?\b|\bfeces\b|\bfecal\b|\bexcreta\b|\bexcrement\b|\burine\b|\bgnaw\w*|\bnest(?:s|ing)?\b|\bburrows?\b|\binfest\w*|\beggs?\s+(?:cases?|sacs?)\b|\bootheca\w*/i;
+const PEST_LIVE_EVIDENCE_RE = /\bli+ve\b|\balive\b|\bliving\b|\bcrawl\w*|\brunning\b|\bran\b|\bscurr\w*|\bdroppings?\b|\bfeces\b|\bfecal\b|\bexcreta\b|\bexcrement\b|\burine\b|\bgnaw\w*|\bnest(?:s|ing)?\b|\bburrows?\b|\binfest\w*|\b(?:rodent|mouse|mice|rat|roach|cockroach)\s+waste\b|\beggs?\s+(?:cases?|sacs?)\b|\bootheca\w*/i;
 const PEST_OTHER_THAN_ANTS_RE = /\b(?:rats?|mice|mouse|rodents?|roach(?:es)?|cockroach(?:es)?|vermin|maggots?|larvae?)\b/i;
+const PEST_ACTIVITY_RE = /\bactiv(?:e|ity|ities)\b/gi;
+const PEST_ACTIVITY_NEGATION_RE = /\b(?:no|not|none|without|never|free\s+of|absence\s+of|didn'?t|inspect\w*\s+for|check\w*\s+for|monitor\w*\s+for)\b/i;
+function unnegatedActivity(t) {
+  for (const m of t.matchAll(PEST_ACTIVITY_RE)) {
+    const before = t.slice(0, m.index).split(/[.;:!?]/).pop();
+    const sentence = before + t.slice(m.index).split(/[.;:!?]/)[0];
+    if (!PEST_ACTIVITY_NEGATION_RE.test(sentence) && !PEST_ACTIVITY_INSTRUCTION_RE.test(before)) return true;
+  }
+  return false;
+}
+const PEST_ANTS_RE = /\bants?\b/i;
+const PEST_GENERIC_RE = /\b(?:insects?|pests?|bugs?|beetles?|weevils?|moths?)\b/i;
 const GRADE_ORDER = 'ABCF';
 
 export function pestFindingIsMinor(line) {
   const t = (line || '').replace(DEAD_PEST_TITLE_RE, ' ').replace(LISTED_PEST_TITLE_RE, ' ');
   if (SEWAGE_ISSUE_RE.test(t)) return false;
-  if (!PEST_OTHER_THAN_ANTS_RE.test(t)) return true; // ants only
-  if (PEST_LIVE_EVIDENCE_RE.test(t)) return false;
+  // ants only; a finding that names no pest at all stays an F
+  if (!PEST_OTHER_THAN_ANTS_RE.test(t)) {
+    if (PEST_ANTS_RE.test(t)) return true;
+    if (!PEST_GENERIC_RE.test(t)) return false;
+  }
+  if (PEST_LIVE_EVIDENCE_RE.test(t) || unnegatedActivity(t)) return false;
   return PEST_DEAD_OR_TRAPPED_RE.test(t);
 }
 

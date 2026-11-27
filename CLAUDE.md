@@ -772,6 +772,29 @@ read yet. The ones worth building next:
   `state_code()` maps names to codes in `write_data_js` (kept records heal on
   the next write) and `write_d1_sql`.
 
+- **The grading rules of 2026-11-27** (owner decision; review and numbers in
+  `docs/grading-review-2026-11-27.md`, public explanation in the README's
+  "How grading works"). (1) A pest finding that shows only dead or trapped
+  pests, or names no pest but ants, caps the grade at C instead of forcing
+  the F (`pest_finding_is_minor`, `text_cap_of_lines`, `cap_grade`; Jev's
+  result carries `pest_minor`; a kept data.js record remembers the cap in
+  the compact field `tc`: 1). It errs toward the F: a live word, droppings,
+  un-negated "activity", sewage, or a flagged line naming no pest at all (a
+  failing septic system read as minor before the last check) stay F.
+  `src/grading.js` mirrors it. (2) Fort Worth and Frisco are `tx-demerit`
+  with `tiers: 'tx-form'`: the city's demerit total is the score and the
+  form item number gives each line its tier; keyword scoring made 15% of
+  Fort Worth F's. (3) An agency verdict caps the inspection:
+  `VERDICT_FAIL_RISK_CAP` 65 for Chicago Fail, San Francisco Closure, NYC
+  "Establishment Closed by DOHMH" and Florida emergency orders;
+  `VERDICT_CONDITIONAL_RISK_CAP` 79 for San Francisco Conditional Pass.
+  (4) Rows that are not inspections are skipped, never a clean 100:
+  `CHICAGO_NOT_INSPECTED`, `SACRAMENTO_NOT_INSPECTED`,
+  `BOSTON_NOT_INSPECTED`. Stored rows were regraded the same day with
+  `scripts/grading_regrade.py` (history export of the eight sources plus the
+  full export; guarded seed and data.js patch). Still keyword-scored:
+  Cincinnati, Virginia, Cuyahoga, Houston, Chicago, NYC, San Francisco,
+  Delaware, Utah County.
 - **MHD jurisdictions carry their own row filters; do not loosen them.**
   Besides `programs` and `exclude`: `inspection_types` (Amarillo's vended
   water and farmers-market forms share the food program on other scales and

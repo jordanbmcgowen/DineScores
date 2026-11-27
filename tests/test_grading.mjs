@@ -7,13 +7,17 @@ const MINOR = [
   'OBSERVED A FEW ROACHES IN STICKY TRAP UNDER SERVING LINE',
   'Small dead mouse noted on a glue board deep in the basement',
   '38: 6-501.111 OBSERVED ANTS BY 3 COMP SINK. SHALL CONTROL PEST',
+  'Observed one dead cockroach on floor of pantry. Saw no other signs of pest activity.',
 ];
 const SERIOUS = [
   "Evidence of mice or live mice in establishment's food or non-food areas.",
   'Pests and animals: Observed rodent droppings throughout facility.',
   'Observed two live cockroaches in dishwashing area and under shelving in glue trap',
   'sewage backs up from the floor drain',
+  'OSBERVED DEAD AND LIIVE ROACHES',
+  'Observed dead roaches on shelving. Observed rodent activity below shelves.',
 ];
+assert.equal(pestFindingIsMinor('Septic system is failing in driveway'), false);
 for (const line of MINOR) {
   assert.equal(pestFindingIsMinor(line), true, line);
   assert.equal(textCap(line), 'C', line);

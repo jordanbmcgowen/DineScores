@@ -20,6 +20,8 @@ MINOR = (
     'Small dead mouse noted on a glue board deep in the basement',
     '38: 6-501.111 OBSERVED ANTS BY 3 COMP SINK. SHALL CONTROL PEST',
     'Observed ants crawling at the warewashing sink',
+    'Observed one dead cockroach on floor of pantry. Saw no other signs of pest activity.',
+    'Observed a dead cockroach on the floor. A thorough inspection for vermin activity did not reveal any',
 )
 SERIOUS = (
     "Evidence of mice or live mice in establishment's food or non-food areas.",
@@ -28,6 +30,9 @@ SERIOUS = (
     'Observed two live cockroaches in dishwashing area and under shelving in glue trap',
     'Observed dead roaches and a roach nest behind the cooler',
     'SEWAGE & WASTE WATER PROPERLY DISPOSED: sewage backs up from the floor drain',
+    'OSBERVED DEAD AND LIIVE ROACHES',
+    'Observed dead pests on shelving. Observed rodent activity below shelves.',
+    'There was evidence observed of roach activity(dead insects)',
     # a negated live word still keeps the F: the test errs toward the F
     'Observed dead roaches in the trap; no live roaches seen',
 )
@@ -47,6 +52,19 @@ class PestRuleTests(unittest.TestCase):
         for line in SERIOUS:
             self.assertEqual(dp.regex_text_cap(line), 'F', line)
             self.assertEqual(dp.calculate_vetted_grade(99, line), 'F', line)
+
+    def test_a_flagged_line_naming_no_pest_is_never_minor(self):
+        # the reader can flag a sewage line in words the regex does not know;
+        # 426 stored F's were read on 2026-11-27 and three such lines (a
+        # failing septic system, a backed-up floor drain) came out minor
+        for line in ('Sewage and other liquid wastes not disposed through an approved system: '
+                     'Septic system is failing in driveway',
+                     '51: OBSERVED BACKED UP FLOOR DRAIN NEAR IN PLACE KETTLE POT',
+                     'Grease trap overflowing onto the floor'):
+            self.assertFalse(dp.pest_finding_is_minor(line), line)
+            self.assertEqual(dp.text_cap_of_lines([(line, True)]), 'F', line)
+        self.assertTrue(dp.pest_finding_is_minor('Dead insects in the light shield above the prep table'))
+        self.assertFalse(dp.pest_finding_is_minor('Live insects on the prep table'))
 
     def test_one_serious_line_among_minor_ones_is_an_f(self):
         self.assertEqual(dp.regex_text_cap('|||'.join([MINOR[0], 'Floors dirty', SERIOUS[1]])), 'F')

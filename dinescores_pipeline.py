@@ -1096,13 +1096,31 @@ PEST_DEAD_OR_TRAPPED_RE = re.compile(
     r'\bdead\b|\bdeceased\b|\bcarcass(?:es)?\b|\btrap(?:s|ped)?\b|\bglue\s*(?:boards?|traps?)\b|'
     r'\bsticky\b|\bmonitor(?:ing)?\s+(?:devices?|stations?|boards?)\b', re.I)
 PEST_LIVE_EVIDENCE_RE = re.compile(
-    r'\blive\b|\balive\b|\bliving\b|\bcrawl\w*|\brunning\b|\bran\b|\bscurr\w*|\bdroppings?\b|'
+    r'\bli+ve\b|\balive\b|\bliving\b|\bcrawl\w*|\brunning\b|\bran\b|\bscurr\w*|\bdroppings?\b|'
     r'\bfeces\b|\bfecal\b|\bexcreta\b|\bexcrement\b|\burine\b|\bgnaw\w*|\bnest(?:s|ing)?\b|'
-    r'\bburrows?\b|\binfest\w*|\beggs?\s+(?:cases?|sacs?)\b|\bootheca\w*', re.I)
+    r'\bburrows?\b|\binfest\w*|\b(?:rodent|mouse|mice|rat|roach|cockroach)\s+waste\b|\beggs?\s+(?:cases?|sacs?)\b|\bootheca\w*', re.I)
 PEST_OTHER_THAN_ANTS_RE = re.compile(
     r'\b(?:rats?|mice|mouse|rodents?|roach(?:es)?|cockroach(?:es)?|vermin|maggots?|larvae?)\b', re.I)
+# "activity" is live evidence unless its own sentence negates it ("no other
+# signs of pest activity").
+PEST_ACTIVITY_RE = re.compile(r'\bactiv(?:e|ity|ities)\b', re.I)
+PEST_ACTIVITY_NEGATION_RE = re.compile(r"\b(?:no|not|none|without|never|free\s+of|absence\s+of|didn'?t|inspect\w*\s+for|check\w*\s+for|monitor\w*\s+for)\b", re.I)
+# ... or the sentence is the instruction, not the finding ("Eliminate the activity of
+# cockroaches", California's standard corrective wording).
+PEST_ACTIVITY_INSTRUCTION_RE = re.compile(r'\b(?:eliminat\w*|prevent\w*|control\w*|ensure)\b', re.I)
+PEST_ANTS_RE = re.compile(r'\bants?\b', re.I)
+PEST_GENERIC_RE = re.compile(r'\b(?:insects?|pests?|bugs?|beetles?|weevils?|moths?)\b', re.I)
 TEXT_CAP_GRADE = 'C'          # the best letter a minor pest finding allows
 _GRADE_ORDER = 'ABCF'
+
+
+def _unnegated_activity(t):
+    for m in PEST_ACTIVITY_RE.finditer(t):
+        before = re.split(r'[.;:!?]', t[:m.start()])[-1]
+        sentence = before + re.split(r'[.;:!?]', t[m.start():])[0]
+        if not PEST_ACTIVITY_NEGATION_RE.search(sentence) and not PEST_ACTIVITY_INSTRUCTION_RE.search(before):
+            return True
+    return False
 
 
 def pest_finding_is_minor(line):
@@ -1112,8 +1130,13 @@ def pest_finding_is_minor(line):
     if SEWAGE_ISSUE_RE.search(t):
         return False
     if not PEST_OTHER_THAN_ANTS_RE.search(t):
-        return True                      # ants only
-    if PEST_LIVE_EVIDENCE_RE.search(t):
+        if PEST_ANTS_RE.search(t):
+            return True                  # ants only
+        if not PEST_GENERIC_RE.search(t):
+            # names no pest at all (a sewage line the reader flagged in words
+            # SEWAGE_ISSUE_RE does not know, a grease trap): the F stays
+            return False
+    if PEST_LIVE_EVIDENCE_RE.search(t) or _unnegated_activity(t):
         return False
     return bool(PEST_DEAD_OR_TRAPPED_RE.search(t))
 
