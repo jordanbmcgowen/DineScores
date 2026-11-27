@@ -11,11 +11,14 @@ const INFRACTION_META = {
   equipment: { label: 'Equipment' },
 };
 
-function Chip({ active, onClick, children, activeClass }) {
+function Chip({ active, onClick, children, activeClass, label }) {
   return (
     <button
       onClick={onClick}
-      className={`shrink-0 px-3.5 h-9 rounded-full text-[13px] font-semibold transition-colors whitespace-nowrap ${
+      aria-pressed={active}
+      aria-label={label}
+      title={label}
+      className={`shrink-0 px-3.5 h-10 md:h-9 rounded-full text-[13px] font-semibold transition-colors whitespace-nowrap ${
         active
           ? activeClass || 'bg-slate-900 text-white dark:bg-white dark:text-slate-900'
           : 'bg-white/90 dark:bg-slate-800/90 text-slate-700 dark:text-slate-200 ring-1 ring-slate-200 dark:ring-slate-700 hover:bg-white dark:hover:bg-slate-800 shadow-sm backdrop-blur'
@@ -27,9 +30,13 @@ function Chip({ active, onClick, children, activeClass }) {
 }
 
 /**
- * Filter rail floating over the map. The location picker is a single dropdown
- * (the city list grew past what a chip row can hold), which keeps the grade
- * and issue chips permanently visible beside it.
+ * Filter rail floating over the map, in the order people reach for it: low
+ * scores near me, the four grades, then the location picker (one dropdown:
+ * the city list grew past what a chip row can hold) and the issue chips.
+ * On a phone the grade chips are just their letter on the grade's color, so
+ * all four fit on screen next to "Low scores near me"; the dropdown used to
+ * sit there and pushed every grade chip off the right edge. The rail still
+ * scrolls sideways, and its right edge fades to say so.
  */
 export default function FilterBar({
   cityOptions,
@@ -67,7 +74,7 @@ export default function FilterBar({
   const locationActive = selectValue !== 'all';
 
   return (
-    <div className="flex items-center gap-2 overflow-x-auto no-scrollbar px-3 md:px-4 pb-1 pointer-events-auto">
+    <div className="flex items-center gap-2 overflow-x-auto no-scrollbar rail-fade px-3 pr-8 md:px-4 pb-1 pointer-events-auto">
       {/* Near me: recent C/F grades within half a mile of the user */}
       {toggleNearMe && (
         <Chip active={nearMe} onClick={toggleNearMe} activeClass="bg-red-500 text-white shadow-md">
@@ -80,13 +87,42 @@ export default function FilterBar({
           </span>
         </Chip>
       )}
+      {/* Grade chips, one per letter */}
+      {['A', 'B', 'C', 'F'].map(grade => {
+        const meta = gradeMeta(grade);
+        const active = gradeFilter.includes(grade);
+        return (
+          <Chip
+            key={grade}
+            active={active}
+            onClick={() => toggleGrade(grade)}
+            activeClass={`${meta.tile} shadow-md`}
+            label={`Grade ${grade}: ${meta.label}`}
+          >
+            <span className="inline-flex items-center gap-1.5">
+              <span
+                className={`w-5 h-5 -ml-1.5 rounded-md flex items-center justify-center text-[11px] font-black ${meta.tile} ${
+                  active ? 'ring-1 ring-black/10' : ''
+                }`}
+                aria-hidden="true"
+              >
+                {grade}
+              </span>
+              <span className="hidden md:inline">{meta.label}</span>
+            </span>
+          </Chip>
+        );
+      })}
+
+      <div className="shrink-0 w-px h-5 bg-slate-300/70 dark:bg-slate-600/70 mx-0.5" />
+
       {/* Location dropdown */}
       <div className="relative shrink-0">
         <select
           value={selectValue}
           onChange={e => handleSelect(e.target.value)}
           aria-label="Filter by city, metro area or place"
-          className={`appearance-none h-9 pl-3.5 pr-8 rounded-full text-[13px] font-semibold outline-none cursor-pointer transition-colors max-w-[46vw] md:max-w-none truncate ${
+          className={`appearance-none h-10 md:h-9 pl-3.5 pr-8 rounded-full text-[13px] font-semibold outline-none cursor-pointer transition-colors max-w-[46vw] md:max-w-none truncate ${
             locationActive
               ? 'bg-brand-600 text-white shadow-md'
               : 'bg-white/90 dark:bg-slate-800/90 text-slate-700 dark:text-slate-200 ring-1 ring-slate-200 dark:ring-slate-700 shadow-sm backdrop-blur'
@@ -125,33 +161,6 @@ export default function FilterBar({
           <path d="M5 8l5 5 5-5" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/>
         </svg>
       </div>
-
-      <div className="shrink-0 w-px h-5 bg-slate-300/70 dark:bg-slate-600/70 mx-0.5" />
-
-      {/* Grade chips (A / B+C / F) */}
-      {[
-        { grade: 'A', label: 'Safe' },
-        { grade: 'B', label: 'Caution' },
-        { grade: 'F', label: 'Avoid' },
-      ].map(({ grade, label }) => {
-        const meta = gradeMeta(grade);
-        const active = gradeFilter.includes(grade);
-        return (
-          <Chip
-            key={grade}
-            active={active}
-            onClick={() => toggleGrade(grade)}
-            activeClass={`${meta.tile} shadow-md`}
-          >
-            <span className="inline-flex items-center gap-1.5">
-              {!active && (
-                <span className="w-2 h-2 rounded-full" style={{ background: meta.dot }} />
-              )}
-              {label}
-            </span>
-          </Chip>
-        );
-      })}
 
       <div className="shrink-0 w-px h-5 bg-slate-300/70 dark:bg-slate-600/70 mx-0.5" />
 

@@ -154,3 +154,15 @@ html.dark .maplibregl-ctrl-group {
     pointer-events: none;
   }
 }
+
+/* The search box draws its own clear button; the browser's second one sat
+   right next to it. */
+input[type='search']::-webkit-search-cancel-button { display: none; }
+
+/* Phone filter rail: fade the right edge so the row reads as scrollable. */
+@media (max-width: 767px) {
+  .rail-fade {
+    -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 32px), transparent);
+    mask-image: linear-gradient(to right, #000 calc(100% - 32px), transparent);
+  }
+}

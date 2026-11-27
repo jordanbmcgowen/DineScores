@@ -663,15 +663,17 @@ export default function App() {
     return () => window.removeEventListener('keydown', onKey);
   }, [preview, stack, selectedRestaurant]);
 
+  // Search suggestions rank nearest first, measured from the middle of the
+  // map (where the user is looking), else from their own position.
+  const searchOrigin = useMemo(() => {
+    const b = mapView?.bounds;
+    if (b) return { lat: (b.s + b.n) / 2, lng: (b.w + b.e) / 2 };
+    return userPos ? { lat: userPos.lat, lng: userPos.lng } : null;
+  }, [mapView, userPos]);
+
   const toggleGrade = useCallback((grade) => {
-    setGradeFilter(prev => {
-      if (grade === 'B') {
-        const hasB = prev.includes('B');
-        if (hasB) return prev.filter(g => g !== 'B' && g !== 'C');
-        return [...prev, 'B', 'C'];
-      }
-      return prev.includes(grade) ? prev.filter(g => g !== grade) : [...prev, grade];
-    });
+    setGradeFilter(prev =>
+      prev.includes(grade) ? prev.filter(g => g !== grade) : [...prev, grade]);
   }, []);
 
   const toggleInfraction = useCallback((cat) => {
@@ -774,6 +776,7 @@ export default function App() {
             count={dbTotal ?? allData.length}
             allData={allData}
             cityOptions={cityOptions}
+            origin={searchOrigin}
             onPickRestaurant={r => focusRestaurant(r)}
             onPickArea={selectArea}
             onSearchingChange={setSearchOpen}
