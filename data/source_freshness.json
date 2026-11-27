@@ -10,6 +10,16 @@
    },
    "latest": "2026-11-20"
   },
+  "Alabama": {
+   "last_run": {
+    "at": "2026-11-27",
+    "detail": "source's own newest row is 2026-11-05 (22d old); nothing newer published",
+    "latest": "2026-11-05",
+    "records": 15037,
+    "status": "ok"
+   },
+   "latest": "2026-11-05"
+  },
   "Arlington": {
    "last_run": {
     "at": "2026-11-22",
@@ -614,6 +624,10 @@
   "Adams County Health Dept": {
    "group": "MHD metros",
    "latest": "2026-11-13"
+  },
+  "Alabama Department of Public Health": {
+   "group": "Alabama",
+   "latest": "2026-11-05"
   },
   "Amarillo Health Dept": {
    "group": "MHD metros (midweek)",
