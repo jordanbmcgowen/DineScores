@@ -22,6 +22,15 @@ if (!CARTO_API_KEY) {
 // just flips layer visibility — map.setStyle() would tear down every custom
 // source/layer/marker, and hidden raster layers cost nothing (tiles are only
 // requested for visible layers).
+//
+// The raster tiles are CARTO's *_nolabels flavors: the labels baked into
+// light_all/dark_all are 9-10 px gray on gray (street names were unreadable
+// on a phone at any zoom, 2026-11-28), and a raster label can't be resized
+// or recolored. Street and place names are drawn instead from CARTO's own
+// vector tiles (the source behind its GL styles) by the BASEMAP_LABEL_LAYERS
+// below, larger and with a strong halo, under the restaurant markers. If the
+// vector tiles or their font ever fail, only these labels go; the raster
+// map and the markers stay.
 function basemapStyle(dark) {
   const keyQuery = CARTO_API_KEY ? `?key=${encodeURIComponent(CARTO_API_KEY)}` : '';
   const tiles = flavor => ['a', 'b', 'c', 'd'].map(
@@ -35,23 +44,104 @@ function basemapStyle(dark) {
     maxzoom: 20,
     attribution: '&copy; OpenStreetMap &copy; CARTO',
   });
+  const colors = BASEMAP_LABEL_COLORS[dark ? 'dark' : 'light'];
   return {
     version: 8,
     // Needed for the restaurant-name labels (SDF text). The grade LETTERS
     // deliberately don't use this — see makeLetterIcon.
     glyphs: GLYPHS_URL,
     sources: {
-      'basemap-light': source('light_all'),
-      'basemap-dark': source('dark_all'),
+      'basemap-light': source('light_nolabels'),
+      'basemap-dark': source('dark_nolabels'),
+      'basemap-labels': {
+        type: 'vector',
+        tiles: [`https://tiles.basemaps.cartocdn.com/vectortiles/carto.streets/v2/{z}/{x}/{y}.mvt${keyQuery}`],
+        // The vector pyramid ends at z15; MapLibre overzooms it from there.
+        maxzoom: 15,
+      },
     },
     layers: [
       { id: 'basemap-light', type: 'raster', source: 'basemap-light',
         layout: { visibility: dark ? 'none' : 'visible' } },
       { id: 'basemap-dark', type: 'raster', source: 'basemap-dark',
         layout: { visibility: dark ? 'visible' : 'none' } },
+      ...BASEMAP_LABEL_LAYERS.map(layer => ({
+        ...layer,
+        source: 'basemap-labels',
+        paint: labelPaint(layer.id, colors),
+      })),
     ],
   };
 }
+
+// Street/place label colors per theme: near-white on a near-black halo in
+// dark mode, slate-800 on white in light mode (both well past WCAG AA
+// against the halo, which is what the eye reads the text against).
+const BASEMAP_LABEL_COLORS = {
+  light: { road: '#1f2937', place: '#0f172a', halo: '#ffffff' },
+  dark: { road: '#e5e7eb', place: '#f8fafc', halo: '#0b1220' },
+};
+
+function labelPaint(id, colors) {
+  return {
+    'text-color': id.startsWith('label-road') ? colors.road : colors.place,
+    'text-halo-color': colors.halo,
+    'text-halo-width': 1.75,
+    'text-halo-blur': 0.25,
+  };
+}
+
+const LABEL_FONT = ['Montserrat SemiBold', 'Open Sans Bold'];
+const LABEL_NAME = ['coalesce', ['get', 'name:en'], ['get', 'name']];
+const MAJOR_ROAD_KINDS = ['motorway', 'motorway_link', 'trunk', 'trunk_link',
+  'primary', 'primary_link', 'secondary', 'secondary_link', 'tertiary', 'tertiary_link'];
+// A feature's own min_zoom (CARTO's prominence rank) decides when a place
+// name appears, so a metro shows before its suburbs.
+const BY_RANK = ['>=', ['zoom'], ['coalesce', ['get', 'min_zoom'], 0]];
+
+// Schema: carto.streets v2 ('roads' and 'places' source layers, with
+// kind / kind_detail as in CARTO's dark-matter-gl-style). Sizes are about
+// 1.4x CARTO's own (9-12 px roads became 12-16 px).
+const BASEMAP_LABEL_LAYERS = [
+  { id: 'label-road-minor', type: 'symbol', 'source-layer': 'roads', minzoom: 15,
+    filter: ['all', ['has', 'name'], ['!', ['in', ['get', 'kind_detail'], ['literal', MAJOR_ROAD_KINDS]]],
+      ['!', ['in', ['get', 'kind'], ['literal', ['path', 'rail', 'ferry']]]]],
+    layout: {
+      'symbol-placement': 'line', 'text-field': ['get', 'name'], 'text-font': LABEL_FONT,
+      'text-size': ['interpolate', ['linear'], ['zoom'], 15, 11.5, 17, 13, 19, 15],
+      'symbol-spacing': 280, 'text-max-angle': 35, 'text-padding': 4,
+    } },
+  { id: 'label-road-major', type: 'symbol', 'source-layer': 'roads', minzoom: 12,
+    filter: ['all', ['has', 'name'], ['in', ['get', 'kind_detail'], ['literal', MAJOR_ROAD_KINDS]],
+      ['any', ['>=', ['zoom'], 14], ['in', ['get', 'kind_detail'], ['literal', MAJOR_ROAD_KINDS.slice(0, 6)]]]],
+    layout: {
+      'symbol-placement': 'line', 'text-field': ['get', 'name'], 'text-font': LABEL_FONT,
+      'text-size': ['interpolate', ['linear'], ['zoom'], 12, 12, 15, 13.5, 17, 15, 19, 16],
+      'symbol-spacing': 320, 'text-max-angle': 35, 'text-padding': 4,
+    } },
+  { id: 'label-place-neighbourhood', type: 'symbol', 'source-layer': 'places', minzoom: 13, maxzoom: 17,
+    filter: ['all', ['==', ['get', 'kind'], 'neighbourhood'], BY_RANK],
+    layout: {
+      'text-field': LABEL_NAME, 'text-font': LABEL_FONT, 'text-transform': 'uppercase',
+      'text-size': ['interpolate', ['linear'], ['zoom'], 13, 11, 16, 13],
+      'text-letter-spacing': 0.06, 'text-max-width': 8, 'text-padding': 6,
+    } },
+  { id: 'label-place-locality', type: 'symbol', 'source-layer': 'places', minzoom: 5, maxzoom: 15,
+    filter: ['all', ['==', ['get', 'kind'], 'locality'], BY_RANK],
+    layout: {
+      'text-field': LABEL_NAME, 'text-font': LABEL_FONT,
+      'text-size': ['interpolate', ['linear'], ['zoom'], 5, 12, 9, 14, 13, 18],
+      'text-max-width': 8, 'text-padding': 6,
+      'symbol-sort-key': ['coalesce', ['get', 'min_zoom'], 20],
+    } },
+  { id: 'label-place-region', type: 'symbol', 'source-layer': 'places', minzoom: 3, maxzoom: 8,
+    filter: ['==', ['get', 'kind'], 'region'],
+    layout: {
+      'text-field': LABEL_NAME, 'text-font': LABEL_FONT, 'text-transform': 'uppercase',
+      'text-size': ['interpolate', ['linear'], ['zoom'], 3, 11, 7, 14],
+      'text-letter-spacing': 0.08, 'text-max-width': 8,
+    } },
+];
 
 // Label/halo colors for the restaurant-name text, per theme
 const NAME_COLORS = {
@@ -739,6 +829,13 @@ export default function RestaurantMap({
     if (map.getLayer('basemap-light')) {
       map.setLayoutProperty('basemap-light', 'visibility', dark ? 'none' : 'visible');
       map.setLayoutProperty('basemap-dark', 'visibility', dark ? 'visible' : 'none');
+    }
+    const labelColors = BASEMAP_LABEL_COLORS[dark ? 'dark' : 'light'];
+    for (const { id } of BASEMAP_LABEL_LAYERS) {
+      if (!map.getLayer(id)) continue;
+      for (const [prop, value] of Object.entries(labelPaint(id, labelColors))) {
+        map.setPaintProperty(id, prop, value);
+      }
     }
     const names = NAME_COLORS[dark ? 'dark' : 'light'];
     if (map.getLayer('unclustered-letter')) {
