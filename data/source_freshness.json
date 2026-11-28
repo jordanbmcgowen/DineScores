@@ -282,13 +282,13 @@
   },
   "MHD metros (midweek)": {
    "last_run": {
-    "at": "2026-11-27",
+    "at": "2026-11-28",
     "detail": "",
-    "latest": "2026-11-25",
-    "records": 187,
+    "latest": "2026-11-27",
+    "records": 2620,
     "status": "ok"
    },
-   "latest": "2026-11-25"
+   "latest": "2026-11-27"
   },
   "Maricopa County": {
    "last_run": {
@@ -562,7 +562,7 @@
   }
  },
  "jev": {
-  "cache_file": "jev_20261127T175850Z_weekly.jsonl.gz",
+  "cache_file": "jev_20261128T011733Z_weekly.jsonl.gz",
   "decide": [
    "hazard",
    "summary"
@@ -573,45 +573,45 @@
     "regex": 0
    },
    "hazard": {
-    "jev": 176,
-    "regex": 10
+    "jev": 3506,
+    "regex": 363
    },
    "summary": {
-    "jev": 166,
-    "regex": 20
+    "jev": 3588,
+    "regex": 281
    }
   },
-  "distinct_texts": 166,
-  "elapsed_s": 6.8,
+  "distinct_texts": 3184,
+  "elapsed_s": 35.2,
   "f_vs_regex": {
-   "agree": 84,
+   "agree": 1349,
    "jev_only": 1,
-   "regex_only": 0
+   "regex_only": 5
   },
-  "lines": 186,
-  "lines_with_judgment": 186,
+  "lines": 3869,
+  "lines_with_judgment": 3869,
   "mode": "decide",
   "model": "jev-1.13.0",
   "question_set": "qs3",
   "reader": {
    "fallback_reasons": {},
-   "hazard_changed_on_verify": 0,
-   "hazard_verified_alone": 10,
-   "input_tokens": 592591,
-   "latency_max": 0.22765779495239258,
-   "latency_total": 3.705444812774658,
-   "lines_asked": 166,
-   "lines_cached": 0,
+   "hazard_changed_on_verify": 7,
+   "hazard_verified_alone": 135,
+   "input_tokens": 10901300,
+   "latency_max": 0.6615214347839355,
+   "latency_total": 93.45003604888916,
+   "lines_asked": 3109,
+   "lines_cached": 75,
    "lines_fallback": 0,
-   "lines_judged": 166,
+   "lines_judged": 3109,
    "mode": "decide",
-   "output_tokens": 99781,
+   "output_tokens": 1837665,
    "request_failures": 0,
-   "requests": 24
+   "requests": 395
   },
   "record_errors": 0,
-  "records": 187,
-  "records_with_violations": 85,
+  "records": 2620,
+  "records_with_violations": 1355,
   "rescored_records": 0,
   "retiered_lines": 0,
   "status": "ok"
@@ -816,7 +816,7 @@
   },
   "Hawaii Health Dept": {
    "group": "MHD metros (midweek)",
-   "latest": "2026-11-25"
+   "latest": "2026-11-27"
   },
   "Houston Health Dept": {
    "group": "houston",
@@ -1850,5 +1850,5 @@
    "latest": "2026-11-13"
   }
  },
- "updated": "2026-11-27"
+ "updated": "2026-11-28"
 }
