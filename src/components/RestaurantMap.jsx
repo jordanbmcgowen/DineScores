@@ -22,33 +22,59 @@ if (!CARTO_API_KEY) {
 // just flips layer visibility — map.setStyle() would tear down every custom
 // source/layer/marker, and hidden raster layers cost nothing (tiles are only
 // requested for visible layers).
+//
+// The street names are a separate labels-only raster on top of an unlabelled
+// base. CARTO bakes its labels into the tiles at a fixed ~11 px, which on a
+// phone at street level read as faint grey specks (2026-11-28). From
+// LABEL_ZOOM_BIG up the labels source is drawn with tileSize 512: each tile
+// comes from one zoom lower and is shown twice as large, so the street names
+// double in size while the roads underneath stay sharp. The dark labels also
+// get extra contrast (light text, dark halo pulled further apart).
+const LABEL_ZOOM_BIG = 15;
+const BASEMAP_LAYERS = {
+  light: ['basemap-light', 'labels-light', 'labels-light-big'],
+  dark: ['basemap-dark', 'labels-dark', 'labels-dark-big'],
+};
 function basemapStyle(dark) {
   const keyQuery = CARTO_API_KEY ? `?key=${encodeURIComponent(CARTO_API_KEY)}` : '';
   const tiles = flavor => ['a', 'b', 'c', 'd'].map(
     sub => `https://${sub}.basemaps.cartocdn.com/rastertiles/${flavor}/{z}/{x}/{y}@2x.png${keyQuery}`);
-  const source = flavor => ({
+  const source = (flavor, tileSize = 256) => ({
     type: 'raster',
     tiles: tiles(flavor),
-    tileSize: 256,
+    tileSize,
     // CARTO's raster pyramid ends at z20; past it the map scales those tiles
-    // up rather than asking for tiles that do not exist.
-    maxzoom: 20,
+    // up rather than asking for tiles that do not exist. A 512 source asks
+    // for the zoom below the map's, so its last tile zoom is 19.
+    maxzoom: tileSize === 512 ? 19 : 20,
     attribution: '&copy; OpenStreetMap &copy; CARTO',
   });
+  const shown = theme => ({ visibility: (theme === 'dark') === dark ? 'visible' : 'none' });
+  const darkLabelPaint = { 'raster-contrast': 0.35, 'raster-brightness-max': 1 };
   return {
     version: 8,
     // Needed for the restaurant-name labels (SDF text). The grade LETTERS
     // deliberately don't use this — see makeLetterIcon.
     glyphs: GLYPHS_URL,
     sources: {
-      'basemap-light': source('light_all'),
-      'basemap-dark': source('dark_all'),
+      'basemap-light': source('light_nolabels'),
+      'basemap-dark': source('dark_nolabels'),
+      'labels-light': source('light_only_labels'),
+      'labels-dark': source('dark_only_labels'),
+      'labels-light-big': source('light_only_labels', 512),
+      'labels-dark-big': source('dark_only_labels', 512),
     },
     layers: [
-      { id: 'basemap-light', type: 'raster', source: 'basemap-light',
-        layout: { visibility: dark ? 'none' : 'visible' } },
-      { id: 'basemap-dark', type: 'raster', source: 'basemap-dark',
-        layout: { visibility: dark ? 'visible' : 'none' } },
+      { id: 'basemap-light', type: 'raster', source: 'basemap-light', layout: shown('light') },
+      { id: 'basemap-dark', type: 'raster', source: 'basemap-dark', layout: shown('dark') },
+      { id: 'labels-light', type: 'raster', source: 'labels-light', layout: shown('light'),
+        maxzoom: LABEL_ZOOM_BIG },
+      { id: 'labels-dark', type: 'raster', source: 'labels-dark', layout: shown('dark'),
+        maxzoom: LABEL_ZOOM_BIG, paint: darkLabelPaint },
+      { id: 'labels-light-big', type: 'raster', source: 'labels-light-big', layout: shown('light'),
+        minzoom: LABEL_ZOOM_BIG },
+      { id: 'labels-dark-big', type: 'raster', source: 'labels-dark-big', layout: shown('dark'),
+        minzoom: LABEL_ZOOM_BIG, paint: darkLabelPaint },
     ],
   };
 }
@@ -736,9 +762,9 @@ export default function RestaurantMap({
   useEffect(() => {
     const map = mapRef.current;
     if (!map || !mapLoaded) return;
-    if (map.getLayer('basemap-light')) {
-      map.setLayoutProperty('basemap-light', 'visibility', dark ? 'none' : 'visible');
-      map.setLayoutProperty('basemap-dark', 'visibility', dark ? 'visible' : 'none');
+    for (const [theme, ids] of Object.entries(BASEMAP_LAYERS)) {
+      const visibility = (theme === 'dark') === dark ? 'visible' : 'none';
+      for (const id of ids) if (map.getLayer(id)) map.setLayoutProperty(id, 'visibility', visibility);
     }
     const names = NAME_COLORS[dark ? 'dark' : 'light'];
     if (map.getLayer('unclustered-letter')) {

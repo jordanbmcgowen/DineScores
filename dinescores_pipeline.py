@@ -20066,6 +20066,31 @@ CREATE INDEX IF NOT EXISTS idx_inspections_restaurant
   ON inspections(restaurant_id, inspection_date DESC);
 """
 
+# /api/cities reads this precomputed index instead of grouping the whole
+# restaurants table per request: at 500k rows the GROUP BY took ~3 s and
+# ~1M rows read, and uncached requests failed with Worker error 1101
+# (2026-11-28). Every SQL file the pipeline writes rebuilds it at the end
+# (one scan per file, not per visitor); cities.js falls back to the live
+# query while the table does not exist yet.
+D1_CITY_INDEX_SQL = """\
+CREATE TABLE IF NOT EXISTS city_index (
+  city TEXT, state TEXT, restaurant_count INTEGER, grade_a INTEGER,
+  grade_f INTEGER, avg_score REAL, south REAL, north REAL, west REAL,
+  east REAL, latest_inspection TEXT
+);
+CREATE TABLE IF NOT EXISTS city_index_meta (
+  id INTEGER PRIMARY KEY, total INTEGER, built_at TEXT
+);
+DELETE FROM city_index;
+INSERT INTO city_index SELECT city, state, COUNT(*), SUM(vetted_grade = 'A'),
+  SUM(vetted_grade = 'F'), ROUND(AVG(weighted_score), 1), MIN(lat), MAX(lat),
+  MIN(lng), MAX(lng), MAX(inspection_date)
+  FROM restaurants WHERE lat IS NOT NULL GROUP BY city, state
+  HAVING COUNT(*) >= 25;
+INSERT OR REPLACE INTO city_index_meta (id, total, built_at)
+  SELECT 1, COUNT(*), datetime('now') FROM restaurants;
+"""
+
 D1_BATCH_ROWS = 40       # max rows per multi-row INSERT
 D1_RECOUNT_IDS = 500     # restaurant ids per inspection_count recount statement
                          # (~10KB of literals, far under the 100KB cap)
@@ -20263,6 +20288,8 @@ def write_d1_sql(all_inspections, output_path, include_schema=True):
                     "(SELECT COUNT(*) FROM inspections "
                     "WHERE inspections.restaurant_id = restaurants.id) "
                     f"WHERE id IN ({ids});\n")
+        if rest_rows:
+            f.write(D1_CITY_INDEX_SQL)
 
     log.info(f"Written D1 SQL: {len(rest_rows)} restaurants, {len(insp_rows)} "
              f"inspections to {output_path}")
